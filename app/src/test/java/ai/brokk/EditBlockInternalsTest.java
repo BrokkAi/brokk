@@ -32,14 +32,16 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testMatchesIgnoringWhitespace() {
-        String[] whole = {"    line1\n", "        line2\n"};
-        String[] part = {"line1\n", "    line2\n"};
+    void testFindIgnoringWhitespace() {
+        String[] whole = {"    line1", "        line2"};
+        String[] part = {"line1 ", "    line2"};
         // We expect a match ignoring leading spaces
-        assertTrue(EditBlock.matchesIgnoringWhitespace(whole, 0, part));
+        var result = EditBlock.findIgnoringWhitespace(whole, 0, part);
+        assertTrue(result.isPresent());
+        assertEquals(String.join("\n", whole), result.get());
 
-        // If we shift by 1, out of range => false
-        assertFalse(EditBlock.matchesIgnoringWhitespace(whole, 1, part));
+        // If we shift by 1, out of range => empty
+        assertFalse(EditBlock.findIgnoringWhitespace(whole, 1, part).isPresent());
     }
 
     @Test

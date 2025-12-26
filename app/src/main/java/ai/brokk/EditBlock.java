@@ -249,13 +249,12 @@ public class EditBlock {
                             .flatMap(cf -> cf.files().join().stream())
                             .filter(f -> !f.equals(file))
                             .filter(f -> {
-                                try {
-                                    String otherContent = f.read().orElse("");
-                                    replaceMostSimilarChunk(otherContent, effectiveBefore, "");
-                                    return true;
-                                } catch (NoMatchException | AmbiguousMatchException ex) {
-                                    return false;
-                                }
+                                String otherContent = f.read().orElse("");
+                                return findIgnoringWhitespace(
+                                                otherContent.lines().toArray(String[]::new),
+                                                0,
+                                                effectiveBefore.trim().lines().toArray(String[]::new))
+                                        .isPresent();
                             })
                             .map(ProjectFile::getFileName)
                             .distinct()
@@ -668,13 +667,16 @@ public class EditBlock {
         List<Integer> matches = new ArrayList<>();
         int needed = truncatedTarget.length;
 
-        for (int start = 0; start <= originalLines.length - needed; start++) {
-            if (matchesIgnoringWhitespace(originalLines, start, truncatedTarget)) {
+        for (int start = 0; start <= originalLines.length - needed; ) {
+            if (findIgnoringWhitespace(originalLines, start, truncatedTarget).isPresent()) {
                 matches.add(start);
                 if (matches.size() > 1) {
                     throw new AmbiguousMatchException(
                             "No exact matches found, and multiple matches found ignoring whitespace");
                 }
+                start += truncatedTarget.length;
+            } else {
+                start++;
             }
         }
 
@@ -742,17 +744,27 @@ public class EditBlock {
         return Arrays.copyOfRange(targetLines, pStart, pEnd);
     }
 
-    /** return true if the targetLines match the originalLines starting at 'start', ignoring whitespace. */
-    static boolean matchesIgnoringWhitespace(String[] originalLines, int start, String[] targetLines) {
+    /**
+     * @return an Optional containing the concatenated `originalLines` matching `targetLines`
+     * if there is a UNIQUE match for targetLines in
+     * originalLines starting at 'start', ignoring whitespace; otherwise empty.
+     */
+    static Optional<String> findIgnoringWhitespace(String[] originalLines, int start, String[] targetLines) {
         if (start + targetLines.length > originalLines.length) {
-            return false;
+            return Optional.empty();
         }
+
+        StringBuilder combined = new StringBuilder();
         for (int i = 0; i < targetLines.length; i++) {
-            if (!nonWhitespace(originalLines[start + i]).equals(nonWhitespace(targetLines[i]))) {
-                return false;
+            String originalNW = nonWhitespace(originalLines[start + i]);
+            String targetNW = nonWhitespace(targetLines[i]);
+            if (!originalNW.equals(targetNW)) {
+                return Optional.empty();
             }
+            combined.append(originalLines[start + i]).append("\n");
         }
-        return true;
+
+        return Optional.of(combined.toString().stripTrailing());
     }
 
     /** @return the non-whitespace characters in `line` */
