@@ -68,6 +68,29 @@ public class RustLanguage implements Language {
     }
 
     @Override
+    public Set<String> getSearchPatterns(CodeUnitType type) {
+        if (type == CodeUnitType.FUNCTION) {
+            return Set.of(
+                    "\\b$ident\\s*\\(", // function calls
+                    "\\.$ident\\s*\\(" // method calls
+                    );
+        } else if (type == CodeUnitType.CLASS) {
+            return Set.of(
+                    "\\b$ident\\s*\\{", // struct initialization
+                    "\\b$ident\\s*\\(", // tuple struct
+                    "\\bimpl\\s+.*\\s+for\\s+$ident\\b", // trait impl
+                    "\\bimpl\\s+$ident\\b", // inherent impl
+                    "\\b$ident::", // path/associated items
+                    ":\\s*$ident\\b", // type annotations
+                    "->\\s*$ident\\b", // return types
+                    "<\\s*$ident\\s*>", // generics
+                    "\\buse\\s+.*::$ident\\b" // import statements
+                    );
+        }
+        return Language.super.getSearchPatterns(type);
+    }
+
+    @Override
     public List<Path> getDependencyCandidates(IProject project) {
         // Use cargo metadata to detect any packages; return non-empty when Cargo workspace is present.
         try {

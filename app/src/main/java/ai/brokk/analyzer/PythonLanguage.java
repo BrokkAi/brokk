@@ -63,6 +63,27 @@ public class PythonLanguage implements Language {
     }
 
     @Override
+    public Set<String> getSearchPatterns(CodeUnitType type) {
+        if (type == CodeUnitType.FUNCTION) {
+            return Set.of(
+                    "\\b$ident\\s*\\(", // function calls
+                    "\\.$ident\\s*\\(" // method calls
+                    );
+        } else if (type == CodeUnitType.CLASS) {
+            return Set.of(
+                    "\\b$ident\\s*\\(", // constructor calls
+                    "\\bclass\\s+\\w+\\s*\\(.*$ident", // inheritance
+                    "\\b$ident\\s*\\.", // static/class access
+                    ":\\s*$ident\\b", // type hints
+                    "->\\s*$ident\\b", // return type hints
+                    "\\bfrom\\s+.*\\s+import\\s+.*$ident", // from imports
+                    "\\bimport\\s+.*\\.$ident\\b" // import statements
+                    );
+        }
+        return Language.super.getSearchPatterns(type);
+    }
+
+    @Override
     public ImportSupport getDependencyImportSupport() {
         return ImportSupport.BASIC;
     }
