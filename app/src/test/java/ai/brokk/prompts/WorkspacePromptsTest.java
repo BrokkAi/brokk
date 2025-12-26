@@ -2,7 +2,6 @@ package ai.brokk.prompts;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.TaskResult;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.context.Context;

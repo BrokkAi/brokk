@@ -279,7 +279,8 @@ public class SearchAgent {
             var inputLimit = cm.getService().getMaxInputTokens(model);
             // Determine viewing policy based on search objective
             boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
-            var suppressed = useTaskList ? EnumSet.noneOf(SpecialTextType.class) : EnumSet.of(SpecialTextType.TASK_LIST);
+            var suppressed =
+                    useTaskList ? EnumSet.noneOf(SpecialTextType.class) : EnumSet.of(SpecialTextType.TASK_LIST);
             // Build workspace messages in insertion order with viewing policy applied
             var workspaceMessages = new ArrayList<>(WorkspacePrompts.getMessagesInAddedOrder(context, suppressed));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);

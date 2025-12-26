@@ -1,6 +1,5 @@
 package ai.brokk.prompts;
 
-import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -267,8 +266,7 @@ public final class WorkspacePrompts {
      * @return record with the workspace messages and buildFailure details
      */
     @Blocking
-    public static CodeAgentMessages getMessagesForCodeAgent(
-            Context ctx, Set<SpecialTextType> suppressedTypes) {
+    public static CodeAgentMessages getMessagesForCodeAgent(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var workspace = getMessagesGroupedByMutability(ctx, suppressedTypes);
         var buildFailure = ctx.getBuildFragment().map(f -> f.text().join()).orElse(null);
         return new CodeAgentMessages(workspace, buildFailure);
@@ -276,11 +274,10 @@ public final class WorkspacePrompts {
 
     private static List<ChatMessage> buildEditableAll(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
-        var editableTextFragments =
-                formatWithPolicy(ctx, editableFragments, suppressedTypes).text;
+        var editableTextFragments = formatWithPolicy(ctx, editableFragments, suppressedTypes).text;
 
-        boolean shouldShowBuild =
-                !suppressedTypes.contains(SpecialTextType.BUILD_RESULTS) && ctx.getBuildFragment().isPresent();
+        boolean shouldShowBuild = !suppressedTypes.contains(SpecialTextType.BUILD_RESULTS)
+                && ctx.getBuildFragment().isPresent();
         if (editableTextFragments.isEmpty() && !shouldShowBuild) {
             return List.of();
         }
@@ -331,8 +328,7 @@ public final class WorkspacePrompts {
         return messages;
     }
 
-    private static List<ChatMessage> buildReadOnlyForContents(
-            Context ctx, Set<SpecialTextType> suppressedTypes) {
+    private static List<ChatMessage> buildReadOnlyForContents(Context ctx, Set<SpecialTextType> suppressedTypes) {
         // Build read-only section; optionally include the build fragment as part of read-only workspace
         var buildFragment = ctx.getBuildFragment().orElse(null);
         var readOnlyFragments = ctx.getReadonlyFragments()
@@ -425,14 +421,16 @@ public final class WorkspacePrompts {
         return new RenderedContent(textBuilder.toString().trim(), renderedOther.images);
     }
 
-    private static RenderedContent formatWithPolicy(Context ctx, List<ContextFragment> fragments, Set<SpecialTextType> suppressedTypes) {
+    private static RenderedContent formatWithPolicy(
+            Context ctx, List<ContextFragment> fragments, Set<SpecialTextType> suppressedTypes) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
         for (var cf : fragments) {
             if (cf.isText()) {
                 if (cf instanceof ContextFragments.StringFragment sf) {
-                    if (sf.specialType().isPresent() && suppressedTypes.contains(sf.specialType().get())) {
+                    if (sf.specialType().isPresent()
+                            && suppressedTypes.contains(sf.specialType().get())) {
                         continue;
                     }
                 }
@@ -444,7 +442,10 @@ public final class WorkspacePrompts {
                                 %s
                                 </fragment>
                                 """
-                                .formatted(cf.description().join(), idOrPinned, cf.text().join());
+                                .formatted(
+                                        cf.description().join(),
+                                        idOrPinned,
+                                        cf.text().join());
                 textBuilder.append(formatted).append("\n\n");
                 continue;
             }

@@ -1,7 +1,6 @@
 package ai.brokk.prompts;
 
 import ai.brokk.ContextManager;
-import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
 import com.google.common.collect.Streams;
@@ -23,7 +22,8 @@ public abstract class CopyExternalPrompts extends CodePrompts {
         var messages = new ArrayList<ChatMessage>();
         messages.addAll(cm.getHistoryMessagesForCopy());
         Context ctx = cm.liveContext();
-        messages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
+        messages.addAll(
+                WorkspacePrompts.getMessagesGroupedByMutability(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
         return messages;
     }
 

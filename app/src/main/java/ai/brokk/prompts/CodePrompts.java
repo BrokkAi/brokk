@@ -8,7 +8,6 @@ import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.SyntaxAwareConfig;
 import ai.brokk.TaskEntry;
-import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
