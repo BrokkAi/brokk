@@ -1,6 +1,7 @@
 package ai.brokk.agents;
 
 import ai.brokk.ContextManager;
+import ai.brokk.ICodeReview;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
@@ -75,14 +76,15 @@ public class SearchAgent {
         TASK_LIST,
         ANSWER,
         WORKSPACE,
-        CODE
+        CODE,
+        REVIEW
     }
 
     public enum Objective {
         ANSWER_ONLY {
             @Override
             public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.ANSWER);
+                return EnumSet.of(Terminal.ANSWER, Terminal.REVIEW);
             }
         },
         TASKS_ONLY {
@@ -138,7 +140,7 @@ public class SearchAgent {
 
     private final IContextManager cm;
     private final StreamingChatModel model;
-    private final ContextManager.TaskScope scope;
+    private final ContextManager.@Nullable TaskScope scope;
     private final Llm llm;
     private final Llm summarizer;
     private final IConsoleIO io;
@@ -308,6 +310,9 @@ public class SearchAgent {
             if (allowedTerminals.contains(Terminal.CODE)) {
                 agentTerminalTools.add("callCodeAgent");
             }
+            if (allowedTerminals.contains(Terminal.REVIEW)) {
+                agentTerminalTools.add("createReview");
+            }
             // Always allow abort
             agentTerminalTools.add("abortSearch");
 
@@ -448,7 +453,16 @@ public class SearchAgent {
                         }
                         // If CodeAgent did not succeed, continue planning/search loop
                     } else {
-                        return createResult(termReq.name(), goal);
+                        var finalResult = createResult(termReq.name(), goal);
+                        if (termReq.name().equals("createReview")) {
+                            return new TaskResult(
+                                    finalResult.actionDescription(),
+                                    finalResult.output(),
+                                    finalResult.context(),
+                                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, termExec.resultText()),
+                                    finalResult.meta());
+                        }
+                        return finalResult;
                     }
                 }
             } finally {
@@ -1068,7 +1082,9 @@ public class SearchAgent {
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
 
         var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
-        context = scanConfig.appendToScope() ? scope.append(contextAgentResult) : contextAgentResult.context();
+        context = (scanConfig.appendToScope() && scope != null)
+                ? scope.append(contextAgentResult)
+                : contextAgentResult.context();
 
         return context;
     }
@@ -1185,6 +1201,22 @@ public class SearchAgent {
         return explanation;
     }
 
+    @Tool("Create a structured code review of the current changes or proposal.")
+    public String createReview(
+            @P("Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
+                    String overview,
+            @P("Explain the trickiest parts of the design and how they can be improved")
+                    List<ICodeReview.DesignFeedback> designNotes,
+            @P("A list of local bugs or problems") List<ICodeReview.CodeExcerpt> tacticalNotes,
+            @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
+                    List<String> additionalTests) {
+        var review = new ICodeReview.GuidedReview(overview, designNotes, tacticalNotes, additionalTests);
+        var json = review.toJson();
+        logger.debug("createReview selected");
+        io.llmOutput("# Code Review\n\n" + overview, ChatMessageType.AI);
+        return json;
+    }
+
     @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
     public String callMcpTool(
             @P("The name of the tool to call. This must be one of the configured MCP tools.") String toolName,
@@ -1227,7 +1259,8 @@ public class SearchAgent {
                     String instructions)
             throws InterruptedException, ToolRegistry.FatalLlmException {
         // Append first the SearchAgent's result so far; CodeAgent appends its own result
-        context = scope.append(createResult("Search: " + goal, goal));
+        var searchResult = createResult("Search: " + goal, goal);
+        context = (scope != null) ? scope.append(searchResult) : searchResult.context();
 
         logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
         io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
@@ -1241,7 +1274,7 @@ public class SearchAgent {
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
 
-        context = scope.append(result);
+        context = scope != null ? scope.append(result) : result.context();
 
         boolean didChange = !context.getChangedFiles(contextBefore).isEmpty();
 
