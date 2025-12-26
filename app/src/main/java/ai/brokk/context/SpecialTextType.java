@@ -29,7 +29,6 @@ public final class SpecialTextType {
     private final String syntaxStyle;
     private final String previewSyntaxStyle;
     private final boolean droppable;
-    private final boolean singleton;
     private final Function<String, String> previewRenderer;
     private final Predicate<ViewingPolicy> canViewContent;
 
@@ -38,14 +37,12 @@ public final class SpecialTextType {
             String syntaxStyle,
             String previewSyntaxStyle,
             boolean droppable,
-            boolean singleton,
             Function<String, String> previewRenderer,
             Predicate<ViewingPolicy> canViewContent) {
         this.description = description;
         this.syntaxStyle = syntaxStyle;
         this.previewSyntaxStyle = previewSyntaxStyle;
         this.droppable = droppable;
-        this.singleton = singleton;
         this.previewRenderer = previewRenderer;
         this.canViewContent = canViewContent;
     }
@@ -62,7 +59,7 @@ public final class SpecialTextType {
             SyntaxConstants.SYNTAX_STYLE_NONE,
             SyntaxConstants.SYNTAX_STYLE_NONE,
             true, // droppable
-            true, // singleton
+            // singleton
             Function.identity(), // raw preview is fine
             v -> true // visible to all agents by default
             ));
@@ -72,7 +69,7 @@ public final class SpecialTextType {
             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
             SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
             true, // droppable
-            true, // singleton
+            // singleton
             Function.identity(), // already Markdown
             v -> true // visible to all
             ));
@@ -82,7 +79,7 @@ public final class SpecialTextType {
             SyntaxConstants.SYNTAX_STYLE_JSON,
             SyntaxConstants.SYNTAX_STYLE_JSON,
             false, // non-droppable; protects audit log
-            true, // singleton
+            // singleton
             Function.identity(), // JSON preview by default
             v -> true // visible to all
             ));
@@ -92,7 +89,7 @@ public final class SpecialTextType {
             SyntaxConstants.SYNTAX_STYLE_JSON, // internal storage is JSON
             SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // preview as Markdown
             false, // non-droppable
-            true, // singleton
+            // singleton
             SpecialTextType::renderTaskListMarkdown, // render JSON → Markdown for preview
             v -> (v.taskType() == TaskResult.Type.SEARCH && v.useTaskList())
                     || v.taskType() == TaskResult.Type.ASK
@@ -122,10 +119,6 @@ public final class SpecialTextType {
 
     public boolean droppable() {
         return droppable;
-    }
-
-    public boolean singleton() {
-        return singleton;
     }
 
     public Function<String, String> previewRenderer() {

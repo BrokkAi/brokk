@@ -810,13 +810,11 @@ public class Context {
             return this;
         }
 
-        var idsToDrop = type.singleton()
-                ? virtualFragments()
-                        .filter(f -> f instanceof ContextFragments.AbstractStaticFragment sf
-                                && desc.equals(sf.description().renderNowOrNull()))
-                        .map(ContextFragment::id)
-                        .toList()
-                : List.<String>of();
+        var idsToDrop = virtualFragments()
+                .filter(f -> f instanceof ContextFragments.AbstractStaticFragment sf
+                        && desc.equals(sf.description().renderNowOrNull()))
+                .map(ContextFragment::id)
+                .toList();
 
         var afterClear = idsToDrop.isEmpty() ? this : removeFragmentsByIds(idsToDrop);
 
