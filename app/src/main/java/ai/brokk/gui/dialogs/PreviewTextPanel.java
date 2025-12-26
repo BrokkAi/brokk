@@ -1017,16 +1017,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                             }
                         });
                     } else {
-                        // Display an error dialog with the failure message
-                        var errorMessage = quickEditResult.error();
-                        SwingUtilities.invokeLater(() -> {
-                            JOptionPane.showMessageDialog(
-                                    SwingUtilities.getWindowAncestor(textArea),
-                                    errorMessage,
-                                    "Quick Edit Failed",
-                                    JOptionPane.ERROR_MESSAGE);
-                            textArea.setEditable(true);
-                        });
+                        // Error already displayed in system messages area, just re-enable editing
+                        SwingUtilities.invokeLater(() -> textArea.setEditable(true));
                     }
                 })
                 .start();
