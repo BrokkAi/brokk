@@ -321,7 +321,7 @@ public class BrokkDiffPanel extends JPanel
 
         // Set up tree selection listener (if multiple files or multi-file-only mode)
         if (showFileTree()) {
-            fileTreePanel.setSelectionListener(this::switchToFile);
+            fileTreePanel.setSelectionListener(this);
         }
         // Add an AncestorListener to trigger 'start()' when the panel is added to a container
         addAncestorListener(new AncestorListener() {

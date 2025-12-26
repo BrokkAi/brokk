@@ -33,12 +33,8 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     @Nullable
     private GuiTheme currentTheme;
 
-    public interface FileSelectionListener {
-        void onFileSelected(int fileIndex);
-    }
-
     @Nullable
-    private FileSelectionListener selectionListener;
+    private DiffNavigationTarget selectionListener;
 
     private final AtomicBoolean suppressSelectionEvents = new AtomicBoolean(false);
 
@@ -88,7 +84,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                     if (node.isLeaf() && node != rootNode) {
                         int fileIndex = findFileIndex(selectedPath);
                         if (fileIndex != -1) {
-                            selectionListener.onFileSelected(fileIndex);
+                            selectionListener.navigateToFile(fileIndex);
                         }
                     }
                 }
@@ -451,7 +447,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         return -1;
     }
 
-    public void setSelectionListener(FileSelectionListener listener) {
+    public void setSelectionListener(DiffNavigationTarget listener) {
         this.selectionListener = listener;
     }
 
