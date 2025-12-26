@@ -133,6 +133,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
             ExecutorServiceUtil.createNamedThreadFactory("BackgroundTask")));
 
+    private final ScheduledExecutorService periodicTasks = Executors.newSingleThreadScheduledExecutor();
+
     private final Service.Provider serviceProvider;
 
     private final IProject project;
@@ -174,6 +176,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Publicly exposed flag for the exact TaskScope window
     private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
+
+    private boolean sessionsSyncActive = false;
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -310,12 +314,32 @@ public class ContextManager implements IContextManager, AutoCloseable {
         updateActiveSession(currentSessionId);
 
         finalizeSessionActivation(currentSessionId);
-        migrateToSessionsV3IfNeeded();
+        migrateToSessionsV3IfNeeded().thenRun(() -> {
+            if (sessionsSyncActive) {
+                startPeriodicSessionSync();
+            }
+        });
     }
 
-    private void migrateToSessionsV3IfNeeded() {
+    private void startPeriodicSessionSync() {
+        logger.debug("Starting periodic session sync every 30 seconds.");
+        periodicTasks.scheduleWithFixedDelay(
+                () -> {
+                    try {
+                        new SessionSynchronizer(project).synchronize();
+                        project.getMainProject().sessionsListChanged();
+                    } catch (Exception e) {
+                        logger.warn("Session sync failed: {}", e.getMessage());
+                    }
+                },
+                0,
+                30,
+                TimeUnit.SECONDS);
+    }
+
+    private CompletableFuture<Void> migrateToSessionsV3IfNeeded() {
         if (project instanceof MainProject mainProject && !mainProject.isMigrationsToSessionsV3Complete()) {
-            submitBackgroundTask("Quarantine unreadable sessions", () -> {
+            return submitBackgroundTask("Quarantine unreadable sessions", () -> {
                 var sessionManager = project.getSessionManager();
 
                 // Scan .zip files directly and quarantine unreadable ones; exercise history loading to trigger
@@ -341,6 +365,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
             });
         }
+        return CompletableFuture.completedFuture(null);
     }
 
     /**
@@ -399,6 +424,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Add ContextManager's file watch listener dynamically
         var fileWatchListener = createFileWatchListener();
         watchService.addListener(fileWatchListener);
+
+        this.sessionsSyncActive = !project.getRepo().isWorktree()
+                && MainProject.getProxySetting() != MainProject.LlmProxySetting.LOCALHOST
+                && !MainProject.getBrokkKey().isBlank()
+                && !project.getRemoteProjectName().isBlank();
 
         // Load saved context history or create a new one
         var contextTask =
@@ -1422,7 +1452,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void close() {
         // we're not in a hurry when calling close(), this indicates a single window shutting down
-        closeAsync(5_000).join();
+        try {
+            closeAsync(5_000).get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            logger.debug("Error while waiting to close ContextManager: {}", e.getMessage());
+        }
     }
 
     public CompletableFuture<Void> closeAsync(long awaitMillis) {
@@ -1436,12 +1470,33 @@ public class ContextManager implements IContextManager, AutoCloseable {
         analyzerWrapper.close();
         lowMemoryWatcherManager.close();
 
+        var periodicTasksFuture = CompletableFuture.runAsync(() -> {
+            periodicTasks.shutdown();
+            try {
+                if (!periodicTasks.awaitTermination(awaitMillis, TimeUnit.MILLISECONDS)) {
+                    periodicTasks.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                periodicTasks.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        });
+
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
 
-        return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture)
-                .whenComplete((v, t) -> project.close());
+        return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture, periodicTasksFuture)
+                .whenComplete((v, t) -> {
+                    if (sessionsSyncActive) {
+                        try {
+                            new SessionSynchronizer(project).synchronize();
+                        } catch (Exception e) {
+                            logger.warn("Failed to synchronize sessions during close: {}", e.getMessage());
+                        }
+                    }
+                    project.close();
+                });
     }
 
     public boolean isLlmTaskInProgress() {
@@ -2361,6 +2416,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return currentSessionId;
     }
 
+    public void reloadCurrentSessionAsync() {
+        switchSessionAsync(getCurrentSessionId());
+    }
+
     /**
      * Loads the ContextHistory for a specific session without switching to it. This allows viewing/inspecting session
      * history without changing the current session.
@@ -2415,7 +2474,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var potentialEmptySessions = project.getSessionManager().listSessions().stream()
                 .filter(session -> session.name().equals(name))
                 .filter(session -> !session.isSessionModified())
-                .filter(session -> !SessionRegistry.isSessionActiveElsewhere(project.getRoot(), session.id()))
+                .filter(session ->
+                        !project.getSessionRegistry().isSessionActiveElsewhere(project.getRoot(), session.id()))
                 .sorted(Comparator.comparingLong(SessionInfo::created).reversed()) // Newest first
                 .toList();
 
@@ -2435,7 +2495,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public void updateActiveSession(UUID sessionId) {
         currentSessionId = sessionId;
-        SessionRegistry.update(project.getRoot(), sessionId);
+        project.getSessionRegistry().update(project.getRoot(), sessionId);
         ((AbstractProject) project).setLastActiveSession(sessionId);
     }
 
@@ -2512,7 +2572,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<Void> switchSessionAsync(UUID sessionId) {
         var sessionManager = project.getSessionManager();
-        var otherWorktreeOpt = SessionRegistry.findAnotherWorktreeWithActiveSession(project.getRoot(), sessionId);
+        var otherWorktreeOpt =
+                project.getSessionRegistry().findAnotherWorktreeWithActiveSession(project.getRoot(), sessionId);
         if (otherWorktreeOpt.isPresent()) {
             var otherWorktree = otherWorktreeOpt.get();
             String sessionName = sessionManager.listSessions().stream()

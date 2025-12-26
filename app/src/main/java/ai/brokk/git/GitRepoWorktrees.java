@@ -2,7 +2,6 @@ package ai.brokk.git;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.SessionRegistry;
 import ai.brokk.git.IGitRepo.WorktreeInfo;
 import ai.brokk.util.Environment;
 import com.google.common.base.Splitter;
@@ -194,7 +193,6 @@ public class GitRepoWorktrees {
                 command = String.format("git worktree remove %s", absolutePath).trim();
             }
             Environment.instance.runShellCommand(command, repo.getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
-            SessionRegistry.release(path);
         } catch (Environment.SubprocessException e) {
             // If not forcing and git returned exit code 128, it typically means force is required
             if (!force && e instanceof Environment.FailureException failureEx && failureEx.getExitCode() == 128) {

@@ -9,16 +9,14 @@ import java.util.concurrent.ConcurrentMap;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Static registry to track which session is active in each worktree within the current JVM. This prevents the same
- * session from being opened in multiple worktrees simultaneously.
+ * Registry to track which session is active in each worktree for a given project within the current JVM. This prevents
+ * the same session from being opened in multiple worktrees simultaneously.
  */
-public final class SessionRegistry {
+public class SessionRegistry {
     // key = worktree root path, value = currently-active session UUID
-    private static final ConcurrentMap<Path, UUID> activeSessions = new ConcurrentHashMap<>();
+    private final ConcurrentMap<Path, UUID> activeSessions = new ConcurrentHashMap<>();
 
-    private SessionRegistry() {
-        // Utility class
-    }
+    public SessionRegistry() {}
 
     /**
      * Attempts to claim a session for the given worktree.
@@ -27,7 +25,7 @@ public final class SessionRegistry {
      * @param sessionId The session UUID to claim
      * @return true if the session was successfully claimed, false if this worktree already has an active session
      */
-    public static boolean claim(Path worktree, UUID sessionId) {
+    public boolean claim(Path worktree, UUID sessionId) {
         return activeSessions.putIfAbsent(worktree, sessionId) == null;
     }
 
@@ -36,7 +34,7 @@ public final class SessionRegistry {
      *
      * @param worktree The worktree root path
      */
-    public static void release(Path worktree) {
+    public void release(Path worktree) {
         activeSessions.remove(worktree);
     }
 
@@ -47,7 +45,7 @@ public final class SessionRegistry {
      * @param sessionId The session UUID to check
      * @return true if the session is active elsewhere, false otherwise
      */
-    public static boolean isSessionActiveElsewhere(Path currentWorktree, UUID sessionId) {
+    public boolean isSessionActiveElsewhere(Path currentWorktree, UUID sessionId) {
         return findAnotherWorktreeWithActiveSession(currentWorktree, sessionId).isPresent();
     }
 
@@ -58,7 +56,7 @@ public final class SessionRegistry {
      * @param sessionId The session UUID to check
      * @return An Optional containing the path of the other worktree, or empty if not active elsewhere.
      */
-    public static Optional<Path> findAnotherWorktreeWithActiveSession(Path currentWorktree, UUID sessionId) {
+    public Optional<Path> findAnotherWorktreeWithActiveSession(Path currentWorktree, UUID sessionId) {
         return activeSessions.entrySet().stream()
                 .filter(e -> !e.getKey().equals(currentWorktree) && e.getValue().equals(sessionId))
                 .map(Map.Entry::getKey)
@@ -71,7 +69,7 @@ public final class SessionRegistry {
      * @param worktree The worktree root path
      * @param sessionId The new session UUID, or null to clear
      */
-    public static void update(Path worktree, @Nullable UUID sessionId) {
+    public void update(Path worktree, @Nullable UUID sessionId) {
         if (sessionId == null) {
             activeSessions.remove(worktree);
         } else {
