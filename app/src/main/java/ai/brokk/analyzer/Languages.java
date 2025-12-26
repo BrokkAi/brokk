@@ -92,6 +92,25 @@ public class Languages {
         }
 
         @Override
+        public Set<String> getSearchPatterns(CodeUnitType type) {
+            if (type == CodeUnitType.FUNCTION) {
+                return Set.of(
+                        "\\b$ident\\s*\\(", // function calls
+                        "\\.$ident\\s*\\(" // method calls
+                        );
+            } else if (type == CodeUnitType.CLASS) {
+                return Set.of(
+                        "\\bnew\\s+$ident\\s*\\(", // constructor calls
+                        "\\bclass\\s+\\w+\\s+extends\\s+$ident\\b", // class extends
+                        "\\b$ident\\s*\\.", // static access
+                        "\\bimport\\s+.*$ident", // import statements
+                        "\\bfrom\\s+.*\\{.*$ident.*\\}" // named imports
+                        );
+            }
+            return Language.super.getSearchPatterns(type);
+        }
+
+        @Override
         public List<Path> getDependencyCandidates(IProject project) {
             return NodeJsDependencyHelper.getDependencyCandidates(project);
         }
@@ -390,6 +409,29 @@ public class Languages {
                         return (IAnalyzer) analyzer;
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));
+        }
+
+        @Override
+        public Set<String> getSearchPatterns(CodeUnitType type) {
+            if (type == CodeUnitType.FUNCTION) {
+                return Set.of(
+                        "\\b$ident\\s*\\(", // function calls
+                        "\\.$ident\\s*\\(" // method calls
+                        );
+            } else if (type == CodeUnitType.CLASS) {
+                return Set.of(
+                        "\\bnew\\s+$ident\\s*\\(", // constructor calls
+                        "\\bclass\\s+\\w+\\s+extends\\s+$ident\\b", // class extends
+                        "\\bimplements\\s+$ident\\b", // interface implementation
+                        "\\b$ident\\s*\\.", // static access
+                        ":\\s*$ident\\b", // type annotations
+                        "->\\s*$ident\\b", // arrow function return type
+                        "<\\s*$ident\\s*>", // generics
+                        "\\bimport\\s+.*$ident", // import statements
+                        "\\bfrom\\s+.*\\{.*$ident.*\\}" // named imports
+                        );
+            }
+            return Language.super.getSearchPatterns(type);
         }
 
         @Override

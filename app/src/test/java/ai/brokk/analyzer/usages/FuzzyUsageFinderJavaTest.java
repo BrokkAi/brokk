@@ -323,4 +323,40 @@ public class FuzzyUsageFinderJavaTest {
         // Should have at least one hit from OverloadsUser
         assertFalse(hits.isEmpty(), "Expected at least one hit for process() calls");
     }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        // Test that all class usage patterns are detected:
+        // - Constructor calls (new BaseClass())
+        // - Inheritance (extends BaseClass)
+        // - Variable declarations (BaseClass field)
+        // - Parameters (BaseClass param)
+        // - Return types (BaseClass method())
+        // - Generics (List<BaseClass>)
+        // - Casts ((BaseClass) obj)
+        // - Static access (BaseClass.staticMethod())
+        var finder = newFinder(testProject);
+        var symbol = "BaseClass";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages();
+        var files = fileNamesFromHits(hits);
+
+        // ClassUsagePatterns.java should contain all pattern types
+        assertTrue(
+                files.contains("ClassUsagePatterns.java"),
+                "Expected comprehensive usage patterns in ClassUsagePatterns.java; actual: " + files);
+
+        // Verify we found multiple usages (at least 5 different pattern types)
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("ClassUsagePatterns.java"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 5,
+                "Expected at least 5 different usage patterns, found: " + classUsageHits.size());
+    }
 }
