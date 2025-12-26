@@ -50,6 +50,26 @@ public class Languages {
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));
         }
+
+        @Override
+        public Set<String> getSearchPatterns(CodeUnitType type) {
+            if (type == CodeUnitType.FUNCTION) {
+                return Set.of(
+                        "\\b$ident\\s*\\(", // method calls
+                        "\\.$ident\\s*\\(" // method calls
+                        );
+            } else if (type == CodeUnitType.CLASS) {
+                return Set.of(
+                        "\\bnew\\s+$ident\\s*\\(", // constructor calls
+                        "\\bclass\\s+\\w+\\s*:\\s*$ident\\b", // inheritance
+                        "\\b$ident\\s+\\w+\\s*[;=]", // variable declarations
+                        "<\\s*$ident\\s*>", // generics
+                        "\\b$ident\\s*\\.", // static access
+                        "\\busing\\s+.*\\.$ident\\b" // using directives
+                        );
+            }
+            return Language.super.getSearchPatterns(type);
+        }
     };
     public static final Language JAVA = new JavaLanguage();
     public static final Language JAVASCRIPT = new Language() {
@@ -174,6 +194,30 @@ public class Languages {
                     .map(state -> CppAnalyzer.fromState(project, state, listener))
                     .orElseGet(() -> (CppAnalyzer) createAnalyzer(project, listener));
         }
+
+        @Override
+        public Set<String> getSearchPatterns(CodeUnitType type) {
+            if (type == CodeUnitType.FUNCTION) {
+                return Set.of(
+                        "\\b$ident\\s*\\(", // function calls
+                        "\\.$ident\\s*\\(", // method calls
+                        "::\\s*$ident\\s*\\(" // namespace/class scope
+                        );
+            } else if (type == CodeUnitType.CLASS) {
+                return Set.of(
+                        "\\bnew\\s+$ident\\s*\\(", // constructor with new
+                        "\\bclass\\s+\\w+\\s*:\\s*public\\s+$ident\\b", // public inheritance
+                        "\\bclass\\s+\\w+\\s*:\\s*private\\s+$ident\\b", // private inheritance
+                        "\\bclass\\s+\\w+\\s*:\\s*protected\\s+$ident\\b", // protected inheritance
+                        "\\b$ident\\s+\\w+\\s*[;=]", // variable declarations
+                        "\\b$ident\\s*\\*", // pointer types
+                        "\\b$ident\\s*&", // reference types
+                        "<\\s*$ident\\s*>", // template usage
+                        "#include\\s+\"$ident\\.h\"" // header includes
+                        );
+            }
+            return Language.super.getSearchPatterns(type);
+        }
     };
     public static final Language GO = new Language() {
         private final Set<String> extensions = Set.of("go");
@@ -213,6 +257,27 @@ public class Languages {
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));
         }
+
+        @Override
+        public Set<String> getSearchPatterns(CodeUnitType type) {
+            if (type == CodeUnitType.FUNCTION) {
+                return Set.of(
+                        "\\b$ident\\s*\\(", // function calls
+                        "\\.$ident\\s*\\(" // method calls
+                        );
+            } else if (type == CodeUnitType.CLASS) {
+                return Set.of(
+                        "\\b$ident\\s*\\{", // struct initialization
+                        "\\b$ident\\{", // compact struct init
+                        "\\btype\\s+\\w+\\s+struct", // struct definition (for finding usages)
+                        "\\*$ident", // pointer types
+                        "\\b$ident\\b", // type in signatures
+                        "\\bfunc\\s+\\(\\w+\\s+\\*$ident\\)", // method receiver
+                        "\\bimport\\s+.*\".*/$ident\"" // import statements
+                        );
+            }
+            return Language.super.getSearchPatterns(type);
+        }
     };
     public static final Language CPP_TREESITTER = new Language() {
         private final Set<String> extensions = Set.of("c", "cpp", "hpp", "cc", "hh", "cxx", "hxx", "c++", "h++", "h");
@@ -251,6 +316,30 @@ public class Languages {
                         return (IAnalyzer) analyzer;
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));
+        }
+
+        @Override
+        public Set<String> getSearchPatterns(CodeUnitType type) {
+            if (type == CodeUnitType.FUNCTION) {
+                return Set.of(
+                        "\\b$ident\\s*\\(", // function calls
+                        "\\.$ident\\s*\\(", // method calls
+                        "::\\s*$ident\\s*\\(" // namespace/class scope
+                        );
+            } else if (type == CodeUnitType.CLASS) {
+                return Set.of(
+                        "\\bnew\\s+$ident\\s*\\(", // constructor with new
+                        "\\bclass\\s+\\w+\\s*:\\s*public\\s+$ident\\b", // public inheritance
+                        "\\bclass\\s+\\w+\\s*:\\s*private\\s+$ident\\b", // private inheritance
+                        "\\bclass\\s+\\w+\\s*:\\s*protected\\s+$ident\\b", // protected inheritance
+                        "\\b$ident\\s+\\w+\\s*[;=]", // variable declarations
+                        "\\b$ident\\s*\\*", // pointer types
+                        "\\b$ident\\s*&", // reference types
+                        "<\\s*$ident\\s*>", // template usage
+                        "#include\\s+\"$ident\\.h\"" // header includes
+                        );
+            }
+            return Language.super.getSearchPatterns(type);
         }
     };
     public static final Language RUST = new RustLanguage();
@@ -324,6 +413,27 @@ public class Languages {
                         return (IAnalyzer) analyzer;
                     })
                     .orElseGet(() -> createAnalyzer(project, listener));
+        }
+
+        @Override
+        public Set<String> getSearchPatterns(CodeUnitType type) {
+            if (type == CodeUnitType.FUNCTION) {
+                return Set.of(
+                        "\\b$ident\\s*\\(", // function calls
+                        "->\\s*$ident\\s*\\(" // method calls
+                        );
+            } else if (type == CodeUnitType.CLASS) {
+                return Set.of(
+                        "\\bnew\\s+$ident\\s*\\(", // constructor calls
+                        "\\bclass\\s+\\w+\\s+extends\\s+$ident\\b", // inheritance
+                        "\\bclass\\s+\\w+\\s+implements\\s+$ident\\b", // interface implementation
+                        "\\b$ident\\s+\\$\\w+", // type hints
+                        ":\\s*$ident\\b", // return type hints
+                        "\\buse\\s+.*\\\\$ident\\b", // use statements
+                        "$ident::" // static access
+                        );
+            }
+            return Language.super.getSearchPatterns(type);
         }
 
         // TODO: Refine isAnalyzed for PHP (e.g. vendor directory)
