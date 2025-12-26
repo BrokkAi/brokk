@@ -4,7 +4,10 @@ import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -17,8 +20,12 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class TypescriptAnalyzerTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(TypescriptAnalyzerTest.class);
 
     private static TestProject project;
     private static TypescriptAnalyzer analyzer;
@@ -3291,5 +3298,40 @@ public class TypescriptAnalyzerTest {
                     multiplySignatures.stream().anyMatch(s -> s.contains("string") && s.contains("number")),
                     "Should have (string, number) signature for multiply");
         }
+    }
+
+    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
+        return hits.stream()
+                .map(hit -> hit.file().absPath().getFileName().toString())
+                .collect(Collectors.toSet());
+    }
+
+    private static FuzzyUsageFinder newFinder() {
+        return new FuzzyUsageFinder(project, analyzer, new TestService(project), null);
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        var finder = newFinder();
+        var symbol = "BaseClass";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages();
+        var files = fileNamesFromHits(hits);
+
+        assertTrue(
+                files.contains("ClassUsagePatterns.ts"),
+                "Expected comprehensive usage patterns in ClassUsagePatterns.ts; actual: " + files);
+
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("ClassUsagePatterns.ts"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 5,
+                "Expected at least 5 different usage patterns, found: " + classUsageHits.size());
     }
 }

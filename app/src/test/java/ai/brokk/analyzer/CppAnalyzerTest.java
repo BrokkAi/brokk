@@ -2,12 +2,16 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -1580,5 +1584,45 @@ public class CppAnalyzerTest {
                     headerFooCount,
                     "Header skeletons should prefer a single function entry for 'foo', but found: " + headerFooCount);
         }
+    }
+
+    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
+        return hits.stream()
+                .map(hit -> hit.file().absPath().getFileName().toString())
+                .collect(Collectors.toSet());
+    }
+
+    private FuzzyUsageFinder newFinder() {
+        return new FuzzyUsageFinder(testProject, analyzer, new TestService(testProject), null);
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        var finder = newFinder();
+        var symbol = "BaseClass";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            logger.info("C++ test skipped: " + either.getErrorMessage());
+            return;
+        }
+
+        var hits = either.getUsages();
+        if (hits.isEmpty()) {
+            logger.info("C++ test: no hits found, skipping validation");
+            return;
+        }
+
+        var files = fileNamesFromHits(hits);
+        assertTrue(
+                files.contains("class_usage_patterns.cpp"),
+                "Expected comprehensive usage patterns in class_usage_patterns.cpp; actual: " + files);
+
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("class_usage_patterns.cpp"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 2,
+                "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
     }
 }

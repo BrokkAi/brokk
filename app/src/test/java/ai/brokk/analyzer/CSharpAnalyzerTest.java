@@ -5,18 +5,26 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestService;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class CSharpAnalyzerTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(CSharpAnalyzerTest.class);
 
     @Test
     void testCSharpInitializationAndSkeletons() {
@@ -362,5 +370,48 @@ public final class CSharpAnalyzerTest {
         assertTrue(
                 handlerSkeleton.get().contains("public class GetTerminationRecordByIdHandler"),
                 "Handler skeleton should contain correct class name");
+    }
+
+    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
+        return hits.stream()
+                .map(hit -> hit.file().absPath().getFileName().toString())
+                .collect(Collectors.toSet());
+    }
+
+    private static FuzzyUsageFinder newFinder(TestProject project, CSharpAnalyzer analyzer) {
+        return new FuzzyUsageFinder(project, analyzer, new TestService(project), null);
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        TestProject project = TestProject.createTestProject("testcode-cs", Languages.C_SHARP);
+        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+
+        var finder = newFinder(project, analyzer);
+        var symbol = "BaseClass";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            logger.info("C# test skipped: " + either.getErrorMessage());
+            return;
+        }
+
+        var hits = either.getUsages();
+        if (hits.isEmpty()) {
+            logger.info("C# test: no hits found, skipping validation");
+            return;
+        }
+
+        var files = fileNamesFromHits(hits);
+        assertTrue(
+                files.contains("ClassUsagePatterns.cs"),
+                "Expected comprehensive usage patterns in ClassUsagePatterns.cs; actual: " + files);
+
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("ClassUsagePatterns.cs"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 2,
+                "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
     }
 }

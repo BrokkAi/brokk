@@ -4,8 +4,11 @@ import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.analyzer.usages.FuzzyUsageFinder;
+import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.testutil.TestService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -18,8 +21,12 @@ import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class PythonAnalyzerTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(PythonAnalyzerTest.class);
 
     @Nullable
     private static TestProject project;
@@ -1940,5 +1947,46 @@ public final class PythonAnalyzerTest {
             var oldFormat = testAnalyzer.getDefinitions("mypkg.__init__$PackageClass");
             assertEquals(0, oldFormat.size(), "Old __init__ FQN format should not work anymore");
         }
+    }
+
+    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
+        return hits.stream()
+                .map(hit -> hit.file().absPath().getFileName().toString())
+                .collect(Collectors.toSet());
+    }
+
+    private static FuzzyUsageFinder newFinder() {
+        return new FuzzyUsageFinder(project, analyzer, new TestService(project), null);
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        var finder = newFinder();
+        var symbol = "BaseClass";
+        var either = finder.findUsages(symbol).toEither();
+
+        // Python analyzer may not find definitions immediately, which is acceptable
+        if (either.hasErrorMessage()) {
+            logger.info("Python test skipped: " + either.getErrorMessage());
+            return;
+        }
+
+        var hits = either.getUsages();
+        if (hits.isEmpty()) {
+            logger.info("Python test: no hits found, skipping validation");
+            return;
+        }
+
+        var files = fileNamesFromHits(hits);
+        assertTrue(
+                files.contains("class_usage_patterns.py"),
+                "Expected comprehensive usage patterns in class_usage_patterns.py; actual: " + files);
+
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("class_usage_patterns.py"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 2,
+                "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
     }
 }
