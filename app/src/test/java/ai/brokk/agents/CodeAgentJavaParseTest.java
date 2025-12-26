@@ -11,10 +11,9 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.junit.jupiter.api.Test;
@@ -38,7 +37,8 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 "", // lastBuildError
                 new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
                 new HashMap<>(), // originalFileContents
-                new HashMap<>() // javaLintDiagnostics
+                new HashMap<>(), // javaLintDiagnostics
+                Map.of() // simulatedContents
                 );
         var step = codeAgent.parseJavaPhase(cs, es, null);
         return new JavaParseResult(javaFile, step);
@@ -182,7 +182,16 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                new LinkedHashSet<>(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>());
+                new LinkedHashSet<>(),
+                0,
+                0,
+                0,
+                1,
+                "",
+                new HashSet<>(Set.of(f1, f2)),
+                new HashMap<>(),
+                new HashMap<>(),
+                Map.of());
 
         var result = codeAgent.parseJavaPhase(cs, es, null);
         var diags = result.es().javaLintDiagnostics();
@@ -453,7 +462,8 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 "", // lastBuildError
                 new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
                 new HashMap<>(), // originalFileContents
-                new HashMap<>() // javaLintDiagnostics
+                new HashMap<>(), // javaLintDiagnostics
+                Map.of() // simulatedContents
                 );
         var step = codeAgent.parseJavaPhase(cs, es, null);
 
@@ -864,21 +874,10 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         assertNotNull(diags, "Expected diagnostics for Bad.java");
         assertFalse(diags.isEmpty(), "Expected at least one diagnostic");
 
-        // Format diagnostics as DEFER_BUILD mode does
-        var diagnosticMessages = new StringBuilder();
-        diagnosticMessages.append("Java syntax issues detected:\n\n");
-        for (var entry : diagMap.entrySet()) {
-            var pf = entry.getKey();
-            var diagList = entry.getValue();
-            diagnosticMessages.append(String.format("**%s**: %d issue(s)\n", pf.getFileName(), diagList.size()));
-            for (var diag : diagList) {
-                diagnosticMessages.append("  - ").append(diag.description()).append("\n");
-            }
-            diagnosticMessages.append("\n");
-        }
+        // Use the shared formatDiagnosticsReport helper
+        var message = "Java syntax issues detected:\n\n" + CodeAgent.formatDiagnosticsReport(diagMap);
 
         // Verify formatted message contains expected elements
-        var message = diagnosticMessages.toString();
         assertTrue(message.contains("Java syntax issues detected"), "Message should have header");
         assertTrue(message.contains("Bad.java"), "Message should include filename");
         assertTrue(message.contains("issue(s)"), "Message should include issue count");
@@ -918,44 +917,25 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
         assertTrue(diags.getFirst().description().contains("Good.java"), "Diagnostic should reference the file");
     }
 
-    // Quick Edit replacement bug (PR review issue #1)
-    // Verifies that replaceFirst() only replaces the first occurrence when duplicate text exists
+    // Verify JDT catches invalid method names like !invalid@Name
     @Test
-    void testQuickEdit_replacesOnlyFirstOccurrence() throws Exception {
-        var sourceWithDuplicates =
+    void testQuickEdit_invalidMethodName_flaggedByJdt() throws Exception {
+        var interfaceSource =
                 """
-                class Test {
-                    void method1() {
-                        System.out.println("duplicate");
-                    }
-                    void method2() {
-                        System.out.println("duplicate");
-                    }
+                interface MyInterface {
+                    void validMethod(String summary);
                 }
                 """;
-        var javaFile = cm.toFile("Test.java");
-        javaFile.write(sourceWithDuplicates);
+        var javaFile = cm.toFile("MyInterface.java");
+        javaFile.write(interfaceSource);
 
-        var oldText = "System.out.println(\"duplicate\");";
-        var snippet = "logger.debug(\"changed\");";
+        var oldText = "void validMethod(String summary);";
+        var invalidSnippet = "default void !invalid@Name(String summary) { }";
+        var updatedContent = interfaceSource.replace(oldText, invalidSnippet);
 
-        // Use replaceFirst (as fixed in CodeAgent.java line 615)
-        var updatedContent =
-                sourceWithDuplicates.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
-
-        // Verify only first occurrence was replaced
-        assertTrue(updatedContent.contains("logger.debug(\"changed\");"), "First occurrence should be replaced");
-        assertTrue(updatedContent.contains("System.out.println(\"duplicate\");"), "Second occurrence should remain");
-
-        // Count occurrences to be sure
-        int firstOccurrenceCount = updatedContent.split("logger\\.debug", -1).length - 1;
-        int secondOccurrenceCount = updatedContent.split("System\\.out\\.println\\(\"duplicate\"\\)", -1).length - 1;
-        assertEquals(1, firstOccurrenceCount, "Should have exactly one replacement");
-        assertEquals(1, secondOccurrenceCount, "Should have exactly one original");
-
-        // Verify diagnostics can be computed on correct content
         var diags = CodeAgent.parseJavaForDiagnostics(javaFile, updatedContent);
-        assertTrue(diags.isEmpty(), "Valid code should produce no diagnostics");
+
+        assertFalse(diags.isEmpty(), "Expected diagnostics for invalid method name !invalid@Name");
     }
 
     // Quick Edit validation: empty snippet extraction (PR review issue #2)
@@ -978,64 +958,5 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                     extracted.isEmpty() || extracted.isBlank(),
                     "Should extract empty/blank for response without proper fences: " + response);
         }
-    }
-
-    // Quick Edit validation: no-op edit detection (PR review issue #2)
-    // Verifies that identical code replacement is correctly identified
-    @Test
-    void testQuickEdit_identicalCode_noOpDetection() throws Exception {
-        var sourceCode =
-                """
-                class Test {
-                    void method() {
-                        System.out.println("hello");
-                    }
-                }
-                """;
-        var javaFile = cm.toFile("Test.java");
-        javaFile.write(sourceCode);
-
-        var oldText = "System.out.println(\"hello\");";
-        var snippet = "System.out.println(\"hello\");"; // Identical
-
-        // Verify that snippet equals oldText (no-op condition)
-        assertTrue(snippet.equals(oldText), "Snippet should be identical to oldText");
-
-        // In the actual implementation, this would trigger:
-        // logger.debug("Quick Edit: LLM returned unchanged code, skipping diagnostics");
-        // and return early without computing diagnostics
-
-        // Verify that if we proceeded anyway, content wouldn't change
-        var updatedContent = sourceCode.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
-        assertEquals(sourceCode, updatedContent, "Content should be unchanged for no-op");
-    }
-
-    // Quick Edit validation: replacement failure detection (PR review issue #2)
-    // Verifies that oldText not found is correctly detected
-    @Test
-    void testQuickEdit_targetNotFound_replacementFails() throws Exception {
-        var sourceCode =
-                """
-                class Test {
-                    void method() {
-                        System.out.println("hello");
-                    }
-                }
-                """;
-        var javaFile = cm.toFile("Test.java");
-        javaFile.write(sourceCode);
-
-        var oldText = "  System.out.println(\"goodbye\");"; // Not in file
-        var snippet = "logger.debug(\"changed\");";
-
-        // Attempt replacement
-        var updatedContent = sourceCode.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
-
-        // Verify replacement didn't occur (content unchanged)
-        assertEquals(sourceCode, updatedContent, "Content should be unchanged when oldText not found");
-
-        // In the actual implementation, this would trigger:
-        // logger.warn("Quick Edit diagnostics: could not find target text in file (may have changed)");
-        // and return early without computing diagnostics on wrong content
     }
 }
