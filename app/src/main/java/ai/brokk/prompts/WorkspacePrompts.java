@@ -445,11 +445,10 @@ public final class WorkspacePrompts {
 
         for (var cf : fragments) {
             if (cf.isText()) {
-                String visibleText;
                 if (cf instanceof ContextFragments.StringFragment sf) {
-                    visibleText = sf.textForAgent(suppressedTypes);
-                } else {
-                    visibleText = cf.text().join();
+                    if (sf.specialType().isPresent() && suppressedTypes.contains(sf.specialType().get())) {
+                        continue;
+                    }
                 }
                 String idOrPinned = ctx.isPinned(cf) ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(cf.id());
                 String formatted;
@@ -459,7 +458,7 @@ public final class WorkspacePrompts {
                                 %s
                                 </fragment>
                                 """
-                                .formatted(cf.description().join(), idOrPinned, visibleText);
+                                .formatted(cf.description().join(), idOrPinned, cf.text().join());
                 textBuilder.append(formatted).append("\n\n");
                 continue;
             }
