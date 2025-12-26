@@ -282,20 +282,6 @@ public class ContextFragments {
             return snapshot != null && snapshot.valid();
         }
 
-        @Override
-        public ComputedValue<String> format() {
-            return derived("format", this::formatTemplate);
-        }
-
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <fragment description="%s" fragmentid="%s">
-                    %s
-                    </fragment>
-                    """
-                    .formatted(s.description(), id(), s.text());
-        }
-
         // Common hasSameSource implementation (identity for dynamic, override for others)
         @Override
         public boolean hasSameSource(ContextFragment other) {
@@ -361,20 +347,6 @@ public class ContextFragments {
         @Override
         public ComputedValue<Set<ProjectFile>> files() {
             return ComputedValue.completed("files-" + id, snapshot.files());
-        }
-
-        @Override
-        public ComputedValue<String> format() {
-            return ComputedValue.completed("format-" + id, formatTemplate(snapshot));
-        }
-
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <fragment description="%s" fragmentid="%s">
-                    %s
-                    </fragment>
-                    """
-                    .formatted(s.description(), id(), s.text());
         }
 
         @Override
@@ -476,16 +448,6 @@ public class ContextFragments {
         }
 
         @Override
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <file path="%s" fragmentid="%s">
-                    %s
-                    </file>
-                    """
-                    .formatted(file.toString(), id(), s.text());
-        }
-
-        @Override
         public ContextFragment refreshCopy() {
             return new ProjectPathFragment(
                     file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
@@ -577,17 +539,6 @@ public class ContextFragments {
         }
 
         @Override
-        public ComputedValue<String> format() {
-            return ComputedValue.completed(
-                    """
-                            <file path="%s" revision="%s">
-                            %s
-                            </file>
-                            """
-                            .formatted(file.toString(), revision, content));
-        }
-
-        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof GitFileFragment that)) return false;
             return this.file()
@@ -663,16 +614,6 @@ public class ContextFragments {
         @Override
         public String repr() {
             return "ExternalFile('%s')".formatted(file.toString());
-        }
-
-        @Override
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <file path="%s" fragmentid="%s">
-                    %s
-                    </file>
-                    """
-                    .formatted(file.toString(), id(), s.text());
         }
 
         @Override
@@ -800,16 +741,6 @@ public class ContextFragments {
         }
 
         @Override
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <file path="%s" fragmentid="%s">
-                    [Image content provided out of band]
-                    </file>
-                    """
-                    .formatted(file.toString(), id());
-        }
-
-        @Override
         public ContextFragment refreshCopy() {
             return new ImageFileFragment(
                     file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
@@ -820,9 +751,6 @@ public class ContextFragments {
             return "ImageFileFragment('%s')".formatted(file);
         }
     }
-
-    // StringFragmentType and getStringFragmentType helper
-    public record StringFragmentType(String description, String syntaxStyle) {}
 
     public static class StringFragment extends AbstractStaticFragment {
 
@@ -973,23 +901,7 @@ public class ContextFragments {
         }
 
         public String previewText() {
-            return specialType()
-                    .map(st -> st.previewRenderer().apply(snapshot.text()))
-                    .orElse(snapshot.text());
-        }
-
-        public String textForAgent(ViewingPolicy viewPolicy) {
-            var st = specialType();
-            if (st.isEmpty()) return snapshot.text();
-            if (!st.get().canViewContent().test(viewPolicy)) {
-                return "[%s content hidden for %s]"
-                        .formatted(snapshot.description(), viewPolicy.taskType().name());
-            }
-            return snapshot.text();
-        }
-
-        public boolean droppable() {
-            return specialType().map(SpecialTextType::droppable).orElse(true);
+            return specialType().map(st -> st.renderPreview(snapshot.text())).orElse(snapshot.text());
         }
 
         @Override
@@ -1001,11 +913,12 @@ public class ContextFragments {
         public boolean hasSameSource(ContextFragment other) {
             if (this == other) return true;
             if (!(other instanceof StringFragment that)) return false;
-            StringFragmentType thisType = ContextFragment.getStringFragmentType(this.snapshot.description());
-            StringFragmentType thatType = ContextFragment.getStringFragmentType(that.snapshot.description());
-            if (thisType != null && thatType != null) return Objects.equals(thisType, thatType);
-            return this.snapshot.description().equals(that.snapshot.description())
-                    && this.snapshot.syntaxStyle().equals(that.snapshot.syntaxStyle());
+            var thisType = SpecialTextType.fromDescription(this.snapshot.description());
+            var thatType = SpecialTextType.fromDescription(that.snapshot.description());
+            if (thisType.isPresent() && thisType.equals(thatType)) {
+                return true;
+            }
+            return Objects.equals(this.snapshot, that.snapshot);
         }
     }
 
@@ -1913,16 +1826,6 @@ public class ContextFragments {
         @Override
         public String toString() {
             return "ConversationFragment(" + history.size() + " tasks)";
-        }
-
-        @Override
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <taskhistory fragmentid="%s">
-                    %s
-                    </taskhistory>
-                    """
-                    .formatted(id(), s.text());
         }
     }
 

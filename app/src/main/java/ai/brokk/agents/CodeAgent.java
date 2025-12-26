@@ -14,7 +14,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
@@ -247,16 +247,18 @@ public class CodeAgent {
             // Make the LLM request
             StreamingResult streamingResult;
             try {
-                var viewingPolicy = new ViewingPolicy(TaskResult.Type.CODE);
+                var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
+                if (!es.showBuildError()) {
+                    suppressed.add(SpecialTextType.BUILD_RESULTS);
+                }
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,
                         prologue,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
-                        viewingPolicy,
-                        userInput.trim(),
-                        es.showBuildError());
+                        suppressed,
+                        userInput.trim());
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {

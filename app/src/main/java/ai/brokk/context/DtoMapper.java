@@ -64,6 +64,11 @@ public class DtoMapper {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
+        var pinnedFragments = dto.pinned().stream()
+                .map(fragmentCache::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         var virtualFragments = dto.virtuals().stream()
                 .map(fragmentCache::get)
                 .filter(Objects::nonNull)
@@ -143,7 +148,8 @@ public class DtoMapper {
                 actionFuture,
                 groupUuid,
                 dto.groupLabel(),
-                readonlyFragments);
+                readonlyFragments,
+                pinnedFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -173,12 +179,17 @@ public class DtoMapper {
         var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
         var readonlyIds =
                 ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList();
+        var pinnedIds = ctx.allFragments()
+                .filter(ctx::isPinned)
+                .map(ContextFragment::id)
+                .toList();
 
         return new CompactContextDto(
                 ctx.id().toString(),
                 editableIds,
                 readonlyIds,
                 virtualIds,
+                pinnedIds,
                 taskEntryRefs,
                 ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
                 action,

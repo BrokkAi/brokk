@@ -13,7 +13,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
@@ -279,9 +279,10 @@ public class SearchAgent {
             var inputLimit = cm.getService().getMaxInputTokens(model);
             // Determine viewing policy based on search objective
             boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
-            var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, useTaskList);
+            var suppressed =
+                    useTaskList ? EnumSet.noneOf(SpecialTextType.class) : EnumSet.of(SpecialTextType.TASK_LIST);
             // Build workspace messages in insertion order with viewing policy applied
-            var workspaceMessages = new ArrayList<>(WorkspacePrompts.getMessagesInAddedOrder(context, viewingPolicy));
+            var workspaceMessages = new ArrayList<>(WorkspacePrompts.getMessagesInAddedOrder(context, suppressed));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -997,8 +998,8 @@ public class SearchAgent {
         messages.add(sys);
 
         // Current Workspace contents (use default viewing policy)
-        ViewingPolicy vp = new ViewingPolicy(TaskResult.Type.CONTEXT);
-        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(context, vp));
+        var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
+        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(context, suppressed));
 
         // Goal and project context
         messages.add(new UserMessage(

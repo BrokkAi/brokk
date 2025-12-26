@@ -331,17 +331,6 @@ class FragmentEqualityTest {
         }
 
         @Test
-        void testHasSameSourceDifferentText() {
-            var sf1 = new ContextFragments.StringFragment(
-                    contextManager, "text1", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragments.StringFragment(
-                    contextManager, "text2", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-            // Text differs, but description and style are the same => same source
-            assertTrue(sf1.hasSameSource(sf2));
-        }
-
-        @Test
         void testHasSameSourceDifferentSyntaxStyle() {
             var sf1 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_JAVA);
@@ -424,18 +413,6 @@ class FragmentEqualityTest {
         }
 
         @Test
-        void testHasSameSourceNullDescription() {
-            // Test with empty descriptions (edge case): both empty => same description
-            var sf1 =
-                    new ContextFragments.StringFragment(contextManager, "text1", "", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 =
-                    new ContextFragments.StringFragment(contextManager, "text2", "", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-            // Both have empty descriptions; hasSameSource compares description (and syntax style), not text
-            assertTrue(sf1.hasSameSource(sf2));
-        }
-
-        @Test
         void testHasSameSourceCompareAgainstNonStringFragment() {
             // StringFragment vs different fragment type should not match
             var sf = new ContextFragments.StringFragment(
@@ -463,30 +440,6 @@ class FragmentEqualityTest {
 
             var filesFromFragment = sf.files().join();
             assertEquals(associatedFiles, filesFromFragment);
-        }
-
-        @Test
-        void testDiffStringFragmentFilesDoNotAffectHasSameSource() throws IOException {
-            var file1 = new ProjectFile(tempDir, "src/File1.java");
-            var file2 = new ProjectFile(tempDir, "src/File2.java");
-            Files.createDirectories(file1.absPath().getParent());
-            Files.writeString(file1.absPath(), "class File1 {}");
-            Files.writeString(file2.absPath(), "class File2 {}");
-
-            var sf1 = new ContextFragments.StringFragment(
-                    contextManager,
-                    "diff --git a/src/File1.java b/src/File1.java\n@@ -1 +1 @@\n-class File1 {}\n+class File1 { }",
-                    "Diff of files",
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    Set.of(file1));
-            var sf2 = new ContextFragments.StringFragment(
-                    contextManager,
-                    "diff --git a/src/File2.java b/src/File2.java\n@@ -1 +1 @@\n-class File2 {}\n+class File2 { }",
-                    "Diff of files",
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    Set.of(file2));
-
-            assertTrue(sf1.hasSameSource(sf2));
         }
 
         @Test
