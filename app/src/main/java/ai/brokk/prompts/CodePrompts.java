@@ -200,13 +200,12 @@ public abstract class CodePrompts {
             List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
             UserMessage request,
-            java.util.Set<ai.brokk.context.SpecialTextType> suppressedTypes,
-            String goal,
-            boolean includeBuildStatus) {
+            Set<SpecialTextType> suppressedTypes,
+            String goal) {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
         var reminder = codeReminder(cm.getService(), model);
-        var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, suppressedTypes, includeBuildStatus);
+        var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, suppressedTypes);
 
         messages.add(systemMessage(reminder, goal));
         messages.addAll(getHistoryMessages(ctx));
@@ -221,7 +220,7 @@ public abstract class CodePrompts {
                 Reminder: here is a list of the full contents of the Workspace that you can refer to above:
                 %s
                 """
-                        .formatted(WorkspacePrompts.formatToc(ctx, includeBuildStatus));
+                        .formatted(WorkspacePrompts.formatToc(ctx, suppressedTypes));
         var augmentedRequest = new UserMessage(Messages.getText(request) + tocReminder);
         messages.add(augmentedRequest);
 

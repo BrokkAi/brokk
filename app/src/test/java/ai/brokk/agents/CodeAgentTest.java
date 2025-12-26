@@ -791,17 +791,16 @@ class CodeAgentTest {
         var prologue = List.<ChatMessage>of();
         var taskMessages = new ArrayList<ChatMessage>();
         var nextRequest = new UserMessage("Please fix the build");
-        var changedFiles = Collections.<ProjectFile>emptySet();
 
+        var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST, SpecialTextType.BUILD_RESULTS);
         var messages = CodePrompts.instance.collectCodeMessages(
                 new Service.UnavailableStreamingModel(),
                 ctx,
                 prologue,
                 taskMessages,
                 nextRequest,
-                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
-                Messages.getText(nextRequest),
-                false);
+                suppressed,
+                Messages.getText(nextRequest));
 
         boolean found = messages.stream()
                 .map(Messages::getText)
@@ -1291,8 +1290,7 @@ class CodeAgentTest {
                 List.of(),
                 request,
                 java.util.EnumSet.of(SpecialTextType.TASK_LIST),
-                Messages.getText(request),
-                false);
+                Messages.getText(request));
 
         // 1) first message is SystemMessage
         assertInstanceOf(dev.langchain4j.data.message.SystemMessage.class, msgsNoChanged.get(0));
@@ -1318,8 +1316,7 @@ class CodeAgentTest {
                 List.of(),
                 request,
                 java.util.EnumSet.of(SpecialTextType.TASK_LIST),
-                Messages.getText(request),
-                false);
+                Messages.getText(request));
 
         // 4) ensure editable file name appears when it is provided as changed
         boolean containsEditable =
@@ -1329,7 +1326,7 @@ class CodeAgentTest {
                 "Expected editable fragment content to appear in messages when it's listed as changed");
 
         // 5) Simulate the CodeAgent TOC append and ensure the TOC content is present in the augmented request text
-        var toc = WorkspacePrompts.formatToc(ctx, false);
+        var toc = WorkspacePrompts.formatToc(ctx, java.util.Collections.emptySet());
         var tocReminder =
                 """
                 Reminder: here is a list of the full contents of the Workspace that you can refer to above:
@@ -1441,8 +1438,7 @@ class CodeAgentTest {
                 List.of(),
                 request,
                 java.util.EnumSet.of(SpecialTextType.TASK_LIST),
-                "My special goal text",
-                false);
+                "My special goal text");
 
         // First message should be the system message; ensure it contains the goal block with original text.
         ChatMessage system = messages.get(0);

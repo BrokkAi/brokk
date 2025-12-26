@@ -55,7 +55,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addFragments(List.of(frag));
 
         WorkspacePrompts.CodeAgentMessages records =
-                WorkspacePrompts.getMessagesForCodeAgent(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST), true);
+                WorkspacePrompts.getMessagesForCodeAgent(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST));
 
         assertNotNull(records);
         assertFalse(records.workspace().isEmpty(), "workspace() should return combined messages");
@@ -66,7 +66,7 @@ class WorkspacePromptsTest {
         var ctx = new Context(cm).withBuildResult(false, "Build failed: syntax error on line 42");
 
         WorkspacePrompts.CodeAgentMessages records =
-                WorkspacePrompts.getMessagesForCodeAgent(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST), true);
+                WorkspacePrompts.getMessagesForCodeAgent(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST));
 
         assertNotNull(records.buildFailure(), "buildFailure() should be populated when a build fragment exists");
         assertTrue(records.buildFailure().contains("syntax error on line 42"));
@@ -83,7 +83,7 @@ class WorkspacePromptsTest {
         ctx = ctx.withBuildResult(false, "Compilation failed");
 
         WorkspacePrompts.CodeAgentMessages records =
-                WorkspacePrompts.getMessagesForCodeAgent(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST), true);
+                WorkspacePrompts.getMessagesForCodeAgent(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST));
 
         String allText =
                 records.workspace().stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));

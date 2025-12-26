@@ -247,7 +247,10 @@ public class CodeAgent {
             // Make the LLM request
             StreamingResult streamingResult;
             try {
-                var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST);
+                var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
+                if (!es.showBuildError()) {
+                    suppressed.add(SpecialTextType.BUILD_RESULTS);
+                }
                 var allMessagesForLlm = CodePrompts.instance.collectCodeMessages(
                         model,
                         context,
@@ -255,8 +258,7 @@ public class CodeAgent {
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
                         suppressed,
-                        userInput.trim(),
-                        es.showBuildError());
+                        userInput.trim());
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {

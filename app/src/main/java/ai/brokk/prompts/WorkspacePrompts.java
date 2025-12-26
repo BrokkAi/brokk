@@ -88,13 +88,15 @@ public final class WorkspacePrompts {
      * Shows:
      *   - READ ONLY fragments (if any)
      *   - All EDITABLE fragments in a single section
-     * Optionally appends a simple build status indicator.
+     * Respects {@code suppressedTypes} to hide special content like build status.
      *
      * @param ctx             the current context
-     * @param showBuildStatus if true, include build status indicator in TOC; if false, omit
+     * @param suppressedTypes types of special text to omit from the TOC
      */
-    public static String formatToc(Context ctx, boolean showBuildStatus) {
+    public static String formatToc(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var buildFragment = ctx.getBuildFragment();
+        boolean hideBuild = suppressedTypes.contains(SpecialTextType.BUILD_RESULTS);
+
         var readOnlyContents = ctx.getReadonlyFragments()
                 .filter(cf -> buildFragment.isEmpty() || cf != buildFragment.get())
                 .map(cf -> cf.formatToc(ctx.isPinned(cf)))
@@ -128,7 +130,7 @@ public final class WorkspacePrompts {
                             .formatted(editableContents));
         }
 
-        if (showBuildStatus && buildFragment.isPresent()) {
+        if (!hideBuild && buildFragment.isPresent()) {
             parts.add("  <workspace_build_status>(failing)</workspace_build_status>");
         }
 
@@ -141,7 +143,7 @@ public final class WorkspacePrompts {
 
     /** Convenience overload for callers that don't control build-status visibility. */
     public static String formatToc(Context ctx) {
-        return formatToc(ctx, true);
+        return formatToc(ctx, java.util.Collections.emptySet());
     }
 
     /**
@@ -187,27 +189,14 @@ public final class WorkspacePrompts {
      * {@code <workspace>} block.
      *
      * @param ctx                       current context
-     * @param viewingPolicy             viewing policy (controls StringFragment visibility)
+     * @param suppressedTypes           types of special text to omit from the workspace
      */
     @Blocking
     public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, Set<SpecialTextType> suppressedTypes) {
-        return getMessagesGroupedByMutability(ctx, suppressedTypes, true);
-    }
-
-    /**
-     * Internal helper that allows callers to choose whether build status appears in the workspace.
-     *
-     * @param showBuildStatusInWorkspace if true, include build status snippets in workspace sections
-     *                                   (both in read-only fragment and editable sections);
-     *                                   if false, omit all build status from workspace
-     *                                   (it will be shown inline in the request instead).
-     */
-    private static List<ChatMessage> getMessagesGroupedByMutability(
-            Context ctx, Set<SpecialTextType> suppressedTypes, boolean showBuildStatusInWorkspace) {
         // Compose read-only (optionally with build fragment) + all editable + build status into a single <workspace>
         // message
-        var readOnlyMessages = buildReadOnlyForContents(ctx, suppressedTypes, showBuildStatusInWorkspace);
-        var editableMessages = buildEditableAll(ctx, showBuildStatusInWorkspace);
+        var readOnlyMessages = buildReadOnlyForContents(ctx, suppressedTypes);
+        var editableMessages = buildEditableAll(ctx, suppressedTypes);
 
         var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
 
@@ -274,26 +263,24 @@ public final class WorkspacePrompts {
      * Workspace views used by CodeAgent.
      *
      * @param ctx                       current context
-     * @param viewingPolicy             viewing policy (controls StringFragment visibility)
-     * @param showBuildStatusInWorkspace if true, include build status in workspace sections;
-     *                                  if false, omit from workspace (will be shown inline in request)
+     * @param suppressedTypes           types of special text to omit from the workspace
      * @return record with the workspace messages and buildFailure details
      */
     @Blocking
     public static CodeAgentMessages getMessagesForCodeAgent(
-            Context ctx, Set<SpecialTextType> suppressedTypes, boolean showBuildStatusInWorkspace) {
-        var workspace = getMessagesGroupedByMutability(ctx, suppressedTypes, showBuildStatusInWorkspace);
+            Context ctx, Set<SpecialTextType> suppressedTypes) {
+        var workspace = getMessagesGroupedByMutability(ctx, suppressedTypes);
         var buildFailure = ctx.getBuildFragment().map(f -> f.text().join()).orElse(null);
         return new CodeAgentMessages(workspace, buildFailure);
     }
 
-    private static List<ChatMessage> buildEditableAll(Context ctx, boolean showBuildStatusInWorkspace) {
+    private static List<ChatMessage> buildEditableAll(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
         var editableTextFragments =
-                formatWithPolicy(ctx, editableFragments, java.util.EnumSet.of(SpecialTextType.TASK_LIST)).text;
+                formatWithPolicy(ctx, editableFragments, suppressedTypes).text;
 
         boolean shouldShowBuild =
-                showBuildStatusInWorkspace && ctx.getBuildFragment().isPresent();
+                !suppressedTypes.contains(SpecialTextType.BUILD_RESULTS) && ctx.getBuildFragment().isPresent();
         if (editableTextFragments.isEmpty() && !shouldShowBuild) {
             return List.of();
         }
@@ -345,11 +332,11 @@ public final class WorkspacePrompts {
     }
 
     private static List<ChatMessage> buildReadOnlyForContents(
-            Context ctx, Set<SpecialTextType> suppressedTypes, boolean showBuildStatusInWorkspace) {
+            Context ctx, Set<SpecialTextType> suppressedTypes) {
         // Build read-only section; optionally include the build fragment as part of read-only workspace
         var buildFragment = ctx.getBuildFragment().orElse(null);
         var readOnlyFragments = ctx.getReadonlyFragments()
-                .filter(f -> showBuildStatusInWorkspace || f != buildFragment)
+                .filter(f -> !suppressedTypes.contains(SpecialTextType.BUILD_RESULTS) || f != buildFragment)
                 .toList();
 
         var renderedReadOnly = renderReadOnlyFragments(ctx, readOnlyFragments, suppressedTypes);
@@ -404,7 +391,6 @@ public final class WorkspacePrompts {
      *
      * @param ctx          the current context
      * @param readOnly     readonly fragments to render
-     * @param vp           viewing policy for visibility control
      * @return RenderedContent with formatted text and images
      */
     private static RenderedContent renderReadOnlyFragments(
