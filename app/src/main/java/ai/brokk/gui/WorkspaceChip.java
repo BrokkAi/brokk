@@ -661,6 +661,13 @@ public class WorkspaceChip extends JPanel {
 
     // Context menu helpers
 
+    protected void safeAddSeparator(JPopupMenu menu) {
+        int count = menu.getComponentCount();
+        if (count > 0 && !(menu.getComponent(count - 1) instanceof javax.swing.JSeparator)) {
+            menu.addSeparator();
+        }
+    }
+
     private static boolean isDropAction(Object actionOrItem) {
         try {
             if (actionOrItem instanceof JMenuItem mi) {
@@ -697,15 +704,23 @@ public class WorkspaceChip extends JPanel {
             menu.addSeparator();
         }
 
-        var scenario = new WorkspacePanel.SingleFragment(fragment);
-        var actions = scenario.getActions(chrome.getContextPanel());
-        boolean addedAnyAction = false;
+        var scenario = new ContextActionsHandler.SingleFragment(fragment);
+        var actions = scenario.getActions(chrome.getContextActionsHandler());
+        boolean separatorPending = false;
         for (var action : actions) {
+            if (action == null) {
+                separatorPending = true;
+                continue;
+            }
             if (isDropAction(action)) {
                 continue;
             }
+
+            if (separatorPending) {
+                safeAddSeparator(menu);
+                separatorPending = false;
+            }
             menu.add(action);
-            addedAnyAction = true;
         }
 
         JMenuItem dropOther = new JMenuItem("Drop Others");
@@ -726,9 +741,7 @@ public class WorkspaceChip extends JPanel {
             }
         });
 
-        if (addedAnyAction) {
-            menu.addSeparator();
-        }
+        safeAddSeparator(menu);
         menu.add(dropOther);
 
         chrome.getThemeManager().registerPopupMenu(menu);
@@ -1269,26 +1282,31 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected JPopupMenu createContextMenu() {
             JPopupMenu menu = new JPopupMenu();
-            var scenario = new WorkspacePanel.MultiFragment(summaryFragments);
-            var actions = scenario.getActions(chrome.getContextPanel());
-            boolean addedAnyAction = false;
+            var scenario = new ContextActionsHandler.MultiFragment(summaryFragments);
+            var actions = scenario.getActions(chrome.getContextActionsHandler());
+
+            boolean separatorPending = false;
             for (var action : actions) {
-                if (action != null) {
-                    String actionName = (String) action.getValue(Action.NAME);
-                    if ("Summarize all References".equals(actionName)) {
-                        continue;
-                    }
-                    if (isDropAction(action)) {
-                        continue;
-                    }
+                if (action == null) {
+                    separatorPending = true;
+                    continue;
+                }
+                String actionName = (String) action.getValue(Action.NAME);
+                if ("Summarize all References".equals(actionName)) {
+                    continue;
+                }
+                if (isDropAction(action)) {
+                    continue;
+                }
+
+                if (separatorPending) {
+                    safeAddSeparator(menu);
+                    separatorPending = false;
                 }
                 menu.add(action);
-                addedAnyAction = true;
             }
 
-            if (addedAnyAction) {
-                menu.addSeparator();
-            }
+            safeAddSeparator(menu);
 
             // Add "Drop Invalid Summaries" if there are any invalid summaries
             if (invalidSummaryCount > 0) {
@@ -1306,7 +1324,7 @@ public class WorkspaceChip extends JPanel {
                     }
                 });
                 menu.add(dropInvalidItem);
-                menu.addSeparator();
+                safeAddSeparator(menu);
             }
 
             summaryFragments.forEach(f -> {
@@ -1508,12 +1526,16 @@ public class WorkspaceChip extends JPanel {
             showContentsItem.addActionListener(e -> onPrimaryClick());
             menu.add(showContentsItem);
 
-            var scenario = new WorkspacePanel.SingleFragment(fragment);
-            var actions = scenario.getActions(chrome.getContextPanel());
+            var scenario = new ContextActionsHandler.SingleFragment(fragment);
+            var actions = scenario.getActions(chrome.getContextActionsHandler());
+
+            boolean separatorPending = false;
             for (var action : actions) {
                 if (action == null) {
+                    separatorPending = true;
                     continue;
                 }
+
                 if (isDropAction(action)) {
                     continue;
                 }
@@ -1526,6 +1548,11 @@ public class WorkspaceChip extends JPanel {
                     if ("Drop".equals(s) || "Drop Others".equals(s)) {
                         continue;
                     }
+                }
+
+                if (separatorPending) {
+                    safeAddSeparator(menu);
+                    separatorPending = false;
                 }
                 menu.add(action);
             }

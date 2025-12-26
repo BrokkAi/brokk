@@ -705,7 +705,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Ctrl/Cmd + V  →  if clipboard has an image, route to WorkspacePanel paste;
+        // Ctrl/Cmd + V  →  if clipboard has an image, route to ContextActions paste;
         // otherwise, use the default JTextArea paste behaviour.
         var pasteKeyStroke = KeyStroke.getKeyStroke(
                 KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
@@ -725,9 +725,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     try {
                         if (flavor.equals(DataFlavor.imageFlavor)
                                 || flavor.getMimeType().startsWith("image/")) {
-                            // Re-use existing WorkspacePanel logic
-                            chrome.getContextPanel()
-                                    .performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
+                            // Re-use existing ContextActions logic
+                            chrome.getContextActionsHandler()
+                                    .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of());
                             imageHandled = true;
                             break;
                         }
@@ -942,7 +942,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
         attachButton.setFocusable(false);
         attachButton.setOpaque(false);
-        attachButton.addActionListener(e -> chrome.getContextPanel().attachContextViaDialog());
+        attachButton.addActionListener(e -> chrome.getContextActionsHandler().attachContextViaDialog());
 
         // Set dynamic tooltip based on configured keybindings
         SwingUtilities.invokeLater(() -> {
@@ -1095,18 +1095,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 JPopupMenu emptySpaceMenu = new JPopupMenu();
 
                 JMenuItem dropAll = new JMenuItem("Drop All");
-                dropAll.addActionListener(ev -> chrome.getContextPanel()
-                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.DROP, List.of()));
+                dropAll.addActionListener(ev -> chrome.getContextActionsHandler()
+                        .performContextActionAsync(ContextActionsHandler.ContextAction.DROP, List.of()));
                 emptySpaceMenu.add(dropAll);
 
                 JMenuItem copyAll = new JMenuItem("Copy All");
-                copyAll.addActionListener(ev -> chrome.getContextPanel()
-                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.COPY, List.of()));
+                copyAll.addActionListener(ev -> chrome.getContextActionsHandler()
+                        .performContextActionAsync(ContextActionsHandler.ContextAction.COPY, List.of()));
                 emptySpaceMenu.add(copyAll);
 
                 JMenuItem paste = new JMenuItem("Paste text, images, urls");
-                paste.addActionListener(ev -> chrome.getContextPanel()
-                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.PASTE, List.of()));
+                paste.addActionListener(ev -> chrome.getContextActionsHandler()
+                        .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of()));
                 emptySpaceMenu.add(paste);
 
                 chrome.getThemeManager().registerPopupMenu(emptySpaceMenu);
@@ -1140,7 +1140,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                     var fullText = new StringBuilder();
                     if (ctx != null && !ctx.isEmpty()) {
-                        // Build full text of current context, similar to WorkspacePanel
+                        // Build full text of current context, similar to ContextActions
                         var allFragments = ctx.getAllFragmentsInDisplayOrder();
                         for (var frag : allFragments) {
                             if (frag.isText() || frag.getType().isOutput()) {
@@ -1248,7 +1248,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             boolean isTested) {}
 
     /**
-     * Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel.
+     * Calculate cost estimate mirroring ContextActions for only the model currently selected in InstructionsPanel.
      */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, AbstractService service) {
         var pricing = service.getModelPricing(config.name());

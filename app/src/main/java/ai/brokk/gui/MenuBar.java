@@ -387,7 +387,7 @@ public class MenuBar {
         attachContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         attachContextItem.addActionListener(e -> {
-            chrome.getContextPanel().attachContextViaDialog();
+            chrome.getContextActionsHandler().attachContextViaDialog();
         });
         attachContextItem.setEnabled(true);
         contextMenu.add(attachContextItem);
@@ -396,7 +396,7 @@ public class MenuBar {
         summarizeContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         summarizeContextItem.addActionListener(e -> {
-            chrome.getContextPanel().attachContextViaDialog(true);
+            chrome.getContextActionsHandler().attachContextViaDialog(true);
         });
         contextMenu.add(summarizeContextItem);
 
@@ -509,14 +509,12 @@ public class MenuBar {
                 KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
         dropAllItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.getContextManager().submitContextTask(() -> {
-                chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of());
+                chrome.getContextActionsHandler()
+                        .performContextActionAsync(ContextActionsHandler.ContextAction.DROP, List.of());
             });
         }));
         dropAllItem.setEnabled(true);
         contextMenu.add(dropAllItem);
-
-        // Store reference in WorkspacePanel for dynamic state updates
-        chrome.getContextPanel().setDropAllMenuItem(dropAllItem);
 
         menuBar.add(contextMenu);
 

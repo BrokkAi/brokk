@@ -98,11 +98,11 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
         }
 
         // Use NoSelection scenario to get standard blank-space actions
-        var scenario = new WorkspacePanel.NoSelection();
-        var actions = scenario.getActions(chrome.getContextPanel());
+        var scenario = new ContextActionsHandler.NoSelection();
+        var actions = scenario.getActions(chrome.getContextActionsHandler());
 
         // Show popup menu using PopupBuilder
-        WorkspacePanel.PopupBuilder.create(chrome).add(actions).show(this, e.getX(), e.getY());
+        ContextActionsHandler.PopupBuilder.create(chrome).add(actions).show(this, e.getX(), e.getY());
     }
 
     /**
