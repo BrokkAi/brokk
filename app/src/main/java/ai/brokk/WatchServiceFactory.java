@@ -114,6 +114,12 @@ public class WatchServiceFactory {
             String implProp,
             String os) {
 
+        // Linux always uses legacy due to native implementation issues (high CPU, missing updates)
+        if (os.contains("linux")) {
+            logger.debug("Detected Linux, using legacy watch service (forced, no override)");
+            return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
+        }
+
         if (WATCH_SERVICE_IMPL_LEGACY.equalsIgnoreCase(implProp)) {
             logger.debug("Using legacy watch service (forced by configuration)");
             return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
@@ -128,10 +134,6 @@ public class WatchServiceFactory {
             // macOS benefits from native FSEvents implementation (efficient recursive watching)
             logger.debug("Detected macOS, using native watch service (FSEvents)");
             return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
-        } else if (os.contains("linux")) {
-            // Linux: both use inotify underneath, legacy avoids CPU/update issues in native impl
-            logger.debug("Detected Linux, using legacy watch service");
-            return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         } else if (os.contains("win")) {
             // Windows: legacy avoids issues in native impl while providing equivalent functionality
             logger.debug("Detected Windows, using legacy watch service");

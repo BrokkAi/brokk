@@ -25,7 +25,7 @@ class WatchServiceFactoryTest {
 
     @Test
     void testConfigurationForcesNative() throws Exception {
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "native", "linux");
+        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "native", "mac os x");
 
         assertNotNull(service);
         assertTrue(
@@ -35,12 +35,12 @@ class WatchServiceFactoryTest {
 
     @Test
     void testConfigurationCaseInsensitive() throws Exception {
-        var legacyService = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "LEGACY", "linux");
+        var legacyService = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "LEGACY", "mac os x");
         assertTrue(
                 legacyService instanceof LegacyProjectWatchService,
                 "Should handle case-insensitive configuration values");
 
-        var nativeService = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "NATIVE", "linux");
+        var nativeService = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "NATIVE", "mac os x");
         assertTrue(
                 nativeService instanceof NativeProjectWatchService,
                 "Should handle case-insensitive configuration values");
@@ -115,7 +115,7 @@ class WatchServiceFactoryTest {
         var listener2 = new TestListener();
 
         var service = WatchServiceFactory.createInternal(
-                tempDir, null, null, List.of(listener1, listener2), "native", "linux");
+                tempDir, null, null, List.of(listener1, listener2), "native", "mac os x");
 
         assertNotNull(service);
         assertTrue(service instanceof NativeProjectWatchService);
@@ -134,7 +134,7 @@ class WatchServiceFactoryTest {
         var gitRepo = tempDir.resolve("repo");
         Files.createDirectories(gitRepo.resolve(".git"));
 
-        var service = WatchServiceFactory.createInternal(gitRepo, gitRepo, null, List.of(), "native", "linux");
+        var service = WatchServiceFactory.createInternal(gitRepo, gitRepo, null, List.of(), "native", "mac os x");
 
         assertNotNull(service);
         assertTrue(service instanceof NativeProjectWatchService);
@@ -182,5 +182,16 @@ class WatchServiceFactoryTest {
                 System.setProperty(propName, previous);
             }
         }
+    }
+
+    @Test
+    void testLinuxAlwaysUsesLegacy() throws Exception {
+        // Linux should always use legacy even when native is explicitly requested
+        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "native", "linux");
+
+        assertNotNull(service);
+        assertTrue(
+                service instanceof LegacyProjectWatchService,
+                "Linux should always use LegacyProjectWatchService, ignoring 'native' preference");
     }
 }
