@@ -8,6 +8,7 @@ import ai.brokk.Service;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.dialogs.AboutDialog;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.BlitzForgeDialog;
@@ -147,6 +148,48 @@ public class MenuBar {
         }
     }
 
+    private static void handleNewProject(Chrome chrome) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        var chooser = new JFileChooser();
+        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+        chooser.setMultiSelectionEnabled(false);
+        chooser.setDialogTitle("New Project");
+
+        int result = chooser.showSaveDialog(chrome.getFrame());
+        if (result != JFileChooser.APPROVE_OPTION) {
+            return;
+        }
+
+        File selectedDir = chooser.getSelectedFile();
+        if (selectedDir == null) {
+            chrome.toolError("No directory selected.", "New Project");
+            return;
+        }
+
+        Path projectPath = selectedDir.toPath().toAbsolutePath().normalize();
+
+        Thread.ofPlatform().start(() -> {
+            try {
+                Files.createDirectories(projectPath);
+                GitRepoFactory.initRepo(projectPath);
+                SwingUtilities.invokeLater(
+                        () -> new Brokk.OpenProjectBuilder(projectPath).open().exceptionally(ex -> {
+                            chrome.toolError(
+                                    "Failed to open project: "
+                                            + (ex.getMessage() == null ? ex.toString() : ex.getMessage()),
+                                    "New Project");
+                            return false;
+                        }));
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> chrome.toolError(
+                        "Failed to create new project at " + projectPath + ": "
+                                + (ex.getMessage() == null ? ex.toString() : ex.getMessage()),
+                        "New Project"));
+            }
+        });
+    }
+
     /**
      * Builds the menu bar
      *
@@ -157,6 +200,10 @@ public class MenuBar {
 
         // File menu
         var fileMenu = new JMenu("File");
+
+        var newProjectItem = new JMenuItem("New Project...");
+        newProjectItem.addActionListener(e -> SwingUtilities.invokeLater(() -> handleNewProject(chrome)));
+        fileMenu.add(newProjectItem);
 
         var openProjectItem = new JMenuItem("Open Project...");
         openProjectItem.addActionListener(e -> Brokk.promptAndOpenProject(chrome.frame)); // No need to block on EDT
@@ -340,7 +387,7 @@ public class MenuBar {
         attachContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         attachContextItem.addActionListener(e -> {
-            chrome.getContextPanel().attachContextViaDialog();
+            chrome.getContextActionsHandler().attachContextViaDialog();
         });
         attachContextItem.setEnabled(true);
         contextMenu.add(attachContextItem);
@@ -349,7 +396,7 @@ public class MenuBar {
         summarizeContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         summarizeContextItem.addActionListener(e -> {
-            chrome.getContextPanel().attachContextViaDialog(true);
+            chrome.getContextActionsHandler().attachContextViaDialog(true);
         });
         contextMenu.add(summarizeContextItem);
 
@@ -462,14 +509,12 @@ public class MenuBar {
                 KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
         dropAllItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.getContextManager().submitContextTask(() -> {
-                chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of());
+                chrome.getContextActionsHandler()
+                        .performContextActionAsync(ContextActionsHandler.ContextAction.DROP, List.of());
             });
         }));
         dropAllItem.setEnabled(true);
         contextMenu.add(dropAllItem);
-
-        // Store reference in WorkspacePanel for dynamic state updates
-        chrome.getContextPanel().setDropAllMenuItem(dropAllItem);
 
         menuBar.add(contextMenu);
 
@@ -574,15 +619,15 @@ public class MenuBar {
                 var projectFilesItem = new JMenuItem("Project Files");
                 projectFilesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
                 projectFilesItem.addActionListener(actionEvent -> {
-                    chrome.getLeftTabbedPanel().setSelectedIndex(0);
+                    chrome.getToolsPane().setSelectedIndex(0);
                 });
                 windowMenu.add(projectFilesItem);
 
                 var testsItem = new JMenuItem("Tests");
                 testsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
                 testsItem.addActionListener(actionEvent -> {
-                    var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getTestRunnerPanel());
-                    if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                    var idx = chrome.getToolsPane().indexOfComponent(chrome.getTestRunnerPanel());
+                    if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                 });
                 windowMenu.add(testsItem);
 
@@ -593,8 +638,8 @@ public class MenuBar {
                     var changesItem = new JMenuItem("Changes");
                     changesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
                     changesItem.addActionListener(actionEvent -> {
-                        var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getGitCommitTab());
-                        if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                        var idx = chrome.getToolsPane().indexOfComponent(chrome.getGitCommitTab());
+                        if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                     });
                     windowMenu.add(changesItem);
 
@@ -603,8 +648,8 @@ public class MenuBar {
                     logItem.addActionListener(actionEvent -> {
                         var gitLogTab = chrome.getGitLogTab();
                         if (gitLogTab != null) {
-                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(gitLogTab);
-                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                            var idx = chrome.getToolsPane().indexOfComponent(gitLogTab);
+                            if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                         }
                     });
                     windowMenu.add(logItem);
@@ -614,8 +659,8 @@ public class MenuBar {
                     worktreesItem.addActionListener(actionEvent -> {
                         var gitWorktreeTab = chrome.getGitWorktreeTab();
                         if (gitWorktreeTab != null) {
-                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(gitWorktreeTab);
-                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                            var idx = chrome.getToolsPane().indexOfComponent(gitWorktreeTab);
+                            if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                         }
                     });
                     windowMenu.add(worktreesItem);
@@ -627,8 +672,8 @@ public class MenuBar {
                         var pullRequestsItem = new JMenuItem("Pull Requests");
                         pullRequestsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
                         pullRequestsItem.addActionListener(actionEvent -> {
-                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getPullRequestsPanel());
-                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                            var idx = chrome.getToolsPane().indexOfComponent(chrome.getPullRequestsPanel());
+                            if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                         });
                         windowMenu.add(pullRequestsItem);
                     }
@@ -638,8 +683,8 @@ public class MenuBar {
                         var issuesItem = new JMenuItem("Issues");
                         issuesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
                         issuesItem.addActionListener(actionEvent -> {
-                            var idx = chrome.getLeftTabbedPanel().indexOfComponent(chrome.getIssuesPanel());
-                            if (idx != -1) chrome.getLeftTabbedPanel().setSelectedIndex(idx);
+                            var idx = chrome.getToolsPane().indexOfComponent(chrome.getIssuesPanel());
+                            if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
                         });
                         windowMenu.add(issuesItem);
                     }

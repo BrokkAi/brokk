@@ -1162,6 +1162,13 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     }
 
     /**
+     * Returns true if this panel has unsaved changes.
+     */
+    public boolean hasUnsavedChanges() {
+        return saveButton != null && saveButton.isEnabled();
+    }
+
+    /**
      * Checks for unsaved changes and prompts the user to save, discard, or cancel closing.
      *
      * @return true if the window should close, false otherwise.

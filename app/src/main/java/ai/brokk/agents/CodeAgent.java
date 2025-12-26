@@ -15,6 +15,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ViewingPolicy;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.prompts.QuickEditPrompts;
@@ -22,8 +23,6 @@ import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.difflib.DiffUtils;
-import com.github.difflib.patch.AbstractDelta;
-import com.github.difflib.patch.Patch;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.AiMessage;
@@ -34,7 +33,22 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.SequencedSet;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -50,7 +64,6 @@ import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Manages interactions with a Language Model (LLM) to generate and apply code modifications based on user instructions.
@@ -62,11 +75,9 @@ public class CodeAgent {
     private static final Logger logger = LogManager.getLogger(CodeAgent.class);
     private static final int MAX_PARSE_ATTEMPTS = 3;
 
-    @VisibleForTesting
     static final int MAX_APPLY_FAILURES = 3;
     /** maximum consecutive build failures before giving up */
-    @VisibleForTesting
-    static final int MAX_BUILD_FAILURES = 5;
+    final int MAX_BUILD_FAILURES;
 
     final IContextManager contextManager;
     private final StreamingChatModel model;
@@ -83,6 +94,8 @@ public class CodeAgent {
         this.contextManager = contextManager;
         this.model = model;
         this.io = io;
+        // free tier models are dumber; cut them off sooner
+        MAX_BUILD_FAILURES = contextManager.getService().isFreeTier(model) ? 3 : 5;
         // placeholder to make Null Away happy; initialized in runTaskInternal
         this.context = new Context(contextManager);
     }
@@ -155,9 +168,14 @@ public class CodeAgent {
     @Blocking
     TaskResult runTaskInternal(
             Context initialContext, List<ChatMessage> prologue, String userInput, Set<Option> options) {
+        if (userInput.isBlank()) {
+            throw new IllegalStateException();
+        }
+
         var collectMetrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"));
         // Seed the local Context reference for this task
         context = initialContext;
+
         @Nullable Metrics metrics = collectMetrics ? new Metrics() : null;
 
         // Create Coder instance with the user's input as the task description
@@ -171,9 +189,8 @@ public class CodeAgent {
         // Retry-loop state tracking
         int applyFailures = 0;
         int blocksAppliedWithoutBuild = 0;
+        int totalBlocksParsed = 0;
 
-        String buildError = "";
-        var blocks = new LinkedHashSet<EditBlock.SearchReplaceBlock>(); // This will be part of WorkspaceState
         Map<ProjectFile, String> originalFileContents = new HashMap<>();
 
         TaskResult.StopDetails stopDetails;
@@ -184,18 +201,21 @@ public class CodeAgent {
         UserMessage nextRequest = CodePrompts.instance.codeRequest(
                 context, userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model));
 
-        // FSM state
-        var cs = new ConversationState(taskMessages, nextRequest, 0);
+        // FSM state - include original goal for build-retry compaction
+        var rawMessages = new ArrayList<ChatMessage>();
+        var cs = new ConversationState(rawMessages, taskMessages, nextRequest, 0, userInput.trim());
         var es = new EditState(
-                blocks,
                 0,
                 applyFailures,
                 0,
                 blocksAppliedWithoutBuild,
-                buildError,
+                totalBlocksParsed,
+                "",
                 changedFiles,
                 originalFileContents,
                 Collections.emptyMap(),
+                !initialContext.getBuildError().isBlank(),
+                false,
                 Map.of());
 
         // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
@@ -221,6 +241,14 @@ public class CodeAgent {
                 break;
             }
 
+            // Select the appropriate model for this turn
+            if (es.useArchitectModel()) {
+                var architectConfig = contextManager.getService().getModel(ModelProperties.ModelType.ARCHITECT);
+                coder.setModel(architectConfig);
+            } else {
+                coder.setModel(this.model);
+            }
+
             // Make the LLM request
             StreamingResult streamingResult;
             try {
@@ -231,8 +259,9 @@ public class CodeAgent {
                         prologue,
                         cs.taskMessages(),
                         requireNonNull(cs.nextRequest(), "nextRequest must be set before sending to LLM"),
-                        es.changedFiles(),
-                        viewingPolicy);
+                        viewingPolicy,
+                        userInput.trim(),
+                        es.showBuildError());
                 var llmStartNanos = System.nanoTime();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
@@ -255,7 +284,7 @@ public class CodeAgent {
             es = requestOutcome.es();
 
             // PARSE PHASE parses edit blocks
-            var parseOutcome = parsePhase(cs, es, streamingResult.text(), streamingResult.isPartial(), parser, metrics);
+            var parseOutcome = parsePhase(cs, es, streamingResult.text(), parser, metrics);
             if (parseOutcome instanceof Step.Fatal fatalParse) {
                 stopDetails = fatalParse.stopDetails();
                 break;
@@ -272,7 +301,8 @@ public class CodeAgent {
             es = parseOutcome.es();
 
             // APPLY PHASE applies blocks
-            var applyOutcome = applyPhase(cs, es, metrics, options);
+            var blocksToApply = ((Step.Continue) parseOutcome).blocks();
+            var applyOutcome = applyPhase(cs, es, blocksToApply, metrics, options);
             if (applyOutcome instanceof Step.Fatal fatalApply) {
                 stopDetails = fatalApply.stopDetails();
                 break;
@@ -302,7 +332,18 @@ public class CodeAgent {
                 context = context.addFragments(newFrags);
             }
 
-            // Refresh context fragments for any files that were modified (so LLM sees current contents)
+            // Refresh analyzer + context fragments for any files that were modified (so LLM sees current contents)
+            try {
+                contextManager
+                        .getAnalyzerWrapper()
+                        .updateFiles(es.changedFiles())
+                        .get();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                continue; // let main loop interruption check handle
+            } catch (ExecutionException e) {
+                throw new RuntimeException(e);
+            }
             context = context.copyAndRefresh(es.changedFiles(), "CodeAgent Changes");
 
             if (applyOutcome instanceof Step.Retry retryApply) {
@@ -311,32 +352,33 @@ public class CodeAgent {
                 continue; // Restart main loop
             }
 
-            // After a successful apply, consider compacting the turn into a clean, synthetic summary.
-            // Only do this if the turn had more than a single user/AI pair; for simple one-shot turns,
-            // keep the original messages for clarity.
-            if (es.blocksAppliedWithoutBuild() > 0) {
-                // update analyzer with changes so it can find newly created test files
-                try {
-                    contextManager
-                            .getAnalyzerWrapper()
-                            .updateFiles(es.changedFiles())
-                            .get();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    continue; // let main loop interruption check handle
-                } catch (ExecutionException e) {
-                    throw new RuntimeException(e);
+            // If the response was partial, we must ask the LLM to continue *after* applying the blocks we got
+            if (streamingResult.isPartial()) {
+                UserMessage messageForContinue;
+                String consoleLogForContinue;
+                if (blocksToApply.isEmpty()) {
+                    // Treat "partial with no blocks" as a parse failure
+                    int updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
+                    if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+                        reportComplete("Parse error limit reached (partial with no blocks); ending task.");
+                        stopDetails = new TaskResult.StopDetails(
+                                TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
+                        break;
+                    }
+                    messageForContinue = new UserMessage(
+                            "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
+                    consoleLogForContinue =
+                            "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
+                    es = es.withConsecutiveParseFailures(updatedConsecutiveParseFailures);
+                } else {
+                    messageForContinue = new UserMessage(getContinueFromLastBlockPrompt(blocksToApply.getLast()));
+                    consoleLogForContinue =
+                            "LLM indicated response was partial after %d clean blocks; asking to continue"
+                                    .formatted(blocksToApply.size());
                 }
-
-                int msgsThisTurn = cs.taskMessages().size() - cs.turnStartIndex();
-                if (msgsThisTurn > 2) {
-                    var srb = es.toSearchReplaceBlocks();
-                    var summaryText = "Here are the SEARCH/REPLACE blocks:\n\n"
-                            + srb.stream()
-                                    .map(EditBlock.SearchReplaceBlock::repr)
-                                    .collect(Collectors.joining("\n"));
-                    cs = cs.replaceCurrentTurnMessages(summaryText);
-                }
+                cs = cs.withNextRequest(messageForContinue);
+                report(consoleLogForContinue);
+                continue;
             }
 
             // PARSE-JAVA PHASE: If Java files were edited, run a parse-only check before full build
@@ -362,8 +404,6 @@ public class CodeAgent {
             es = parseJavaOutcome.es();
 
             // VERIFY or finish if build is deferred
-            assert es.pendingBlocks().isEmpty() : es;
-
             if (options.contains(Option.DEFER_BUILD)) {
                 // Report Java lint diagnostics before stopping (issue #2131)
                 // Note: In DEFER_BUILD mode, diagnostics are informational (build is deferred),
@@ -433,19 +473,15 @@ public class CodeAgent {
     }
 
     Step parsePhase(
-            ConversationState cs,
-            EditState es,
-            String llmText,
-            boolean isPartialResponse,
-            EditBlockParser parser,
-            @Nullable Metrics metrics) {
+            ConversationState cs, EditState es, String llmText, EditBlockParser parser, @Nullable Metrics metrics) {
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
 
         var parseResult =
                 parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
         var newlyParsedBlocks = parseResult.blocks();
+        int newlyParsedCount = newlyParsedBlocks.size();
         if (metrics != null) {
-            metrics.totalEditBlocks += newlyParsedBlocks.size();
+            metrics.totalEditBlocks += newlyParsedCount;
         }
 
         // Handle explicit parse errors from the parser
@@ -458,7 +494,8 @@ public class CodeAgent {
                 updatedConsecutiveParseFailures++;
 
                 // The bad response is the last message; the user request that caused it is the one before that.
-                // We will remove both, and create a new request that is the original + a reminder.
+                // We will remove both from taskMessages, and create a new request that is the original + a reminder.
+                // Note: rawMessages is never modified, it preserves the full conversation history.
                 cs.taskMessages().removeLast(); // bad AI response
                 var lastRequest = (UserMessage) cs.taskMessages().removeLast(); // original user request
 
@@ -473,7 +510,7 @@ public class CodeAgent {
                 messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
                 consoleLogForRetry =
                         "Malformed or incomplete response after %d blocks parsed; asking LLM to continue/fix"
-                                .formatted(newlyParsedBlocks.size());
+                                .formatted(newlyParsedCount);
             }
 
             if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
@@ -482,50 +519,17 @@ public class CodeAgent {
                         TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
             }
 
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
-            // Add any newly parsed blocks before the error to the pending set for the next apply phase
-            var nextPending = new LinkedHashSet<>(es.pendingBlocks());
-            nextPending.addAll(newlyParsedBlocks);
-            var nextEs = es.withPendingBlocks(nextPending, updatedConsecutiveParseFailures);
+            var nextCs = cs.withNextRequest(messageForRetry);
+            // In the case of a parse error, we still want to update totalBlocksParsed with what we found
+            var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
             report(consoleLogForRetry);
             return new Step.Retry(nextCs, nextEs);
         }
 
-        // No explicit parse error. Reset counter. Add newly parsed blocks to the pending set.
+        // No explicit parse error. Reset counter.
         int updatedConsecutiveParseFailures = 0;
-        var mutablePendingBlocks = new LinkedHashSet<>(es.pendingBlocks());
-        mutablePendingBlocks.addAll(newlyParsedBlocks);
-
-        // Handle case where LLM response was cut short, even if syntactically valid so far.
-        if (isPartialResponse) {
-            UserMessage messageForRetry;
-            String consoleLogForRetry;
-            if (newlyParsedBlocks.isEmpty()) {
-                // Treat "partial with no blocks" as a parse failure subject to MAX_PARSE_ATTEMPTS
-                updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
-                if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
-                    reportComplete("Parse error limit reached; ending task.");
-                    return new Step.Fatal(new TaskResult.StopDetails(
-                            TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
-                }
-                messageForRetry = new UserMessage(
-                        "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
-                consoleLogForRetry =
-                        "LLM indicated response was partial before any blocks; counting as parse failure and asking to continue";
-            } else {
-                messageForRetry = new UserMessage(getContinueFromLastBlockPrompt(newlyParsedBlocks.getLast()));
-                consoleLogForRetry = "LLM indicated response was partial after %d clean blocks; asking to continue"
-                        .formatted(newlyParsedBlocks.size());
-            }
-            var nextCs = new ConversationState(cs.taskMessages(), messageForRetry, cs.turnStartIndex());
-            var nextEs = es.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
-            report(consoleLogForRetry);
-            return new Step.Retry(nextCs, nextEs);
-        }
-
-        // No parse error, not a partial response. This is a successful, complete segment.
-        var nextEs = es.withPendingBlocks(mutablePendingBlocks, updatedConsecutiveParseFailures);
-        return new Step.Continue(cs, nextEs);
+        var nextEs = es.withParsedBlocks(updatedConsecutiveParseFailures, newlyParsedCount);
+        return new Step.Continue(cs, nextEs, newlyParsedBlocks);
     }
 
     /**
@@ -618,25 +622,27 @@ public class CodeAgent {
     private TaskResult.StopDetails runQuickEditValidation(ProjectFile file, String oldText, String snippet) {
         // Create synthetic SEARCH/REPLACE block
         var syntheticBlock = new EditBlock.SearchReplaceBlock(file.toString(), oldText, snippet);
+        var blocksToApply = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
+        blocksToApply.add(syntheticBlock);
 
-        // Build minimal EditState with the synthetic block
-        var pendingBlocks = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
-        pendingBlocks.add(syntheticBlock);
+        // Build minimal EditState
         var es = new EditState(
-                pendingBlocks,
                 0, // consecutiveParseFailures
                 0, // consecutiveApplyFailures
                 0, // consecutiveBuildFailures
                 0, // blocksAppliedWithoutBuild
+                0, // totalBlocksParsed
                 "", // lastBuildError
                 Set.of(), // changedFiles
                 Map.of(), // originalFileContents
                 Map.of(), // javaLintDiagnostics
+                false, // showBuildError
+                false, // useArchitectModel
                 Map.of()); // simulatedContents
 
         // Run through the shared validation pipeline with DryRun option
         Set<Option> options = Set.of(Option.DRY_RUN);
-        var result = runApplyAndParseJavaPhases(es, options);
+        var result = runApplyAndParseJavaPhases(es, blocksToApply, options);
 
         // Report and return the result
         if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
@@ -658,12 +664,13 @@ public class CodeAgent {
      * @param options Options controlling behavior (DryRun for validation-only, etc.)
      * @return ValidationResult with updated EditState and stop details
      */
-    private ValidationResult runApplyAndParseJavaPhases(EditState es, Set<Option> options) {
+    private ValidationResult runApplyAndParseJavaPhases(
+            EditState es, SequencedSet<EditBlock.SearchReplaceBlock> blocksToApply, Set<Option> options) {
         // Minimal ConversationState (required by phase signatures but not used for validation)
-        var cs = new ConversationState(List.of(), null, 0);
+        var cs = new ConversationState(new ArrayList<>(), new ArrayList<>(), null, 0, "");
 
         // APPLY PHASE: validate blocks can be applied (DryRun = simulate without writing)
-        var applyResult = applyPhase(cs, es, null, options);
+        var applyResult = applyPhase(cs, es, blocksToApply, null, options);
         if (applyResult instanceof Step.Fatal fatal) {
             return new ValidationResult(es, fatal.stopDetails());
         }
@@ -748,12 +755,12 @@ public class CodeAgent {
             report("LLM connection interrupted; parsing partial response and asking to continue.");
         }
 
-        // Append request and AI message to taskMessages
-        cs.taskMessages().add(requireNonNull(cs.nextRequest(), "nextRequest must be non-null when recording request"));
-        cs.taskMessages().add(streamingResultFromLlm.aiMessage());
+        // Append request and AI message to both rawMessages and taskMessages
+        cs.appendMessage(requireNonNull(cs.nextRequest(), "nextRequest must be non-null when recording request"));
+        cs.appendMessage(streamingResultFromLlm.aiMessage());
 
         // Null out nextRequest after use (Task 3)
-        var nextCs = new ConversationState(cs.taskMessages(), null, cs.turnStartIndex());
+        var nextCs = cs.withNextRequest(null);
         return new Step.Continue(nextCs, es);
     }
 
@@ -833,12 +840,29 @@ public class CodeAgent {
                         TaskResult.StopReason.BUILD_ERROR,
                         "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, buildError)));
             }
-            // Use processed output for LLM context, but fallback to sanitized if pipeline processing returned empty
-            UserMessage nextRequestForBuildFailure = new UserMessage(CodePrompts.buildFeedbackPrompt(context));
-            var newCs = new ConversationState(
-                    cs.taskMessages(),
-                    nextRequestForBuildFailure,
-                    cs.taskMessages().size());
+            var buildPrompt =
+                    """
+                    Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
+                    You should use the conversation history to understand what has been done so far, but
+                    only use the Workspace to generate SEARCH/REPLACE blocks.
+
+                    IMPORTANT: If solving the build or failure requires editing files or using APIs you do not have
+                    in your Workspace, do your best to explain the problem but DO NOT provide any edits.
+                    Otherwise, provide the edits as usual.
+
+                    <build_output>
+                    %s
+                    </build_output>
+
+                    <original_goal>
+                    %s
+                    </original_goal>
+                    """
+                            .formatted(buildError, cs.originalGoal());
+            UserMessage nextRequest = CodePrompts.instance.codeRequest(
+                    context, buildPrompt, CodePrompts.instance.codeReminder(contextManager.getService(), model));
+            // Compact conversation into a concise summary for the build step
+            var newCs = cs.forBuildRetry(nextRequest, es);
             var newEs = es.afterBuildFailure(buildError);
             report("Asking LLM to fix build/lint failures");
             return new Step.Retry(newCs, newEs);
@@ -856,17 +880,22 @@ public class CodeAgent {
     }
 
     @Blocking
-    Step applyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics, Set<Option> options) {
-        if (es.pendingBlocks().isEmpty()) {
+    Step applyPhase(
+            ConversationState cs,
+            EditState es,
+            SequencedSet<EditBlock.SearchReplaceBlock> blocksToApply,
+            @Nullable Metrics metrics,
+            Set<Option> options) {
+        if (blocksToApply.isEmpty()) {
             logger.debug("nothing to apply, continuing to next phase");
-            return new Step.Continue(cs, es);
+            return new Step.Continue(cs, es, blocksToApply);
         }
 
         boolean dryRun = options.contains(Option.DRY_RUN);
 
         // Guardrail: block edits to files designated read-only in the current context
         var readOnlyPaths = computeReadOnlyPaths(context);
-        var violating = es.pendingBlocks().stream()
+        var violating = blocksToApply.stream()
                 .map(EditBlock.SearchReplaceBlock::rawFileName)
                 .filter(readOnlyPaths::contains)
                 .collect(Collectors.toSet());
@@ -879,7 +908,7 @@ public class CodeAgent {
 
         // Dry-run mode: compute simulated contents without writing to files
         if (dryRun) {
-            return applyPhaseDryRun(cs, es);
+            return applyPhaseDryRun(cs, es, blocksToApply);
         }
 
         EditBlock.EditResult editResult;
@@ -888,37 +917,35 @@ public class CodeAgent {
         ConversationState csForStep = cs; // Will be updated
 
         try {
-            editResult = applyBlocksAndHandleErrors(context, es.pendingBlocks());
+            editResult = applyBlocksAndHandleErrors(context, blocksToApply);
 
-            int attemptedBlockCount = es.pendingBlocks().size();
-            var failedBlocks = editResult.failedBlocks();
+            int attemptedBlockCount = blocksToApply.size();
+            var failedResults = editResult.failures();
             if (metrics != null) {
-                metrics.failedEditBlocks += failedBlocks.size();
+                metrics.failedEditBlocks += failedResults.size();
             }
-            int succeededCount = attemptedBlockCount - failedBlocks.size();
+            int succeededCount = attemptedBlockCount - failedResults.size();
             assert succeededCount >= 0
                     : "succeededCount cannot be negative: attempted=%d, failed=%d"
-                            .formatted(attemptedBlockCount, failedBlocks.size());
+                            .formatted(attemptedBlockCount, failedResults.size());
             int newBlocksAppliedWithoutBuild = es.blocksAppliedWithoutBuild() + succeededCount;
             assert newBlocksAppliedWithoutBuild >= 0
                     : "blocksAppliedWithoutBuild cannot be negative: prior=%d, delta=%d"
                             .formatted(es.blocksAppliedWithoutBuild(), succeededCount);
 
-            SequencedSet<EditBlock.SearchReplaceBlock> nextPendingBlocks = new LinkedHashSet<>();
-
-            if (!failedBlocks.isEmpty()) { // Some blocks failed the direct apply
-                if (succeededCount == 0) { // Total failure for this batch of pendingBlocks
+            if (!failedResults.isEmpty()) { // Some blocks failed the direct apply
+                if (succeededCount == 0) { // Total failure for this batch of blocksToApply
                     updatedConsecutiveApplyFailures++;
                 } else { // Partial success
                     updatedConsecutiveApplyFailures = 0;
                 }
 
                 if (updatedConsecutiveApplyFailures >= MAX_APPLY_FAILURES) {
-                    var files = failedBlocks.stream()
+                    var files = failedResults.stream()
                             .map(b -> b.block().rawFileName())
                             .collect(Collectors.joining(","));
                     var detailMsg = "Apply failed %d consecutive times; unable to apply %d blocks to %s"
-                            .formatted(updatedConsecutiveApplyFailures, failedBlocks.size(), files);
+                            .formatted(updatedConsecutiveApplyFailures, failedResults.size(), files);
                     reportComplete(
                             "Apply failed %d consecutive times; aborting.".formatted(updatedConsecutiveApplyFailures));
                     var details = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, detailMsg);
@@ -927,28 +954,40 @@ public class CodeAgent {
                     if (metrics != null) {
                         metrics.applyRetries++;
                     }
-                    String retryPromptText = CodePrompts.getApplyFailureMessage(failedBlocks, succeededCount);
-                    UserMessage retryRequest = new UserMessage(retryPromptText);
-                    csForStep = new ConversationState(cs.taskMessages(), retryRequest, cs.turnStartIndex());
+
+                    String lastAiText = cs.taskMessages().isEmpty()
+                            ? ""
+                            : Messages.getText(cs.taskMessages().getLast());
+                    String buildError = es.lastBuildError();
+
+                    // Retrieve the base index for the blocks parsed in this response
+                    int turnParsedBase = es.totalBlocksParsed() - attemptedBlockCount;
+                    var retryMessages = CodePrompts.buildApplyRetryMessages(
+                            lastAiText, editResult.blockResults(), buildError, turnParsedBase);
+
+                    // Replace the last AI message in taskMessages with the tagged version
+                    // Note: rawMessages is not modified - it preserves the original conversation
+                    if (!cs.taskMessages().isEmpty() && cs.taskMessages().getLast() instanceof AiMessage) {
+                        cs.taskMessages().removeLast();
+                        cs.taskMessages().add(retryMessages.taggedAiMessage());
+                    }
+
+                    csForStep = cs.withNextRequest(retryMessages.retryRequest());
                     esForStep = es.afterApply(
-                            nextPendingBlocks,
                             updatedConsecutiveApplyFailures,
                             newBlocksAppliedWithoutBuild,
                             editResult.originalContents());
-                    report("Failed to apply %s block(s), asking LLM to retry".formatted(failedBlocks.size()));
+                    report("Failed to apply %s block(s), asking LLM to retry".formatted(failedResults.size()));
                     return new Step.Retry(csForStep, esForStep);
                 }
-            } else { // All blocks from es.pendingBlocks() applied successfully
+            } else { // All blocks applied successfully
                 if (succeededCount > 0) {
                     report(succeededCount + " SEARCH/REPLACE blocks applied.");
                 }
                 updatedConsecutiveApplyFailures = 0; // Reset on success
                 esForStep = es.afterApply(
-                        nextPendingBlocks,
-                        updatedConsecutiveApplyFailures,
-                        newBlocksAppliedWithoutBuild,
-                        editResult.originalContents());
-                return new Step.Continue(csForStep, esForStep);
+                        updatedConsecutiveApplyFailures, newBlocksAppliedWithoutBuild, editResult.originalContents());
+                return new Step.Continue(csForStep, esForStep, blocksToApply);
             }
         } catch (EditStopException e) {
             // Handle exceptions from findConflicts, preCreateNewFiles (if it threw that), or applyEditBlocks (IO)
@@ -972,11 +1011,12 @@ public class CodeAgent {
      * Dry-run mode for applyPhase: computes simulated file contents without writing to disk.
      * Used for Quick Edit to validate edits and run JDT diagnostics before committing changes.
      */
-    private Step applyPhaseDryRun(ConversationState cs, EditState es) {
+    private Step applyPhaseDryRun(
+            ConversationState cs, EditState es, SequencedSet<EditBlock.SearchReplaceBlock> blocksToApply) {
         var simulatedContents = new HashMap<ProjectFile, String>();
         var changedFiles = new HashSet<ProjectFile>();
 
-        for (var block : es.pendingBlocks()) {
+        for (var block : blocksToApply) {
             var file = contextManager.toFile(requireNonNull(block.rawFileName()));
             var currentContent = simulatedContents.containsKey(file)
                     ? simulatedContents.get(file)
@@ -1001,26 +1041,27 @@ public class CodeAgent {
 
         // Update EditState with simulated contents
         var nextEs = new EditState(
-                new LinkedHashSet<>(), // pendingBlocks cleared
                 es.consecutiveParseFailures(),
                 0, // reset apply failures
                 es.consecutiveBuildFailures(),
-                es.pendingBlocks().size(), // blocksAppliedWithoutBuild
+                blocksToApply.size(), // blocksAppliedWithoutBuild
+                es.totalBlocksParsed(),
                 es.lastBuildError(),
                 Collections.unmodifiableSet(changedFiles),
                 es.originalFileContents(),
                 es.javaLintDiagnostics(),
+                es.showBuildError(),
+                es.useArchitectModel(),
                 Collections.unmodifiableMap(simulatedContents));
 
-        report(es.pendingBlocks().size() + " SEARCH/REPLACE blocks validated (dry-run).");
-        return new Step.Continue(cs, nextEs);
+        report(blocksToApply.size() + " SEARCH/REPLACE blocks validated (dry-run).");
+        return new Step.Continue(cs, nextEs, blocksToApply);
     }
 
     /**
      * If any edited files in this turn include Java sources, run a parse-only check before attempting a full build. On
      * syntax errors, we construct a diagnostic summary and ask the LLM to fix those first.
      */
-    @VisibleForTesting
     static final Set<Integer> LOCAL_ONLY_IDS = Set.of(
             IProblem.UninitializedLocalVariable, // PJ-9
             IProblem.RedefinedLocal, // PJ-20
@@ -1050,7 +1091,6 @@ public class CodeAgent {
             IProblem.CannotThrowNull,
             IProblem.MethodReturnsVoid);
 
-    @VisibleForTesting
     static final Set<Integer> METHOD_LOCAL_IDS = Set.of(
             // Parameter / applicability for calls (e.g., ThreadLocal.withInitial(() -> { }))
             IProblem.ParameterMismatch, // PJ-16
@@ -1066,7 +1106,6 @@ public class CodeAgent {
             IProblem.IncompatibleReturnTypeForNonInheritedInterfaceMethod // PJ-18
             );
 
-    @VisibleForTesting
     static final Set<Integer> BLACKLIST_CATS = Set.of(
             CategorizedProblem.CAT_IMPORT, // PJ-4
             CategorizedProblem.CAT_MODULE, // exercised implicitly by PJ-11 classpath ignore
@@ -1082,7 +1121,6 @@ public class CodeAgent {
             CategorizedProblem.CAT_UNCHECKED_RAW // PJ-5/7/8/12/19 (type/import/classpath noise ignored)
             );
 
-    @VisibleForTesting
     static final Set<Integer> CROSS_FILE_INFERENCE_IDS = Set.of(
             IProblem.MissingTypeInLambda,
             IProblem.CannotInferElidedTypes,
@@ -1099,7 +1137,6 @@ public class CodeAgent {
      * present, we treat the CU as having "shaky type info" and suppress diagnostics that depend on precise symbol
      * resolution.
      */
-    @VisibleForTesting
     static final Set<Integer> RESOLUTION_NOISE_IDS = Set.of(
             IProblem.UndefinedType,
             IProblem.UndefinedMethod,
@@ -1116,7 +1153,6 @@ public class CodeAgent {
      * Diagnostics that require stable type info and should be suppressed when the CU shows resolution/inference noise.
      * Includes method applicability/override errors and foreach target/type errors.
      */
-    @VisibleForTesting
     static final Set<Integer> REQUIRES_STABLE_TYPE_INFO;
 
     static {
@@ -1129,7 +1165,6 @@ public class CodeAgent {
     }
 
     /** Decide if a JDT problem should be recorded by the pre-build Java parse step. */
-    @VisibleForTesting
     static boolean shouldKeepJavaProblem(
             int id, boolean isError, @Nullable Integer categoryId, boolean hasShakyTypeInfo) {
         // 0) If type info is shaky, suppress diagnostics that require stable symbol resolution.
@@ -1338,7 +1373,12 @@ public class CodeAgent {
         EditState es();
 
         /** continue to the next phase */
-        record Continue(ConversationState cs, EditState es) implements Step {}
+        record Continue(ConversationState cs, EditState es, SequencedSet<EditBlock.SearchReplaceBlock> blocks)
+                implements Step {
+            public Continue(ConversationState cs, EditState es) {
+                this(cs, es, new LinkedHashSet<>());
+            }
+        }
 
         /** this phase found a problem that it wants to send back to the llm */
         record Retry(ConversationState cs, EditState es) implements Step {}
@@ -1368,8 +1408,68 @@ public class CodeAgent {
      * {@link #requestPhase(ConversationState, EditState, StreamingResult, Metrics)} after sending, to prevent stale
      * reuse. Callers that need to send a request must {@link Objects#requireNonNull(Object) requireNonNull}
      * it first.
+     *
+     * @param rawMessages  the unprocessed conversation messages, never modified after appending
+     * @param taskMessages derived/processed messages for LLM consumption (may be compacted)
+     * @param originalGoal the user's original goal/instructions, preserved for build-retry compaction
      */
-    record ConversationState(List<ChatMessage> taskMessages, @Nullable UserMessage nextRequest, int turnStartIndex) {
+    record ConversationState(
+            List<ChatMessage> rawMessages,
+            List<ChatMessage> taskMessages,
+            @Nullable UserMessage nextRequest,
+            int turnStartIndex,
+            String originalGoal) {
+
+        ConversationState(
+                List<ChatMessage> taskMessages,
+                @Nullable UserMessage nextRequest,
+                int turnStartIndex,
+                String originalGoal) {
+            this(new ArrayList<>(taskMessages), taskMessages, nextRequest, turnStartIndex, originalGoal);
+        }
+
+        ConversationState withNextRequest(@Nullable UserMessage request) {
+            return new ConversationState(rawMessages, taskMessages, request, turnStartIndex, originalGoal);
+        }
+
+        /**
+         * Append a message to both rawMessages and taskMessages.
+         */
+        void appendMessage(ChatMessage message) {
+            rawMessages.add(message);
+            taskMessages.add(message);
+        }
+
+        /**
+         * Compact the conversation for build-retry: extract all reasoning/redacted content from AI messages
+         * in rawMessages and return a minimal conversation of [originalGoal, accumulated reasoning].
+         *
+         * @return a new ConversationState with compacted taskMessages, preserving rawMessages
+         */
+        ConversationState forBuildRetry(UserMessage retryRequest, EditState es) {
+            var explanations = rawMessages.stream()
+                    .filter(AiMessage.class::isInstance)
+                    .map(AiMessage.class::cast)
+                    .map(ai -> CodePrompts.redactAiMessage(ai, false)
+                            .map(AiMessage::text)
+                            .orElse(""))
+                    .filter(seg -> !seg.isBlank())
+                    .collect(Collectors.joining("\n\n"));
+            var summaryText =
+                    """
+                    [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
+                     All changes have been merged into the Workspace files you see above.]
+                    %s
+                    """
+                            .formatted(explanations.isBlank() ? "No explanations provided." : explanations);
+
+            var compactedMessages = new ArrayList<ChatMessage>();
+            compactedMessages.add(new UserMessage(originalGoal));
+            compactedMessages.add(new AiMessage(summaryText));
+            return new ConversationState(
+                    rawMessages, compactedMessages, retryRequest, compactedMessages.size(), originalGoal);
+        }
+
         /**
          * Replace all messages in the current turn (starting from turnStartIndex) with: - the original starting
          * UserMessage of the turn - a single synthetic AiMessage summarizing the edits.
@@ -1382,7 +1482,7 @@ public class CodeAgent {
                 logger.warn("Invalid turnStartIndex {}; cannot replace current turn messages safely.", turnStartIndex);
                 // Fall back: just append a synthetic message (should never happen in practice)
                 msgs.add(new AiMessage(summaryText));
-                return new ConversationState(msgs, nextRequest, msgs.size());
+                return new ConversationState(rawMessages, msgs, nextRequest, msgs.size(), originalGoal);
             }
 
             var startMsg = msgs.get(turnStartIndex);
@@ -1410,7 +1510,7 @@ public class CodeAgent {
             logger.debug("Replaced current turn messages (from index {}) with synthetic summary.", turnStartIndex);
 
             // After replacement, the next turn should start at the end of the current msgs
-            return new ConversationState(msgs, nextRequest, msgs.size());
+            return new ConversationState(rawMessages, msgs, nextRequest, msgs.size(), originalGoal);
         }
     }
 
@@ -1430,31 +1530,74 @@ public class CodeAgent {
     }
 
     record EditState(
-            // parsed but not yet applied
-            SequencedSet<EditBlock.SearchReplaceBlock> pendingBlocks,
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
             int consecutiveBuildFailures,
             int blocksAppliedWithoutBuild,
+            int totalBlocksParsed,
             String lastBuildError,
             Set<ProjectFile> changedFiles,
             Map<ProjectFile, String> originalFileContents,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
-            // For dry-run mode: simulated file contents (computed but not written)
+            boolean showBuildError,
+            boolean useArchitectModel,
             Map<ProjectFile, String> simulatedContents) {
 
-        /** Returns a new WorkspaceState with updated pending blocks and parse failures. */
-        EditState withPendingBlocks(SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks, int newParseFailures) {
-            return new EditState(
-                    newPendingBlocks,
-                    newParseFailures,
+        public EditState(
+                int consecutiveParseFailures,
+                int consecutiveApplyFailures,
+                int consecutiveBuildFailures,
+                int blocksAppliedWithoutBuild,
+                String lastBuildError,
+                Set<ProjectFile> changedFiles,
+                Map<ProjectFile, String> originalFileContents,
+                Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
+                boolean hasAttemptedBuild) {
+            this(
+                    consecutiveParseFailures,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures,
                     blocksAppliedWithoutBuild,
+                    0,
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
                     javaLintDiagnostics,
+                    hasAttemptedBuild,
+                    false,
+                    Map.of());
+        }
+
+        EditState withConsecutiveParseFailures(int count) {
+            return new EditState(
+                    count,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    totalBlocksParsed,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    javaLintDiagnostics,
+                    showBuildError,
+                    useArchitectModel,
+                    simulatedContents);
+        }
+
+        /** Returns a new WorkspaceState with updated parse failures and total parsed count. */
+        EditState withParsedBlocks(int newParseFailures, int newParsedCount) {
+            return new EditState(
+                    newParseFailures,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    totalBlocksParsed + newParsedCount,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    javaLintDiagnostics,
+                    showBuildError,
+                    false,
                     simulatedContents);
         }
 
@@ -1463,25 +1606,24 @@ public class CodeAgent {
          * baseline (originalFileContents) for the next turn.
          */
         EditState afterBuildFailure(String newBuildError) {
+            int newBuildFailures = consecutiveBuildFailures + 1;
             return new EditState(
-                    pendingBlocks,
                     consecutiveParseFailures,
                     consecutiveApplyFailures,
-                    consecutiveBuildFailures + 1,
+                    newBuildFailures,
                     0,
+                    totalBlocksParsed,
                     newBuildError,
                     changedFiles,
                     Map.of(), // Clear per-turn baseline
                     javaLintDiagnostics,
+                    false,
+                    newBuildFailures >= 3,
                     Map.of()); // Clear simulated contents
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
-        EditState afterApply(
-                SequencedSet<EditBlock.SearchReplaceBlock> newPendingBlocks,
-                int newApplyFailures,
-                int newBlocksApplied,
-                Map<ProjectFile, String> newOriginalContents) {
+        EditState afterApply(int newApplyFailures, int newBlocksApplied, Map<ProjectFile, String> newOriginalContents) {
             // Merge affected files from this apply into the running changedFiles set.
             var mergedChangedFiles = new HashSet<>(changedFiles);
             mergedChangedFiles.addAll(newOriginalContents.keySet());
@@ -1492,45 +1634,52 @@ public class CodeAgent {
                 mergedOriginals.putIfAbsent(e.getKey(), e.getValue());
             }
 
+            boolean shouldUseArchitect = newApplyFailures > 0 && newBlocksApplied == 0;
             return new EditState(
-                    newPendingBlocks,
                     consecutiveParseFailures,
                     newApplyFailures,
                     consecutiveBuildFailures,
                     newBlocksApplied,
+                    totalBlocksParsed,
                     lastBuildError,
                     Collections.unmodifiableSet(mergedChangedFiles),
                     Collections.unmodifiableMap(mergedOriginals),
                     javaLintDiagnostics,
+                    showBuildError,
+                    shouldUseArchitect,
                     simulatedContents);
         }
 
         EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
             return new EditState(
-                    pendingBlocks,
                     consecutiveParseFailures,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures,
                     blocksAppliedWithoutBuild,
+                    totalBlocksParsed,
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
                     diags,
+                    showBuildError,
+                    useArchitectModel,
                     simulatedContents);
         }
 
         /** For dry-run mode: set simulated file contents without writing to disk. */
         EditState withSimulatedContents(Map<ProjectFile, String> newSimulatedContents) {
             return new EditState(
-                    pendingBlocks,
                     consecutiveParseFailures,
                     consecutiveApplyFailures,
                     consecutiveBuildFailures,
                     blocksAppliedWithoutBuild,
+                    totalBlocksParsed,
                     lastBuildError,
                     changedFiles,
                     originalFileContents,
                     javaLintDiagnostics,
+                    showBuildError,
+                    useArchitectModel,
                     newSimulatedContents);
         }
 
@@ -1542,40 +1691,34 @@ public class CodeAgent {
          * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
          * history compaction without depending on the diff library package structure at compile time.
          */
-        @VisibleForTesting
+        @org.jetbrains.annotations.VisibleForTesting
         SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
             var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
 
-            // Include both files we have originals for and new files created in this turn
-            var candidates = new HashSet<>(changedFiles());
-            candidates.addAll(originals.keySet());
-
             // Sort for determinism
-            var sorted = candidates.stream()
+            var sorted = originals.keySet().stream()
                     .sorted(Comparator.comparing(ProjectFile::toString))
                     .toList();
 
             for (var file : sorted) {
                 String original = originals.getOrDefault(file, "");
-                String revised;
-                revised = file.read().orElse("");
-
+                String revised = file.read().orElse("");
                 if (Objects.equals(original, revised)) {
                     continue; // No effective change
                 }
 
                 // New file created this turn
-                if (!originals.containsKey(file)) {
-                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "", revised));
+                if (original.isBlank()) {
+                    results.add(new EditBlock.SearchReplaceBlock(file.toString(), "BRK_ENTIRE_FILE", revised));
                     continue;
                 }
 
-                var originalLines = original.isEmpty() ? List.<String>of() : Arrays.asList(original.split("\n", -1));
+                var originalLines = Arrays.asList(original.split("\n", -1));
                 var revisedLines = revised.isEmpty() ? List.<String>of() : Arrays.asList(revised.split("\n", -1));
 
                 try {
-                    Patch<String> patch = DiffUtils.diff(originalLines, revisedLines);
+                    var patch = DiffUtils.diff(originalLines, revisedLines);
 
                     // 1) Build minimal windows per delta in original line space
                     record Window(int start, int end) {
@@ -1588,7 +1731,7 @@ public class CodeAgent {
                         }
                     }
                     var windows = new ArrayList<Window>();
-                    for (AbstractDelta<String> delta : patch.getDeltas()) {
+                    for (var delta : patch.getDeltas()) {
                         var src = delta.getSource();
                         int sPos = src.getPosition();
                         int sSize = src.size();
@@ -1649,7 +1792,7 @@ public class CodeAgent {
                                     d.getSource().getPosition(),
                                     d.getSource().size(),
                                     d.getTarget().size() - d.getSource().size()))
-                            .sorted(Comparator.comparingInt(s -> s.pos))
+                            .sorted(Comparator.comparingInt(DeltaShape::pos))
                             .toList();
 
                     for (var w : merged) {
@@ -1663,7 +1806,7 @@ public class CodeAgent {
                         int windowLen = w.end - w.start + 1;
                         // Net deltas that intersect the window
                         int netInWindow = 0;
-                        for (AbstractDelta<String> d : patch.getDeltas()) {
+                        for (var d : patch.getDeltas()) {
                             int p = d.getSource().getPosition();
                             int sz = d.getSource().size();
                             int net = d.getTarget().size() - sz;
@@ -1701,6 +1844,30 @@ public class CodeAgent {
             }
             return results;
         }
+
+        private static String joinLines(List<String> lines, int start, int end) {
+            if (lines.isEmpty() || start > end) return "";
+            var sj = new java.util.StringJoiner("\n");
+            for (int i = start; i <= end; i++) {
+                sj.add(lines.get(i));
+            }
+            return sj.toString();
+        }
+
+        private static int countOccurrences(String text, String sub) {
+            if (sub.isEmpty()) return 0;
+            int count = 0;
+            int idx = 0;
+            while ((idx = text.indexOf(sub, idx)) != -1) {
+                count++;
+                idx += sub.length();
+            }
+            return count;
+        }
+
+        private static int clamp(int val, int min, int max) {
+            return Math.max(min, Math.min(max, val));
+        }
     }
 
     @Blocking
@@ -1729,32 +1896,6 @@ public class CodeAgent {
                 .collect(Collectors.toSet());
         var files = Streams.concat(Sets.difference(readonly, editableAll).stream(), readonlyPaths.stream());
         return files.map(ProjectFile::toString).collect(Collectors.toSet());
-    }
-
-    private static int clamp(int v, int lo, int hi) {
-        return Math.max(lo, Math.min(hi, v));
-    }
-
-    private static String joinLines(List<String> lines, int start, int end) {
-        if (lines.isEmpty() || start > end) return "";
-        var slice = String.join("\n", lines.subList(start, end + 1));
-        return slice.isEmpty() ? "" : ensureTerminated(slice);
-    }
-
-    private static int countOccurrences(String text, String needle) {
-        if (needle.isEmpty()) return 0;
-        int count = 0;
-        int idx = 0;
-        while ((idx = text.indexOf(needle, idx)) != -1) {
-            count++;
-            idx = idx + Math.max(1, needle.length());
-        }
-        return count;
-    }
-
-    private static String ensureTerminated(String s) {
-        if (s.isEmpty()) return s;
-        return s.endsWith("\n") ? s : s + "\n";
     }
 
     static class Metrics {

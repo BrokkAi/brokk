@@ -15,6 +15,7 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -22,9 +23,15 @@ import java.util.stream.Stream;
 public class TestProject implements IProject {
     private final Path root;
     private final Language language;
+
+    private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
+            CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
     private BuildAgent.BuildDetails buildDetails = BuildAgent.BuildDetails.EMPTY;
+    private boolean buildDetailsExplicitlySet = false;
+
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
+    private Set<String> exclusionPatterns = Set.of();
     private boolean hasGit = false;
 
     public TestProject(Path root) {
@@ -40,6 +47,29 @@ public class TestProject implements IProject {
 
     public void setBuildDetails(BuildAgent.BuildDetails buildDetails) {
         this.buildDetails = buildDetails;
+        this.buildDetailsExplicitlySet = true;
+
+        if (!detailsFuture.isDone()) {
+            detailsFuture.complete(buildDetails);
+            return;
+        }
+
+        detailsFuture = CompletableFuture.completedFuture(buildDetails);
+    }
+
+    @Override
+    public boolean hasBuildDetails() {
+        return buildDetailsExplicitlySet;
+    }
+
+    @Override
+    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
+        return detailsFuture;
+    }
+
+    @Override
+    public void saveBuildDetails(BuildAgent.BuildDetails details) {
+        setBuildDetails(details);
     }
 
     @Override
@@ -49,7 +79,7 @@ public class TestProject implements IProject {
 
     @Override
     public BuildAgent.BuildDetails awaitBuildDetails() {
-        return this.buildDetails;
+        return detailsFuture.join();
     }
 
     @Override
@@ -69,6 +99,15 @@ public class TestProject implements IProject {
 
     public void setStyleGuide(String styleGuide) {
         this.styleGuide = styleGuide;
+    }
+
+    public void setExclusionPatterns(Set<String> patterns) {
+        this.exclusionPatterns = patterns;
+    }
+
+    @Override
+    public Set<String> getExclusionPatterns() {
+        return exclusionPatterns;
     }
 
     public void setHasGit(boolean hasGit) {
@@ -135,5 +174,17 @@ public class TestProject implements IProject {
             }
             return Collections.emptySet();
         }
+    }
+
+    /**
+     * Returns true if this test project contains no analyzable source files.
+     */
+    public boolean isEmptyProject() {
+        Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
+                .filter(lang -> lang != Languages.NONE)
+                .flatMap(lang -> lang.getExtensions().stream())
+                .collect(Collectors.toSet());
+
+        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
     }
 }

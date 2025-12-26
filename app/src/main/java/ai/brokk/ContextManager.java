@@ -859,9 +859,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         io.showNotification(IConsoleIO.NotificationRole.INFO, message);
     }
 
-    /** Clear conversation history. */
+    /** Clear conversation history and task list. */
     public void clearHistory() {
-        pushContext(Context::clearHistory);
+        pushContext(currentLiveCtx -> currentLiveCtx
+                .clearHistory()
+                .withTaskList(new TaskList.TaskListData(List.of()), "Clear task history and tasks"));
     }
 
     /**
@@ -1373,7 +1375,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * <p>Note: Parameters are non-null by default in this codebase (NullAway).
      */
-    @Blocking
     private static String contextDescription(Collection<? extends ContextFragment> fragments) {
         int count = fragments.size();
         if (count == 0) {
@@ -1382,7 +1383,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (count <= 2) {
             return fragments.stream()
                     .map(ContextFragment::shortDescription)
-                    .map(ComputedValue::join)
+                    .map(cv -> cv.renderNowOr("<pending>"))
                     .collect(Collectors.joining(", "));
         }
         return count + " fragments";
@@ -1896,6 +1897,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private synchronized void ensureBuildDetailsAsync() {
         if (project.hasBuildDetails()) {
             logger.debug("Using existing build details");
+            return;
+        }
+
+        if (project.isEmptyProject()) {
+            logger.debug("Project has no analyzable source files, skipping build details inference");
+            if (!project.hasBuildDetails()) {
+                project.saveBuildDetails(BuildDetails.EMPTY);
+            }
             return;
         }
 

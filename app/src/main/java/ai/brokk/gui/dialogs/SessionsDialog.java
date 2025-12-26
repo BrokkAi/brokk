@@ -11,7 +11,7 @@ import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.HistoryGrouping;
-import ai.brokk.gui.WorkspacePanel;
+import ai.brokk.gui.WorkspaceItemsChipPanel;
 import ai.brokk.gui.components.LoadingTextBox;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
@@ -81,7 +81,7 @@ public class SessionsDialog extends BaseThemedDialog {
     private ResetArrowLayerUI arrowLayerUI;
 
     // Preview components
-    private WorkspacePanel workspacePanel;
+    private WorkspaceItemsChipPanel workspaceItemsChipPanel;
     private MarkdownOutputPanel markdownOutputPanel;
     private JScrollPane markdownScrollPane;
     private @Nullable Context selectedActivityContext;
@@ -197,9 +197,26 @@ public class SessionsDialog extends BaseThemedDialog {
         activityTable.getColumnModel().getColumn(ACT_COL_CONTEXT).setMaxWidth(0);
         activityTable.getColumnModel().getColumn(ACT_COL_CONTEXT).setWidth(0);
 
-        // Initialize workspace panel for preview (copy-only menu)
-        workspacePanel = new WorkspacePanel(chrome, contextManager, WorkspacePanel.PopupMenuMode.COPY_ONLY);
-        workspacePanel.setWorkspaceEditable(false); // Make workspace read-only in manage dialog
+        // Add mouse listener for right-click context menu on activity table
+        activityTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showActivityContextMenu(e);
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    showActivityContextMenu(e);
+                }
+            }
+        });
+
+        // Initialize workspace panel for preview
+        workspaceItemsChipPanel = new WorkspaceItemsChipPanel(chrome);
+        workspaceItemsChipPanel.setReadOnly(true);
 
         // Initialize markdown output panel for preview
         markdownOutputPanel = new MarkdownOutputPanel();
@@ -241,37 +258,42 @@ public class SessionsDialog extends BaseThemedDialog {
         activityScrollPane.getViewport().addChangeListener(e -> layer.repaint());
         activityPanel.add(layer, BorderLayout.CENTER);
 
-        // Create workspace panel without additional border (workspacePanel already has its own border)
+        // Create workspace panel
         JPanel workspacePanelContainer = new JPanel(new BorderLayout());
-        workspacePanelContainer.add(workspacePanel, BorderLayout.CENTER);
+        workspacePanelContainer.setBorder(BorderFactory.createTitledBorder("Context"));
+        JScrollPane workspaceScrollPane = new JScrollPane(workspaceItemsChipPanel);
+        workspaceScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        workspaceScrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        workspacePanelContainer.add(workspaceScrollPane, BorderLayout.CENTER);
 
         // Create MOP panel
         JPanel mopPanel = new JPanel(new BorderLayout());
         mopPanel.setBorder(BorderFactory.createTitledBorder("Output"));
         mopPanel.add(markdownScrollPane, BorderLayout.CENTER);
 
-        // Create top row with Sessions (30%), Activity (30%), and MOP (40%) horizontal space
-        JSplitPane topFirstSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sessionsPanel, activityPanel);
-        topFirstSplit.setResizeWeight(0.6); // 1.5 : 1  => 0.6 of the sub-split goes to Sessions
+        // Create top horizontal split for Sessions and Activity
+        JSplitPane sessionsActivitySplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sessionsPanel, activityPanel);
+        sessionsActivitySplit.setResizeWeight(0.5); // Equal initial distribution
 
-        JSplitPane topSecondSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, topFirstSplit, mopPanel);
-        topSecondSplit.setResizeWeight(5.0 / 9.0); // (1.5+1) : 2  => 5/9 ≈ 0.556 goes to Sessions+Activity
+        // Create left vertical split: (Sessions + Activity) on top, Workspace below
+        JSplitPane leftVerticalSplit =
+                new JSplitPane(JSplitPane.VERTICAL_SPLIT, sessionsActivitySplit, workspacePanelContainer);
+        leftVerticalSplit.setResizeWeight(0.75); // Top gets 75%, workspace gets 25%
 
-        // Set divider locations after the dialog is shown to achieve 30%/30%/40% split
+        // Create main horizontal split: Left (Sessions/Activity/Workspace) and Right (Output)
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftVerticalSplit, mopPanel);
+        mainSplit.setResizeWeight(0.6); // Left side gets 60%, Output gets 40%
+
+        // Set divider locations after the dialog is shown
         SwingUtilities.invokeLater(() -> {
-            int totalWidth = topSecondSplit.getWidth();
+            int totalWidth = mainSplit.getWidth();
             if (totalWidth > 0) {
-                // 1.5 : 1 : 2  (total units 4.5)
-                // First divider at 1/3 of total width (Sessions width)
-                topFirstSplit.setDividerLocation(totalWidth / 3);
-                // Second divider at (1/3 + 2/9) = 5/9 of total width (Sessions + Activity)
-                topSecondSplit.setDividerLocation((5 * totalWidth) / 9);
+                // Main split: 60% left, 40% right
+                mainSplit.setDividerLocation((int) (totalWidth * 0.6));
+                // Within the left side, split Sessions and Activity 50/50
+                sessionsActivitySplit.setDividerLocation(mainSplit.getDividerLocation() / 2);
             }
         });
-
-        // Create main vertical split with top row and workspace below
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, topSecondSplit, workspacePanelContainer);
-        mainSplit.setResizeWeight(0.75); // Top gets 75%, workspace gets 25%
 
         // Create button panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -436,7 +458,7 @@ public class SessionsDialog extends BaseThemedDialog {
 
     private void updatePreviewPanels(Context context) {
         // Update workspace panel with selected context
-        workspacePanel.populateContextTable(context);
+        workspaceItemsChipPanel.setFragmentsForContext(context);
 
         // Update MOP with task history if available
         var taskHistory = context.getTaskHistory();
@@ -457,10 +479,61 @@ public class SessionsDialog extends BaseThemedDialog {
 
     private void clearPreviewPanels() {
         // Clear workspace panel
-        workspacePanel.populateContextTable(null);
+        workspaceItemsChipPanel.setFragments(List.of());
 
         // Clear MOP
         markdownOutputPanel.clear();
+    }
+
+    private void showActivityContextMenu(MouseEvent e) {
+        int row = activityTable.rowAtPoint(e.getPoint());
+        if (row < 0) return;
+
+        // Select the row if not already selected
+        activityTable.setRowSelectionInterval(row, row);
+
+        Object value = activityTableModel.getValueAt(row, ACT_COL_CONTEXT);
+        if (!(value instanceof Context context)) {
+            return;
+        }
+
+        JPopupMenu popup = new JPopupMenu();
+
+        JMenuItem copyContextItem = new JMenuItem("Copy Context");
+        copyContextItem.addActionListener(event -> {
+            contextManager.resetContextToAsync(context);
+            dispose();
+        });
+        popup.add(copyContextItem);
+
+        JMenuItem copyContextWithHistoryItem = new JMenuItem("Copy Context + History");
+        copyContextWithHistoryItem.addActionListener(event -> {
+            contextManager.resetContextToIncludingHistoryAsync(context);
+            dispose();
+        });
+        popup.add(copyContextWithHistoryItem);
+
+        popup.addSeparator();
+
+        JMenuItem newSessionFromWorkspaceItem = new JMenuItem("New Session from Workspace");
+        newSessionFromWorkspaceItem.addActionListener(event -> {
+            contextManager
+                    .createSessionFromContextAsync(context, ContextManager.DEFAULT_SESSION_NAME)
+                    .thenRun(() -> {
+                        chrome.getRightPanel().updateSessionComboBox();
+                        dispose();
+                    })
+                    .exceptionally(ex -> {
+                        chrome.toolError("Failed to create new session from workspace: " + ex.getMessage());
+                        return null;
+                    });
+        });
+        popup.add(newSessionFromWorkspaceItem);
+
+        // Register popup with theme manager
+        chrome.getTheme().registerPopupMenu(popup);
+
+        popup.show(activityTable, e.getX(), e.getY());
     }
 
     public void refreshSessionsTable() {

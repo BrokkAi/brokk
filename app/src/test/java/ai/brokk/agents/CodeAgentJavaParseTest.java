@@ -29,15 +29,17 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                new LinkedHashSet<>(), // pending blocks
-                0, // parse failures
-                0, // apply failures
-                0, // build failures
+                0, // consecutiveParseFailures
+                0, // consecutiveApplyFailures
+                0, // consecutiveBuildFailures
                 1, // blocksAppliedWithoutBuild
+                0, // totalBlocksParsed
                 "", // lastBuildError
-                new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
+                new HashSet<>(Set.of(javaFile)), // changedFiles
                 new HashMap<>(), // originalFileContents
                 new HashMap<>(), // javaLintDiagnostics
+                false, // showBuildError
+                false, // useArchitectModel
                 Map.of() // simulatedContents
                 );
         var step = codeAgent.parseJavaPhase(cs, es, null);
@@ -182,16 +184,19 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                new LinkedHashSet<>(),
-                0,
-                0,
-                0,
-                1,
-                "",
-                new HashSet<>(Set.of(f1, f2)),
-                new HashMap<>(),
-                new HashMap<>(),
-                Map.of());
+                0, // consecutiveParseFailures
+                0, // consecutiveApplyFailures
+                0, // consecutiveBuildFailures
+                1, // blocksAppliedWithoutBuild
+                0, // totalBlocksParsed
+                "", // lastBuildError
+                new HashSet<>(Set.of(f1, f2)), // changedFiles
+                new HashMap<>(), // originalFileContents
+                new HashMap<>(), // javaLintDiagnostics
+                false, // showBuildError
+                false, // useArchitectModel
+                Map.of() // simulatedContents
+        );
 
         var result = codeAgent.parseJavaPhase(cs, es, null);
         var diags = result.es().javaLintDiagnostics();
@@ -454,15 +459,17 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                new LinkedHashSet<>(), // pending blocks
-                0, // parse failures
-                0, // apply failures
-                0, // build failures
-                0, // blocksAppliedWithoutBuild => skip parse phase
+                0, // consecutiveParseFailures
+                0, // consecutiveApplyFailures
+                0, // consecutiveBuildFailures
+                0, // blocksAppliedWithoutBuild
+                0, // totalBlocksParsed
                 "", // lastBuildError
-                new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
+                new HashSet<>(Set.of(javaFile)), // changedFiles
                 new HashMap<>(), // originalFileContents
                 new HashMap<>(), // javaLintDiagnostics
+                false, // showBuildError
+                false, // useArchitectModel
                 Map.of() // simulatedContents
                 );
         var step = codeAgent.parseJavaPhase(cs, es, null);

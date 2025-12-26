@@ -22,6 +22,7 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.McpPrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -106,6 +107,31 @@ public class SearchAgent {
         public abstract Set<Terminal> terminals();
     }
 
+    /**
+     * Configuration for automatic context scanning behavior.
+     */
+    public record ScanConfig(
+            boolean autoScan, // Whether to auto-scan when workspace is empty or on first search tool
+            @Nullable StreamingChatModel scanModel, // Model to use for ContextAgent (null = use project default)
+            boolean appendToScope // Whether to append scan results to scope history
+            ) {
+        public static ScanConfig defaults() {
+            return new ScanConfig(true, null, true);
+        }
+
+        public static ScanConfig disabled() {
+            return new ScanConfig(false, null, true);
+        }
+
+        public static ScanConfig withModel(StreamingChatModel model) {
+            return new ScanConfig(true, model, true);
+        }
+
+        public static ScanConfig noAppend() {
+            return new ScanConfig(true, null, false);
+        }
+    }
+
     // Keep thresholds consistent with other agents
     private static final int SUMMARIZE_THRESHOLD = 1_000; // ~120 LOC equivalent
     private static final double WORKSPACE_CRITICAL = 0.80; // 90% of input limit
@@ -120,6 +146,9 @@ public class SearchAgent {
     private final Objective objective;
     private final List<McpPrompts.McpTool> mcpTools;
     private final SearchMetrics metrics;
+    private final ScanConfig scanConfig;
+    private boolean scanPerformed;
+    private boolean contextPruned;
 
     // Local working context snapshot for this agent
     private Context context;
@@ -132,14 +161,15 @@ public class SearchAgent {
     private boolean codeAgentJustSucceeded;
 
     /**
-     * Creates a SearchAgent with explicit IO (streaming is enabled unless IO is MutedConsoleIO).
+     * Primary constructor with explicit IO and ScanConfig.
      *
      * @param initialContext the initial context
      * @param goal the search goal
      * @param model the LLM model to use
      * @param objective the search objective
      * @param scope the task scope for history recording
-     * @param io the IConsoleIO instance for output (null defaults to cm.getIo())
+     * @param io the IConsoleIO instance for output
+     * @param scanConfig configuration for automatic context scanning
      */
     public SearchAgent(
             Context initialContext,
@@ -147,7 +177,8 @@ public class SearchAgent {
             StreamingChatModel model,
             Objective objective,
             ContextManager.TaskScope scope,
-            IConsoleIO io) {
+            IConsoleIO io,
+            ScanConfig scanConfig) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
@@ -179,6 +210,7 @@ public class SearchAgent {
         }
         this.mcpTools = List.copyOf(tools);
         this.context = initialContext;
+        this.scanConfig = scanConfig;
     }
 
     /**
@@ -196,7 +228,8 @@ public class SearchAgent {
                 model,
                 objective,
                 scope,
-                initialContext.getContextManager().getIo());
+                initialContext.getContextManager().getIo(),
+                ScanConfig.defaults());
     }
 
     /** Entry point. Runs until answer/abort or interruption. */
@@ -224,10 +257,19 @@ public class SearchAgent {
                 .count();
     }
 
+    private boolean shouldAutomaticallyScan() {
+        return scanConfig.autoScan() && !scanPerformed;
+    }
+
     private TaskResult executeInternal() throws InterruptedException {
         // Create a per-turn WorkspaceTools instance bound to the agent-local Context
         var wst = new WorkspaceTools(context);
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
+
+        pruneContext();
+        if (shouldAutomaticallyScan() && context.isFileContentEmpty()) {
+            performAutoScan();
+        }
 
         // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
@@ -239,8 +281,7 @@ public class SearchAgent {
             boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
             var viewingPolicy = new ViewingPolicy(TaskResult.Type.SEARCH, useTaskList);
             // Build workspace messages in insertion order with viewing policy applied
-            var workspaceMessages =
-                    new ArrayList<>(CodePrompts.instance.getWorkspaceMessagesInAddedOrder(context, viewingPolicy));
+            var workspaceMessages = new ArrayList<>(WorkspacePrompts.getMessagesInAddedOrder(context, viewingPolicy));
             var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
             if (!beastMode && inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit) {
                 io.showNotification(
@@ -306,12 +347,20 @@ public class SearchAgent {
                 return errorResult(details, taskMeta());
             }
 
+            // If we haven't scanned yet and the model needs to search, preempt the turn with scan and retry
+            var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+            if (shouldAutomaticallyScan()
+                    && ai.toolExecutionRequests().stream().anyMatch(req -> isSearchTool(req.name()))) {
+                logger.debug("Lazy scan triggered by first search tool");
+                performAutoScan();
+                continue;
+            }
+
             // Record turn
             sessionMessages.add(new UserMessage("What tools do you want to use next?"));
             sessionMessages.add(result.aiMessage());
 
-            // De-duplicate requested tools and handle answer/abort isolation
-            var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
+            // LLM tries to enforce tc requirement so don't retry if it's missing; we're done
             if (!ai.hasToolExecutionRequests()) {
                 return errorResult(
                         new TaskResult.StopDetails(
@@ -434,29 +483,18 @@ public class SearchAgent {
             int workspaceTokens, int minInputLimit, List<ChatMessage> precomputedWorkspaceMessages)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
-
         var reminder = CodePrompts.instance.askReminder();
         var supportedTypes = cm.getProject().getAnalyzerLanguages().stream()
                 .map(Language::name)
                 .collect(Collectors.joining(", "));
 
         var nonDroppableSection = buildNonDroppableSection();
-        var workspaceToc = CodePrompts.formatWorkspaceToc(context);
+        var workspaceToc = WorkspacePrompts.formatToc(context);
 
         var sys = new SystemMessage(
                 """
                 <instructions>
-                You are the Search Agent.
-                Your job is to be the **Code Agent's preparer**. You are a researcher and librarian, not a developer.
-                  Your responsibilities are:
-                    1.  **Find & Discover:** Use search and inspection tools to locate all relevant files, classes, and methods.
-                    2.  **Curate & Prepare:** Aggressively prune the Workspace to leave *only* the essential context (files, summaries, notes) that the Code Agent will need.
-                    3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent to begin implementation.
-
-                  Remember: **You must never write, create, or modify code.**
-                  Your purpose is to *find* existing code, not *create* new code.
-                  The Code Agent is solely responsible for all code generation and modification.
-
+                %s
                 Critical rules:
                   1) PRUNE FIRST at every turn.
                      - Remove fragments that are not directly useful for the goal (add a reason).
@@ -489,7 +527,12 @@ public class SearchAgent {
                 %s
                 </workspace-toc>
                 """
-                        .formatted(supportedTypes, reminder, nonDroppableSection, workspaceToc));
+                        .formatted(
+                                getSystemMessage().text(),
+                                supportedTypes,
+                                reminder,
+                                nonDroppableSection,
+                                workspaceToc));
         messages.add(sys);
 
         // Describe available MCP tools
@@ -594,8 +637,63 @@ public class SearchAgent {
 
         var terminalObjective = buildTerminalObjective();
 
+        String emptyProjectGuidance = "";
+        if (cm.getProject().isEmptyProject()) {
+            emptyProjectGuidance =
+                    """
+                    <empty-project-notice>
+                    The project appears to be empty or uninitialized (few or no source files).
+                    Adapt your approach:
+                      - Prefer searching the repository structure first (e.g., `skimDirectory`, `searchFilenames`) to confirm what exists.
+                      - If the user's request requires new code, your role is still to prepare context and produce tasks, not to write code.
+                      - For code-change requests, prefer producing a task list that starts with creating the minimal project skeleton and build/test setup.
+                    </empty-project-notice>
+                    """;
+        }
+
+        String buildSetupTaskGuidance = "";
+        boolean tasksObjective = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
+        if (tasksObjective && cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
+            buildSetupTaskGuidance =
+                    """
+                    <build-setup-task-guidance>
+                    If you produce a task list, the FIRST task MUST configure the build and test stack (and any required environment variables)
+                    so that subsequent tasks can run `build/lint` and tests.
+                    </build-setup-task-guidance>
+                    """;
+        }
+
         String directive =
                 """
+                        <instructions>
+                        Critical rules:
+                          1) PRUNE FIRST at every turn.
+                             - Remove fragments that are not directly useful for the goal (add a reason).
+                             - Prefer concise, goal-focused summaries over full files when possible.
+                             - When you pull information from a long fragment, first add your extraction/summary, then drop the original from workspace.
+                             - Keep the Workspace focused on answering/solving the goal.
+                          2) Use search and inspection tools to discover relevant code, including classes/methods/usages/call graphs.
+                             The symbol-based tools only have visibility into the following file types: %s
+                             Use text-based tools if you need to search other file types.
+                          3) Group related lookups into a single tool call when possible.
+                          4) Make multiple tool calls at once when searching for different types of code.
+                          5) Your responsibility ends at providing context.
+                             Do not attempt to write the solution or pseudocode for the solution.
+                             Your job is to *gather* the materials; the Code Agent's job is to *use* them.
+                             Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
+                             and let the Code Agent write the code. (But when refactoring, it is usually sufficient to call `addSymbolUsagesToWorkspace`
+                             and let Code Agent edit those fragments directly, instead of adding each call site's entire file.)
+                             Note: Code Agent will also take care of creating new files, you only need to add existing files
+                             to the Workspace.
+
+                        Output discipline:
+                          - Start each turn by pruning and summarizing before any new exploration.
+                          - Think before calling tools.
+                          - If you already know what to add, use Workspace tools directly; do not search redundantly.
+
+                        %s
+                        </instructions>
+
                         <%s>
                         %s
                         </%s>
@@ -603,6 +701,9 @@ public class SearchAgent {
                         <search-objective>
                         %s
                         </search-objective>
+
+                        %s
+                        %s
 
                         Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
@@ -625,10 +726,14 @@ public class SearchAgent {
                         %s
                         """
                         .formatted(
-                                terminalObjective.type,
+                                supportedTypes,
+                                CodePrompts.instance.askReminder(),
+                                terminalObjective.type(),
                                 goal,
                                 terminalObjective.type(),
                                 terminalObjective.text(),
+                                emptyProjectGuidance,
+                                buildSetupTaskGuidance,
                                 testsGuidance,
                                 finalsStr,
                                 warning);
@@ -650,6 +755,22 @@ public class SearchAgent {
         return messages;
     }
 
+    static SystemMessage getSystemMessage() {
+        return new SystemMessage(
+                """
+                        You are the Search Agent.
+                        Your job is to be the **Code Agent's preparer**. You are a researcher and librarian, not a developer.
+                          Your responsibilities are:
+                            1.  **Find & Discover:** Use search and inspection tools to locate all relevant files, classes, and methods.
+                            2.  **Curate & Prepare:** Aggressively prune the Workspace to leave *only* the essential context (files, summaries, notes) that the Code Agent will need.
+                            3.  **Handoff:** Your final output is a clean workspace ready for the Code Agent to begin implementation.
+
+                          Remember: **You must never write, create, or modify code.**
+                          Your purpose is to *find* existing code, not *create* new code.
+                          The Code Agent is solely responsible for all code generation and modification.
+                        """);
+    }
+
     private List<String> calculateAllowedToolNames() {
         if (beastMode) {
             // Only answer/abort will be exposed alongside this when we build tools list
@@ -668,8 +789,7 @@ public class SearchAgent {
         names.add("getClassSkeletons");
         names.add("getClassSources");
         names.add("getMethodSources");
-        // FIXME re-enable when context freezing is solved
-        //        names.add("getUsages");
+        names.add("getUsages");
 
         // Text-based search
         names.add("searchSubstrings");
@@ -677,6 +797,7 @@ public class SearchAgent {
         names.add("searchFilenames");
         names.add("getFileContents");
         names.add("getFileSummaries");
+        names.add("skimDirectory");
 
         // Workspace curation
         names.add("addFilesToWorkspace");
@@ -684,8 +805,7 @@ public class SearchAgent {
         names.add("addClassSummariesToWorkspace");
         names.add("addMethodsToWorkspace");
         names.add("addFileSummariesToWorkspace");
-        // FIXME re-enable when context freezing is solved
-        //        names.add("addSymbolUsagesToWorkspace");
+        names.add("addSymbolUsagesToWorkspace");
         names.add("appendNote");
         if (hasDroppableFragments()) {
             names.add("dropWorkspaceFragments");
@@ -786,7 +906,7 @@ public class SearchAgent {
                     "searchFilenames",
                     "searchGitCommitMessages" -> 6;
             case "getClassSkeletons", "getClassSources", "getMethodSources" -> 7;
-            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries" -> 8;
+            case "getCallGraphTo", "getCallGraphFrom", "getFileContents", "getFileSummaries", "skimDirectory" -> 8;
 
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;
@@ -796,11 +916,13 @@ public class SearchAgent {
         };
     }
 
-    private void performInitialPruningTurn(StreamingChatModel model) throws InterruptedException {
+    public Context pruneContext() throws InterruptedException {
         // Skip if workspace is empty
-        if (context.isEmpty()) {
-            return;
+        if (contextPruned || context.isEmpty()) {
+            return context;
         }
+
+        var model = getScanModel();
 
         var wst = new WorkspaceTools(context);
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
@@ -819,7 +941,7 @@ public class SearchAgent {
         jLlm.setOutput(this.io);
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
         if (result.error() != null || result.isEmpty()) {
-            return;
+            return context;
         }
 
         // Record the turn
@@ -831,15 +953,18 @@ public class SearchAgent {
         for (var req : ai.toolExecutionRequests()) {
             executeTool(req, tr, wst);
         }
+
+        contextPruned = true;
+        return context;
     }
 
     private List<ChatMessage> buildInitialPruningPrompt() {
         var messages = new ArrayList<ChatMessage>();
-
         var nonDroppableSection = buildNonDroppableSection();
 
         var sys = new SystemMessage(
                 """
+                %s
                 You are the Janitor Agent (Workspace Reviewer). Single-shot cleanup: one response, then done.
 
                 Scope:
@@ -868,12 +993,12 @@ public class SearchAgent {
 
                 %s
                 """
-                        .formatted(nonDroppableSection));
+                        .formatted(getSystemMessage().text(), nonDroppableSection));
         messages.add(sys);
 
         // Current Workspace contents (use default viewing policy)
-        messages.addAll(
-                CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT)));
+        ViewingPolicy vp = new ViewingPolicy(TaskResult.Type.CONTEXT);
+        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(context, vp));
 
         // Goal and project context
         messages.add(new UserMessage(
@@ -882,7 +1007,7 @@ public class SearchAgent {
                 %s
                 </goal>
 
-                Review the Workspace above. Remove ALL fragments that are not directly useful for accomplishing the goal.
+                Review the Workspace above. Use the dropWorkspaceFragments tool to remove ALL fragments that are not directly useful for accomplishing the goal.
                 If the workspace is already well-curated, you're done!
                 """
                         .formatted(goal)));
@@ -891,102 +1016,72 @@ public class SearchAgent {
     }
 
     /**
-     * Scan initial context using ContextAgent and add recommendations to the workspace.
-     * Callers should invoke this before calling execute() if they want the initial context scan.
-     * Updates the SearchAgent's internal Context, and also returns it.
-     * <p>
-     * If {@code appendToScope} is {@code true}, the context scan result is appended to the scope's history.
-     * If {@code appendToScope} is {@code false}, the method returns the context resulting from the scan
-     * without modifying or appending to the scope's history.
-     * <p>
-     * Callers should invoke this before calling {@code execute()} if they want the initial context scan.
-     *
-     * @param model the LLM model to use for context scanning
-     * @param appendToScope if true, appends the context scan result to the scope; if false, returns context without appending to the scope's history
-     * @return the resulting {@link Context} after the scan, either appended to the scope or not, depending on {@code appendToScope}
+     * Performs auto-scan using configured scan model and append behavior.
+     * Sets scanAlreadyPerformed to true on success or failure to prevent retries.
      */
-    @Blocking
-    public Context scanInitialContext(StreamingChatModel model, boolean appendToScope) throws InterruptedException {
-        // Prune initial workspace when not empty
-        performInitialPruningTurn(model);
+    private void performAutoScan() throws InterruptedException {
+        scanContext();
+        scanPerformed = true;
+    }
+
+    public Context scanContext() throws InterruptedException {
+        StreamingChatModel scanModel = getScanModel();
 
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
-        var contextAgent = new ContextAgent(cm, model, goal, this.io);
+        var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
         io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
-        var meta = new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(model, cm.getService()));
+        var meta =
+                new TaskResult.TaskMeta(TaskResult.Type.CONTEXT, Service.ModelConfig.from(scanModel, cm.getService()));
 
-        if (!recommendation.success() || recommendation.fragments().isEmpty()) {
-            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
-            var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
-            metrics.recordContextScan(0, false, Set.of(), md);
-            if (appendToScope) {
-                context = scope.append(contextAgentResult);
+        if (recommendation.success() && !recommendation.fragments().isEmpty()) {
+            var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
+            int finalBudget =
+                    cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
+            if (totalTokens > finalBudget) {
+                var summaries = ContextFragment.describe(recommendation.fragments());
+                context = context.addFragments(List.of(new ContextFragments.StringFragment(
+                        cm,
+                        "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model's context capacity, their summarized descriptions are provided below:\n\n"
+                                + summaries,
+                        "Summary of ContextAgent Findings",
+                        SyntaxConstants.SYNTAX_STYLE_NONE)));
             } else {
-                context = contextAgentResult.context();
+                logger.debug("Recommended context fits within final budget.");
+                addToWorkspace(recommendation);
+                io.llmOutput(
+                        "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
+                        ChatMessageType.AI);
             }
-            return context;
-        }
-
-        var totalTokens = contextAgent.calculateFragmentTokens(recommendation.fragments());
-        // use `this.model` (search model) not `model` (scan model) here
-        int finalBudget = cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
-        if (totalTokens > finalBudget) {
-            var summaries = ContextFragment.describe(recommendation.fragments());
-            context = context.addFragments(List.of(new ContextFragments.StringFragment(
-                    cm,
-                    "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model’s context capacity, their summarized descriptions are provided below:\n\n"
-                            + summaries,
-                    "Summary of ContextAgent Findings",
-                    recommendation.fragments().stream()
-                            .findFirst()
-                            .orElseThrow()
-                            .syntaxStyle()
-                            .renderNowOr(SyntaxConstants.SYNTAX_STYLE_NONE))));
         } else {
-            logger.debug("Recommended context fits within final budget.");
-            addToWorkspace(recommendation);
-            io.llmOutput(
-                    "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
-                    ChatMessageType.AI);
+            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
         }
 
-        // create a history entry and return it
-        var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
-
-        // Track metrics
+        // Record metrics and finalize context
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
-        if (appendToScope) {
-            context = scope.append(contextAgentResult);
-        } else {
-            context = contextAgentResult.context();
-        }
+
+        var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
+        context = scanConfig.appendToScope() ? scope.append(contextAgentResult) : contextAgentResult.context();
+
         return context;
     }
 
-    /**
-     * Scan initial context using ContextAgent and add recommendations to the workspace.
-     * Appends the result to scope by default.
-     */
-    @Blocking
-    public Context scanInitialContext() throws InterruptedException {
-        return scanInitialContext(cm.getService().getScanModel(), true);
+    private StreamingChatModel getScanModel() {
+        return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
     /**
-     * Scan initial context using ContextAgent and add recommendations to the workspace.
-     *
-     * @param model the LLM model to use for context scanning
+     * Returns true if the tool is a search/exploration tool that benefits from ContextAgent scanning.
+     * Tool names must match those in calculateAllowedToolNames().
      */
-    @Blocking
-    public Context scanInitialContext(StreamingChatModel model) throws InterruptedException {
-        return scanInitialContext(model, true);
+    private boolean isSearchTool(String toolName) {
+        return toolName.startsWith("search");
     }
 
     @Blocking

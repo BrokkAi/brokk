@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.SequencedSet;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -41,20 +42,10 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 """.stripIndent());
 
         // Minimal conversation and edit state; use raw generics to avoid direct ChatMessage dependency.
-        var cs = new CodeAgent.ConversationState(List.of(), null, 0);
+        var cs = new CodeAgent.ConversationState(new ArrayList<>(), new ArrayList<>(), null, 0, "");
 
         var es = new CodeAgent.EditState(
-                new LinkedHashSet<>(List.of(badSemanticBlock)), // pendingBlocks
-                0, // consecutiveParseFailures
-                0, // consecutiveApplyFailures
-                0, // consecutiveBuildFailures
-                0, // blocksAppliedWithoutBuild
-                "", // lastBuildError
-                Set.of(), // changedFiles
-                Map.of(), // originalFileContents
-                Map.of(), // javaLintDiagnostics
-                Map.of() // simulatedContents
-                );
+                0, 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), false, false, Map.of());
 
         // Ensure Java-only editable workspace to satisfy BRK_* guard
         var cm = codeAgent.contextManager;
@@ -63,7 +54,7 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
         tcm.addEditableFile(cm.toFile("A.java"));
 
         // Invoke apply phase, which should attempt to apply, fail, and then craft a retry request with feedback.
-        var step = codeAgent.applyPhase(cs, es, null, Set.of());
+        var step = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(badSemanticBlock)), null, Set.of());
 
         // (d) Ensure we don't fail immediately; a retry should be requested.
         assertTrue(step instanceof CodeAgent.Step.Retry, "Expected Step.Retry after semantic apply failure");
@@ -116,19 +107,20 @@ public class CodeAgentSemanticRetryTest extends CodeAgentTest {
                 """
                         .stripIndent());
 
-        var cs = new CodeAgent.ConversationState(new ArrayList<>(), null, 0);
-        var es = new CodeAgent.EditState(new LinkedHashSet<>(), 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), Map.of());
+        var cs = new CodeAgent.ConversationState(new ArrayList<>(), new ArrayList<>(), null, 0, "");
+        var es = new CodeAgent.EditState(0, 0, 0, 0, 0, "", Set.of(), Map.of(), Map.of(), false, false, Map.of());
 
         // parsePhase
-        var parseStep = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
-        assertTrue(parseStep instanceof CodeAgent.Step.Continue, "parsePhase should Continue on clean block");
+        var parseStep = codeAgent.parsePhase(cs, es, llmText, EditBlockParser.instance, null);
+        assertInstanceOf(CodeAgent.Step.Continue.class, parseStep, "parsePhase should Continue on clean block");
         cs = parseStep.cs();
         es = parseStep.es();
-        assertEquals(1, es.pendingBlocks().size(), "One pending block expected");
+        var blocksToApply = ((CodeAgent.Step.Continue) parseStep).blocks();
+        assertEquals(1, blocksToApply.size(), "One block expected");
 
         // applyPhase should produce a Retry with commentary via getApplyFailureMessage
-        var applyStep = codeAgent.applyPhase(cs, es, null, Set.of());
-        assertTrue(applyStep instanceof CodeAgent.Step.Retry, "Expected Retry on semantic failure");
+        var applyStep = codeAgent.applyPhase(cs, es, blocksToApply, null, Set.of());
+        assertInstanceOf(CodeAgent.Step.Retry.class, applyStep, "Expected Retry on semantic failure");
         var retry = (CodeAgent.Step.Retry) applyStep;
         assertEquals(1, retry.es().consecutiveApplyFailures(), "Failures counter should increment");
         assertNotNull(retry.cs().nextRequest(), "LLM should receive feedback request");
