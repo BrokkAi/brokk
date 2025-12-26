@@ -767,20 +767,6 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
     }
 
-    @Override
-    public boolean isGitignored(Path relPath, boolean isDirectory) {
-        if (!(repo instanceof GitRepo)) {
-            return false; // No git repo = nothing is ignored
-        }
-
-        try {
-            return fileFilteringService.isGitignored(relPath, isDirectory);
-        } catch (Exception e) {
-            logger.warn("Error checking if path {} is gitignored: {}", relPath, e.getMessage());
-            return false; // On error, assume not ignored (conservative)
-        }
-    }
-
     public Optional<Path> getGlobalGitignorePath() {
         if (!(repo instanceof GitRepo)) {
             return Optional.empty();

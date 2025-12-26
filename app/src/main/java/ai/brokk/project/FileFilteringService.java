@@ -122,32 +122,6 @@ public final class FileFilteringService {
         return isPathIgnored(gitRepo, relPath, fixedGitignorePairs, isDirectory);
     }
 
-    /**
-     * Determine if a path is ignored by gitignore rules, with explicit directory flag.
-     * This overload avoids filesystem calls to determine directory status, making it
-     * thread-safe when the caller already knows the path type.
-     *
-     * @param relPath Path relative to project root
-     * @param isDirectory true if the path is a directory
-     * @return true if ignored, false otherwise
-     */
-    public boolean isGitignored(Path relPath, boolean isDirectory) {
-        if (!(repo instanceof GitRepo gitRepo)) {
-            return false;
-        }
-
-        var gitTopLevel = gitRepo.getGitTopLevel();
-        var workTreeRoot = gitRepo.getWorkTreeRoot();
-
-        if (!root.startsWith(workTreeRoot)) {
-            return false;
-        }
-
-        var fixedGitignorePairs = computeFixedGitignorePairs(gitRepo, gitTopLevel);
-
-        return isPathIgnored(gitRepo, relPath, fixedGitignorePairs, isDirectory);
-    }
-
     public Optional<Path> getGlobalGitignorePath() {
         if (!(repo instanceof GitRepo gitRepo)) {
             return Optional.empty();

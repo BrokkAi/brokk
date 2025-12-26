@@ -366,7 +366,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             if (rel.getNameCount() > 0) { // avoid toggling the project root
                 String relStr = rel.toString();
                 boolean patternExcluded = project.isPathExcluded(relStr, true);
-                boolean gitignored = project.isGitignored(rel, true);
+                boolean gitignored = project.isGitignored(rel);
                 boolean effectiveExcluded = patternExcluded || gitignored;
                 // Canonicalize relStr to align with settings' persistence format
                 String canonicalRel =
@@ -1381,8 +1381,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         public boolean isGitignored() {
             if (cachedIsGitignored == null) {
                 Path relativePath = project.getRoot().relativize(file.toPath());
-                // Use overload with explicit isDirectory to avoid filesystem call
-                cachedIsGitignored = project.isGitignored(relativePath, isDirectory);
+                cachedIsGitignored = project.isGitignored(relativePath);
             }
             return cachedIsGitignored;
         }
