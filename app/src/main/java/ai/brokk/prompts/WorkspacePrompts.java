@@ -20,6 +20,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -145,6 +146,7 @@ public final class WorkspacePrompts {
      * All fragments in the order they were added ({@code ctx.allFragments()}), wrapped in a single
      * {@code <workspace>} block, with the style guide from the context.
      */
+    @Blocking
     public static List<ChatMessage> getMessagesInAddedOrder(Context ctx, ViewingPolicy viewingPolicy) {
         var allFragments = ctx.allFragments().toList();
         var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
@@ -185,6 +187,7 @@ public final class WorkspacePrompts {
      * @param ctx                       current context
      * @param viewingPolicy             viewing policy (controls StringFragment visibility)
      */
+    @Blocking
     public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, ViewingPolicy viewingPolicy) {
         return getMessagesGroupedByMutability(ctx, viewingPolicy, true);
     }
@@ -274,10 +277,11 @@ public final class WorkspacePrompts {
      *                                  if false, omit from workspace (will be shown inline in request)
      * @return record with the workspace messages and buildFailure details
      */
+    @Blocking
     public static CodeAgentMessages getMessagesForCodeAgent(
             Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
         var workspace = getMessagesGroupedByMutability(ctx, viewingPolicy, showBuildStatusInWorkspace);
-        var buildFailure = ctx.getBuildFragment().map(f -> f.format().join()).orElse(null);
+        var buildFailure = ctx.getBuildFragment().map(f -> f.text().join()).orElse(null);
         return new CodeAgentMessages(workspace, buildFailure);
     }
 
@@ -444,51 +448,45 @@ public final class WorkspacePrompts {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
-        for (var fragment : fragments) {
-            if (fragment.isText()) {
-                String formatted;
-                if (fragment instanceof ContextFragments.StringFragment sf) {
-                    var visibleText = sf.textForAgent(vp);
-                    String idOrPinned = ctx.isPinned(sf) ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(sf.id());
-                    formatted =
-                            """
-                            <fragment description="%s" %s>
-                            %s
-                            </fragment>
-                            """
-                                    .formatted(sf.description().join(), idOrPinned, visibleText);
+        for (var cf : fragments) {
+            if (cf.isText()) {
+                String visibleText;
+                if (cf instanceof ContextFragments.StringFragment sf) {
+                    visibleText = sf.textForAgent(vp);
                 } else {
-                    formatted = fragment.format().join();
-                    if (ctx.isPinned(fragment)) {
-                        formatted = formatted.replace("fragmentid=\"%s\"".formatted(fragment.id()), "pinned=\"true\"");
-                    }
+                    visibleText = cf.format().join();
                 }
-                if (!formatted.isBlank()) {
-                    textBuilder.append(formatted).append("\n\n");
+                String idOrPinned = ctx.isPinned(cf) ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(cf.id());
+                String formatted;
+                formatted =
+                        """
+                                <fragment description="%s" %s>
+                                %s
+                                </fragment>
+                                """
+                                .formatted(cf.description().join(), idOrPinned, visibleText);
+                textBuilder.append(formatted).append("\n\n");
+                continue;
+            }
+
+            assert cf instanceof ContextFragments.ImageFileFragment
+                            || cf instanceof ContextFragments.AnonymousImageFragment
+                    : cf;
+            try {
+                var imageBytes = cf.imageBytes();
+                if (imageBytes != null) {
+                    var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytes.join()));
+                    imageList.add(ImageContent.from(l4jImage));
                 }
-            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                try {
-                    var imageBytes = fragment.imageBytes();
-                    if (imageBytes != null) {
-                        var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytes.join()));
-                        imageList.add(ImageContent.from(l4jImage));
-                    }
-                    textBuilder.append(fragment.format().join()).append("\n\n");
-                } catch (IOException | UncheckedIOException e) {
-                    logger.error(
-                            "Failed to process image fragment {} for LLM message",
-                            fragment.description().join(),
-                            e);
-                    textBuilder.append(String.format(
-                            "[Error processing image: %s - %s]\n\n",
-                            fragment.description().join(), e.getMessage()));
-                }
-            } else {
-                String formatted = fragment.format().join();
-                if (!formatted.isBlank()) {
-                    textBuilder.append(formatted).append("\n\n");
-                }
+                textBuilder.append(cf.format().join()).append("\n\n");
+            } catch (IOException | UncheckedIOException e) {
+                logger.error(
+                        "Failed to process image fragment {} for LLM message",
+                        cf.description().join(),
+                        e);
+                textBuilder.append(String.format(
+                        "[Error processing image: %s - %s]\n\n",
+                        cf.description().join(), e.getMessage()));
             }
         }
 
