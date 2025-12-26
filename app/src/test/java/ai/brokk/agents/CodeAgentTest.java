@@ -124,11 +124,14 @@ class CodeAgentTest {
                 0, // consecutiveApplyFailures
                 0, // consecutiveBuildFailures
                 blocksAppliedWithoutBuild,
+                0, // totalBlocksParsed
                 "", // lastBuildError
-                new HashSet<ProjectFile>(), // changedFiles
-                new HashMap<ProjectFile, String>(), // originalFileContents
-                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(), // javaLintDiagnostics
-                false // hasAttemptedBuild
+                new HashSet<>(), // changedFiles
+                new HashMap<>(), // originalFileContents
+                Collections.emptyMap(), // javaLintDiagnostics
+                false, // showBuildError
+                false, // useArchitectModel
+                Map.of() // simulatedContents
                 );
     }
 
@@ -242,8 +245,7 @@ class CodeAgentTest {
                 new EditBlock.SearchReplaceBlock(file.toString(), "text that does not exist", "replacement");
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(0);
-
-        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(nonMatchingBlock)), null);
+        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(nonMatchingBlock)), null, Set.of());
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -273,8 +275,8 @@ class CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(0);
-
-        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(successBlock, failureBlock)), null);
+        var result =
+                codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(successBlock, failureBlock)), null, Set.of());
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -374,11 +376,14 @@ class CodeAgentTest {
                 retryStep.es().consecutiveApplyFailures(),
                 retryStep.es().consecutiveBuildFailures(),
                 1, // Simulate one new fix was applied to pass the guard in verifyPhase
+                retryStep.es().totalBlocksParsed(),
                 retryStep.es().lastBuildError(),
                 retryStep.es().changedFiles(),
                 retryStep.es().originalFileContents(),
                 retryStep.es().javaLintDiagnostics(),
-                false);
+                false,
+                false,
+                Map.of());
 
         var resultSuccess = codeAgent.verifyPhase(cs2, es2, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, resultSuccess);
@@ -477,8 +482,7 @@ class CodeAgentTest {
         var block = new EditBlock.SearchReplaceBlock(file.toString(), "old", "new");
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = createEditState(0);
-
-        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(block)), null);
+        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(block)), null, Set.of());
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
@@ -582,13 +586,13 @@ class CodeAgentTest {
 
         // Turn 1: apply "hello world" -> "goodbye world"
         var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
-        var es1 = new CodeAgent.EditState(
-                0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap(), false);
+        var es1 = createEditState(0);
         var res1 = codeAgent.applyPhase(
                 createConversationState(List.of(), new UserMessage("req1")),
                 es1,
                 new LinkedHashSet<>(List.of(block1)),
-                null);
+                null,
+                Set.of());
         assertInstanceOf(CodeAgent.Step.Continue.class, res1);
         var es1b = ((CodeAgent.Step.Continue) res1).es();
 
@@ -601,13 +605,13 @@ class CodeAgentTest {
         // Turn 2 baseline should be the current contents ("goodbye world")
         // Prepare next turn state with empty per-turn baseline and a new change: "goodbye world" -> "ciao world"
         var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
-        var es2 = new CodeAgent.EditState(
-                0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap(), false);
+        var es2 = createEditState(0);
         var res2 = codeAgent.applyPhase(
                 createConversationState(List.of(), new UserMessage("req2")),
                 es2,
                 new LinkedHashSet<>(List.of(block2)),
-                null);
+                null,
+                Set.of());
         assertInstanceOf(CodeAgent.Step.Continue.class, res2);
         var es2b = ((CodeAgent.Step.Continue) res2).es();
 
@@ -636,15 +640,7 @@ class CodeAgentTest {
         file.write(revised);
 
         var es = new CodeAgent.EditState(
-                0,
-                0,
-                0,
-                1, // blocksAppliedWithoutBuild (not relevant for generation)
-                "", // lastBuildError
-                changedFiles,
-                originalMap,
-                Collections.emptyMap(),
-                false);
+                0, 0, 0, 1, 0, "", changedFiles, originalMap, Collections.emptyMap(), false, false, Map.of());
 
         var blocks = es.toSearchReplaceBlocks();
         // Expect two distinct blocks (one per changed line)
@@ -675,7 +671,8 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("alpha", "beta", "ALPHA", "gamma")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap(), false);
+        var es = new CodeAgent.EditState(
+                0, 0, 0, 1, 0, "", changedFiles, originalMap, Collections.emptyMap(), false, false, Map.of());
 
         var blocks = es.toSearchReplaceBlocks();
         assertEquals(1, blocks.size(), "Should produce a single unique block");
@@ -702,7 +699,8 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("line1", "TARGET", "middle", "TARGET", "line5")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap(), false);
+        var es = new CodeAgent.EditState(
+                0, 0, 0, 1, 0, "", changedFiles, originalMap, Collections.emptyMap(), false, false, Map.of());
 
         var blocks = es.toSearchReplaceBlocks();
 

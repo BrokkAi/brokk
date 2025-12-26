@@ -38,7 +38,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -100,8 +99,12 @@ public class CodeAgent {
         this.context = new Context(contextManager);
     }
 
+    /** Options that modify CodeAgent behavior */
     public enum Option {
-        DEFER_BUILD
+        /** Defer build verification until later */
+        DEFER_BUILD,
+        /** Dry-run mode: validate and compute results but don't write to files */
+        DRY_RUN
     }
 
     /** Implicitly includes the DEFER_BUILD option. */
@@ -112,7 +115,7 @@ public class CodeAgent {
         contextManager.getAnalyzerWrapper().pause();
         try {
             // TODO runTaskInternal allows creating new files, should we prevent that?
-            return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
+            return runTaskInternal(ctx, readOnlyMessages, instructions, Set.of(Option.DEFER_BUILD));
         } finally {
             contextManager.getAnalyzerWrapper().resume();
         }
@@ -211,7 +214,8 @@ public class CodeAgent {
                 originalFileContents,
                 Collections.emptyMap(),
                 !initialContext.getBuildError().isBlank(),
-                false);
+                false,
+                Map.of());
 
         // "Update everything in the workspace" wouldn't be necessary if we were 100% sure that the analyzer were up
         // to date before we paused it, but empirically that is not the case as of this writing.
@@ -279,8 +283,7 @@ public class CodeAgent {
             es = requestOutcome.es();
 
             // PARSE PHASE parses edit blocks
-            var parseOutcome =
-                    parsePhase(cs, es, streamingResult.text(), parser, metrics); // Ensure parser is available
+            var parseOutcome = parsePhase(cs, es, streamingResult.text(), parser, metrics);
             if (parseOutcome instanceof Step.Fatal fatalParse) {
                 stopDetails = fatalParse.stopDetails();
                 break;
@@ -298,7 +301,7 @@ public class CodeAgent {
 
             // APPLY PHASE applies blocks
             var blocksToApply = ((Step.Continue) parseOutcome).blocks();
-            var applyOutcome = applyPhase(cs, es, blocksToApply, metrics);
+            var applyOutcome = applyPhase(cs, es, blocksToApply, metrics, options);
             if (applyOutcome instanceof Step.Fatal fatalApply) {
                 stopDetails = fatalApply.stopDetails();
                 break;
@@ -401,6 +404,14 @@ public class CodeAgent {
 
             // VERIFY or finish if build is deferred
             if (options.contains(Option.DEFER_BUILD)) {
+                // Report Java lint diagnostics before stopping (issue #2131)
+                // Note: In DEFER_BUILD mode, diagnostics are informational (build is deferred),
+                // so we still return SUCCESS. Quick Edit uses APPLY_ERROR for immediate feedback.
+                if (!es.javaLintDiagnostics().isEmpty()) {
+                    report("Java syntax issues detected:\n\n" + formatDiagnosticsReport(es.javaLintDiagnostics())
+                            + "\n");
+                }
+
                 reportComplete(
                         es.blocksAppliedWithoutBuild() > 0
                                 ? "Edits applied. Build/check deferred."
@@ -463,6 +474,7 @@ public class CodeAgent {
     Step parsePhase(
             ConversationState cs, EditState es, String llmText, EditBlockParser parser, @Nullable Metrics metrics) {
         logger.debug("Got response (potentially partial if LLM connection was cut off)");
+
         var parseResult =
                 parser.parseEditBlocks(llmText, contextManager.getRepo().getTrackedFiles());
         var newlyParsedBlocks = parseResult.blocks();
@@ -544,52 +556,146 @@ public class CodeAgent {
     }
 
     /**
-     * Runs a quick-edit task where we: 1) Gather the entire file content plus related context (buildAutoContext) 2) Use
-     * QuickEditPrompts to ask for a single fenced code snippet 3) Replace the old text with the new snippet in the file
+     * Runs a quick-edit task. Returns the LLM response WITHOUT applying edits to the file.
+     * PreviewTextPanel is responsible for extracting the snippet and applying it to the preview.
      *
-     * @return A TaskResult containing the conversation and original content.
+     * Uses the dry-run validation pipeline (applyPhaseDryRun + parseJavaPhase) to validate
+     * the edit before returning, reusing the same infrastructure as the full CodeAgent loop.
+     *
+     * @return A TaskResult containing the AI response message for snippet extraction.
      */
     public TaskResult runQuickTask(ProjectFile file, String oldText, String instructions) throws InterruptedException {
         var coder = contextManager.getLlm(model, "QuickEdit: " + instructions);
         coder.setOutput(io);
 
-        // Use up to 5 related classes as context (format as combined summaries)
+        // Build context with related code
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
-
-        String fileContents = file.read().orElse("");
-
+        var fileContents = file.read().orElse("");
         var styleGuide = contextManager.getProject().getStyleGuide();
 
         // Build the prompt messages
         var messages = QuickEditPrompts.instance.collectMessages(fileContents, relatedCode, styleGuide);
-
-        // The user instructions
         var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
         messages.add(new UserMessage(instructionsMsg));
 
-        // Initialize pending history with the instruction
+        // Initialize history with the instruction
         var pendingHistory = new ArrayList<ChatMessage>();
         pendingHistory.add(new UserMessage(instructionsMsg));
 
-        // No echo for Quick Edit, use instance quickModel
+        // Send request (no echo for Quick Edit)
         var result = coder.sendRequest(messages);
 
-        // Determine stop reason based on LLM response
         TaskResult.StopDetails stopDetails;
         if (result.error() != null) {
             stopDetails = TaskResult.StopDetails.fromResponse(result);
             io.toolError("Quick edit failed: " + stopDetails.explanation());
         } else {
-            // Success from LLM perspective
             pendingHistory.add(result.aiMessage());
-            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+
+            // Extract snippet from fenced code response
+            var snippet =
+                    EditBlock.extractCodeFromTripleBackticks(result.text()).trim();
+            if (snippet.isEmpty()) {
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+            } else {
+                // Validate using dry-run pipeline (issue #2131)
+                stopDetails = runQuickEditValidation(file, oldText, snippet);
+            }
         }
 
-        // Return TaskResult containing conversation and resulting context (populate TaskMeta since an LLM was used)
         var quickMeta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
         return new TaskResult(
                 contextManager, "Quick Edit: " + file.getFileName(), pendingHistory, context, stopDetails, quickMeta);
+    }
+
+    /**
+     * Validates a Quick Edit by constructing a synthetic SEARCH/REPLACE block and running it through
+     * the same validation pipeline as runTaskInternal (applyPhase + parseJavaPhase).
+     *
+     * @param file The file being edited
+     * @param oldText The text being replaced (SEARCH text)
+     * @param snippet The replacement text from LLM (REPLACE text)
+     * @return StopDetails indicating SUCCESS or APPLY_ERROR with diagnostic info
+     */
+    private TaskResult.StopDetails runQuickEditValidation(ProjectFile file, String oldText, String snippet) {
+        // Create synthetic SEARCH/REPLACE block
+        var syntheticBlock = new EditBlock.SearchReplaceBlock(file.toString(), oldText, snippet);
+        var blocksToApply = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
+        blocksToApply.add(syntheticBlock);
+
+        // Build minimal EditState
+        var es = new EditState(
+                0, // consecutiveParseFailures
+                0, // consecutiveApplyFailures
+                0, // consecutiveBuildFailures
+                0, // blocksAppliedWithoutBuild
+                0, // totalBlocksParsed
+                "", // lastBuildError
+                Set.of(), // changedFiles
+                Map.of(), // originalFileContents
+                Map.of(), // javaLintDiagnostics
+                false, // showBuildError
+                false, // useArchitectModel
+                Map.of()); // simulatedContents
+
+        // Run through the shared validation pipeline with DryRun option
+        Set<Option> options = Set.of(Option.DRY_RUN);
+        var result = runApplyAndParseJavaPhases(es, blocksToApply, options);
+
+        // Report and return the result
+        if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            report(result.stopDetails().explanation());
+        }
+        return result.stopDetails();
+    }
+
+    /**
+     * Result of running apply and parseJava phases - shared between runTaskInternal and Quick Edit.
+     */
+    record ValidationResult(EditState es, TaskResult.StopDetails stopDetails) {}
+
+    /**
+     * Shared validation pipeline: runs applyPhase and parseJavaPhase.
+     * Used by both runTaskInternal (in the main loop) and runQuickEditValidation.
+     *
+     * @param es EditState with pending blocks to validate
+     * @param options Options controlling behavior (DryRun for validation-only, etc.)
+     * @return ValidationResult with updated EditState and stop details
+     */
+    private ValidationResult runApplyAndParseJavaPhases(
+            EditState es, SequencedSet<EditBlock.SearchReplaceBlock> blocksToApply, Set<Option> options) {
+        // Minimal ConversationState (required by phase signatures but not used for validation)
+        var cs = new ConversationState(new ArrayList<>(), new ArrayList<>(), null, 0, "");
+
+        // APPLY PHASE: validate blocks can be applied (DryRun = simulate without writing)
+        var applyResult = applyPhase(cs, es, blocksToApply, null, options);
+        if (applyResult instanceof Step.Fatal fatal) {
+            return new ValidationResult(es, fatal.stopDetails());
+        }
+        es = applyResult.es();
+
+        // PARSE-JAVA PHASE: run JDT diagnostics on Java files
+        Step parseJavaResult;
+        try {
+            parseJavaResult = parseJavaPhase(cs, es, null);
+        } catch (Throwable e) {
+            var msg = "Parse Java phase encountered an unexpected error";
+            logger.error(msg, e);
+            contextManager.reportException(new JavaPreLintFalsePositiveException(msg, e));
+            parseJavaResult = new Step.Continue(cs, es);
+        }
+        es = parseJavaResult.es();
+
+        // Check for diagnostics - in validation mode, diagnostics are errors
+        if (!es.javaLintDiagnostics().isEmpty()) {
+            var diagReport = formatDiagnosticsReport(es.javaLintDiagnostics());
+            report("Java syntax issues detected:\n\n" + diagReport);
+            return new ValidationResult(
+                    es, new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, "Java syntax issues detected"));
+        }
+
+        return new ValidationResult(es, new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS));
     }
 
     /**
@@ -777,11 +883,14 @@ public class CodeAgent {
             ConversationState cs,
             EditState es,
             SequencedSet<EditBlock.SearchReplaceBlock> blocksToApply,
-            @Nullable Metrics metrics) {
+            @Nullable Metrics metrics,
+            Set<Option> options) {
         if (blocksToApply.isEmpty()) {
             logger.debug("nothing to apply, continuing to next phase");
             return new Step.Continue(cs, es, blocksToApply);
         }
+
+        boolean dryRun = options.contains(Option.DRY_RUN);
 
         // Guardrail: block edits to files designated read-only in the current context
         var readOnlyPaths = computeReadOnlyPaths(context);
@@ -794,6 +903,11 @@ public class CodeAgent {
                     + violating.stream().map(p -> " - " + p).collect(Collectors.joining("\n"));
             report("Read-only file constraint violation: " + String.join(", ", violating));
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.READ_ONLY_EDIT, message));
+        }
+
+        // Dry-run mode: compute simulated contents without writing to files
+        if (dryRun) {
+            return applyPhaseDryRun(cs, es, blocksToApply);
         }
 
         EditBlock.EditResult editResult;
@@ -890,6 +1004,57 @@ public class CodeAgent {
             Thread.currentThread().interrupt(); // Preserve interrupt status
             return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
         }
+    }
+
+    /**
+     * Dry-run mode for applyPhase: computes simulated file contents without writing to disk.
+     * Used for Quick Edit to validate edits and run JDT diagnostics before committing changes.
+     */
+    private Step applyPhaseDryRun(
+            ConversationState cs, EditState es, SequencedSet<EditBlock.SearchReplaceBlock> blocksToApply) {
+        var simulatedContents = new HashMap<ProjectFile, String>();
+        var changedFiles = new HashSet<ProjectFile>();
+
+        for (var block : blocksToApply) {
+            var file = contextManager.toFile(requireNonNull(block.rawFileName()));
+            var currentContent = simulatedContents.containsKey(file)
+                    ? simulatedContents.get(file)
+                    : file.read().orElse("");
+
+            // Find and replace the search text
+            var searchText = block.beforeText();
+            int idx = currentContent.indexOf(searchText);
+            if (idx < 0) {
+                // SEARCH text not found - this would fail in real apply
+                var errorMsg = "Could not find SEARCH text in " + file.getFileName();
+                return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, errorMsg));
+            }
+
+            // Simulate the replacement
+            var newContent = currentContent.substring(0, idx)
+                    + block.afterText()
+                    + currentContent.substring(idx + searchText.length());
+            simulatedContents.put(file, newContent);
+            changedFiles.add(file);
+        }
+
+        // Update EditState with simulated contents
+        var nextEs = new EditState(
+                es.consecutiveParseFailures(),
+                0, // reset apply failures
+                es.consecutiveBuildFailures(),
+                blocksToApply.size(), // blocksAppliedWithoutBuild
+                es.totalBlocksParsed(),
+                es.lastBuildError(),
+                Collections.unmodifiableSet(changedFiles),
+                es.originalFileContents(),
+                es.javaLintDiagnostics(),
+                es.showBuildError(),
+                es.useArchitectModel(),
+                Collections.unmodifiableMap(simulatedContents));
+
+        report(blocksToApply.size() + " SEARCH/REPLACE blocks validated (dry-run).");
+        return new Step.Continue(cs, nextEs, blocksToApply);
     }
 
     /**
@@ -1037,8 +1202,11 @@ public class CodeAgent {
     }
 
     /**
-     * Quickly parse files in memory for local-only errors, with no classpath bindings, before proceeding to the
-     * expensive full build. Goal is to catch as many true positives as possible with zero false positives.
+     * Quickly parse files in memory for local-only errors before proceeding to the expensive full build.
+     * Uses JDT binding resolution with empty environment (boot classpath only) to detect control-flow
+     * and value-category errors. Goal is to catch as many true positives as possible with zero false positives.
+     * Note: Binding resolution with empty environment may produce unstable results; we filter out diagnostics
+     * that require stable type information to avoid false positives.
      */
     Step parseJavaPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
         // Only run if there were edits since the last build attempt (PJ-21)
@@ -1055,60 +1223,19 @@ public class CodeAgent {
             return new Step.Continue(cs, es);
         }
 
-        // Use Eclipse JDT ASTParser without classpath/bindings
-
         // Map from ProjectFile -> diagnostic list for that file
         var perFileProblems = new ConcurrentHashMap<ProjectFile, List<JavaDiagnostic>>();
 
         // JDT internals are not threadsafe, even with a per-thread ASTParser
         for (var file : javaFiles) {
-            String src = file.read().orElse("");
+            // Use simulated content if available (dry-run mode), otherwise read from file
+            String src = es.simulatedContents().containsKey(file)
+                    ? es.simulatedContents().get(file)
+                    : file.read().orElse("");
             if (src.isBlank()) { // PJ-3: blank files should produce no diagnostics
                 continue;
             }
-            char[] sourceChars = src.toCharArray();
-
-            ASTParser parser = ASTParser.newParser(AST.JLS24);
-            parser.setKind(ASTParser.K_COMPILATION_UNIT);
-            parser.setSource(sourceChars);
-            // Enable binding resolution with recovery and use the running JVM's boot classpath.
-            parser.setResolveBindings(true);
-            parser.setStatementsRecovery(true);
-            parser.setBindingsRecovery(true);
-            parser.setUnitName(file.getFileName());
-            parser.setEnvironment(new String[0], new String[0], null, true);
-            var options = JavaCore.getOptions();
-            JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
-            // Disable annotation-based null analysis to avoid emitting JDT nullability diagnostics during parse-only
-            // lint
-            options.put(JavaCore.COMPILER_ANNOTATION_NULL_ANALYSIS, JavaCore.DISABLED);
-            // Enable preview features for maximum compatibility
-            options.put(JavaCore.COMPILER_PB_ENABLE_PREVIEW_FEATURES, JavaCore.ENABLED);
-            parser.setCompilerOptions(options);
-
-            CompilationUnit cu = (CompilationUnit) parser.createAST(null);
-
-            IProblem[] problems = cu.getProblems();
-
-            // Determine if this CU has evidence of shaky type info (missing types/imports/inference).
-            boolean hasShakyTypeInfo = Arrays.stream(problems).anyMatch(p -> {
-                int pid = p.getID();
-                return RESOLUTION_NOISE_IDS.contains(pid) || CROSS_FILE_INFERENCE_IDS.contains(pid);
-            });
-
-            var diags = new ArrayList<JavaDiagnostic>();
-            for (IProblem prob : problems) {
-                int id = prob.getID();
-                @Nullable Integer catId = (prob instanceof CategorizedProblem cp) ? cp.getCategoryID() : null;
-
-                if (!shouldKeepJavaProblem(id, prob.isError(), catId, hasShakyTypeInfo)) {
-                    continue;
-                }
-
-                var description = formatJdtProblem(file.absPath(), cu, prob, src);
-                diags.add(new JavaDiagnostic(id, catId, description));
-            }
-
+            var diags = parseJavaForDiagnostics(file, src);
             if (!diags.isEmpty()) {
                 perFileProblems.put(file, diags);
             }
@@ -1117,6 +1244,66 @@ public class CodeAgent {
         // Save diagnostics per-file and continue (non-blocking pre-lint)
         var nextEs = es.withJavaLintDiagnostics(perFileProblems);
         return new Step.Continue(cs, nextEs);
+    }
+
+    /**
+     * Parse a Java source file using Eclipse JDT and return diagnostics.
+     * Used by both parseJavaPhase and Quick Edit.
+     *
+     * Performance/Stability Trade-off: Enables binding resolution with empty environment
+     * (boot classpath only). This is moderately expensive (~100-200ms per file) but necessary
+     * to detect control-flow and value-category errors (e.g., uninitialized variables, missing
+     * returns). Without bindings, JDT cannot analyze these issues.
+     *
+     * The empty environment means type resolution is incomplete, so we filter out diagnostics
+     * that require stable type information (see shouldKeepJavaProblem). This minimizes false
+     * positives while catching true local-only errors early, before the expensive full build.
+     */
+    static List<JavaDiagnostic> parseJavaForDiagnostics(ProjectFile file, String src) {
+        char[] sourceChars = src.toCharArray();
+
+        ASTParser parser = ASTParser.newParser(AST.JLS24);
+        parser.setKind(ASTParser.K_COMPILATION_UNIT);
+        parser.setSource(sourceChars);
+        // Enable binding resolution with recovery (see method javadoc for trade-off discussion)
+        parser.setResolveBindings(true);
+        parser.setStatementsRecovery(true);
+        parser.setBindingsRecovery(true);
+        parser.setUnitName(file.getFileName());
+        parser.setEnvironment(new String[0], new String[0], null, true);
+        var options = JavaCore.getOptions();
+        JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
+        // Disable annotation-based null analysis to avoid emitting JDT nullability diagnostics during parse-only
+        // lint
+        options.put(JavaCore.COMPILER_ANNOTATION_NULL_ANALYSIS, JavaCore.DISABLED);
+        // Enable preview features for maximum compatibility
+        options.put(JavaCore.COMPILER_PB_ENABLE_PREVIEW_FEATURES, JavaCore.ENABLED);
+        parser.setCompilerOptions(options);
+
+        CompilationUnit cu = (CompilationUnit) parser.createAST(null);
+
+        IProblem[] problems = cu.getProblems();
+
+        // Determine if this CU has evidence of shaky type info (missing types/imports/inference).
+        boolean hasShakyTypeInfo = Arrays.stream(problems).anyMatch(p -> {
+            int pid = p.getID();
+            return RESOLUTION_NOISE_IDS.contains(pid) || CROSS_FILE_INFERENCE_IDS.contains(pid);
+        });
+
+        var diags = new ArrayList<JavaDiagnostic>();
+        for (IProblem prob : problems) {
+            int id = prob.getID();
+            @Nullable Integer catId = (prob instanceof CategorizedProblem cp) ? cp.getCategoryID() : null;
+
+            if (!shouldKeepJavaProblem(id, prob.isError(), catId, hasShakyTypeInfo)) {
+                continue;
+            }
+
+            var description = formatJdtProblem(file.absPath(), cu, prob, src);
+            diags.add(new JavaDiagnostic(id, catId, description));
+        }
+
+        return diags;
     }
 
     private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob, String src) {
@@ -1174,7 +1361,7 @@ public class CodeAgent {
 
     private static String caretIndicator(String lineText, int oneBasedCol) {
         if (lineText.isEmpty()) return "";
-        int idx = Math.max(0, Math.min(oneBasedCol - 1, Math.max(0, lineText.length() - 1)));
+        int idx = Math.max(0, Math.min(oneBasedCol - 1, lineText.length()));
         return " ".repeat(idx) + "^";
     }
 
@@ -1328,6 +1515,19 @@ public class CodeAgent {
 
     public record JavaDiagnostic(int problemId, @Nullable Integer categoryId, String description) {}
 
+    /** Formats diagnostics for display: one block per file with bullet-pointed issues. */
+    static String formatDiagnosticsReport(Map<ProjectFile, List<JavaDiagnostic>> diagMap) {
+        return diagMap.entrySet().stream()
+                .map(entry -> {
+                    var pf = entry.getKey();
+                    var diags = entry.getValue();
+                    var diagLines =
+                            diags.stream().map(d -> "  - " + d.description()).collect(Collectors.joining("\n"));
+                    return String.format("**%s**: %d issue(s)\n%s", pf.getFileName(), diags.size(), diagLines);
+                })
+                .collect(Collectors.joining("\n\n"));
+    }
+
     record EditState(
             int consecutiveParseFailures,
             int consecutiveApplyFailures,
@@ -1339,7 +1539,8 @@ public class CodeAgent {
             Map<ProjectFile, String> originalFileContents,
             Map<ProjectFile, List<JavaDiagnostic>> javaLintDiagnostics,
             boolean showBuildError,
-            boolean useArchitectModel) {
+            boolean useArchitectModel,
+            Map<ProjectFile, String> simulatedContents) {
 
         public EditState(
                 int consecutiveParseFailures,
@@ -1362,7 +1563,8 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     hasAttemptedBuild,
-                    false);
+                    false,
+                    Map.of());
         }
 
         EditState withConsecutiveParseFailures(int count) {
@@ -1377,7 +1579,8 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     showBuildError,
-                    false);
+                    useArchitectModel,
+                    simulatedContents);
         }
 
         /** Returns a new WorkspaceState with updated parse failures and total parsed count. */
@@ -1393,7 +1596,8 @@ public class CodeAgent {
                     originalFileContents,
                     javaLintDiagnostics,
                     showBuildError,
-                    false);
+                    false,
+                    simulatedContents);
         }
 
         /**
@@ -1410,10 +1614,11 @@ public class CodeAgent {
                     totalBlocksParsed,
                     newBuildError,
                     changedFiles,
-                    originalFileContents,
+                    Map.of(), // Clear per-turn baseline
                     javaLintDiagnostics,
                     false,
-                    newBuildFailures >= 3);
+                    newBuildFailures >= 3,
+                    Map.of()); // Clear simulated contents
         }
 
         /** Returns a new WorkspaceState after applying blocks, updating relevant fields. */
@@ -1440,7 +1645,8 @@ public class CodeAgent {
                     Collections.unmodifiableMap(mergedOriginals),
                     javaLintDiagnostics,
                     showBuildError,
-                    shouldUseArchitect);
+                    shouldUseArchitect,
+                    simulatedContents);
         }
 
         EditState withJavaLintDiagnostics(Map<ProjectFile, List<JavaDiagnostic>> diags) {
@@ -1455,7 +1661,25 @@ public class CodeAgent {
                     originalFileContents,
                     diags,
                     showBuildError,
-                    false);
+                    useArchitectModel,
+                    simulatedContents);
+        }
+
+        /** For dry-run mode: set simulated file contents without writing to disk. */
+        EditState withSimulatedContents(Map<ProjectFile, String> newSimulatedContents) {
+            return new EditState(
+                    consecutiveParseFailures,
+                    consecutiveApplyFailures,
+                    consecutiveBuildFailures,
+                    blocksAppliedWithoutBuild,
+                    totalBlocksParsed,
+                    lastBuildError,
+                    changedFiles,
+                    originalFileContents,
+                    javaLintDiagnostics,
+                    showBuildError,
+                    useArchitectModel,
+                    newSimulatedContents);
         }
 
         /**

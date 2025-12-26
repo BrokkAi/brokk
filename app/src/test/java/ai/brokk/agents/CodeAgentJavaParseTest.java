@@ -3,12 +3,14 @@ package ai.brokk.agents;
 import static java.util.Objects.requireNonNull;
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.EditBlock;
 import ai.brokk.analyzer.ProjectFile;
 import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import org.eclipse.jdt.core.compiler.CategorizedProblem;
@@ -26,17 +28,19 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                0, // parse failures
-                0, // apply failures
-                0, // build failures
+                0, // consecutiveParseFailures
+                0, // consecutiveApplyFailures
+                0, // consecutiveBuildFailures
                 1, // blocksAppliedWithoutBuild
                 0, // totalBlocksParsed
                 "", // lastBuildError
-                new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
+                new HashSet<>(Set.of(javaFile)), // changedFiles
                 new HashMap<>(), // originalFileContents
                 new HashMap<>(), // javaLintDiagnostics
-                false,
-                false);
+                false, // showBuildError
+                false, // useArchitectModel
+                Map.of() // simulatedContents
+                );
         var step = codeAgent.parseJavaPhase(cs, es, null);
         return new JavaParseResult(javaFile, step);
     }
@@ -179,7 +183,19 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                0, 0, 0, 1, 0, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>(), false, false);
+                0, // consecutiveParseFailures
+                0, // consecutiveApplyFailures
+                0, // consecutiveBuildFailures
+                1, // blocksAppliedWithoutBuild
+                0, // totalBlocksParsed
+                "", // lastBuildError
+                new HashSet<>(Set.of(f1, f2)), // changedFiles
+                new HashMap<>(), // originalFileContents
+                new HashMap<>(), // javaLintDiagnostics
+                false, // showBuildError
+                false, // useArchitectModel
+                Map.of() // simulatedContents
+                );
 
         var result = codeAgent.parseJavaPhase(cs, es, null);
         var diags = result.es().javaLintDiagnostics();
@@ -442,17 +458,19 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                0, // parse failures
-                0, // apply failures
-                0, // build failures
-                0, // blocksAppliedWithoutBuild => skip parse phase
+                0, // consecutiveParseFailures
+                0, // consecutiveApplyFailures
+                0, // consecutiveBuildFailures
+                0, // blocksAppliedWithoutBuild
                 0, // totalBlocksParsed
                 "", // lastBuildError
-                new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
+                new HashSet<>(Set.of(javaFile)), // changedFiles
                 new HashMap<>(), // originalFileContents
                 new HashMap<>(), // javaLintDiagnostics
-                false,
-                false);
+                false, // showBuildError
+                false, // useArchitectModel
+                Map.of() // simulatedContents
+                );
         var step = codeAgent.parseJavaPhase(cs, es, null);
 
         assertTrue(
@@ -844,5 +862,107 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
                 res.step().es().javaLintDiagnostics().isEmpty(),
                 "Valid switch arrow syntax should not produce diagnostics: "
                         + res.step().es().javaLintDiagnostics());
+    }
+
+    // PJ-44: Single-file mode diagnostic reporting (issue #2131)
+    // Verifies that diagnostics from parseJavaPhase can be formatted correctly for DEFER_BUILD mode
+    @Test
+    void testSingleFileMode_diagnosticFormatting_issue2131() throws IOException {
+        var badSource = """
+                class Bad { void m( { } }
+                """;
+        var res = runParseJava("Bad.java", badSource);
+
+        // Verify diagnostics were captured by parseJavaPhase
+        var diagMap = res.step().es().javaLintDiagnostics();
+        assertFalse(diagMap.isEmpty(), "Expected diagnostics to be captured");
+        var diags = diagMap.get(res.file());
+        assertNotNull(diags, "Expected diagnostics for Bad.java");
+        assertFalse(diags.isEmpty(), "Expected at least one diagnostic");
+
+        // Use the shared formatDiagnosticsReport helper
+        var message = "Java syntax issues detected:\n\n" + CodeAgent.formatDiagnosticsReport(diagMap);
+
+        // Verify formatted message contains expected elements
+        assertTrue(message.contains("Java syntax issues detected"), "Message should have header");
+        assertTrue(message.contains("Bad.java"), "Message should include filename");
+        assertTrue(message.contains("issue(s)"), "Message should include issue count");
+        assertTrue(message.length() > 50, "Message should contain diagnostic descriptions");
+    }
+
+    // Quick Edit mode diagnostic reporting (issue #2131)
+    // Verifies that parseJavaForDiagnostics correctly detects syntax errors in edited code
+    @Test
+    void testQuickEdit_jdtDiagnostics_issue2131() throws Exception {
+        var goodSource =
+                """
+                class Good {
+                    void method() {
+                        System.out.println("Hello");
+                    }
+                }
+                """;
+        var javaFile = cm.toFile("Good.java");
+        javaFile.write(goodSource);
+
+        var oldText =
+                """
+                    void method() {
+                        System.out.println("Hello");
+                    }
+                """;
+
+        // Simulate replacing good code with syntactically invalid code
+        var brokenSnippet = "void badMethod( { }"; // Missing parameter name
+        var updatedContent = goodSource.replace(oldText, brokenSnippet);
+
+        var diags = CodeAgent.parseJavaForDiagnostics(javaFile, updatedContent);
+
+        // Verify diagnostics were detected
+        assertFalse(diags.isEmpty(), "Expected diagnostics for syntactically invalid code");
+        assertTrue(diags.getFirst().description().contains("Good.java"), "Diagnostic should reference the file");
+    }
+
+    // Verify JDT catches invalid method names like !invalid@Name
+    @Test
+    void testQuickEdit_invalidMethodName_flaggedByJdt() throws Exception {
+        var interfaceSource =
+                """
+                interface MyInterface {
+                    void validMethod(String summary);
+                }
+                """;
+        var javaFile = cm.toFile("MyInterface.java");
+        javaFile.write(interfaceSource);
+
+        var oldText = "void validMethod(String summary);";
+        var invalidSnippet = "default void !invalid@Name(String summary) { }";
+        var updatedContent = interfaceSource.replace(oldText, invalidSnippet);
+
+        var diags = CodeAgent.parseJavaForDiagnostics(javaFile, updatedContent);
+
+        assertFalse(diags.isEmpty(), "Expected diagnostics for invalid method name !invalid@Name");
+    }
+
+    // Quick Edit validation: empty snippet extraction (PR review issue #2)
+    // Verifies that extractCodeFromTripleBackticks returns empty for malformed responses
+    @Test
+    void testQuickEdit_emptyCodeBlock_extractionFails() throws Exception {
+        var javaFile = cm.toFile("Test.java");
+        javaFile.write("class Test {}");
+
+        // Simulate LLM responses without proper code fences
+        var responsesWithoutFences = List.of(
+                "Here's your refactored code: public void method() {}",
+                "I've updated the code as requested.",
+                "```\n\n```", // Empty code block
+                "The code looks good!");
+
+        for (var response : responsesWithoutFences) {
+            var extracted = EditBlock.extractCodeFromTripleBackticks(response);
+            assertTrue(
+                    extracted.isEmpty() || extracted.isBlank(),
+                    "Should extract empty/blank for response without proper fences: " + response);
+        }
     }
 }
