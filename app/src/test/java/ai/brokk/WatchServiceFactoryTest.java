@@ -59,7 +59,7 @@ class WatchServiceFactoryTest {
         var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "linux");
 
         assertNotNull(service);
-        assertTrue(service instanceof NativeProjectWatchService, "Should create NativeProjectWatchService for Linux");
+        assertTrue(service instanceof LegacyProjectWatchService, "Should create LegacyProjectWatchService for Linux");
     }
 
     @Test
@@ -67,18 +67,18 @@ class WatchServiceFactoryTest {
         var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "windows 10");
 
         assertNotNull(service);
-        assertTrue(service instanceof NativeProjectWatchService, "Should create NativeProjectWatchService for Windows");
+        assertTrue(service instanceof LegacyProjectWatchService, "Should create LegacyProjectWatchService for Windows");
     }
 
     @Test
     void testDefaultBehaviorUnknownOS() throws Exception {
-        // When OS is unknown and no configuration is set, should default to native
+        // When OS is unknown and no configuration is set, should default to legacy
         var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "unknown-os");
 
         assertNotNull(service);
         assertTrue(
-                service instanceof NativeProjectWatchService,
-                "Should default to NativeProjectWatchService for unknown OS");
+                service instanceof LegacyProjectWatchService,
+                "Should default to LegacyProjectWatchService for unknown OS");
     }
 
     @Test

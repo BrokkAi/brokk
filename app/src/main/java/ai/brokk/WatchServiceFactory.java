@@ -125,22 +125,22 @@ public class WatchServiceFactory {
 
         // Platform-based selection
         if (os.contains("mac")) {
-            // macOS benefits most from native FSEvents implementation
+            // macOS benefits from native FSEvents implementation (efficient recursive watching)
             logger.debug("Detected macOS, using native watch service (FSEvents)");
             return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         } else if (os.contains("linux")) {
-            // Linux: native implementation provides optimizations
-            logger.debug("Detected Linux, using native watch service (inotify optimized)");
-            return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
+            // Linux: both use inotify underneath, legacy avoids CPU/update issues in native impl
+            logger.debug("Detected Linux, using legacy watch service");
+            return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         } else if (os.contains("win")) {
-            // Windows: both implementations work well, prefer native for consistency
-            logger.debug("Detected Windows, using native watch service");
-            return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
+            // Windows: legacy avoids issues in native impl while providing equivalent functionality
+            logger.debug("Detected Windows, using legacy watch service");
+            return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
 
-        // Default to native with fallback
-        logger.debug("Using native watch service (default)");
-        return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
+        // Default to legacy for unknown platforms
+        logger.debug("Using legacy watch service (default)");
+        return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
     }
 
     /**
