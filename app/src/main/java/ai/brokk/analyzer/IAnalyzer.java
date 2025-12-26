@@ -240,19 +240,29 @@ public interface IAnalyzer {
             throw new IllegalArgumentException("Search pattern may not be empty");
         }
 
-        // Prepare case-insensitive regex pattern
+        // Prepare case-insensitive regex pattern with non-greedy quantifiers to avoid backtracking
+        String substringFilter = null;
         if (autoQuote) {
-            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*");
+            if (!pattern.contains(".*")) {
+                substringFilter = pattern.toLowerCase();
+            }
+            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*?" + Pattern.quote(pattern) + ".*?");
         }
 
         Pattern compiledPattern = Pattern.compile(pattern);
-        // Reuse a single Matcher across all declarations to avoid allocation overhead
-        return searchDefinitions(compiledPattern);
+        String finalSubstringFilter = substringFilter;
+        // Pre-filter with substring check to avoid expensive regex on non-matching FQNs
+        return searchDefinitions(compiledPattern, finalSubstringFilter);
     }
 
     default Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
+        return searchDefinitions(compiledPattern, null);
+    }
+
+    default Set<CodeUnit> searchDefinitions(Pattern compiledPattern, String substringFilter) {
         var matcher = compiledPattern.matcher("");
         return getAllDeclarations().stream()
+                .filter(cu -> substringFilter == null || cu.fqName().toLowerCase().contains(substringFilter))
                 .filter(cu -> matcher.reset(cu.fqName()).find())
                 .collect(Collectors.toSet());
     }
@@ -270,18 +280,18 @@ public interface IAnalyzer {
         }
 
         // Base: current behavior (case-insensitive substring via searchDefinitions)
-        var baseResults = searchDefinitions(".*" + query + ".*");
+        var baseResults = searchDefinitions(".*?" + query + ".*?");
 
-        // Fuzzy: if short query, over-approximate by inserting ".*" between characters
+        // Fuzzy: if short query, over-approximate by inserting ".*?" between characters
         Set<CodeUnit> fuzzyResults = Set.of();
         if (query.length() < 5) {
             StringBuilder sb = new StringBuilder("(?i)");
-            sb.append(".*");
+            sb.append(".*?");
             for (int i = 0; i < query.length(); i++) {
                 sb.append(Pattern.quote(String.valueOf(query.charAt(i))));
-                if (i < query.length() - 1) sb.append(".*");
+                if (i < query.length() - 1) sb.append(".*?");
             }
-            sb.append(".*");
+            sb.append(".*?");
             fuzzyResults = searchDefinitions(sb.toString());
         }
 

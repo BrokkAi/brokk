@@ -9,7 +9,9 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.swing.*;
@@ -35,6 +37,7 @@ public class FuzzySearchListPanel<T> {
     private @Nullable FuzzyMatcher currentMatcher;
     private @Nullable Consumer<T> selectionListener;
     private boolean isTyping = false;
+    private final Map<T, String> htmlCache = new HashMap<>();
 
     /**
      * Creates a new FuzzySearchListPanel with the given items.
@@ -74,11 +77,21 @@ public class FuzzySearchListPanel<T> {
                 String text = displayMapper.apply((T) value);
                 // Skip expensive HTML rendering while actively typing
                 if (currentMatcher != null && !isTyping) {
-                    var fragments = currentMatcher.getMatchingFragments(text);
-                    if (fragments != null && !fragments.isEmpty()) {
-                        var bg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
-                        var fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
-                        setText(FuzzyMatcher.toHighlightedHtml(text, fragments, bg, fg));
+                    T item = (T) value;
+                    String cachedHtml = htmlCache.get(item);
+                    if (cachedHtml != null) {
+                        setText(cachedHtml);
+                    } else {
+                        var fragments = currentMatcher.getMatchingFragments(text);
+                        if (fragments != null && !fragments.isEmpty()) {
+                            var bg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
+                            var fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
+                            var html = FuzzyMatcher.toHighlightedHtml(text, fragments, bg, fg);
+                            htmlCache.put(item, html);
+                            setText(html);
+                        } else {
+                            setText(text);
+                        }
                     }
                 } else {
                     setText(text);
@@ -185,6 +198,7 @@ public class FuzzySearchListPanel<T> {
         isTyping = false;
         String query = searchField.getText().trim();
         model.clear();
+        htmlCache.clear();
 
         if (query.isEmpty()) {
             currentMatcher = null;

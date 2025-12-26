@@ -724,7 +724,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
-    public Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
+    public Set<CodeUnit> searchDefinitions(Pattern compiledPattern, String substringFilter) {
         var anonPredicate = new Predicate<CodeUnit>() {
             @Override
             public boolean test(CodeUnit codeUnit) {
@@ -734,6 +734,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         var matcher = compiledPattern.matcher("");
         return this.state.codeUnitState.keySet().stream()
+                .filter(cu -> substringFilter == null || cu.fqName().toLowerCase().contains(substringFilter))
                 .filter(cu -> matcher.reset(cu.fqName()).find())
                 .filter(anonPredicate)
                 .collect(Collectors.toSet());
