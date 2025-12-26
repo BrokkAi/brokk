@@ -269,14 +269,16 @@ public interface ContextFragment {
                 "Unsupported BrokkFile subtype: " + bf.getClass().getName());
     }
 
-    ContextFragments.StringFragmentType BUILD_RESULTS =
-            new ContextFragments.StringFragmentType("Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
-    ContextFragments.StringFragmentType SEARCH_NOTES =
-            new ContextFragments.StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-    ContextFragments.StringFragmentType DISCARDED_CONTEXT =
-            new ContextFragments.StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
+    record StringFragmentType(String description, String syntaxStyle) {}
 
-    static @Nullable ContextFragments.StringFragmentType getStringFragmentType(String description) {
+    StringFragmentType BUILD_RESULTS =
+            new StringFragmentType("Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
+    StringFragmentType SEARCH_NOTES =
+            new StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+    StringFragmentType DISCARDED_CONTEXT =
+            new StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
+
+    static @Nullable StringFragmentType getStringFragmentType(String description) {
         if (description.isBlank()) return null;
         if (BUILD_RESULTS.description().equals(description)) return BUILD_RESULTS;
         if (SEARCH_NOTES.description().equals(description)) return SEARCH_NOTES;

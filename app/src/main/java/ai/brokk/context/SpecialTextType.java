@@ -22,8 +22,44 @@ import org.jetbrains.annotations.Nullable;
  *
  * This does not change serialization by itself; it centralizes policy that other code can consult.
  */
-public final class SpecialTextType {
-    private static final Map<String, SpecialTextType> BY_DESCRIPTION = new LinkedHashMap<>();
+public enum SpecialTextType {
+    BUILD_RESULTS(
+            "Latest Build Results",
+            SyntaxConstants.SYNTAX_STYLE_NONE,
+            SyntaxConstants.SYNTAX_STYLE_NONE,
+            true, // droppable
+            Function.identity(), // raw preview is fine
+            v -> true // visible to all agents by default
+            ),
+
+    SEARCH_NOTES(
+            "Code Notes",
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+            true, // droppable
+            Function.identity(), // already Markdown
+            v -> true // visible to all
+            ),
+
+    DISCARDED_CONTEXT(
+            "Discarded Context",
+            SyntaxConstants.SYNTAX_STYLE_JSON,
+            SyntaxConstants.SYNTAX_STYLE_JSON,
+            false, // non-droppable; protects audit log
+            Function.identity(), // JSON preview by default
+            v -> true // visible to all
+            ),
+
+    TASK_LIST(
+            "Task List",
+            SyntaxConstants.SYNTAX_STYLE_JSON, // internal storage is JSON
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // preview as Markdown
+            false, // non-droppable
+            SpecialTextType::renderTaskListMarkdown, // render JSON → Markdown for preview
+            v -> (v.taskType() == TaskResult.Type.SEARCH && v.useTaskList())
+                    || v.taskType() == TaskResult.Type.ASK
+                    || v.taskType() == TaskResult.Type.COPY // COPY used for CopyExternal prompts
+            );
 
     private final String description;
     private final String syntaxStyle;
@@ -32,7 +68,7 @@ public final class SpecialTextType {
     private final Function<String, String> previewRenderer;
     private final Predicate<ViewingPolicy> canViewContent;
 
-    private SpecialTextType(
+    SpecialTextType(
             String description,
             String syntaxStyle,
             String previewSyntaxStyle,
@@ -47,60 +83,16 @@ public final class SpecialTextType {
         this.canViewContent = canViewContent;
     }
 
-    private static SpecialTextType register(SpecialTextType type) {
-        BY_DESCRIPTION.put(type.description, type);
-        return type;
-    }
-
-    // --- Registry entries ---
-
-    public static final SpecialTextType BUILD_RESULTS = register(new SpecialTextType(
-            "Latest Build Results",
-            SyntaxConstants.SYNTAX_STYLE_NONE,
-            SyntaxConstants.SYNTAX_STYLE_NONE,
-            true, // droppable
-            // singleton
-            Function.identity(), // raw preview is fine
-            v -> true // visible to all agents by default
-            ));
-
-    public static final SpecialTextType SEARCH_NOTES = register(new SpecialTextType(
-            "Code Notes",
-            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
-            true, // droppable
-            // singleton
-            Function.identity(), // already Markdown
-            v -> true // visible to all
-            ));
-
-    public static final SpecialTextType DISCARDED_CONTEXT = register(new SpecialTextType(
-            "Discarded Context",
-            SyntaxConstants.SYNTAX_STYLE_JSON,
-            SyntaxConstants.SYNTAX_STYLE_JSON,
-            false, // non-droppable; protects audit log
-            // singleton
-            Function.identity(), // JSON preview by default
-            v -> true // visible to all
-            ));
-
-    public static final SpecialTextType TASK_LIST = register(new SpecialTextType(
-            "Task List",
-            SyntaxConstants.SYNTAX_STYLE_JSON, // internal storage is JSON
-            SyntaxConstants.SYNTAX_STYLE_MARKDOWN, // preview as Markdown
-            false, // non-droppable
-            // singleton
-            SpecialTextType::renderTaskListMarkdown, // render JSON → Markdown for preview
-            v -> (v.taskType() == TaskResult.Type.SEARCH && v.useTaskList())
-                    || v.taskType() == TaskResult.Type.ASK
-                    || v.taskType() == TaskResult.Type.COPY // COPY used for CopyExternal prompts
-            ));
-
     // --- Lookups and helpers ---
 
     public static Optional<SpecialTextType> fromDescription(@Nullable String description) {
         if (description == null) return Optional.empty();
-        return Optional.ofNullable(BY_DESCRIPTION.get(description));
+        for (SpecialTextType type : values()) {
+            if (type.description.equals(description)) {
+                return Optional.of(type);
+            }
+        }
+        return Optional.empty();
     }
 
     // --- Accessors ---
@@ -132,16 +124,6 @@ public final class SpecialTextType {
     @Override
     public String toString() {
         return "SpecialTextType{" + description + "}";
-    }
-
-    @Override
-    public int hashCode() {
-        return description.hashCode();
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        return (obj instanceof SpecialTextType other) && description.equals(other.description);
     }
 
     /**

@@ -821,9 +821,6 @@ public class ContextFragments {
         }
     }
 
-    // StringFragmentType and getStringFragmentType helper
-    public record StringFragmentType(String description, String syntaxStyle) {}
-
     public static class StringFragment extends AbstractStaticFragment {
 
         public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
