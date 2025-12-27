@@ -14,7 +14,6 @@ import ai.brokk.context.SpecialTextType;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.*;
@@ -33,51 +32,23 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
-public abstract class CodePrompts {
+public abstract class CodePrompts extends SystemPrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
     public static final CodePrompts instance = new CodePrompts() {};
     private static final Pattern BRK_MARKER_PATTERN =
             Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
 
-    public static final String LAZY_REMINDER =
-            """
-                    You are diligent and tireless!
-                    You NEVER leave comments describing code without implementing it!
-                    You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
-                    """;
+    @Override
+    protected String systemIntro(String reminder) {
+        return """
+                Act as an expert software developer.
+                Always use best practices when coding.
+                Respect and use existing conventions, libraries, etc. that are already present in the code base.
 
-    public static final String OVEREAGER_REMINDER =
-            """
-                    Avoid changing code or comments that are not directly related to the request.
-
-                    Do not comment on your modifications, only on the resulting code in isolation.
-                    You must never output any comments about the progress or type of changes of your refactoring or generation.
-                    For example, you must NOT add comments like: 'Added dependency' or 'Changed to new style' or worst of all 'Keeping existing implementation'.
-                    """;
-
-    public static final String ARCHITECT_REMINDER =
-            """
-                    Pay careful attention to the scope of the user's request. Attempt to do everything required
-                    to fulfil the user's direct requests, but avoid surprising him with unexpected actions.
-                    For example, if the user asks you a question, you should do your best to answer his question first,
-                    before immediately jumping into taking further action.
-                    """;
-
-    public static final String MARKDOWN_REMINDER =
-            """
-            <persistence>
-            ## Markdown Formatting
-            When not writing SEARCH/REPLACE blocks,
-            format your response using GFM Markdown to **improve the readability** of your responses with:
-            - **bold**
-            - _italics_
-            - `inline code` (for file, directory, function, class names, and other symbols)
-            - ```code fences``` for code and pseudocode
-            - list
-            - prefer GFM tables over bulleted lists
-            - header tags (start from ##).
-            </persistence>
-            """;
+                %s
+                """
+                .formatted(reminder);
+    }
 
     @Blocking
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
@@ -130,19 +101,6 @@ public abstract class CodePrompts {
         }
 
         return flags;
-    }
-
-    public String codeReminder(AbstractService service, StreamingChatModel model) {
-        var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
-        return baseReminder;
-    }
-
-    public String architectReminder() {
-        return ARCHITECT_REMINDER + "\n" + MARKDOWN_REMINDER;
-    }
-
-    public String askReminder() {
-        return MARKDOWN_REMINDER;
     }
 
     private static final String ELIDED_BLOCK_PLACEHOLDER = "[elided SEARCH/REPLACE block]";
@@ -203,7 +161,8 @@ public abstract class CodePrompts {
             String goal) {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
-        var reminder = codeReminder(cm.getService(), model);
+        AbstractService service = cm.getService();
+        var reminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
         var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, suppressedTypes);
 
         messages.add(systemMessage(reminder, goal));
@@ -250,52 +209,9 @@ public abstract class CodePrompts {
         return messages;
     }
 
-    @Blocking
-    public SystemMessage systemMessage(String reminder, @Nullable String goal) {
-        final String text;
-        if (goal == null || goal.isBlank()) {
-            text =
-                    """
-                            <instructions>
-                            %s
-                            </instructions>
-                            """
-                            .formatted(systemIntro(reminder))
-                            .trim();
-        } else {
-            text =
-                    """
-                            <instructions>
-                            %s
-                            </instructions>
-                            <goal>
-                            %s
-                            </goal>
-                            """
-                            .formatted(systemIntro(reminder), goal)
-                            .trim();
-        }
-
-        return new SystemMessage(text);
-    }
-
-    @Blocking
-    protected SystemMessage systemMessage(String reminder) {
-        return systemMessage(reminder, null);
-    }
-
-    public String systemIntro(String reminder) {
-        return """
-                Act as an expert software developer.
-                Always use best practices when coding.
-                Respect and use existing conventions, libraries, etc. that are already present in the code base.
-
-                %s
-                """
-                .formatted(reminder);
-    }
-
-    public UserMessage codeRequest(Context ctx, String input, String reminder) {
+    public UserMessage codeRequest(Context ctx, String input, StreamingChatModel model) {
+        AbstractService service = ctx.getContextManager().getService();
+        var reminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
         var instructions =
                 """
                         <instructions>

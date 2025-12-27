@@ -9,7 +9,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
-public abstract class CopyExternalPrompts extends CodePrompts {
+public abstract class CopyExternalPrompts extends SystemPrompts {
     public static final CopyExternalPrompts instance = new CopyExternalPrompts() {};
 
     public List<ChatMessage> collectMessages(ContextManager cm) throws InterruptedException {
@@ -28,7 +28,7 @@ public abstract class CopyExternalPrompts extends CodePrompts {
     }
 
     @Override
-    public String systemIntro(String reminder) {
+    protected String systemIntro(String reminder) {
         return """
         Act as an expert software engineer. Study the change request and the current code.
         Describe how to modify the code to complete the request.

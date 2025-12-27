@@ -14,7 +14,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
-import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.SystemPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -952,7 +952,7 @@ public class ArchitectAgent {
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
         // System message defines the agent's role and general instructions
-        var reminder = CodePrompts.instance.architectReminder();
+        var reminder = SystemPrompts.ARCHITECT_REMINDER + "\n" + SystemPrompts.MARKDOWN_REMINDER;
         messages.add(ArchitectPrompts.instance.systemMessage(reminder, goal));
 
         // Workspace contents are added directly
