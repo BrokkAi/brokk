@@ -82,7 +82,8 @@ public class V3_DtoMapper {
                         virtualFragments.stream().map(v -> (ContextFragment) v))
                 .toList();
 
-        return Context.createWithId(ctxId, mgr, combined, taskHistory, parsedOutputFragment, actionFuture);
+        return Context.createWithId(
+                ctxId, mgr, combined, taskHistory, parsedOutputFragment, actionFuture, null, null, Set.of(), Set.of());
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}

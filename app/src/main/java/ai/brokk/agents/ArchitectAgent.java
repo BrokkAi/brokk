@@ -11,7 +11,7 @@ import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.context.Context;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.CodePrompts;
@@ -508,9 +508,9 @@ public class ArchitectAgent {
                     .orElseThrow();
 
             // Calculate current workspace token size
-            ViewingPolicy vp = new ViewingPolicy(TaskResult.Type.ARCHITECT);
+            var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST);
             var workspaceContentMessages =
-                    new ArrayList<>(WorkspacePrompts.getMessagesGroupedByMutability(context, vp));
+                    new ArrayList<>(WorkspacePrompts.getMessagesGroupedByMutability(context, suppressed));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
 
             // Build the prompt messages, including history and conditional warnings

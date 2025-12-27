@@ -3,7 +3,7 @@ package ai.brokk.prompts;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -16,10 +16,12 @@ import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -85,16 +87,18 @@ public final class WorkspacePrompts {
      * Shows:
      *   - READ ONLY fragments (if any)
      *   - All EDITABLE fragments in a single section
-     * Optionally appends a simple build status indicator.
+     * Respects {@code suppressedTypes} to hide special content like build status.
      *
      * @param ctx             the current context
-     * @param showBuildStatus if true, include build status indicator in TOC; if false, omit
+     * @param suppressedTypes types of special text to omit from the TOC
      */
-    public static String formatToc(Context ctx, boolean showBuildStatus) {
+    public static String formatToc(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var buildFragment = ctx.getBuildFragment();
+        boolean hideBuild = suppressedTypes.contains(SpecialTextType.BUILD_RESULTS);
+
         var readOnlyContents = ctx.getReadonlyFragments()
                 .filter(cf -> buildFragment.isEmpty() || cf != buildFragment.get())
-                .map(ContextFragment::formatToc)
+                .map(cf -> cf.formatToc(ctx.isPinned(cf)))
                 .collect(Collectors.joining("\n"));
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
 
@@ -112,8 +116,9 @@ public final class WorkspacePrompts {
             parts.add(readOnlySection);
         }
 
-        var editableContents =
-                editableFragments.stream().map(ContextFragment::formatToc).collect(Collectors.joining("\n"));
+        var editableContents = editableFragments.stream()
+                .map(cf -> cf.formatToc(ctx.isPinned(cf)))
+                .collect(Collectors.joining("\n"));
         if (!editableContents.isBlank()) {
             parts.add(
                     """
@@ -124,7 +129,7 @@ public final class WorkspacePrompts {
                             .formatted(editableContents));
         }
 
-        if (showBuildStatus && buildFragment.isPresent()) {
+        if (!hideBuild && buildFragment.isPresent()) {
             parts.add("  <workspace_build_status>(failing)</workspace_build_status>");
         }
 
@@ -137,14 +142,15 @@ public final class WorkspacePrompts {
 
     /** Convenience overload for callers that don't control build-status visibility. */
     public static String formatToc(Context ctx) {
-        return formatToc(ctx, true);
+        return formatToc(ctx, java.util.Collections.emptySet());
     }
 
     /**
      * All fragments in the order they were added ({@code ctx.allFragments()}), wrapped in a single
      * {@code <workspace>} block, with the style guide from the context.
      */
-    public static List<ChatMessage> getMessagesInAddedOrder(Context ctx, ViewingPolicy viewingPolicy) {
+    @Blocking
+    public static List<ChatMessage> getMessagesInAddedOrder(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var allFragments = ctx.allFragments().toList();
         var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
 
@@ -152,7 +158,7 @@ public final class WorkspacePrompts {
             return List.of();
         }
 
-        var rendered = formatWithPolicy(allFragments, viewingPolicy);
+        var rendered = formatWithPolicy(ctx, allFragments, suppressedTypes);
         if (rendered.text.isEmpty() && rendered.images.isEmpty() && styleGuide.isBlank()) {
             return List.of();
         }
@@ -182,26 +188,14 @@ public final class WorkspacePrompts {
      * {@code <workspace>} block.
      *
      * @param ctx                       current context
-     * @param viewingPolicy             viewing policy (controls StringFragment visibility)
+     * @param suppressedTypes           types of special text to omit from the workspace
      */
-    public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, ViewingPolicy viewingPolicy) {
-        return getMessagesGroupedByMutability(ctx, viewingPolicy, true);
-    }
-
-    /**
-     * Internal helper that allows callers to choose whether build status appears in the workspace.
-     *
-     * @param showBuildStatusInWorkspace if true, include build status snippets in workspace sections
-     *                                   (both in read-only fragment and editable sections);
-     *                                   if false, omit all build status from workspace
-     *                                   (it will be shown inline in the request instead).
-     */
-    private static List<ChatMessage> getMessagesGroupedByMutability(
-            Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
+    @Blocking
+    public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, Set<SpecialTextType> suppressedTypes) {
         // Compose read-only (optionally with build fragment) + all editable + build status into a single <workspace>
         // message
-        var readOnlyMessages = buildReadOnlyForContents(ctx, viewingPolicy, showBuildStatusInWorkspace);
-        var editableMessages = buildEditableAll(ctx, showBuildStatusInWorkspace);
+        var readOnlyMessages = buildReadOnlyForContents(ctx, suppressedTypes);
+        var editableMessages = buildEditableAll(ctx, suppressedTypes);
 
         var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
 
@@ -268,31 +262,22 @@ public final class WorkspacePrompts {
      * Workspace views used by CodeAgent.
      *
      * @param ctx                       current context
-     * @param viewingPolicy             viewing policy (controls StringFragment visibility)
-     * @param showBuildStatusInWorkspace if true, include build status in workspace sections;
-     *                                  if false, omit from workspace (will be shown inline in request)
+     * @param suppressedTypes           types of special text to omit from the workspace
      * @return record with the workspace messages and buildFailure details
      */
-    public static CodeAgentMessages getMessagesForCodeAgent(
-            Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
-        var workspace = getMessagesGroupedByMutability(ctx, viewingPolicy, showBuildStatusInWorkspace);
-        var buildFailure = ctx.getBuildFragment().map(f -> f.format().join()).orElse(null);
+    @Blocking
+    public static CodeAgentMessages getMessagesForCodeAgent(Context ctx, Set<SpecialTextType> suppressedTypes) {
+        var workspace = getMessagesGroupedByMutability(ctx, suppressedTypes);
+        var buildFailure = ctx.getBuildFragment().map(f -> f.text().join()).orElse(null);
         return new CodeAgentMessages(workspace, buildFailure);
     }
 
-    private static List<ChatMessage> buildEditableAll(Context ctx, boolean showBuildStatusInWorkspace) {
+    private static List<ChatMessage> buildEditableAll(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
-        @Nullable ContextFragment buildFragment = ctx.getBuildFragment().orElse(null);
-        var editableTextFragments = new StringBuilder();
-        editableFragments.forEach(fragment -> {
-            // Editable fragments use their own formatting; ViewingPolicy does not currently affect them.
-            String formatted = fragment.format().join();
-            if (!formatted.isBlank()) {
-                editableTextFragments.append(formatted).append("\n\n");
-            }
-        });
+        var editableTextFragments = formatWithPolicy(ctx, editableFragments, suppressedTypes).text;
 
-        boolean shouldShowBuild = showBuildStatusInWorkspace && buildFragment != null;
+        boolean shouldShowBuild = !suppressedTypes.contains(SpecialTextType.BUILD_RESULTS)
+                && ctx.getBuildFragment().isPresent();
         if (editableTextFragments.isEmpty() && !shouldShowBuild) {
             return List.of();
         }
@@ -314,8 +299,7 @@ public final class WorkspacePrompts {
                             </workspace_editable>
                             """;
 
-            String editableText = editableSectionTemplate.formatted(
-                    editableTextFragments.toString().trim());
+            String editableText = editableSectionTemplate.formatted(editableTextFragments.trim());
 
             combinedText.append(editableText);
         }
@@ -344,15 +328,14 @@ public final class WorkspacePrompts {
         return messages;
     }
 
-    private static List<ChatMessage> buildReadOnlyForContents(
-            Context ctx, ViewingPolicy viewingPolicy, boolean showBuildStatusInWorkspace) {
+    private static List<ChatMessage> buildReadOnlyForContents(Context ctx, Set<SpecialTextType> suppressedTypes) {
         // Build read-only section; optionally include the build fragment as part of read-only workspace
         var buildFragment = ctx.getBuildFragment().orElse(null);
         var readOnlyFragments = ctx.getReadonlyFragments()
-                .filter(f -> showBuildStatusInWorkspace || f != buildFragment)
+                .filter(f -> !suppressedTypes.contains(SpecialTextType.BUILD_RESULTS) || f != buildFragment)
                 .toList();
 
-        var renderedReadOnly = renderReadOnlyFragments(readOnlyFragments, viewingPolicy);
+        var renderedReadOnly = renderReadOnlyFragments(ctx, readOnlyFragments, suppressedTypes);
 
         if (renderedReadOnly.text.isEmpty() && renderedReadOnly.images.isEmpty()) {
             return List.of();
@@ -402,11 +385,12 @@ public final class WorkspacePrompts {
      * - Summary fragments are combined into a single <api_summaries> block
      * - All images are collected and returned
      *
+     * @param ctx          the current context
      * @param readOnly     readonly fragments to render
-     * @param vp           viewing policy for visibility control
      * @return RenderedContent with formatted text and images
      */
-    private static RenderedContent renderReadOnlyFragments(List<ContextFragment> readOnly, ViewingPolicy vp) {
+    private static RenderedContent renderReadOnlyFragments(
+            Context ctx, List<ContextFragment> readOnly, Set<SpecialTextType> suppressedTypes) {
         var summaryFragments = readOnly.stream()
                 .filter(ContextFragments.SummaryFragment.class::isInstance)
                 .map(ContextFragments.SummaryFragment.class::cast)
@@ -416,7 +400,7 @@ public final class WorkspacePrompts {
                 .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
                 .toList();
 
-        var renderedOther = formatWithPolicy(otherFragments, vp);
+        var renderedOther = formatWithPolicy(ctx, otherFragments, suppressedTypes);
         var textBuilder = new StringBuilder(renderedOther.text);
 
         if (!summaryFragments.isEmpty()) {
@@ -437,51 +421,53 @@ public final class WorkspacePrompts {
         return new RenderedContent(textBuilder.toString().trim(), renderedOther.images);
     }
 
-    private static RenderedContent formatWithPolicy(List<ContextFragment> fragments, ViewingPolicy vp) {
+    private static RenderedContent formatWithPolicy(
+            Context ctx, List<ContextFragment> fragments, Set<SpecialTextType> suppressedTypes) {
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
-        for (var fragment : fragments) {
-            if (fragment.isText()) {
-                String formatted;
-                if (fragment instanceof ContextFragments.StringFragment sf) {
-                    var visibleText = sf.textForAgent(vp);
-                    formatted =
-                            """
-                            <fragment description="%s" fragmentid="%s">
-                            %s
-                            </fragment>
-                            """
-                                    .formatted(sf.description().join(), sf.id(), visibleText);
-                } else {
-                    formatted = fragment.format().join();
-                }
-                if (!formatted.isBlank()) {
-                    textBuilder.append(formatted).append("\n\n");
-                }
-            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                try {
-                    var imageBytes = fragment.imageBytes();
-                    if (imageBytes != null) {
-                        var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytes.join()));
-                        imageList.add(ImageContent.from(l4jImage));
+        for (var cf : fragments) {
+            if (cf.isText()) {
+                if (cf instanceof ContextFragments.StringFragment sf) {
+                    if (sf.specialType().isPresent()
+                            && suppressedTypes.contains(sf.specialType().get())) {
+                        continue;
                     }
-                    textBuilder.append(fragment.format().join()).append("\n\n");
-                } catch (IOException | UncheckedIOException e) {
-                    logger.error(
-                            "Failed to process image fragment {} for LLM message",
-                            fragment.description().join(),
-                            e);
-                    textBuilder.append(String.format(
-                            "[Error processing image: %s - %s]\n\n",
-                            fragment.description().join(), e.getMessage()));
                 }
-            } else {
-                String formatted = fragment.format().join();
-                if (!formatted.isBlank()) {
-                    textBuilder.append(formatted).append("\n\n");
+                String idOrPinned = ctx.isPinned(cf) ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(cf.id());
+                String formatted;
+                formatted =
+                        """
+                                <fragment description="%s" %s>
+                                %s
+                                </fragment>
+                                """
+                                .formatted(
+                                        cf.description().join(),
+                                        idOrPinned,
+                                        cf.text().join());
+                textBuilder.append(formatted).append("\n\n");
+                continue;
+            }
+
+            assert cf instanceof ContextFragments.ImageFileFragment
+                            || cf instanceof ContextFragments.AnonymousImageFragment
+                    : cf;
+            try {
+                var imageBytes = cf.imageBytes();
+                if (imageBytes != null) {
+                    var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytes.join()));
+                    imageList.add(ImageContent.from(l4jImage));
                 }
+                textBuilder.append(cf.text().join()).append("\n\n");
+            } catch (IOException | UncheckedIOException e) {
+                logger.error(
+                        "Failed to process image fragment {} for LLM message",
+                        cf.description().join(),
+                        e);
+                textBuilder.append(String.format(
+                        "[Error processing image: %s - %s]\n\n",
+                        cf.description().join(), e.getMessage()));
             }
         }
 

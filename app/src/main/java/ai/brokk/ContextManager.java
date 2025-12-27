@@ -1038,83 +1038,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Appends selected fragments from a historical context to the current live context. If a
-     * {@link ContextFragments.HistoryFragment} is among {@code fragmentsToKeep}, its task entries are also appended to
-     * the current live context's history. A new state representing this action is pushed to the context history.
-     *
-     * @param sourceContext The historical context to source fragments and history from.
-     * @param fragmentsToKeep A list of fragments from {@code sourceContext} to append. These are matched by ID.
-     * @return A Future representing the completion of the task.
-     */
-    public Future<?> addFilteredToContextAsync(Context sourceContext, List<ContextFragment> fragmentsToKeep) {
-        return submitExclusiveAction(() -> {
-            String actionMessage = "Copy context from historical state: " + contextDescription(fragmentsToKeep);
-
-            // Calculate new history
-            List<TaskEntry> finalHistory = new ArrayList<>(liveContext().getTaskHistory());
-            Set<TaskEntry> existingEntries = new HashSet<>(finalHistory);
-
-            Optional<ContextFragments.HistoryFragment> selectedHistoryFragmentOpt = fragmentsToKeep.stream()
-                    .filter(ContextFragments.HistoryFragment.class::isInstance)
-                    .map(ContextFragments.HistoryFragment.class::cast)
-                    .findFirst();
-
-            if (selectedHistoryFragmentOpt.isPresent()) {
-                List<TaskEntry> entriesToAppend =
-                        selectedHistoryFragmentOpt.get().entries();
-                for (TaskEntry entry : entriesToAppend) {
-                    if (existingEntries.add(entry)) {
-                        finalHistory.add(entry);
-                    }
-                }
-                finalHistory.sort(Comparator.comparingInt(TaskEntry::sequence));
-            }
-            List<TaskEntry> newHistory = List.copyOf(finalHistory);
-
-            // Collect fragments to add (should all be live already from migration logic)
-            List<ContextFragment> fragmentsToAdd = new ArrayList<>();
-            List<ContextFragment> sourceFragments = sourceContext.allFragments().toList();
-
-            for (ContextFragment fragment : fragmentsToKeep) {
-                // Use semantic comparison (hasSameSource) to identify which category this fragment belongs to
-                boolean isMatch = sourceFragments.stream()
-                        .anyMatch(f -> !(f instanceof ContextFragments.HistoryFragment) && fragment.hasSameSource(f));
-
-                if (isMatch) {
-                    fragmentsToAdd.add(fragment);
-                } else if (!(fragment instanceof ContextFragments.HistoryFragment)) {
-                    // HistoryFragment is handled by selectedHistoryFragmentOpt
-                    logger.warn(
-                            "Fragment '{}' (ID: {}) from fragmentsToKeep does not match any source fragments. Type: {}",
-                            fragment.description(),
-                            fragment.id(),
-                            fragment.getClass().getSimpleName());
-                }
-            }
-
-            pushContext(currentLiveCtx -> {
-                Context modifiedCtx = currentLiveCtx;
-                if (!fragmentsToAdd.isEmpty()) {
-                    modifiedCtx = modifiedCtx.addFragments(fragmentsToAdd);
-                }
-                return Context.createWithId(
-                                Context.newContextId(),
-                                this,
-                                modifiedCtx.allFragments().toList(),
-                                newHistory,
-                                null,
-                                CompletableFuture.completedFuture(actionMessage),
-                                currentLiveCtx.getGroupId(),
-                                currentLiveCtx.getGroupLabel(),
-                                currentLiveCtx.getMarkedReadonlyFragments().collect(Collectors.toSet()))
-                        .copyAndRefresh("Copy from History");
-            });
-
-            io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);
-        });
-    }
-
-    /**
      * Handles pasting an image from the clipboard. Submits a task to summarize the image and adds a PasteImageFragment
      * to the context.
      *
@@ -1715,25 +1638,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         contextPushed(contextHistory.liveContext());
-
-        // Auto-compress conversation history if enabled and exceeds configured threshold of the context window.
-        // This does not run for headless tasks; protects users doing repeated manual Ask/Code.
-        // (null check here against IP is NOT redundant; this is called during Chrome init)
-        if (io instanceof Chrome
-                && io.getInstructionsPanel() != null
-                && MainProject.getHistoryAutoCompress()
-                && !newLiveContext.getTaskHistory().isEmpty()) {
-            var cf = new ContextFragments.HistoryFragment(this, newLiveContext.getTaskHistory());
-            int tokenCount = Messages.getApproximateTokens(cf.format().renderNowOr("(Unknown)"));
-
-            var svc = getService();
-            var model = io.getInstructionsPanel().getSelectedModel();
-            int maxInputTokens = svc.getMaxInputTokens(model);
-            double thresholdPct = MainProject.getHistoryAutoCompressThresholdPercent() / 100.0;
-            if (tokenCount > (int) Math.ceil(maxInputTokens * thresholdPct)) {
-                compressHistoryAsync();
-            }
-        }
         return newLiveContext;
     }
 

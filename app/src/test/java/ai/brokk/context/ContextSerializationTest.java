@@ -11,7 +11,6 @@ import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
-import ai.brokk.util.ComputedValue;
 import ai.brokk.util.HistoryIo;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -1025,37 +1024,9 @@ public class ContextSerializationTest {
         List<ContextFragment> deduplicatedFragments =
                 deserializedContext.virtualFragments().toList();
 
-        // Expected: 3 unique fragments based on text content.
-        // The ones kept should be vf1, vf2, vf3 because they were added first for their respective texts.
-        assertEquals(3, deduplicatedFragments.size(), "Should be 3 unique virtual fragments after deduplication.");
-
-        Set<String> actualDescriptions = deduplicatedFragments.stream()
-                .map(ContextFragment::description)
-                .map(ComputedValue::join)
-                .collect(Collectors.toSet());
-        assertEquals(
-                Set.of("uniqueText1", "duplicateText", "uniqueText2"),
-                actualDescriptions,
-                "Texts of deduplicated fragments do not match expected unique texts.");
-
-        // Verify that the specific fragments kept are the first ones encountered
-        assertTrue(
-                deduplicatedFragments.stream()
-                        .anyMatch(f -> "uniqueText1".equals(f.description().join())
-                                && "Content for uniqueText1 (first)"
-                                        .equals(f.text().join())),
-                "Expected first instance of 'uniqueText1' to be present.");
-        assertTrue(
-                deduplicatedFragments.stream()
-                        .anyMatch(f -> "duplicateText".equals(f.description().join())
-                                && "Content for duplicateText (first)"
-                                        .equals(f.text().join())),
-                "Expected first instance of 'duplicateText' to be present.");
-        assertTrue(
-                deduplicatedFragments.stream()
-                        .anyMatch(f -> "uniqueText2".equals(f.description().join())
-                                && "Content for uniqueText2".equals(f.text().join())),
-                "Expected 'uniqueText2' to be present.");
+        // Expected: 5 unique fragments based on text content, common description should not result in being treated as
+        // duplicates
+        assertEquals(5, deduplicatedFragments.size(), "Should be 5 unique virtual fragments after deduplication.");
     }
 
     @Test
@@ -1236,6 +1207,50 @@ public class ContextSerializationTest {
         assertEquals(
                 Service.ReasoningLevel.DEFAULT,
                 loadedEntry.meta().primaryModel().reasoning());
+    }
+
+    @Test
+    void testPinnedRoundTrip() throws Exception {
+        // Setup a fragment and pin it
+        var sf = new ContextFragments.StringFragment(
+                mockContextManager, "Pinned content", "Pinned Desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var ctx = new Context(mockContextManager).addFragments(sf).withPinned(sf, true);
+
+        assertTrue(ctx.isPinned(sf), "Fragment should be pinned in original context");
+
+        ContextHistory ch = new ContextHistory(ctx);
+        Path zipFile = tempDir.resolve("pinned_roundtrip.zip");
+        HistoryIo.writeZip(ch, zipFile);
+
+        // Deserialize
+        ContextHistory loaded = HistoryIo.readZip(zipFile, mockContextManager);
+        Context loadedCtx = loaded.getHistory().getFirst();
+
+        var loadedSf = loadedCtx
+                .virtualFragments()
+                .filter(f -> f.description().join().equals("Pinned Desc"))
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(loadedCtx.isPinned(loadedSf), "Fragment should remain pinned after round-trip");
+
+        // Verify unpinned fragment stays unpinned
+        var sf2 = new ContextFragments.StringFragment(
+                mockContextManager, "Unpinned content", "Unpinned Desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var ctx2 = ctx.addFragments(sf2);
+        assertFalse(ctx2.isPinned(sf2));
+
+        Path zipFile2 = tempDir.resolve("pinned_mixed_roundtrip.zip");
+        HistoryIo.writeZip(new ContextHistory(ctx2), zipFile2);
+
+        ContextHistory loaded2 = HistoryIo.readZip(zipFile2, mockContextManager);
+        Context loadedCtx2 = loaded2.getHistory().getFirst();
+        var loadedSf2 = loadedCtx2
+                .virtualFragments()
+                .filter(f -> f.description().join().equals("Unpinned Desc"))
+                .findFirst()
+                .orElseThrow();
+        assertFalse(loadedCtx2.isPinned(loadedSf2), "Unpinned fragment should remain unpinned");
     }
 
     @Test
