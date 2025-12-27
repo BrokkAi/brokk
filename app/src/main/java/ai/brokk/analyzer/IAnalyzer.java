@@ -2,8 +2,10 @@ package ai.brokk.analyzer;
 
 import ai.brokk.project.IProject;
 import java.util.*;
+import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Core analyzer interface providing code intelligence capabilities.
@@ -241,28 +243,28 @@ public interface IAnalyzer {
         }
 
         // Prepare case-insensitive regex pattern with non-greedy quantifiers to avoid backtracking
-        String substringFilter = null;
+        @Nullable String substringFilter = null;
         if (autoQuote) {
             if (!pattern.contains(".*")) {
-                substringFilter = pattern.toLowerCase();
+                substringFilter = pattern.toLowerCase(Locale.ROOT);
             }
             pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*?" + Pattern.quote(pattern) + ".*?");
         }
 
         Pattern compiledPattern = Pattern.compile(pattern);
-        String finalSubstringFilter = substringFilter;
         // Pre-filter with substring check to avoid expensive regex on non-matching FQNs
-        return searchDefinitions(compiledPattern, finalSubstringFilter);
+        return searchDefinitions(compiledPattern, substringFilter);
     }
 
     default Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
         return searchDefinitions(compiledPattern, null);
     }
 
-    default Set<CodeUnit> searchDefinitions(Pattern compiledPattern, String substringFilter) {
+    default Set<CodeUnit> searchDefinitions(Pattern compiledPattern, @Nullable String substringFilter) {
         var matcher = compiledPattern.matcher("");
         return getAllDeclarations().stream()
-                .filter(cu -> substringFilter == null || cu.fqName().toLowerCase().contains(substringFilter))
+                .filter(cu -> substringFilter == null
+                        || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
                 .filter(cu -> matcher.reset(cu.fqName()).find())
                 .collect(Collectors.toSet());
     }

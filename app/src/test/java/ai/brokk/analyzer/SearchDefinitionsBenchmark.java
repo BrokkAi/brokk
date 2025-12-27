@@ -35,7 +35,8 @@ public class SearchDefinitionsBenchmark {
             Set<CodeUnit> results = analyzer.searchDefinitions("TestClass");
         }
         long elapsed = System.nanoTime() - start;
-        System.out.printf("searchDefinitions('TestClass') x100: %.2f ms (%.2f μs per call)%n",
+        System.out.printf(
+                "searchDefinitions('TestClass') x100: %.2f ms (%.2f μs per call)%n",
                 elapsed / 1_000_000.0, elapsed / 100_000.0);
 
         // Benchmark autocomplete
@@ -44,7 +45,8 @@ public class SearchDefinitionsBenchmark {
             Set<CodeUnit> results = analyzer.autocompleteDefinitions("Test");
         }
         elapsed = System.nanoTime() - start;
-        System.out.printf("autocompleteDefinitions('Test') x100: %.2f ms (%.2f μs per call)%n",
+        System.out.printf(
+                "autocompleteDefinitions('Test') x100: %.2f ms (%.2f μs per call)%n",
                 elapsed / 1_000_000.0, elapsed / 100_000.0);
 
         // Benchmark direct pattern matching (to compare old vs new approach)
@@ -56,15 +58,16 @@ public class SearchDefinitionsBenchmark {
             analyzer.searchDefinitions(greedyPattern, null);
         }
         long greedyTime = System.nanoTime() - start;
-        System.out.printf("Greedy pattern x100: %.2f ms (%.2f μs per call)%n",
-                greedyTime / 1_000_000.0, greedyTime / 100_000.0);
+        System.out.printf(
+                "Greedy pattern x100: %.2f ms (%.2f μs per call)%n", greedyTime / 1_000_000.0, greedyTime / 100_000.0);
 
         start = System.nanoTime();
         for (int i = 0; i < 100; i++) {
             analyzer.searchDefinitions(nonGreedyPattern, "testclass");
         }
         long nonGreedyTime = System.nanoTime() - start;
-        System.out.printf("Non-greedy + substring filter x100: %.2f ms (%.2f μs per call)%n",
+        System.out.printf(
+                "Non-greedy + substring filter x100: %.2f ms (%.2f μs per call)%n",
                 nonGreedyTime / 1_000_000.0, nonGreedyTime / 100_000.0);
 
         double speedup = (double) greedyTime / nonGreedyTime;
