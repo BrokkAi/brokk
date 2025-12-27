@@ -735,7 +735,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var matcher = compiledPattern.matcher("");
         return this.state.codeUnitState.keySet().stream()
                 .filter(cu -> substringFilter == null
-                        || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
+                        || containsIgnoreCase(cu.fqName(), substringFilter))
                 .filter(cu -> matcher.reset(cu.fqName()).find())
                 .filter(anonPredicate)
                 .collect(Collectors.toSet());
@@ -769,8 +769,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             var keyIndex = current.symbolKeyIndex();
             try {
                 for (String symbol : keyIndex.tailFrom(query)) {
-                    String symbolLower = symbol.toLowerCase(Locale.ROOT);
-                    if (!symbolLower.startsWith(lowerCaseQuery)) {
+                    if (!startsWithIgnoreCase(symbol, lowerCaseQuery)) {
                         break; // stop when the prefix no longer matches
                     }
                     results.addAll(current.symbolIndex().getOrDefault(symbol, Set.of()));
@@ -785,14 +784,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Skip symbols already covered by the prefix optimization to avoid duplicate work.
         Iterable<String> allKeysIterable = current.symbolKeyIndex().all();
         for (String symbol : allKeysIterable) {
-            String symbolLower = symbol.toLowerCase(Locale.ROOT);
-
-            if (usePrefixOptimization && symbolLower.startsWith(lowerCaseQuery)) {
+            if (usePrefixOptimization && startsWithIgnoreCase(symbol, lowerCaseQuery)) {
                 continue; // already collected by prefix scan
             }
 
             boolean matches = false;
-            if (symbolLower.contains(lowerCaseQuery)) {
+            if (containsIgnoreCase(symbol, lowerCaseQuery)) {
                 matches = true;
             } else if (isAllUpper
                     && camelCasePattern != null
@@ -808,11 +805,30 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Fallback for very short queries (single letter): include any declarations with FQNs containing the query.
         if (query.length() == 1) {
             this.state.codeUnitState.keySet().stream()
-                    .filter(cu -> cu.fqName().toLowerCase(Locale.ROOT).contains(lowerCaseQuery))
+                    .filter(cu -> containsIgnoreCase(cu.fqName(), lowerCaseQuery))
                     .forEach(results::add);
         }
 
         return results.stream().filter(cu -> !isAnonymousStructure(cu.fqName())).collect(Collectors.toSet());
+    }
+
+    private static boolean startsWithIgnoreCase(String str, String prefix) {
+        return str.regionMatches(true, 0, prefix, 0, prefix.length());
+    }
+
+    private static boolean containsIgnoreCase(String str, String sub) {
+        final int len = str.length();
+        final int subLen = sub.length();
+        if (subLen == 0) return true;
+        if (subLen > len) return false;
+
+        final int max = len - subLen;
+        for (int i = 0; i <= max; i++) {
+            if (str.regionMatches(true, i, sub, 0, subLen)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
