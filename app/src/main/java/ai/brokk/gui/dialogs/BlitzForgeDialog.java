@@ -27,6 +27,7 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.ScaledIcon;
 import ai.brokk.project.MainProject;
 import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
@@ -1666,7 +1667,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var ctx = new Context(cm)
                             .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages)))
                             .addFragments(cm.toPathFragments(List.of(file)));
-                    var messages = CodePrompts.instance.collectAskMessages(ctx, instructions);
+                    var messages = SearchPrompts.instance.collectAskMessages(ctx, instructions);
                     var llm = cm.getLlm(model, "Ask", true);
                     var meta = new TaskResult.TaskMeta(
                             TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));

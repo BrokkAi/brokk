@@ -76,7 +76,7 @@ public abstract class SystemPrompts {
     }
 
     @Blocking
-    protected final SystemMessage systemMessage(String reminder) {
+    public final SystemMessage systemMessage(String reminder) {
         return systemMessage(reminder, null);
     }
 

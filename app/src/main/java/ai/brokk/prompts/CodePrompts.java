@@ -29,7 +29,6 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
-import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
 public abstract class CodePrompts extends SystemPrompts {
@@ -181,30 +180,6 @@ public abstract class CodePrompts extends SystemPrompts {
                         .formatted(WorkspacePrompts.formatToc(ctx, suppressedTypes));
         var augmentedRequest = new UserMessage(Messages.getText(request) + tocReminder);
         messages.add(augmentedRequest);
-
-        return messages;
-    }
-
-    /**
-     * Collects chat messages for an "ask" request, using the ASK viewing policy.
-     * <p>
-     * This method no longer takes a {@code model} parameter. Instead, it sets the viewing policy
-     * to {@code ViewingPolicy(TaskResult.Type.ASK)}, which determines what workspace contents are shown.
-     *
-     * @param ctx   The context manager for the current project/session.
-     * @param input The user's question or request.
-     * @return A list of chat messages representing the system prompt, workspace contents, history, and the user's request.
-     * @throws InterruptedException if interrupted while collecting messages.
-     */
-    public final List<ChatMessage> collectAskMessages(Context ctx, String input) throws InterruptedException {
-        var messages = new ArrayList<ChatMessage>();
-
-        var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST);
-        String reminder = askReminder();
-        messages.add(systemMessage(reminder, null));
-        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, suppressed));
-        messages.addAll(getHistoryMessages(ctx));
-        messages.add(askRequest(input));
 
         return messages;
     }
