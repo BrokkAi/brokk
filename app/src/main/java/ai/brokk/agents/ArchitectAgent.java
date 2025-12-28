@@ -461,7 +461,7 @@ public class ArchitectAgent {
         // Run Architect proper
         var archResult = this.execute();
         context = scope.append(archResult);
-        return archResult;
+        return archResult.withContext(context);
     }
 
     /**
