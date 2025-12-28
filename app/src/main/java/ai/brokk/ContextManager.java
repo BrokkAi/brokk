@@ -1320,15 +1320,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return "%d files".formatted(files.size());
     }
 
-    /**
-     * @return A list containing two messages: a UserMessage with the string representation of the task history, and an
-     *     AiMessage acknowledging it. Returns an empty list if there is no history.
-     */
-    @Override
-    public List<ChatMessage> getHistoryMessages() {
-        return CodePrompts.instance.getHistoryMessages(liveContext());
-    }
-
     public List<ChatMessage> getHistoryMessagesForCopy() {
         var taskHistory = liveContext().getTaskHistory();
 
