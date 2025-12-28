@@ -167,9 +167,9 @@ public final class WorkspacePrompts {
         var workspaceBuilder = new StringBuilder();
 
         if (!styleGuide.isBlank()) {
-            workspaceBuilder.append("<style_guide>\n");
+            workspaceBuilder.append("<project_guide>\n");
             workspaceBuilder.append(styleGuide.trim());
-            workspaceBuilder.append("\n</style_guide>\n\n");
+            workspaceBuilder.append("\n</project_guide>\n\n");
         }
 
         workspaceBuilder.append("<workspace>\n");
