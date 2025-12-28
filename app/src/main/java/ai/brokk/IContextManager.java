@@ -62,7 +62,7 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default Collection<? extends ChatMessage> getHistoryMessages() {
+    default Collection<ChatMessage> getHistoryMessages() {
         return CodePrompts.instance.getHistoryMessages(liveContext());
     }
 
