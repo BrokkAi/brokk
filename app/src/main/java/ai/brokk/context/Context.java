@@ -1161,7 +1161,6 @@ public class Context {
     /**
      * Returns the project guide fragment if content is available, computing it on demand.
      */
-    @Blocking
     public Optional<ContextFragments.StringFragment> getProjectGuideFragment() {
         if (projectGuideFragment == null) {
             String guide = ProjectGuideResolver.resolve(this, contextManager.getProject());
