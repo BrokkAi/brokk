@@ -6,16 +6,20 @@ import java.util.Comparator;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public abstract class ArchitectPrompts extends SystemPrompts {
-    public static final ArchitectPrompts instance = new ArchitectPrompts() {};
+public class ArchitectPrompts {
+    public static final ArchitectPrompts instance = new ArchitectPrompts();
     public static final double WORKSPACE_WARNING_THRESHOLD = 0.5;
     public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
 
-    @Override
-    protected String systemInstructions(String reminder) {
+    public String systemInstructions() {
         return """
         You are the Architect Agent. You solve problems by breaking them down into manageable pieces
         in an evolving long-range plan.
+
+        Pay careful attention to the scope of the user's request. Attempt to do everything required
+        to fulfil the user's direct requests, but avoid surprising him with unexpected actions.
+        For example, if the user asks you a question, you should do your best to answer his question first,
+        before immediately jumping into taking further action.
 
         # High-Level Problem Solving Strategy
 

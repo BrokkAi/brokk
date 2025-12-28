@@ -31,23 +31,11 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
-public abstract class CodePrompts extends SystemPrompts {
+public class CodePrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
-    public static final CodePrompts instance = new CodePrompts() {};
+    public static final CodePrompts instance = new CodePrompts();
     private static final Pattern BRK_MARKER_PATTERN =
             Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
-
-    @Override
-    protected String systemInstructions(String reminder) {
-        return """
-                Act as an expert software developer.
-                Always use best practices when coding.
-                Respect and use existing conventions, libraries, etc. that are already present in the code base.
-
-                %s
-                """
-                .formatted(reminder);
-    }
 
     @Blocking
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
@@ -161,10 +149,24 @@ public abstract class CodePrompts extends SystemPrompts {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
         AbstractService service = cm.getService();
-        var reminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
+        var reminder = service.isLazy(model) ? SystemPrompts.LAZY_REMINDER : SystemPrompts.OVEREAGER_REMINDER;
         var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, suppressedTypes);
 
-        messages.add(systemMessage(reminder, goal));
+        var sys = new SystemMessage(
+                """
+                <instructions>
+                Act as an expert software developer.
+                Always use best practices when coding.
+                Respect and use existing conventions, libraries, etc. that are already present in the code base.
+
+                %s
+                </instructions>
+                <goal>
+                %s
+                </goal>
+                """
+                        .formatted(reminder, goal));
+        messages.add(sys);
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(prologue);
         messages.addAll(codeAgentWorkspace.workspace());
@@ -186,7 +188,7 @@ public abstract class CodePrompts extends SystemPrompts {
 
     public UserMessage codeRequest(Context ctx, String input, StreamingChatModel model) {
         AbstractService service = ctx.getContextManager().getService();
-        var reminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
+        var reminder = service.isLazy(model) ? SystemPrompts.LAZY_REMINDER : SystemPrompts.OVEREAGER_REMINDER;
         var instructions =
                 """
                         <instructions>

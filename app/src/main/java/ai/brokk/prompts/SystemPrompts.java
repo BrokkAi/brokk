@@ -1,10 +1,6 @@
 package ai.brokk.prompts;
 
-import dev.langchain4j.data.message.SystemMessage;
-import org.jetbrains.annotations.Blocking;
-import org.jetbrains.annotations.Nullable;
-
-public abstract class SystemPrompts {
+public class SystemPrompts {
     public static final String LAZY_REMINDER =
             """
                     You are diligent and tireless!
@@ -18,13 +14,6 @@ public abstract class SystemPrompts {
                     Do not comment on your modifications, only on the resulting code in isolation.
                     You must never output any comments about the progress or type of changes of your refactoring or generation.
                     For example, you must NOT add comments like: 'Added dependency' or 'Changed to new style' or worst of all 'Keeping existing implementation'.
-                    """;
-    public static final String ARCHITECT_REMINDER =
-            """
-                    Pay careful attention to the scope of the user's request. Attempt to do everything required
-                    to fulfil the user's direct requests, but avoid surprising him with unexpected actions.
-                    For example, if the user asks you a question, you should do your best to answer his question first,
-                    before immediately jumping into taking further action.
                     """;
     public static final String MARKDOWN_REMINDER =
             """
@@ -41,40 +30,4 @@ public abstract class SystemPrompts {
                     - header tags (start from ##).
                     </persistence>
                     """;
-
-    @Blocking
-    public SystemMessage systemMessage(String reminder, @Nullable String goal) {
-        final String text;
-        if (goal == null || goal.isBlank()) {
-            text =
-                    """
-                            <instructions>
-                            %s
-                            </instructions>
-                            """
-                            .formatted(systemInstructions(reminder))
-                            .trim();
-        } else {
-            text =
-                    """
-                            <instructions>
-                            %s
-                            </instructions>
-                            <goal>
-                            %s
-                            </goal>
-                            """
-                            .formatted(systemInstructions(reminder), goal)
-                            .trim();
-        }
-
-        return new SystemMessage(text);
-    }
-
-    @Blocking
-    public final SystemMessage systemMessage(String reminder) {
-        return systemMessage(reminder, null);
-    }
-
-    protected abstract String systemInstructions(String reminder);
 }

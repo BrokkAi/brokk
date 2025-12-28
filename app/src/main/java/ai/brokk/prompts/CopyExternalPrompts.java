@@ -5,31 +5,20 @@ import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
-public abstract class CopyExternalPrompts extends SystemPrompts {
+public abstract class CopyExternalPrompts {
     public static final CopyExternalPrompts instance = new CopyExternalPrompts() {};
 
     public List<ChatMessage> collectMessages(ContextManager cm) throws InterruptedException {
         // omits edit instructions and examples
-        return Streams.concat(Stream.of(systemMessage(CodePrompts.LAZY_REMINDER)), collectMessagesInternal(cm).stream())
-                .toList();
-    }
-
-    private List<ChatMessage> collectMessagesInternal(ContextManager cm) {
-        var messages = new ArrayList<ChatMessage>();
-        messages.addAll(cm.getHistoryMessagesForCopy());
-        Context ctx = cm.liveContext();
-        messages.addAll(
-                WorkspacePrompts.getMessagesGroupedByMutability(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
-        return messages;
-    }
-
-    @Override
-    protected String systemInstructions(String reminder) {
-        return """
+        final String text;
+        text =
+                """
+        <instructions>
         Act as an expert software engineer. Study the change request and the current code.
         Describe how to modify the code to complete the request.
 
@@ -47,6 +36,23 @@ public abstract class CopyExternalPrompts extends SystemPrompts {
         *   DO NOT give multiple options for solving a problem; pick the best one every time!
 
         **Output Format Hint:** Structure your response by identifying the file, then the method/block, then providing the code for that method/block.
-       """;
+
+        %s
+        </instructions>
+        """
+                        .formatted(SystemPrompts.LAZY_REMINDER);
+
+        var sys = new SystemMessage(text);
+        return Streams.concat(Stream.of(sys), collectMessagesInternal(cm).stream())
+                .toList();
+    }
+
+    private List<ChatMessage> collectMessagesInternal(ContextManager cm) {
+        var messages = new ArrayList<ChatMessage>();
+        messages.addAll(cm.getHistoryMessagesForCopy());
+        Context ctx = cm.liveContext();
+        messages.addAll(
+                WorkspacePrompts.getMessagesGroupedByMutability(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
+        return messages;
     }
 }

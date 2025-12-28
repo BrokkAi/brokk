@@ -14,7 +14,6 @@ import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
-import ai.brokk.prompts.SystemPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -30,6 +29,7 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -951,9 +951,19 @@ public class ArchitectAgent {
             int workspaceTokenSize, int maxInputTokens, List<ChatMessage> precomputedWorkspaceMessages)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
-        // System message defines the agent's role and general instructions
-        var reminder = SystemPrompts.ARCHITECT_REMINDER + "\n" + SystemPrompts.MARKDOWN_REMINDER;
-        messages.add(ArchitectPrompts.instance.systemMessage(reminder, goal));
+
+        var sys = new SystemMessage(
+                """
+                <instructions>
+                %s
+                </instructions>
+                <goal>
+                %s
+                </goal>
+                """
+                        .formatted(ArchitectPrompts.instance.systemInstructions(), goal)
+                        .trim());
+        messages.add(sys);
 
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
