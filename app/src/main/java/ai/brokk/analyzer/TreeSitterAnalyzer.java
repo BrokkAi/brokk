@@ -734,8 +734,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         var matcher = compiledPattern.matcher("");
         return this.state.codeUnitState.keySet().stream()
-                .filter(cu -> substringFilter == null
-                        || containsIgnoreCase(cu.fqName(), substringFilter))
+                .filter(cu -> substringFilter == null || containsIgnoreCase(cu.fqName(), substringFilter))
                 .filter(cu -> matcher.reset(cu.fqName()).find())
                 .filter(anonPredicate)
                 .collect(Collectors.toSet());
