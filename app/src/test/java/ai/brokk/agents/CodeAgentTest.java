@@ -794,13 +794,7 @@ class CodeAgentTest {
 
         var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST, SpecialTextType.BUILD_RESULTS);
         var messages = CodePrompts.instance.collectCodeMessages(
-                new Service.UnavailableStreamingModel(),
-                ctx,
-                prologue,
-                taskMessages,
-                nextRequest,
-                suppressed,
-                Messages.getText(nextRequest));
+                cm.getCodeModel(), ctx, prologue, taskMessages, nextRequest, suppressed, Messages.getText(nextRequest));
 
         boolean found = messages.stream()
                 .map(Messages::getText)
@@ -1284,7 +1278,7 @@ class CodeAgentTest {
 
         // Collect messages with no changed files
         var msgsNoChanged = CodePrompts.instance.collectCodeMessages(
-                new Service.UnavailableStreamingModel(),
+                cm.getCodeModel(),
                 ctx,
                 List.of(),
                 List.of(),
@@ -1310,7 +1304,7 @@ class CodeAgentTest {
 
         // Collect messages with the editable file listed as changed
         var msgsWithChanged = CodePrompts.instance.collectCodeMessages(
-                new Service.UnavailableStreamingModel(),
+                cm.getCodeModel(),
                 ctx,
                 List.of(),
                 List.of(),
@@ -1432,7 +1426,7 @@ class CodeAgentTest {
 
         var request = new UserMessage("Please fix this");
         var messages = CodePrompts.instance.collectCodeMessages(
-                new ai.brokk.Service.UnavailableStreamingModel(),
+                cm.getCodeModel(),
                 ctx,
                 List.of(),
                 List.of(),
