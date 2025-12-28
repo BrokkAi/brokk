@@ -12,6 +12,9 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.swing.*;
@@ -28,6 +31,9 @@ import org.jetbrains.annotations.Nullable;
 public class FuzzySearchListPanel<T> {
     private static final int SEARCH_DEBOUNCE_MS = 200;
 
+    private record SearchResult<T>(
+            long generation, List<T> sortedMatches, Map<T, String> htmlMap, @Nullable FuzzyMatcher matcher) {}
+
     private final List<T> allItems;
     private final Function<T, String> displayMapper;
     private final JTextField searchField;
@@ -38,6 +44,8 @@ public class FuzzySearchListPanel<T> {
     private @Nullable Consumer<T> selectionListener;
     private boolean isTyping = false;
     private final Map<T, String> htmlCache = new HashMap<>();
+    private final AtomicLong searchGeneration = new AtomicLong(0);
+    private final AtomicReference<CompletableFuture<Void>> currentSearch = new AtomicReference<>();
 
     /**
      * Creates a new FuzzySearchListPanel with the given items.
@@ -75,23 +83,14 @@ public class FuzzySearchListPanel<T> {
                     JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 String text = displayMapper.apply((T) value);
-                // Skip expensive HTML rendering while actively typing
+                // Use pre-calculated HTML from background search
                 if (currentMatcher != null && !isTyping) {
                     T item = (T) value;
                     String cachedHtml = htmlCache.get(item);
                     if (cachedHtml != null) {
                         setText(cachedHtml);
                     } else {
-                        var fragments = currentMatcher.getMatchingFragments(text);
-                        if (fragments != null && !fragments.isEmpty()) {
-                            var bg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
-                            var fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
-                            var html = FuzzyMatcher.toHighlightedHtml(text, fragments, bg, fg);
-                            htmlCache.put(item, html);
-                            setText(html);
-                        } else {
-                            setText(text);
-                        }
+                        setText(text); // No highlight if not in cache
                     }
                 } else {
                     setText(text);
@@ -195,29 +194,90 @@ public class FuzzySearchListPanel<T> {
     }
 
     private void filterItems() {
-        isTyping = false;
-        String query = searchField.getText().trim();
-        model.clear();
-        htmlCache.clear();
+        assert SwingUtilities.isEventDispatchThread();
 
+        isTyping = false;
+        long generation = searchGeneration.incrementAndGet();
+
+        // Snapshot state on EDT
+        String query = searchField.getText().trim();
+        List<T> itemsSnapshot = new ArrayList<>(allItems);
+        Color highlightBg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
+        Color highlightFg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
+
+        // Cancel previous search
+        CompletableFuture<Void> oldFuture = currentSearch.get();
+        if (oldFuture != null && !oldFuture.isDone()) {
+            oldFuture.cancel(true);
+        }
+
+        // Empty query: fast path on EDT
         if (query.isEmpty()) {
+            model.clear();
+            htmlCache.clear();
             currentMatcher = null;
             for (T item : allItems) {
                 model.addElement(item);
             }
-        } else {
-            var matcher = new FuzzyMatcher(query);
-            currentMatcher = matcher;
-            var matches = new ArrayList<T>();
-            for (T item : allItems) {
-                if (matcher.matches(displayMapper.apply(item))) {
-                    matches.add(item);
+            if (!model.isEmpty()) {
+                list.setSelectedIndex(0);
+            }
+            currentSearch.set(null);
+            return;
+        }
+
+        // Non-empty query: spawn background task
+        CompletableFuture<Void> future = CompletableFuture.supplyAsync(
+                        () -> performBackgroundSearch(generation, query, itemsSnapshot, highlightBg, highlightFg))
+                .thenAcceptAsync(this::applyResults, SwingUtilities::invokeLater);
+
+        currentSearch.set(future);
+    }
+
+    private SearchResult<T> performBackgroundSearch(
+            long generation, String query, List<T> items, Color highlightBg, Color highlightFg) {
+        // Run on background thread
+        var matcher = new FuzzyMatcher(query);
+        var matches = new ArrayList<T>();
+        var htmlMap = new HashMap<T, String>();
+
+        // Filter matches
+        for (T item : items) {
+            String text = displayMapper.apply(item);
+            if (matcher.matches(text)) {
+                matches.add(item);
+
+                // Pre-calculate HTML highlighting
+                var fragments = matcher.getMatchingFragments(text);
+                if (fragments != null && !fragments.isEmpty()) {
+                    String html = FuzzyMatcher.toHighlightedHtml(text, fragments, highlightBg, highlightFg);
+                    htmlMap.put(item, html);
                 }
             }
-            matches.sort(Comparator.comparingInt(item -> matcher.score(displayMapper.apply(item))));
-            for (T item : matches) {
-                model.addElement(item);
-            }
+        }
+
+        // Sort by score
+        matches.sort(Comparator.comparingInt(item -> matcher.score(displayMapper.apply(item))));
+
+        return new SearchResult<>(generation, matches, htmlMap, matcher);
+    }
+
+    private void applyResults(SearchResult<T> result) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // Check if this result is still current
+        if (result.generation != searchGeneration.get()) {
+            return; // Stale result, discard
+        }
+
+        // Bulk update model and cache
+        model.clear();
+        htmlCache.clear();
+        htmlCache.putAll(result.htmlMap);
+        currentMatcher = result.matcher;
+
+        for (T item : result.sortedMatches) {
+            model.addElement(item);
         }
 
         if (!model.isEmpty()) {
