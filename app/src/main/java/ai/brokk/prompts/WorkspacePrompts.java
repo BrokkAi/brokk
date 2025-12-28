@@ -166,15 +166,15 @@ public final class WorkspacePrompts {
         var allContents = new ArrayList<Content>();
         var workspaceBuilder = new StringBuilder();
 
+        workspaceBuilder.append("<workspace>\n");
+        workspaceBuilder.append(rendered.text);
+        workspaceBuilder.append("\n</workspace>");
+
         if (!styleGuide.isBlank()) {
             workspaceBuilder.append("<project_guide>\n");
             workspaceBuilder.append(styleGuide.trim());
             workspaceBuilder.append("\n</project_guide>\n\n");
         }
-
-        workspaceBuilder.append("<workspace>\n");
-        workspaceBuilder.append(rendered.text);
-        workspaceBuilder.append("\n</workspace>");
 
         allContents.add(new TextContent(workspaceBuilder.toString()));
         allContents.addAll(rendered.images);
@@ -243,14 +243,14 @@ public final class WorkspacePrompts {
         }
 
         var workspaceBuilder = new StringBuilder();
-        if (!styleGuide.isBlank()) {
-            workspaceBuilder.append("<style_guide>\n");
-            workspaceBuilder.append(styleGuide.trim());
-            workspaceBuilder.append("\n</style_guide>\n\n");
-        }
         workspaceBuilder.append("<workspace>\n");
         workspaceBuilder.append(combinedText.toString().trim());
         workspaceBuilder.append("\n</workspace>");
+        if (!styleGuide.isBlank()) {
+            workspaceBuilder.append("<project_guide>\n");
+            workspaceBuilder.append(styleGuide.trim());
+            workspaceBuilder.append("\n</project_guide>\n\n");
+        }
 
         allContents.addFirst(new TextContent(workspaceBuilder.toString()));
 

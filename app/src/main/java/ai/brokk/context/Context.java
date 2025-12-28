@@ -243,7 +243,7 @@ public class Context {
         // 3. Process the CURRENT fragments:
         //    a) Remove SUMMARY fragments if they are superseded by incoming PATHS.
         //    b) Keep everything else (we will deduplicate against new inputs in the next step).
-        var keptExistingFragments = this.fragments.stream()
+        var keptExistingFragments = fragments.stream()
                 .filter(f -> {
                     if (f instanceof ContextFragments.SummaryFragment) {
                         var skeletonFiles = f.files().join();
@@ -435,7 +435,7 @@ public class Context {
      */
     public Stream<ContextFragment> getReadonlyFragments() {
         var editable = getEditableFragments().collect(Collectors.toSet());
-        return fragments.stream().filter(cf -> !editable.contains(cf));
+        return allFragments().filter(cf -> !editable.contains(cf));
     }
 
     /**
@@ -455,7 +455,7 @@ public class Context {
 
     public Context removeFragmentsByIds(Collection<String> ids) {
         if (ids.isEmpty()) return this;
-        var toDrop = this.fragments.stream().filter(f -> ids.contains(f.id())).collect(Collectors.toList());
+        var toDrop = allFragments().filter(f -> ids.contains(f.id())).collect(Collectors.toList());
         return removeFragments(toDrop);
     }
 
@@ -663,9 +663,7 @@ public class Context {
 
         // Add Task List immediately after history if present
         var taskListFragment = getTaskListFragment();
-        if (taskListFragment.isPresent()) {
-            result.add(taskListFragment.get());
-        }
+        taskListFragment.ifPresent(result::add);
 
         result.addAll(fragments.stream().filter(f -> f.getType().isPath()).toList());
 
