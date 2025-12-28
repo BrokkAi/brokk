@@ -19,27 +19,17 @@ import java.util.stream.Collectors;
 /**
  * Generates prompts for the Search Agent and Ask requests.
  */
-public abstract class SearchPrompts {
-    public static final SearchPrompts instance = new SearchPrompts() {};
+public class SearchPrompts {
+    public static final SearchPrompts instance = new SearchPrompts();
 
     private static final double WORKSPACE_CRITICAL = 0.80;
-
-    public SystemMessage simpleSystemMessage() {
-        return new SystemMessage(
-                """
-                <instructions>
-                %s
-                </instructions>
-                """
-                        .formatted(systemInstructions(askReminder())));
-    }
 
     /**
      * Result of building a prompt, including messages and whether beast mode should be engaged.
      */
     public record PromptResult(List<ChatMessage> messages, boolean engageBeastMode) {}
 
-    protected String systemInstructions(String reminder) {
+    public String searchAgentIdentity() {
         return """
                 You are the Search Agent.
                 Your job is to be the **Code Agent's preparer**. You are a researcher and librarian, not a developer.
@@ -51,55 +41,47 @@ public abstract class SearchPrompts {
                   Remember: **You must never write, create, or modify code.**
                   Your purpose is to *find* existing code, not *create* new code.
                   The Code Agent is solely responsible for all code generation and modification.
-
-                %s
-                """
-                .formatted(reminder);
+                """;
     }
 
     public final List<ChatMessage> buildAskPrompt(Context ctx, String input) {
         var messages = new ArrayList<ChatMessage>();
-
-        var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST);
-        messages.add(simpleSystemMessage());
-        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, suppressed));
+        messages.add(new SystemMessage(
+                "Act as an expert software developer when answering the user's question based on the code in the Workspace.\n\n"
+                        + SystemPrompts.MARKDOWN_REMINDER));
+        messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
         messages.addAll(CodePrompts.instance.getHistoryMessages(ctx));
         messages.add(askRequest(input));
-
         return messages;
     }
 
     public UserMessage askRequest(String input) {
         var text =
                 """
-                        <instructions>
-                        Answer this question about the supplied code thoroughly and accurately.
+                <instructions>
+                Answer this question about the supplied code thoroughly and accurately.
 
-                        Provide insights, explanations, and analysis; do not implement changes.
-                        While you can suggest high-level approaches and architectural improvements, remember that:
-                        - You should focus on understanding and clarifying the code
-                        - The user will make other requests when he wants to actually implement changes
-                        - You are being asked here for conceptual understanding and problem diagnosis
+                Provide insights, explanations, and analysis; do not implement changes.
+                While you can suggest high-level approaches and architectural improvements, remember that:
+                - You should focus on understanding and clarifying the code
+                - The user will make other requests when he wants to actually implement changes
+                - You are being asked here for conceptual understanding and problem diagnosis
 
-                        Be concise but complete in your explanations. If you need more information to answer a question,
-                        don't hesitate to ask for clarification. If you notice references to code in the Workspace that
-                        you need to see to answer accurately, do your best to take educated guesses but clarify that
-                        it IS an educated guess and ask the user to add the relevant code.
+                Be concise but complete in your explanations. If you need more information to answer a question,
+                don't hesitate to ask for clarification. If you notice references to code in the Workspace that
+                you need to see to answer accurately, do your best to take educated guesses but clarify that
+                it IS an educated guess and ask the user to add the relevant code.
 
-                        Format your answer with Markdown for readability. It's particularly important to signal
-                        changes in subject with appropriate headings.
-                        </instructions>
+                Format your answer with Markdown for readability. It's particularly important to signal
+                changes in subject with appropriate headings.
+                </instructions>
 
-                        <question>
-                        %s
-                        </question>
-                        """
+                <question>
+                %s
+                </question>
+                """
                         .formatted(input);
         return new UserMessage(text);
-    }
-
-    public String askReminder() {
-        return SystemPrompts.MARKDOWN_REMINDER;
     }
 
     public SystemMessage searchSystemPrompt(Context context) {
@@ -112,6 +94,7 @@ public abstract class SearchPrompts {
                 """
                 <instructions>
                 %s
+
                 Critical rules:
                   1) PRUNE FIRST at every turn.
                      - Remove fragments that are not directly useful for the goal (add a reason).
@@ -143,7 +126,8 @@ public abstract class SearchPrompts {
                 %s
                 </workspace-toc>
                 """
-                        .formatted(systemInstructions("").trim(), supportedTypes, askReminder(), workspaceToc));
+                        .formatted(
+                                searchAgentIdentity(), supportedTypes, SystemPrompts.MARKDOWN_REMINDER, workspaceToc));
     }
 
     /**

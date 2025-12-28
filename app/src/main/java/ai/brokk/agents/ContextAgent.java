@@ -654,8 +654,9 @@ public class ContextAgent {
         }
         userPrompt.append(filenamePrompt);
 
+        var sys = new SystemMessage(SearchPrompts.instance.searchAgentIdentity());
         List<ChatMessage> messages = Stream.concat(
-                        Stream.of(SearchPrompts.instance.simpleSystemMessage()),
+                        Stream.of(sys),
                         Stream.concat(
                                 workspaceRepresentation.stream(), Stream.of(new UserMessage(userPrompt.toString()))))
                 .toList();

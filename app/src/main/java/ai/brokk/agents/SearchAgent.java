@@ -1024,26 +1024,26 @@ public class SearchAgent {
             throws InterruptedException {
         var sys = new SystemMessage(
                 """
-                        You are a code expert extracting ALL information relevant to the given goal
-                        from the provided tool call result.
+                You are a code expert extracting ALL information relevant to the given goal
+                from the provided tool call result.
 
-                        Your output will be given to the agent running the search, and replaces the raw result.
-                        Thus, you must include every relevant class/method name and any
-                        relevant code snippets that may be needed later. DO NOT speculate; only use the provided content.
-                        """);
+                Your output will be given to the agent running the search, and replaces the raw result.
+                Thus, you must include every relevant class/method name and any
+                relevant code snippets that may be needed later. DO NOT speculate; only use the provided content.
+                """);
 
         var user = new UserMessage(
                 """
-                        <goal>
-                        %s
-                        </goal>
-                        <reasoning>
-                        %s
-                        </reasoning>
-                        <tool name="%s">
-                        %s
-                        </tool>
-                        """
+                <goal>
+                %s
+                </goal>
+                <reasoning>
+                %s
+                </reasoning>
+                <tool name="%s">
+                %s
+                </tool>
+                """
                         .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
         Llm.StreamingResult sr = summarizer.sendRequest(List.of(sys, user));
         if (sr.error() != null) {
