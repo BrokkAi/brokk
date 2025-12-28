@@ -423,21 +423,6 @@ public class WorkspaceChip extends JPanel {
         Color fg = ChipColorUtils.getForegroundColor(kind, isDarkTheme);
         Color border = ChipColorUtils.getBorderColor(kind, isDarkTheme);
 
-        // Special styling for specific types
-        ContextFragment fragment = getPrimaryFragment();
-        if (fragment instanceof ContextFragments.StringFragment sf) {
-            var special = sf.specialType().orElse(null);
-            if (special == SpecialTextType.TASK_LIST) {
-                bg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BACKGROUND);
-                fg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_FOREGROUND);
-                border = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BORDER);
-            } else if (special == SpecialTextType.PROJECT_GUIDE) {
-                bg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BG);
-                fg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_FG);
-                border = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BORDER);
-            }
-        }
-
         setBackground(bg);
         label.setForeground(fg);
 
@@ -452,7 +437,7 @@ public class WorkspaceChip extends JPanel {
 
         // Update close button visibility and icon
         boolean isDroppable = true;
-        if (fragment instanceof ContextFragments.StringFragment sf) {
+        if (getPrimaryFragment() instanceof ContextFragments.StringFragment sf) {
             isDroppable = sf.specialType().map(SpecialTextType::droppable).orElse(true);
         }
 
@@ -552,10 +537,7 @@ public class WorkspaceChip extends JPanel {
 
     protected void updateTextAndTooltip(ContextFragment fragment) {
         String newLabelText;
-        if (fragment instanceof ContextFragments.StringFragment sf
-                && sf.specialType().orElse(null) == SpecialTextType.PROJECT_GUIDE) {
-            newLabelText = SpecialTextType.PROJECT_GUIDE.description();
-        } else if (kind == ChipKind.SUMMARY) {
+        if (kind == ChipKind.SUMMARY) {
             // Base WorkspaceChip is not used for summaries; SummaryChip overrides this.
             String sd = fragment.shortDescription().renderNowOr("Loading...");
             newLabelText = truncateForDisplay(sd);

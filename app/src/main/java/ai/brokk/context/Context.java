@@ -671,16 +671,11 @@ public class Context {
         var taskListFragment = getTaskListFragment();
         taskListFragment.ifPresent(result::add);
 
+        // file fragments
         result.addAll(fragments.stream().filter(f -> f.getType().isPath()).toList());
 
-        // Add virtual fragments, excluding the Task List and Project Guide to avoid duplication
-        result.addAll(fragments.stream()
-                .filter(f -> !f.getType().isPath())
-                .filter(f -> taskListFragment.isEmpty()
-                        || !f.id().equals(taskListFragment.get().id()))
-                .filter(f -> guideFragment.isEmpty()
-                        || !f.id().equals(guideFragment.get().id()))
-                .toList());
+        // everything else
+        result.addAll(fragments.stream().filter(f -> !result.contains(f)).toList());
 
         return result;
     }

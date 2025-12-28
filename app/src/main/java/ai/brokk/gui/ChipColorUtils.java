@@ -2,7 +2,6 @@ package ai.brokk.gui;
 
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.mop.ThemeColors;
 import java.awt.Color;
 
@@ -16,7 +15,7 @@ public class ChipColorUtils {
         EDIT,
         SUMMARY,
         HISTORY,
-        TASK_LIST,
+        SPECIAL_TEXT,
         INVALID,
         OTHER
     }
@@ -27,7 +26,7 @@ public class ChipColorUtils {
     public record ClassifiedFragment(ContextFragment fragment, ChipKind kind) {}
 
     /**
-     * Classifies a fragment into EDIT (user-editable), SUMMARY (skeleton outputs), HISTORY, TASK_LIST, or OTHER.
+     * Classifies a fragment into EDIT (user-editable), SUMMARY (skeleton outputs), HISTORY, TASK_LIST, SPECIAL or OTHER.
      *
      * Do NOT use this when you need to know the actual fragment type (use fragment.getType() instead) because
      * INVALID overlaps with other ChipKinds.
@@ -41,17 +40,17 @@ public class ChipColorUtils {
         if (!fragment.isValid()) {
             return new ClassifiedFragment(fragment, ChipKind.INVALID);
         }
+        if (fragment instanceof ContextFragments.StringFragment sf) {
+            var special = sf.specialType().orElse(null);
+            if (special != null) {
+                return new ClassifiedFragment(fragment, ChipKind.SPECIAL_TEXT);
+            }
+        }
         if (fragment.getType().isEditable()) {
             return new ClassifiedFragment(fragment, ChipKind.EDIT);
         }
         if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
             return new ClassifiedFragment(fragment, ChipKind.HISTORY);
-        }
-        if (fragment instanceof ContextFragments.StringFragment sf
-                && SpecialTextType.TASK_LIST
-                        .description()
-                        .equals(sf.description().renderNowOrNull())) {
-            return new ClassifiedFragment(fragment, ChipKind.TASK_LIST);
         }
         return new ClassifiedFragment(fragment, ChipKind.OTHER);
     }
@@ -65,7 +64,7 @@ public class ChipColorUtils {
             case EDIT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_EDIT_BACKGROUND);
             case SUMMARY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SUMMARY_BACKGROUND);
             case HISTORY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_HISTORY_BACKGROUND);
-            case TASK_LIST -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_TASKLIST_BACKGROUND);
+            case SPECIAL_TEXT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SPECIAL_BACKGROUND);
             case OTHER -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_OTHER_BACKGROUND);
         };
     }
@@ -79,7 +78,7 @@ public class ChipColorUtils {
             case EDIT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_EDIT_FOREGROUND);
             case SUMMARY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SUMMARY_FOREGROUND);
             case HISTORY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_HISTORY_FOREGROUND);
-            case TASK_LIST -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_TASKLIST_FOREGROUND);
+            case SPECIAL_TEXT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SPECIAL_FOREGROUND);
             case OTHER -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_OTHER_FOREGROUND);
         };
     }
@@ -93,7 +92,7 @@ public class ChipColorUtils {
             case EDIT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_EDIT_BORDER);
             case SUMMARY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SUMMARY_BORDER);
             case HISTORY -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_HISTORY_BORDER);
-            case TASK_LIST -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_TASKLIST_BORDER);
+            case SPECIAL_TEXT -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_SPECIAL_BORDER);
             case OTHER -> ThemeColors.getColor(isDarkTheme, ThemeColors.CHIP_OTHER_BORDER);
         };
     }

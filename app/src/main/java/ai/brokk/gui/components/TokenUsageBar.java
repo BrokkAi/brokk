@@ -995,23 +995,11 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
     private Color getSegmentBorderColor(@Nullable ContextFragment frag) {
         boolean isDark = isDarkTheme();
         if (frag == null) {
-            // Grouped "Other" bucket
+            // Grouped bucket
+            // TODO disambiguate between Other and Summary
             return ThemeColors.getColor(isDark, ThemeColors.CHIP_OTHER_BORDER);
         }
-        try {
-            if (frag.getType().isEditable()) {
-                return ThemeColors.getColor(isDark, ThemeColors.CHIP_EDIT_BORDER);
-            }
-            if (frag.getType() == ContextFragment.FragmentType.SKELETON) {
-                return ThemeColors.getColor(isDark, ThemeColors.CHIP_SUMMARY_BORDER);
-            }
-            if (frag.getType() == ContextFragment.FragmentType.HISTORY) {
-                return ThemeColors.getColor(isDark, ThemeColors.CHIP_HISTORY_BORDER);
-            }
-        } catch (Exception ignored) {
-            // fall through
-        }
-        return ThemeColors.getColor(isDark, ThemeColors.CHIP_OTHER_BORDER);
+        return ChipColorUtils.getBorderColor(ChipColorUtils.classify(frag).kind(), isDark);
     }
 
     private int tokensForFragment(ContextFragment f) {
