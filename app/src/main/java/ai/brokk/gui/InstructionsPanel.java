@@ -1860,7 +1860,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     var agentTasks = context.getTaskListDataOrEmpty();
 
                     // Gating: If we had existing incomplete tasks and the agent produced new ones, ask how to reconcile
-                    if (hadIncomplete && !agentTasks.tasks().isEmpty()) {
+                    if (hadIncomplete
+                            && agentTasks.tasks().size() > beforeTasks.tasks().size()) {
                         final int[] choiceHolder = new int[1];
                         try {
                             SwingUtilities.invokeAndWait(() -> {
