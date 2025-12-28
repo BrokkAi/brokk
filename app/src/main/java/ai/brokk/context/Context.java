@@ -85,6 +85,8 @@ public class Context {
     private final Set<ContextFragment> markedReadonlyFragments;
     private final Set<ContextFragment> pinnedFragments;
 
+    private transient @Nullable ContextFragments.StringFragment projectGuideFragment;
+
     /**
      * Constructor for initial empty context
      */
@@ -450,7 +452,8 @@ public class Context {
     }
 
     public Stream<ContextFragment> allFragments() {
-        return fragments.stream();
+        var guide = getProjectGuideFragment();
+        return Streams.concat(guide.stream(), fragments.stream());
     }
 
     public Context removeFragmentsByIds(Collection<String> ids) {
@@ -657,6 +660,9 @@ public class Context {
     public List<ContextFragment> getAllFragmentsInDisplayOrder() {
         var result = new ArrayList<ContextFragment>();
 
+        var guideFragment = getProjectGuideFragment();
+        guideFragment.ifPresent(result::add);
+
         if (!taskHistory.isEmpty()) {
             result.add(new HistoryFragment(contextManager, taskHistory));
         }
@@ -667,11 +673,13 @@ public class Context {
 
         result.addAll(fragments.stream().filter(f -> f.getType().isPath()).toList());
 
-        // Add virtual fragments, excluding the Task List to avoid duplication
+        // Add virtual fragments, excluding the Task List and Project Guide to avoid duplication
         result.addAll(fragments.stream()
                 .filter(f -> !f.getType().isPath())
                 .filter(f -> taskListFragment.isEmpty()
                         || !f.id().equals(taskListFragment.get().id()))
+                .filter(f -> guideFragment.isEmpty()
+                        || !f.id().equals(guideFragment.get().id()))
                 .toList());
 
         return result;
@@ -1153,6 +1161,33 @@ public class Context {
      */
     public Optional<ContextFragments.StringFragment> getTaskListFragment() {
         return getSpecial(SpecialTextType.TASK_LIST.description());
+    }
+
+    /**
+     * Returns the project guide fragment if content is available, computing it on demand.
+     */
+    @Blocking
+    public Optional<ContextFragments.StringFragment> getProjectGuideFragment() {
+        if (projectGuideFragment == null) {
+            String guide = ProjectGuideResolver.resolve(this, contextManager.getProject());
+            if (guide.isBlank()) {
+                return Optional.empty();
+            }
+            projectGuideFragment = new ContextFragments.StringFragment(
+                    contextManager,
+                    guide,
+                    SpecialTextType.PROJECT_GUIDE.description(),
+                    SpecialTextType.PROJECT_GUIDE.syntaxStyle());
+        }
+        return Optional.of(projectGuideFragment);
+    }
+
+    /**
+     * Returns the project guide (AGENTS.md) content.
+     */
+    @Blocking
+    public String getProjectGuide() {
+        return getProjectGuideFragment().map(f -> f.text().join()).orElse("");
     }
 
     /**

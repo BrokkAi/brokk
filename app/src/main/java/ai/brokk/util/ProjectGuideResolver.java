@@ -211,7 +211,7 @@ public final class ProjectGuideResolver {
     }
 
     public static String resolve(Context ctx, IProject project) {
-        var projectFiles = ctx.allFragments()
+        var projectFiles = ctx.getEditableFragments()
                 .filter(cf -> cf.getType().includeInProjectGuide())
                 .flatMap(cf -> cf.files().join().stream())
                 .toList();

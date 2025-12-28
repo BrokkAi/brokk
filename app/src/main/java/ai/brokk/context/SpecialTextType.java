@@ -3,6 +3,7 @@ package ai.brokk.context;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import java.util.Optional;
+import java.util.Set;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,7 +31,7 @@ public enum SpecialTextType {
         }
 
         @Override
-        public boolean canViewContent(java.util.Set<SpecialTextType> suppressedTypes) {
+        public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
             return !suppressedTypes.contains(this);
         }
     },
@@ -47,7 +48,7 @@ public enum SpecialTextType {
         }
 
         @Override
-        public boolean canViewContent(java.util.Set<SpecialTextType> suppressedTypes) {
+        public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
             return !suppressedTypes.contains(this);
         }
     },
@@ -64,7 +65,7 @@ public enum SpecialTextType {
         }
 
         @Override
-        public boolean canViewContent(java.util.Set<SpecialTextType> suppressedTypes) {
+        public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
             return !suppressedTypes.contains(this);
         }
     },
@@ -150,7 +151,24 @@ public enum SpecialTextType {
         }
 
         @Override
-        public boolean canViewContent(java.util.Set<SpecialTextType> suppressedTypes) {
+        public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
+            return !suppressedTypes.contains(this);
+        }
+    },
+
+    PROJECT_GUIDE(
+            "AGENTS.md",
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+            SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+            false // non-droppable
+            ) {
+        @Override
+        public String renderPreview(String rawContent) {
+            return rawContent;
+        }
+
+        @Override
+        public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
             return !suppressedTypes.contains(this);
         }
     };
@@ -169,7 +187,7 @@ public enum SpecialTextType {
 
     public abstract String renderPreview(String rawContent);
 
-    public boolean canViewContent(java.util.Set<SpecialTextType> suppressedTypes) {
+    public boolean canViewContent(Set<SpecialTextType> suppressedTypes) {
         return !suppressedTypes.contains(this);
     }
 

@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -94,10 +95,12 @@ public final class WorkspacePrompts {
      */
     public static String formatToc(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var buildFragment = ctx.getBuildFragment();
+        var guideFragment = ctx.getProjectGuideFragment();
         boolean hideBuild = suppressedTypes.contains(SpecialTextType.BUILD_RESULTS);
 
         var readOnlyContents = ctx.getReadonlyFragments()
                 .filter(cf -> buildFragment.isEmpty() || cf != buildFragment.get())
+                .filter(cf -> guideFragment.isEmpty() || cf != guideFragment.get())
                 .map(cf -> cf.formatToc(ctx.isPinned(cf)))
                 .collect(Collectors.joining("\n"));
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
@@ -152,14 +155,13 @@ public final class WorkspacePrompts {
     @Blocking
     public static List<ChatMessage> getMessagesInAddedOrder(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var allFragments = ctx.allFragments().toList();
-        var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
 
-        if (allFragments.isEmpty() && styleGuide.isBlank()) {
+        if (allFragments.isEmpty()) {
             return List.of();
         }
 
         var rendered = formatWithPolicy(ctx, allFragments, suppressedTypes);
-        if (rendered.text.isEmpty() && rendered.images.isEmpty() && styleGuide.isBlank()) {
+        if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
             return List.of();
         }
 
@@ -170,9 +172,9 @@ public final class WorkspacePrompts {
         workspaceBuilder.append(rendered.text);
         workspaceBuilder.append("\n</workspace>");
 
-        if (!styleGuide.isBlank()) {
+        if (!ctx.getProjectGuide().isBlank()) {
             workspaceBuilder.append("<project_guide>\n");
-            workspaceBuilder.append(styleGuide.trim());
+            workspaceBuilder.append(ctx.getProjectGuide());
             workspaceBuilder.append("\n</project_guide>\n\n");
         }
 
@@ -192,14 +194,11 @@ public final class WorkspacePrompts {
      */
     @Blocking
     public static List<ChatMessage> getMessagesGroupedByMutability(Context ctx, Set<SpecialTextType> suppressedTypes) {
-        // Compose read-only (optionally with build fragment) + all editable + build status into a single <workspace>
-        // message
-        var readOnlyMessages = buildReadOnlyForContents(ctx, suppressedTypes);
-        var editableMessages = buildEditableAll(ctx, suppressedTypes);
+        var readOnlyMessages = buildReadonly(ctx, suppressedTypes);
+        var editableMessages = buildEditable(ctx, suppressedTypes);
+        var projectGuide = ctx.getProjectGuide();
 
-        var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
-
-        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty() && styleGuide.isBlank()) {
+        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty() && projectGuide.isBlank()) {
             return List.of();
         }
 
@@ -246,9 +245,9 @@ public final class WorkspacePrompts {
         workspaceBuilder.append("<workspace>\n");
         workspaceBuilder.append(combinedText.toString().trim());
         workspaceBuilder.append("\n</workspace>");
-        if (!styleGuide.isBlank()) {
+        if (!projectGuide.isBlank()) {
             workspaceBuilder.append("<project_guide>\n");
-            workspaceBuilder.append(styleGuide.trim());
+            workspaceBuilder.append(projectGuide.trim());
             workspaceBuilder.append("\n</project_guide>\n\n");
         }
 
@@ -272,7 +271,7 @@ public final class WorkspacePrompts {
         return new CodeAgentMessages(workspace, buildFailure);
     }
 
-    private static List<ChatMessage> buildEditableAll(Context ctx, Set<SpecialTextType> suppressedTypes) {
+    private static List<ChatMessage> buildEditable(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
         var editableTextFragments = formatWithPolicy(ctx, editableFragments, suppressedTypes).text;
 
@@ -328,7 +327,7 @@ public final class WorkspacePrompts {
         return messages;
     }
 
-    private static List<ChatMessage> buildReadOnlyForContents(Context ctx, Set<SpecialTextType> suppressedTypes) {
+    private static List<ChatMessage> buildReadonly(Context ctx, Set<SpecialTextType> suppressedTypes) {
         // Build read-only section; optionally include the build fragment as part of read-only workspace
         var buildFragment = ctx.getBuildFragment().orElse(null);
         var readOnlyFragments = ctx.getReadonlyFragments()
@@ -423,6 +422,9 @@ public final class WorkspacePrompts {
 
     private static RenderedContent formatWithPolicy(
             Context ctx, List<ContextFragment> fragments, Set<SpecialTextType> suppressedTypes) {
+        var allSuppressed = new HashSet<>(suppressedTypes);
+        allSuppressed.add(SpecialTextType.PROJECT_GUIDE);
+
         var textBuilder = new StringBuilder();
         var imageList = new ArrayList<ImageContent>();
 
@@ -430,7 +432,7 @@ public final class WorkspacePrompts {
             if (cf.isText()) {
                 if (cf instanceof ContextFragments.StringFragment sf) {
                     if (sf.specialType().isPresent()
-                            && suppressedTypes.contains(sf.specialType().get())) {
+                            && allSuppressed.contains(sf.specialType().get())) {
                         continue;
                     }
                 }

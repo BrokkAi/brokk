@@ -13,7 +13,6 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
-import ai.brokk.util.ProjectGuideResolver;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -286,7 +285,6 @@ public class WorkspaceChip extends JPanel {
     }
 
     protected void onPrimaryClick() {
-        // Open unified preview via Chrome for consistent behavior across all entry points
         chrome.openFragmentPreview(getPrimaryFragment());
     }
 
@@ -425,13 +423,18 @@ public class WorkspaceChip extends JPanel {
         Color fg = ChipColorUtils.getForegroundColor(kind, isDarkTheme);
         Color border = ChipColorUtils.getBorderColor(kind, isDarkTheme);
 
-        // Special styling for Task List: dedicated color scheme
+        // Special styling for specific types
         ContextFragment fragment = getPrimaryFragment();
         if (fragment instanceof ContextFragments.StringFragment sf) {
-            if (SpecialTextType.TASK_LIST.description().equals(sf.description().renderNowOrNull())) {
+            var special = sf.specialType().orElse(null);
+            if (special == SpecialTextType.TASK_LIST) {
                 bg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BACKGROUND);
                 fg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_FOREGROUND);
                 border = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BORDER);
+            } else if (special == SpecialTextType.PROJECT_GUIDE) {
+                bg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BG);
+                fg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_FG);
+                border = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BORDER);
             }
         }
 
@@ -447,8 +450,18 @@ public class WorkspaceChip extends JPanel {
         separator.revalidate();
         separator.repaint();
 
-        // Update close button icon with chip background
-        closeButton.setIcon(buildCloseIcon(bg));
+        // Update close button visibility and icon
+        boolean isDroppable = true;
+        if (fragment instanceof ContextFragments.StringFragment sf) {
+            isDroppable = sf.specialType().map(SpecialTextType::droppable).orElse(true);
+        }
+
+        closeButton.setVisible(isDroppable);
+        separator.setVisible(isDroppable);
+
+        if (isDroppable) {
+            closeButton.setIcon(buildCloseIcon(bg));
+        }
 
         updateReadOnlyIcon();
 
@@ -539,7 +552,10 @@ public class WorkspaceChip extends JPanel {
 
     protected void updateTextAndTooltip(ContextFragment fragment) {
         String newLabelText;
-        if (kind == ChipKind.SUMMARY) {
+        if (fragment instanceof ContextFragments.StringFragment sf
+                && sf.specialType().orElse(null) == SpecialTextType.PROJECT_GUIDE) {
+            newLabelText = SpecialTextType.PROJECT_GUIDE.description();
+        } else if (kind == ChipKind.SUMMARY) {
             // Base WorkspaceChip is not used for summaries; SummaryChip overrides this.
             String sd = fragment.shortDescription().renderNowOr("Loading...");
             newLabelText = truncateForDisplay(sd);
@@ -1383,182 +1399,6 @@ public class WorkspaceChip extends JPanel {
                     logger.error("Failed to drop summary fragments", ex);
                 }
             });
-        }
-    }
-
-    /**
-     * Synthetic, non-droppable chip that represents the merged AGENTS.md style guide.
-     * It is informational only and cannot be removed by the user.
-     *
-     * UI-only: shows system instructions visibility for the project Style Guide. It is not part of the
-     * editable Workspace and will not appear in TokenUsageBar.
-     */
-    public static final class StyleGuideChip extends WorkspaceChip {
-
-        private static final String LABEL_TEXT = "AGENTS.md";
-        private static final String ACCESSIBLE_DESC =
-                "Project style guide (AGENTS.md). Informational; cannot be removed.";
-        private static final String TOOLTIP_HTML = wrapTooltipHtml(
-                "<b>AGENTS.md</b> — informational Style Guide<br/>"
-                        + "It is always applied automatically to prompts.<br/><br/>"
-                        + "<i>This chip cannot be removed.</i>",
-                420);
-
-        public StyleGuideChip(
-                Chrome chrome,
-                ContextManager contextManager,
-                Supplier<Boolean> readOnlySupplier,
-                @Nullable BiConsumer<ContextFragment, Boolean> hoverCallback,
-                @Nullable Consumer<ContextFragment> onRemoveFragment,
-                ContextFragment fragment) {
-            super(
-                    chrome,
-                    contextManager,
-                    readOnlySupplier,
-                    hoverCallback,
-                    onRemoveFragment,
-                    Set.of(fragment),
-                    ChipKind.OTHER);
-
-            setCloseEnabled(false);
-            closeButton.setVisible(false);
-            separator.setVisible(false);
-            label.setText(LABEL_TEXT);
-
-            var ac = label.getAccessibleContext();
-            if (ac != null) {
-                ac.setAccessibleName(LABEL_TEXT);
-                ac.setAccessibleDescription(ACCESSIBLE_DESC);
-            }
-
-            label.setToolTipText(TOOLTIP_HTML);
-            closeButton.setToolTipText("Informational; cannot be removed");
-        }
-
-        @Override
-        public void applyTheme() {
-            // UI-only informational chip showing system instructions visibility; not part of the editable
-            // Workspace and therefore intentionally omitted from TokenUsageBar.
-            Color bg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BG);
-            Color fg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_FG);
-            Color border = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BORDER);
-
-            setBackground(bg);
-            label.setForeground(fg);
-            borderColor = border;
-
-            int h = Math.max(label.getPreferredSize().height - 6, 10);
-            separator.setBackground(border);
-            separator.setPreferredSize(new Dimension(separator.getPreferredSize().width, h));
-            separator.revalidate();
-            separator.repaint();
-
-            // Ensure icon has sufficient contrast with background and keeps consistent sizing.
-            closeButton.setIcon(buildCloseIcon(bg));
-            updateReadOnlyIcon();
-
-            revalidate();
-            repaint();
-        }
-
-        @Override
-        protected void onCloseClick() {
-            chrome.systemNotify(
-                    "AGENTS.md is informational and cannot be removed.", "Workspace", JOptionPane.INFORMATION_MESSAGE);
-        }
-
-        @Override
-        protected void updateTextAndTooltip(ContextFragment fragment) {
-            if (!Objects.equals(label.getText(), LABEL_TEXT)) {
-                label.setText(LABEL_TEXT);
-            }
-
-            if (!Objects.equals(label.getToolTipText(), TOOLTIP_HTML)) {
-                label.setToolTipText(TOOLTIP_HTML);
-            }
-
-            var ac = label.getAccessibleContext();
-            if (ac != null) {
-                if (!Objects.equals(ac.getAccessibleDescription(), ACCESSIBLE_DESC)) {
-                    ac.setAccessibleDescription(ACCESSIBLE_DESC);
-                }
-            }
-        }
-
-        @Override
-        protected void onPrimaryClick() {
-            var selected = contextManager.selectedContext();
-
-            final List<ProjectFile> candidateFiles;
-            if (selected == null) {
-                candidateFiles = List.of();
-            } else {
-                candidateFiles = selected.getAllFragmentsInDisplayOrder().stream()
-                        .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
-                        .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
-                        .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
-                        .distinct()
-                        .collect(Collectors.toList());
-            }
-
-            contextManager
-                    .submitBackgroundTask("Compute AGENTS.md", () -> {
-                        try {
-                            return ProjectGuideResolver.resolve(candidateFiles, contextManager.getProject());
-                        } catch (Throwable t) {
-                            logger.warn("Failed to resolve style guide; using fallback", t);
-                            return contextManager.getProject().getStyleGuide();
-                        }
-                    })
-                    .thenAccept(content -> SwingUtilities.invokeLater(() -> {
-                        var syntheticFragment = new ContextFragments.StringFragment(
-                                chrome.getContextManager(), content, LABEL_TEXT, SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-                        chrome.openFragmentPreview(syntheticFragment);
-                    }));
-        }
-
-        @Override
-        protected @Nullable JPopupMenu createContextMenu() {
-            ContextFragment fragment = getPrimaryFragment();
-            JPopupMenu menu = new JPopupMenu();
-
-            JMenuItem showContentsItem = new JMenuItem("Show Contents");
-            showContentsItem.addActionListener(e -> onPrimaryClick());
-            menu.add(showContentsItem);
-
-            var scenario = new ContextActionsHandler.SingleFragment(fragment);
-            var actions = scenario.getActions(chrome.getContextActionsHandler());
-
-            boolean separatorPending = false;
-            for (var action : actions) {
-                if (action == null) {
-                    separatorPending = true;
-                    continue;
-                }
-
-                if (isDropAction(action)) {
-                    continue;
-                }
-                Object nameObj = action.getValue(Action.NAME);
-                if (nameObj instanceof String s) {
-                    if ("Show Contents".equals(s)) {
-                        // Replace default "Show Contents" with our custom item above
-                        continue;
-                    }
-                    if ("Drop".equals(s) || "Drop Others".equals(s)) {
-                        continue;
-                    }
-                }
-
-                if (separatorPending) {
-                    safeAddSeparator(menu);
-                    separatorPending = false;
-                }
-                menu.add(action);
-            }
-
-            chrome.getThemeManager().registerPopupMenu(menu);
-            return menu;
         }
     }
 }
