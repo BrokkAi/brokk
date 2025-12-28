@@ -42,10 +42,6 @@ public abstract class SystemPrompts {
                     </persistence>
                     """;
 
-    public String askReminder() {
-        return MARKDOWN_REMINDER;
-    }
-
     @Blocking
     public SystemMessage systemMessage(String reminder, @Nullable String goal) {
         final String text;
@@ -56,7 +52,7 @@ public abstract class SystemPrompts {
                             %s
                             </instructions>
                             """
-                            .formatted(systemIntro(reminder))
+                            .formatted(systemInstructions(reminder))
                             .trim();
         } else {
             text =
@@ -68,7 +64,7 @@ public abstract class SystemPrompts {
                             %s
                             </goal>
                             """
-                            .formatted(systemIntro(reminder), goal)
+                            .formatted(systemInstructions(reminder), goal)
                             .trim();
         }
 
@@ -80,5 +76,5 @@ public abstract class SystemPrompts {
         return systemMessage(reminder, null);
     }
 
-    protected abstract String systemIntro(String reminder);
+    protected abstract String systemInstructions(String reminder);
 }

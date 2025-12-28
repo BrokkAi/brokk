@@ -38,7 +38,7 @@ public abstract class CodePrompts extends SystemPrompts {
             Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
 
     @Override
-    protected String systemIntro(String reminder) {
+    protected String systemInstructions(String reminder) {
         return """
                 Act as an expert software developer.
                 Always use best practices when coding.

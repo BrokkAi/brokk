@@ -1689,7 +1689,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         List<ChatMessage> messages;
         Context ctx = cm.liveContext();
-        messages = SearchPrompts.instance.collectAskMessages(ctx, question);
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
 
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
         return executeAskCommand(llm, messages, cm, question, meta);

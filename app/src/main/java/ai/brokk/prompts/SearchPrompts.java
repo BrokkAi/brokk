@@ -19,18 +19,27 @@ import java.util.stream.Collectors;
 /**
  * Generates prompts for the Search Agent and Ask requests.
  */
-public abstract class SearchPrompts extends SystemPrompts {
+public abstract class SearchPrompts {
     public static final SearchPrompts instance = new SearchPrompts() {};
 
     private static final double WORKSPACE_CRITICAL = 0.80;
+
+    public SystemMessage simpleSystemMessage() {
+        return new SystemMessage(
+                """
+                <instructions>
+                %s
+                </instructions>
+                """
+                        .formatted(systemInstructions(askReminder())));
+    }
 
     /**
      * Result of building a prompt, including messages and whether beast mode should be engaged.
      */
     public record PromptResult(List<ChatMessage> messages, boolean engageBeastMode) {}
 
-    @Override
-    protected String systemIntro(String reminder) {
+    protected String systemInstructions(String reminder) {
         return """
                 You are the Search Agent.
                 Your job is to be the **Code Agent's preparer**. You are a researcher and librarian, not a developer.
@@ -48,12 +57,11 @@ public abstract class SearchPrompts extends SystemPrompts {
                 .formatted(reminder);
     }
 
-    public final List<ChatMessage> collectAskMessages(Context ctx, String input) {
+    public final List<ChatMessage> buildAskPrompt(Context ctx, String input) {
         var messages = new ArrayList<ChatMessage>();
 
         var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST);
-        String reminder = askReminder();
-        messages.add(systemMessage(reminder, null));
+        messages.add(simpleSystemMessage());
         messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, suppressed));
         messages.addAll(CodePrompts.instance.getHistoryMessages(ctx));
         messages.add(askRequest(input));
@@ -88,6 +96,10 @@ public abstract class SearchPrompts extends SystemPrompts {
                         """
                         .formatted(input);
         return new UserMessage(text);
+    }
+
+    public String askReminder() {
+        return SystemPrompts.MARKDOWN_REMINDER;
     }
 
     public SystemMessage searchSystemPrompt(Context context) {
@@ -131,7 +143,7 @@ public abstract class SearchPrompts extends SystemPrompts {
                 %s
                 </workspace-toc>
                 """
-                        .formatted(systemIntro("").trim(), supportedTypes, askReminder(), workspaceToc));
+                        .formatted(systemInstructions("").trim(), supportedTypes, askReminder(), workspaceToc));
     }
 
     /**
@@ -140,16 +152,15 @@ public abstract class SearchPrompts extends SystemPrompts {
     public List<ChatMessage> buildPruningPrompt(Context context, String goal) {
         var messages = new ArrayList<ChatMessage>();
 
-        SystemMessage result = systemMessage(askReminder());
         var sys = new SystemMessage(
                 """
-                %s
+                <instructions>
                 You are the Janitor Agent (Workspace Reviewer). Single-shot cleanup: one response, then done.
 
                 Scope:
                 - Workspace curation ONLY. No code, no answers, no plans.
 
-                Tools (exactly one):
+                Tools (call exactly one):
                 - performedInitialReview(): use ONLY when ALL fragments are short, focused, clean, and directly relevant.
                 - dropWorkspaceFragments(fragments: {fragmentId, explanation}[]): batch ALL drops in a single call.
 
@@ -167,8 +178,8 @@ public abstract class SearchPrompts extends SystemPrompts {
 
                 Response rule:
                 - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).
-                """
-                        .formatted(result.text()));
+                </instructions>
+                """);
         messages.add(sys);
 
         // Current Workspace contents (use default viewing policy)

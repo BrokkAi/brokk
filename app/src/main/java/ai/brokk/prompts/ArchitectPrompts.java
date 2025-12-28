@@ -12,7 +12,7 @@ public abstract class ArchitectPrompts extends SystemPrompts {
     public static final double WORKSPACE_CRITICAL_THRESHOLD = 0.9;
 
     @Override
-    protected String systemIntro(String reminder) {
+    protected String systemInstructions(String reminder) {
         return """
         You are the Architect Agent. You solve problems by breaking them down into manageable pieces
         in an evolving long-range plan.

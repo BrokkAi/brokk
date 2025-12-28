@@ -28,7 +28,7 @@ public abstract class CopyExternalPrompts extends SystemPrompts {
     }
 
     @Override
-    protected String systemIntro(String reminder) {
+    protected String systemInstructions(String reminder) {
         return """
         Act as an expert software engineer. Study the change request and the current code.
         Describe how to modify the code to complete the request.

@@ -635,7 +635,7 @@ public final class JobRunner {
 
         List<ChatMessage> messages;
         Context ctx = cm.liveContext();
-        messages = SearchPrompts.instance.collectAskMessages(ctx, question);
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
         // Create an LLM instance for the planner model and route output to the ContextManager IO
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
         llm.setOutput(cm.getIo());
