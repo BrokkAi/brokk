@@ -972,7 +972,7 @@ public class ArchitectAgent {
         messages.addAll(cm.getHistoryMessages());
 
         // This agent's own conversational history for the current goal, with the instructionsMarker
-        // simplified away to avoid sending confusing instruction text (would contain obsolete workspace-toc)
+        // simplified away to avoid sending confusing instruction text (would contain obsolete workspace_toc)
         var marker = ArchitectPrompts.instructionsMarker();
         messages.addAll(architectMessages.stream()
                 .map(msg -> {

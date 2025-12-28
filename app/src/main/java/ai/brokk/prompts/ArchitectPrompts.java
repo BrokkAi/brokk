@@ -177,9 +177,7 @@ public class ArchitectPrompts {
             When you are done, call projectFinished or abortProject.
 
             Here is a summary of the current Workspace. Its full contents were sent earlier in the chat.
-            <workspace-toc>
             %s
-            </workspace-toc>
 
             %s
             """

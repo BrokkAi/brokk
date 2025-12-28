@@ -88,7 +88,6 @@ public class SearchPrompts {
         var supportedTypes = context.getContextManager().getProject().getAnalyzerLanguages().stream()
                 .map(Language::name)
                 .collect(Collectors.joining(", "));
-        var workspaceToc = WorkspacePrompts.formatToc(context);
 
         return new SystemMessage(
                 """
@@ -119,15 +118,9 @@ public class SearchPrompts {
                   - Start each turn by pruning and summarizing before any new exploration.
                   - Think before calling tools.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
-
-                %s
                 </instructions>
-                <workspace-toc>
-                %s
-                </workspace-toc>
                 """
-                        .formatted(
-                                searchAgentIdentity(), supportedTypes, SystemPrompts.MARKDOWN_REMINDER, workspaceToc));
+                        .formatted(searchAgentIdentity(), supportedTypes));
     }
 
     /**
@@ -232,26 +225,26 @@ public class SearchPrompts {
         // Current Workspace contents (apply viewing policy for visibility filtering)
         messages.addAll(workspaceMessages);
 
-        // Related identifiers from nearby files
+        // Conversation history plus this agent's messages
+        messages.addAll(cm.getHistoryMessages());
+        messages.addAll(sessionMessages);
+
+        // Related identifiers from nearby files (Discovery suggestions after history)
         var related = context.buildRelatedIdentifiers(10);
         if (!related.isEmpty()) {
             var relatedBlock = ArchitectPrompts.formatRelatedFiles(related);
             messages.add(new UserMessage(
                     """
-        <related_files>
-        These files (with the identifiers they declare) MAY be relevant. They are NOT in the Workspace yet.
-        Add summaries or sources if needed; otherwise ignore them.
+                    <related_files>
+                    These files (with the identifiers they declare) MAY be relevant. They are NOT in the Workspace yet.
+                    Add summaries or sources if needed; otherwise ignore them.
 
-        %s
-        </related_files>
-        """
+                    %s
+                    </related_files>
+                    """
                             .formatted(relatedBlock)));
             messages.add(new AiMessage("Acknowledged. I will explicitly add only what is relevant."));
         }
-
-        // Recent project history plus this agent's messages
-        messages.addAll(cm.getHistoryMessages());
-        messages.addAll(sessionMessages);
 
         // Workspace size warning and final instruction
         String warning = "";
@@ -384,6 +377,11 @@ public class SearchPrompts {
                         It is NOT your objective to write code.
 
                         %s
+
+                        %s
+
+                        Reminder: here is a list of the full contents of the Workspace that you can refer to above:
+                        %s
                         """
                         .formatted(
                                 terminalObjective.type(),
@@ -394,7 +392,9 @@ public class SearchPrompts {
                                 buildSetupTaskGuidance,
                                 testsGuidance,
                                 finalsStr,
-                                warning);
+                                warning,
+                                SystemPrompts.MARKDOWN_REMINDER,
+                                WorkspacePrompts.formatToc(context, suppressed));
 
         // Beast mode directive
         if (engageBeastMode) {

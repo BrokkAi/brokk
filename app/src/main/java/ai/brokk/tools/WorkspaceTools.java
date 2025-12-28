@@ -70,7 +70,7 @@ public class WorkspaceTools {
      * Used by {@link #dropWorkspaceFragments(List)} to structure the input.
      */
     public record FragmentRemoval(
-            @Description("The numeric ID exactly as listed in <workspace-toc>") String fragmentId,
+            @Description("The alphanumeric ID exactly as listed in <workspace_toc>") String fragmentId,
             @Description("Why this fragment is being discarded") String explanation) {}
 
     /** Updates the working Context for this WorkspaceTools instance. */
