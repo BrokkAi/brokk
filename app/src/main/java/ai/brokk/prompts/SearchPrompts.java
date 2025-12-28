@@ -56,9 +56,38 @@ public abstract class SearchPrompts extends SystemPrompts {
         messages.add(systemMessage(reminder, null));
         messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(ctx, suppressed));
         messages.addAll(CodePrompts.instance.getHistoryMessages(ctx));
-        messages.add(CodePrompts.instance.askRequest(input));
+        messages.add(askRequest(input));
 
         return messages;
+    }
+
+    public UserMessage askRequest(String input) {
+        var text =
+                """
+                        <instructions>
+                        Answer this question about the supplied code thoroughly and accurately.
+
+                        Provide insights, explanations, and analysis; do not implement changes.
+                        While you can suggest high-level approaches and architectural improvements, remember that:
+                        - You should focus on understanding and clarifying the code
+                        - The user will make other requests when he wants to actually implement changes
+                        - You are being asked here for conceptual understanding and problem diagnosis
+
+                        Be concise but complete in your explanations. If you need more information to answer a question,
+                        don't hesitate to ask for clarification. If you notice references to code in the Workspace that
+                        you need to see to answer accurately, do your best to take educated guesses but clarify that
+                        it IS an educated guess and ask the user to add the relevant code.
+
+                        Format your answer with Markdown for readability. It's particularly important to signal
+                        changes in subject with appropriate headings.
+                        </instructions>
+
+                        <question>
+                        %s
+                        </question>
+                        """
+                        .formatted(input);
+        return new UserMessage(text);
     }
 
     public SystemMessage searchSystemPrompt(Context context) {
@@ -170,7 +199,6 @@ public abstract class SearchPrompts extends SystemPrompts {
      * @param objective the search objective
      * @param mcpTools the list of MCP tools available
      * @param sessionMessages the session-local conversation messages
-     * @param currentBeastMode whether beast mode is already engaged
      * @return PromptResult containing the messages and whether beast mode should now be engaged
      */
     public PromptResult buildPrompt(
@@ -179,8 +207,7 @@ public abstract class SearchPrompts extends SystemPrompts {
             String goal,
             SearchAgent.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
-            List<ChatMessage> sessionMessages,
-            boolean currentBeastMode)
+            List<ChatMessage> sessionMessages)
             throws InterruptedException {
 
         var cm = context.getContextManager();
@@ -195,8 +222,7 @@ public abstract class SearchPrompts extends SystemPrompts {
         var workspaceTokens = Messages.getApproximateMessageTokens(workspaceMessages);
 
         // Determine if beast mode should be engaged
-        boolean engageBeastMode =
-                currentBeastMode || (inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit);
+        boolean engageBeastMode = (inputLimit > 0 && workspaceTokens > WORKSPACE_CRITICAL * inputLimit);
 
         var messages = new ArrayList<ChatMessage>();
 

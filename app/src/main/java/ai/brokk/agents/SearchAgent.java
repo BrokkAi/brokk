@@ -263,8 +263,8 @@ public class SearchAgent {
             wst.setContext(context);
 
             // Build prompt and check if beast mode should be engaged
-            var promptResult = SearchPrompts.instance.buildPrompt(
-                    context, model, goal, objective, mcpTools, sessionMessages, beastMode);
+            var promptResult =
+                    SearchPrompts.instance.buildPrompt(context, model, goal, objective, mcpTools, sessionMessages);
             var messages = promptResult.messages();
 
             // Update beast mode if newly engaged
@@ -995,9 +995,10 @@ public class SearchAgent {
 
     /**
      * True when there exists at least one droppable fragment in the current workspace.
+     * A fragment is considered droppable if it is not pinned.
      */
     private boolean hasDroppableFragments() {
-        return context.getPinnedFragments().findAny().isEmpty();
+        return context.allFragments().anyMatch(f -> !context.isPinned(f));
     }
 
     // =======================
