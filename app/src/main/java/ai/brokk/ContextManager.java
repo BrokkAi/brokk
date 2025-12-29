@@ -2160,7 +2160,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
-        private boolean closed = false;
+        private final AtomicBoolean closed = new AtomicBoolean(false);
         private final @Nullable UUID groupId;
         private final @Nullable String groupLabel;
 
@@ -2180,7 +2180,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
          * @param result   The TaskResult to append.
          */
         public Context append(TaskResult result) throws InterruptedException {
-            assert !closed : "TaskScope already closed";
+            assert !closed.get() : "TaskScope already closed";
 
             // If interrupted before any LLM output, skip
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
@@ -2227,8 +2227,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         @Override
         public void close() {
-            if (closed) return;
-            closed = true;
+            if (!closed.compareAndSet(false, true)) return;
             SwingUtilities.invokeLater(() -> {
                 // deferred cleanup
                 taskScopeInProgress.set(false);
