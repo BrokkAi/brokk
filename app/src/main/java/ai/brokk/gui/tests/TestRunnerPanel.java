@@ -823,6 +823,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         var project = chrome.getProject();
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Running tests", () -> {
+            int exitCode = -1;
             try {
                 ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
 
@@ -834,18 +835,21 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                         execCfg,
                         environment,
                         process -> activeTestProcess = process);
-                completeRun(runId, 0, Instant.now());
+                exitCode = 0;
             } catch (Environment.SubprocessException e) {
                 appendToRun(runId, "\n" + e.getMessage() + "\n" + e.getOutput() + "\n");
-                completeRun(runId, -1, Instant.now());
+                exitCode = -1;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt(); // Retain interrupted status
                 appendToRun(runId, "\n--- TEST EXECUTION INTERRUPTED ---\n");
-                completeRun(runId, -1, Instant.now());
+                exitCode = -1;
             } catch (Exception e) {
                 appendToRun(runId, "\nError: " + e + "\n");
-                completeRun(runId, -1, Instant.now());
+                exitCode = -1;
             } finally {
+                completeRun(runId, exitCode, Instant.now());
+                updateContextWithTestResult(runId, exitCode == 0);
+
                 testProcessRunning.set(false);
                 activeTestProcess = null;
                 runOnEdt(() -> {
@@ -856,6 +860,15 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
             return null;
         });
+    }
+
+    private void updateContextWithTestResult(String runId, boolean success) {
+        if (chrome == null) return;
+        var run = runsById.get(runId);
+        if (run == null) return;
+
+        var cm = chrome.getContextManager();
+        cm.pushContext(ctx -> ctx.withBuildResult(success, run.getOutput()));
     }
 
     private void applyThemeColorsFromUIManager() {
@@ -920,7 +933,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 .thenRun(() -> {
                     SwingUtilities.invokeLater(() -> {
                         // Switch to Instructions tab in the right tabbed panel
-                        JTabbedPane rightTabs = chrome.getRightTabbedPanel();
+                        JTabbedPane rightTabs = chrome.getCommandPane();
                         int idx = rightTabs.indexOfTab("Instructions");
                         if (idx != -1) {
                             rightTabs.setSelectedIndex(idx);

@@ -5,6 +5,7 @@ import static ai.brokk.prompts.EditBlockUtils.*;
 import ai.brokk.EditBlock;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.*;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -28,7 +29,8 @@ public class EditBlockParser {
         var editBlocks = all.blocks().stream()
                 .map(EditBlock.OutputBlock::block)
                 .filter(Objects::nonNull)
-                .toList();
+                .filter(b -> !Objects.equals(b.beforeText(), b.afterText()))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
         if (!editBlocks.isEmpty() || all.parseError() != null) {
             return new EditBlock.ParseResult(editBlocks, all.parseError());
@@ -79,6 +81,53 @@ public class EditBlockParser {
      * report a parseError and stop parsing at the first error (unchanged behavior), but previously parsed content is
      * preserved in the returned blocks list.
      */
+    /**
+     * Injects [BRK_BLOCK_N] markers immediately before each SEARCH/REPLACE block
+     * in the input text.
+     * @param startingIndex the index of the last block tagged in a previous turn (0 for first turn)
+     */
+    public String tagBlocks(String content, int startingIndex) {
+        var result = parse(content, Set.of());
+        var output = new StringBuilder();
+        int blockCounter = startingIndex + 1;
+        var seenBlocks = new LinkedHashMap<EditBlock.SearchReplaceBlock, Integer>();
+
+        for (var block : result.blocks()) {
+            if (block.block() != null) {
+                var srb = block.block();
+                if (Objects.equals(srb.beforeText(), srb.afterText())) {
+                    output.append(
+                            "[HARNESS NOTE: redundant block skipped; REPLACE text is identical to SEARCH text]\n");
+                    continue;
+                }
+
+                var existingIndex = seenBlocks.get(srb);
+                if (existingIndex == null) {
+                    int currentIndex = blockCounter++;
+                    seenBlocks.put(srb, currentIndex);
+                    output.append("[BRK_BLOCK_").append(currentIndex).append("]\n");
+                    output.append(srb.repr());
+                } else {
+                    output.append("[HARNESS NOTE: reundunant block skipped; duplidate of BRK_BLOCK_")
+                            .append(existingIndex)
+                            .append("]\n");
+                }
+            } else if (block.text() != null) {
+                output.append(block.text());
+            }
+        }
+
+        return output.toString();
+    }
+
+    /**
+     * Injects [BRK_BLOCK_N] markers (1-indexed) immediately before each SEARCH/REPLACE block
+     * in the input text.
+     */
+    public String tagBlocks(String content) {
+        return tagBlocks(content, 0);
+    }
+
     public EditBlock.ExtendedParseResult parse(String content, Set<ProjectFile> projectFiles) {
         var blocks = new ArrayList<EditBlock.OutputBlock>();
 
@@ -105,15 +154,12 @@ public class EditBlockParser {
                 var searchAtNextNext = (i + 2 < lines.length) && isSearch(lines[i + 2]);
 
                 if (searchAtNext || searchAtNextNext) {
-                    // Flush preceding plain text
-                    flushPlain(blocks, plain);
-
                     // Determine block-specific filename and where SEARCH is
                     @Nullable String blockFilename;
                     int searchIndex;
 
                     if (searchAtNext) {
-                        // No explicit filename line
+                        // No explicit filename line between fence and SEARCH
                         blockFilename = findFilenameNearby(lines, i + 1, projectFiles, currentFilename);
                         searchIndex = i + 1;
                     } else {
@@ -125,6 +171,12 @@ public class EditBlockParser {
                                 : findFilenameNearby(lines, i + 2, projectFiles, currentFilename);
                         searchIndex = i + 2;
                     }
+
+                    // Strip filename/fence preamble from accumulated plain text before flushing
+                    stripBlockPreambleFromPlain(plain, blockFilename);
+
+                    // Flush preceding plain text (now cleaned)
+                    flushPlain(blocks, plain);
 
                     // Scan body starting at the line AFTER the "<<<<<<< SEARCH" line
                     var scan = scanSearchReplaceBody(lines, searchIndex + 1);
@@ -165,9 +217,12 @@ public class EditBlockParser {
 
             // 2) Fence-less variant starting directly with "<<<<<<< SEARCH"
             if (isSearch(trimmed)) {
-                flushPlain(blocks, plain);
-
                 currentFilename = findFilenameNearby(lines, i, projectFiles, currentFilename);
+
+                // Strip filename preamble from accumulated plain text before flushing
+                stripBlockPreambleFromPlain(plain, currentFilename);
+
+                flushPlain(blocks, plain);
 
                 // first line after "<<<<<<< SEARCH"
                 i++;
@@ -218,8 +273,8 @@ public class EditBlockParser {
     /* ============================== helpers ============================== */
 
     private static boolean isFence(String trimmed) {
-        // Only treat a bare triple-backtick line as a fence (consistent with previous behavior)
-        return trimmed.equals(DEFAULT_FENCE.get(0));
+        // Treat triple-backtick lines as fences, with or without language specifier
+        return trimmed.startsWith("```");
     }
 
     private static boolean isSearch(String line) {
@@ -247,7 +302,67 @@ public class EditBlockParser {
     private static void flushPlain(List<EditBlock.OutputBlock> blocks, StringBuilder plain) {
         if (!plain.toString().isBlank()) {
             blocks.add(EditBlock.OutputBlock.plain(plain.toString()));
-            plain.setLength(0);
+        }
+        plain.setLength(0);
+    }
+
+    /**
+     * Strips the filename line (and optionally a preceding fence line) from the end of the plain text buffer.
+     * This ensures that preamble lines that belong to an edit block are not included in the preceding plain text.
+     */
+    private static void stripBlockPreambleFromPlain(StringBuilder plain, @Nullable String filename) {
+        if (plain.isEmpty()) {
+            return;
+        }
+
+        var text = plain.toString();
+        var lines = text.split("\n", -1);
+
+        int linesToStrip = 0;
+
+        // Check if the last non-empty line is the filename
+        int lastIdx = lines.length - 1;
+        // Handle trailing empty line from final \n
+        if (lastIdx >= 0 && lines[lastIdx].isEmpty() && text.endsWith("\n")) {
+            lastIdx--;
+        }
+
+        if (lastIdx >= 0 && filename != null && !filename.isBlank()) {
+            var lastLine = lines[lastIdx].trim();
+            if (lastLine.equals(filename)) {
+                linesToStrip = 1;
+                // Check if the line before that is a fence (with or without language specifier)
+                if (lastIdx - 1 >= 0 && isFence(lines[lastIdx - 1].trim())) {
+                    linesToStrip = 2;
+                }
+            }
+        }
+
+        if (linesToStrip > 0) {
+            // Rebuild plain without the stripped lines
+            int keepLines = lines.length - linesToStrip;
+            // Adjust for trailing empty element if present
+            if (lines.length > 0 && lines[lines.length - 1].isEmpty() && text.endsWith("\n")) {
+                keepLines = lines.length - 1 - linesToStrip;
+            }
+
+            if (keepLines <= 0) {
+                plain.setLength(0);
+            } else {
+                var kept = new StringBuilder();
+                for (int j = 0; j < keepLines; j++) {
+                    kept.append(lines[j]);
+                    if (j < keepLines - 1) {
+                        kept.append("\n");
+                    }
+                }
+                // Preserve trailing newline if there was content and original had newline
+                if (!kept.isEmpty()) {
+                    kept.append("\n");
+                }
+                plain.setLength(0);
+                plain.append(kept);
+            }
         }
     }
 

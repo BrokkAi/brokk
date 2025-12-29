@@ -64,6 +64,11 @@ public class DtoMapper {
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
+        var pinnedFragments = dto.pinned().stream()
+                .map(fragmentCache::get)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         var virtualFragments = dto.virtuals().stream()
                 .map(fragmentCache::get)
                 .filter(Objects::nonNull)
@@ -100,9 +105,9 @@ public class DtoMapper {
                     }
 
                     // Load log and summary independently (both can coexist)
-                    ContextFragment.TaskFragment logFragment = null;
+                    ContextFragments.TaskFragment logFragment = null;
                     if (taskRefDto.logId() != null) {
-                        logFragment = (ContextFragment.TaskFragment) fragmentCache.get(taskRefDto.logId());
+                        logFragment = (ContextFragments.TaskFragment) fragmentCache.get(taskRefDto.logId());
                     }
 
                     String summary = null;
@@ -120,7 +125,7 @@ public class DtoMapper {
                 .collect(Collectors.toCollection(ArrayList::new));
 
         var parsedOutputFragment = dto.parsedOutputId() != null
-                ? (ContextFragment.TaskFragment) fragmentCache.get(dto.parsedOutputId())
+                ? (ContextFragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
                 : null;
 
         var actionFuture = CompletableFuture.completedFuture(dto.action());
@@ -143,7 +148,8 @@ public class DtoMapper {
                 actionFuture,
                 groupUuid,
                 dto.groupLabel(),
-                readonlyFragments);
+                readonlyFragments,
+                pinnedFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -173,12 +179,17 @@ public class DtoMapper {
         var virtualIds = ctx.virtualFragments().map(ContextFragment::id).toList();
         var readonlyIds =
                 ctx.getMarkedReadonlyFragments().map(ContextFragment::id).toList();
+        var pinnedIds = ctx.allFragments()
+                .filter(ctx::isPinned)
+                .map(ContextFragment::id)
+                .toList();
 
         return new CompactContextDto(
                 ctx.id().toString(),
                 editableIds,
                 readonlyIds,
                 virtualIds,
+                pinnedIds,
                 taskEntryRefs,
                 ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
                 action,
@@ -197,7 +208,7 @@ public class DtoMapper {
             Map<String, ContextFragment> fragmentCacheForRecursion,
             ContentReader contentReader) {
         // Ensure ID continuity for numeric IDs
-        ContextFragment.setMinimumId(parseNumericId(idToResolve));
+        ContextFragments.setMinimumId(parseNumericId(idToResolve));
 
         if (referencedDtos.containsKey(idToResolve)) {
             var dto = referencedDtos.get(idToResolve);
@@ -242,25 +253,25 @@ public class DtoMapper {
             ReferencedFragmentDto dto, IContextManager mgr, ContentReader reader) {
         return switch (dto) {
             case ProjectFileDto pfd -> {
-                ContextFragment.setMinimumId(parseNumericId(pfd.id()));
+                ContextFragments.setMinimumId(parseNumericId(pfd.id()));
                 // Use current project root for cross-platform compatibility
                 String snapshot = pfd.snapshotText() != null ? reader.readContent(pfd.snapshotText()) : null;
-                yield ContextFragment.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr, snapshot);
+                yield ContextFragments.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr, snapshot);
             }
             case ExternalFileDto efd -> {
-                ContextFragment.setMinimumId(parseNumericId(efd.id()));
+                ContextFragments.setMinimumId(parseNumericId(efd.id()));
                 String snapshot = efd.snapshotText() != null ? reader.readContent(efd.snapshotText()) : null;
-                yield ContextFragment.ExternalPathFragment.withId(
+                yield ContextFragments.ExternalPathFragment.withId(
                         new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr, snapshot);
             }
             case ImageFileDto ifd -> {
-                ContextFragment.setMinimumId(parseNumericId(ifd.id()));
+                ContextFragments.setMinimumId(parseNumericId(ifd.id()));
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
-                yield ContextFragment.ImageFileFragment.withId(file, ifd.id(), mgr);
+                yield ContextFragments.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
             case GitFileFragmentDto gfd ->
                 // Use current project root for cross-platform compatibility
-                ContextFragment.GitFileFragment.withId(
+                ContextFragments.GitFileFragment.withId(
                         mgr.toFile(gfd.relPath()), gfd.revision(), reader.readContent(gfd.contentId()), gfd.id());
             case FrozenFragmentDto ffd ->
                 // Reconstruct the original live fragment instead of returning a FrozenFragment
@@ -268,13 +279,13 @@ public class DtoMapper {
         };
     }
 
-    private static @Nullable ContextFragment.TaskFragment _buildTaskFragment(
+    private static @Nullable ContextFragments.TaskFragment _buildTaskFragment(
             @Nullable TaskFragmentDto dto, IContextManager mgr, ContentReader reader) {
         if (dto == null) return null;
         var messages = dto.messages().stream()
                 .map(msgDto -> fromChatMessageDto(msgDto, reader))
                 .toList();
-        return new ContextFragment.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
+        return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
     }
 
     private static @Nullable ContextFragment _buildVirtualFragment(
@@ -288,7 +299,7 @@ public class DtoMapper {
             ContentReader reader) {
         if (dto == null) return null;
         // Ensure ID continuity for numeric IDs
-        ContextFragment.setMinimumId(parseNumericId(dto.id()));
+        ContextFragments.setMinimumId(parseNumericId(dto.id()));
         return switch (dto) {
             case FrozenFragmentDto ffd -> {
                 if (isDeprecatedBuildFragment(ffd)) {
@@ -303,7 +314,7 @@ public class DtoMapper {
             }
             case TaskFragmentDto taskDto -> _buildTaskFragment(taskDto, mgr, reader);
             case StringFragmentDto stringDto ->
-                new ContextFragment.StringFragment(
+                new ContextFragments.StringFragment(
                         stringDto.id(),
                         mgr,
                         reader.readContent(stringDto.contentId()),
@@ -314,18 +325,18 @@ public class DtoMapper {
                 yield null;
             }
             case SummaryFragmentDto summaryDto ->
-                new ContextFragment.SummaryFragment(
+                new ContextFragments.SummaryFragment(
                         summaryDto.id(),
                         mgr,
                         summaryDto.targetIdentifier(),
                         ContextFragment.SummaryType.valueOf(summaryDto.summaryType()));
             case UsageFragmentDto usageDto -> {
                 String snapshot = usageDto.snapshotText() != null ? reader.readContent(usageDto.snapshotText()) : null;
-                yield new ContextFragment.UsageFragment(
+                yield new ContextFragments.UsageFragment(
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles(), snapshot);
             }
             case PasteTextFragmentDto pasteTextDto ->
-                new ContextFragment.PasteTextFragment(
+                new ContextFragments.PasteTextFragment(
                         pasteTextDto.id(),
                         mgr,
                         reader.readContent(pasteTextDto.contentId()),
@@ -340,7 +351,7 @@ public class DtoMapper {
                         yield null;
                     }
                     var image = ImageUtil.bytesToImage(imageBytes);
-                    yield new ContextFragment.AnonymousImageFragment(
+                    yield new ContextFragments.AnonymousImageFragment(
                             pasteImageDto.id(),
                             mgr,
                             image,
@@ -353,7 +364,7 @@ public class DtoMapper {
                 var sources = stDto.sources().stream()
                         .map(cuDto -> fromCodeUnitDto(cuDto, mgr))
                         .collect(Collectors.toSet());
-                yield new ContextFragment.StacktraceFragment(
+                yield new ContextFragments.StacktraceFragment(
                         stDto.id(),
                         mgr,
                         sources,
@@ -362,7 +373,7 @@ public class DtoMapper {
                         reader.readContent(stDto.codeContentId()));
             }
             case CallGraphFragmentDto callGraphDto ->
-                new ContextFragment.CallGraphFragment(
+                new ContextFragments.CallGraphFragment(
                         callGraphDto.id(),
                         mgr,
                         callGraphDto.methodName(),
@@ -370,12 +381,12 @@ public class DtoMapper {
                         callGraphDto.isCalleeGraph());
             case CodeFragmentDto codeDto -> {
                 String snapshot = codeDto.snapshotText() != null ? reader.readContent(codeDto.snapshotText()) : null;
-                yield new ContextFragment.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName(), snapshot);
+                yield new ContextFragments.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName(), snapshot);
             }
             case BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
                 var text = reader.readContent(bfDto.contentId());
-                yield new ContextFragment.StringFragment(
+                yield new ContextFragments.StringFragment(
                         bfDto.id(),
                         mgr,
                         text,
@@ -394,14 +405,14 @@ public class DtoMapper {
                                 imageBytesMap,
                                 reader))
                         .toList();
-                yield new ContextFragment.HistoryFragment(historyDto.id(), mgr, historyEntries);
+                yield new ContextFragments.HistoryFragment(historyDto.id(), mgr, historyEntries);
             }
         };
     }
 
     public static ReferencedFragmentDto toReferencedFragmentDto(ContextFragment fragment, ContentWriter writer) {
         return switch (fragment) {
-            case ContextFragment.ProjectPathFragment pf -> {
+            case ContextFragments.ProjectPathFragment pf -> {
                 ProjectFile file = pf.file();
                 String snapshotId = null;
                 String snapshot = pf.text().tryGet().orElse(null);
@@ -412,7 +423,7 @@ public class DtoMapper {
                 yield new ProjectFileDto(
                         pf.id(), file.getRoot().toString(), file.getRelPath().toString(), snapshotId);
             }
-            case ContextFragment.GitFileFragment gf -> {
+            case ContextFragments.GitFileFragment gf -> {
                 var file = gf.file();
                 var fileKey = file.getRoot() + ":" + file.getRelPath();
                 String contentId = writer.writeContent(gf.content(), fileKey);
@@ -420,7 +431,7 @@ public class DtoMapper {
                 yield new GitFileFragmentDto(
                         gf.id(), pf.getRoot().toString(), pf.getRelPath().toString(), gf.revision(), contentId);
             }
-            case ContextFragment.ExternalPathFragment ef -> {
+            case ContextFragments.ExternalPathFragment ef -> {
                 ExternalFile extFile = ef.file();
                 String snapshotId = null;
                 String snapshot = ef.text().tryGet().orElse(null);
@@ -430,7 +441,7 @@ public class DtoMapper {
                 }
                 yield new ExternalFileDto(ef.id(), extFile.absPath().toString(), snapshotId);
             }
-            case ContextFragment.ImageFileFragment imf -> {
+            case ContextFragments.ImageFileFragment imf -> {
                 BrokkFile file = imf.file();
                 String fileName = file.getFileName().toLowerCase(Locale.ROOT);
                 String mediaType = null;
@@ -464,20 +475,20 @@ public class DtoMapper {
     @Blocking
     public static @Nullable VirtualFragmentDto toVirtualFragmentDto(ContextFragment fragment, ContentWriter writer) {
         return switch (fragment) {
-            case ContextFragment.TaskFragment tf -> toTaskFragmentDto(tf, writer);
-            case ContextFragment.StringFragment sf ->
+            case ContextFragments.TaskFragment tf -> toTaskFragmentDto(tf, writer);
+            case ContextFragments.StringFragment sf ->
                 // String fragment is fine to block on
                 new StringFragmentDto(
                         sf.id(),
                         writer.writeContent(sf.text().join(), null),
                         sf.description().join(),
                         sf.syntaxStyle().join());
-            case ContextFragment.SummaryFragment sumf ->
+            case ContextFragments.SummaryFragment sumf ->
                 new SummaryFragmentDto(
                         sumf.id(),
                         sumf.getTargetIdentifier(),
                         sumf.getSummaryType().name());
-            case ContextFragment.UsageFragment uf -> {
+            case ContextFragments.UsageFragment uf -> {
                 String snapshotId = null;
                 String snapshot = uf.text().tryGet().orElse(null);
                 if (snapshot != null) {
@@ -485,18 +496,18 @@ public class DtoMapper {
                 }
                 yield new UsageFragmentDto(uf.id(), uf.targetIdentifier(), uf.includeTestFiles(), snapshotId);
             }
-            case ContextFragment.PasteTextFragment ptf -> {
+            case ContextFragments.PasteTextFragment ptf -> {
                 // Fine to block on
                 String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
                 String contentId = writer.writeContent(ptf.text().join(), null);
                 String syntaxStyle = getFutureSyntaxStyle(ptf.getSyntaxStyleFuture());
                 yield new PasteTextFragmentDto(ptf.id(), contentId, description, syntaxStyle);
             }
-            case ContextFragment.AnonymousImageFragment aif -> {
+            case ContextFragments.AnonymousImageFragment aif -> {
                 String description = getFutureDescription(aif.descriptionFuture, "Paste of ");
                 yield new PasteImageFragmentDto(aif.id(), description);
             }
-            case ContextFragment.StacktraceFragment stf -> {
+            case ContextFragments.StacktraceFragment stf -> {
                 // Fine to block on
                 var sourcesDto = stf.sources().join().stream()
                         .map(DtoMapper::toCodeUnitDto)
@@ -506,9 +517,9 @@ public class DtoMapper {
                 yield new StacktraceFragmentDto(
                         stf.id(), sourcesDto, originalContentId, stf.getException(), codeContentId);
             }
-            case ContextFragment.CallGraphFragment cgf ->
+            case ContextFragments.CallGraphFragment cgf ->
                 new CallGraphFragmentDto(cgf.id(), cgf.getMethodName(), cgf.getDepth(), cgf.isCalleeGraph());
-            case ContextFragment.CodeFragment cf -> {
+            case ContextFragments.CodeFragment cf -> {
                 String snapshotId = null;
                 String snapshot = cf.text().tryGet().orElse(null);
                 if (snapshot != null) {
@@ -516,7 +527,7 @@ public class DtoMapper {
                 }
                 yield new CodeFragmentDto(cf.id(), cf.getFullyQualifiedName(), snapshotId);
             }
-            case ContextFragment.HistoryFragment hf -> {
+            case ContextFragments.HistoryFragment hf -> {
                 var historyDto = hf.entries().stream()
                         .map(te -> toTaskEntryDto(te, writer))
                         .toList();
@@ -564,7 +575,7 @@ public class DtoMapper {
     }
 
     @Blocking
-    public static TaskFragmentDto toTaskFragmentDto(ContextFragment.TaskFragment fragment, ContentWriter writer) {
+    public static TaskFragmentDto toTaskFragmentDto(ContextFragments.TaskFragment fragment, ContentWriter writer) {
         var messagesDto = fragment.messages().stream()
                 .map(m -> toChatMessageDto(m, writer))
                 .toList();
@@ -639,9 +650,9 @@ public class DtoMapper {
             @Nullable Map<String, byte[]> imageBytesMap,
             ContentReader reader) {
         // Load the log if present
-        ContextFragment.TaskFragment taskFragment = null;
+        ContextFragments.TaskFragment taskFragment = null;
         if (dto.log() != null) {
-            taskFragment = (ContextFragment.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
+            taskFragment = (ContextFragments.TaskFragment) fragmentCacheForRecursion.computeIfAbsent(
                     dto.log().id(),
                     id -> resolveAndBuildFragment(
                             id,
@@ -692,7 +703,7 @@ public class DtoMapper {
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
-                    return new ContextFragment.ProjectPathFragment(file, mgr, snapshot);
+                    return new ContextFragments.ProjectPathFragment(file, mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment",
                         "ai.brokk.context.ContextFragment$ExternalPathFragment" -> {
@@ -703,7 +714,7 @@ public class DtoMapper {
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
-                    return new ContextFragment.ExternalPathFragment(file, mgr, snapshot);
+                    return new ContextFragments.ExternalPathFragment(file, mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment",
                         "ai.brokk.context.ContextFragment$ImageFileFragment" -> {
@@ -720,7 +731,7 @@ public class DtoMapper {
                     } else {
                         file = new ExternalFile(Path.of(absPath).toAbsolutePath());
                     }
-                    return new ContextFragment.ImageFileFragment(file, mgr);
+                    return new ContextFragments.ImageFileFragment(file, mgr);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$GitFileFragment",
                         "ai.brokk.context.ContextFragment$GitFileFragment" -> {
@@ -735,7 +746,7 @@ public class DtoMapper {
                         throw new IllegalArgumentException("Frozen GitFileFragment missing contentId");
                     }
                     var content = reader.readContent(contentId);
-                    return new ContextFragment.GitFileFragment(file, revision, content);
+                    return new ContextFragments.GitFileFragment(file, revision, content);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$SkeletonFragment",
                         "ai.brokk.context.ContextFragment$SkeletonFragment" -> {
@@ -751,7 +762,7 @@ public class DtoMapper {
                                 "Missing 'targetIdentifier' or 'summaryType' for SummaryFragment");
                     }
                     var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
-                    return new ContextFragment.SummaryFragment(mgr, targetIdentifier, summaryType);
+                    return new ContextFragments.SummaryFragment(mgr, targetIdentifier, summaryType);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$UsageFragment",
                         "ai.brokk.context.ContextFragment$UsageFragment" -> {
@@ -762,7 +773,7 @@ public class DtoMapper {
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
-                    return new ContextFragment.UsageFragment(mgr, targetIdentifier, true, snapshot);
+                    return new ContextFragments.UsageFragment(mgr, targetIdentifier, true, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
                         "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
@@ -775,7 +786,7 @@ public class DtoMapper {
                     }
                     int depth = Integer.parseInt(depthStr);
                     boolean isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                    return new ContextFragment.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
+                    return new ContextFragments.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {
@@ -786,7 +797,7 @@ public class DtoMapper {
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
-                    return new ContextFragment.CodeFragment(mgr, fqName, snapshot);
+                    return new ContextFragments.CodeFragment(mgr, fqName, snapshot);
                 }
                 default -> throw new RuntimeException("Unsupported FrozenFragment originalClassName=" + original);
             }

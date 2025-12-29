@@ -4,7 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.git.GitRepo;
@@ -12,7 +12,6 @@ import ai.brokk.git.ICommitInfo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.IGitRepo.ModificationType;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.PrTitleFormatter;
 import ai.brokk.util.SyntaxDetector;
 import java.time.Duration;
@@ -122,7 +121,7 @@ public interface GitDiffUiUtil {
                 var syntaxStyle = selectedFiles.isEmpty()
                         ? SyntaxConstants.SYNTAX_STYLE_NONE
                         : SyntaxDetector.fromExtension(selectedFiles.getFirst().extension());
-                var fragment = new ContextFragment.StringFragment(
+                var fragment = new ContextFragments.StringFragment(
                         contextManager, diff, description, syntaxStyle, Set.copyOf(selectedFiles));
                 contextManager.addFragments(fragment);
                 chrome.showNotification(
@@ -158,7 +157,7 @@ public interface GitDiffUiUtil {
                 String shortHash = ((GitRepo) repo).shortHash(commitId);
                 var description = "Diff of %s [%s]".formatted(file.getFileName(), shortHash);
                 var syntaxStyle = SyntaxDetector.fromExtension(file.extension());
-                var fragment = new ContextFragment.StringFragment(
+                var fragment = new ContextFragments.StringFragment(
                         contextManager, diff, description, syntaxStyle, Set.of(file));
                 contextManager.addFragments(fragment);
                 chrome.showNotification(
@@ -183,13 +182,13 @@ public interface GitDiffUiUtil {
                 var commitContent = repo.getFileContent(commitId, file);
 
                 SwingUtilities.invokeLater(() -> {
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
+                    new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
                             .leftSource(new BufferSource.StringSource(
                                     parentContent, parentCommitId, file.toString(), parentCommitId))
                             .rightSource(
                                     new BufferSource.StringSource(commitContent, commitId, file.toString(), commitId))
-                            .build();
-                    brokkDiffPanel.showInFrame(dialogTitle);
+                            .build()
+                            .showInTab(chrome.getPreviewManager(), dialogTitle);
                 });
             } catch (Exception ex) {
                 cm.getIo().toolError("Error loading history diff: " + ex.getMessage());
@@ -208,7 +207,7 @@ public interface GitDiffUiUtil {
                 final String content = repo.getFileContent(commitId, file);
                 SwingUtilities.invokeLater(() -> {
                     var fragment =
-                            new ContextFragment.GitFileFragment(file, ((GitRepo) repo).shortHash(commitId), content);
+                            new ContextFragments.GitFileFragment(file, ((GitRepo) repo).shortHash(commitId), content);
                     chrome.openFragmentPreview(fragment);
                 });
             } catch (GitAPIException e) {
@@ -269,7 +268,7 @@ public interface GitDiffUiUtil {
                 var syntaxStyle = changedFiles.isEmpty()
                         ? SyntaxConstants.SYNTAX_STYLE_NONE
                         : SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
-                var fragment = new ContextFragment.StringFragment(
+                var fragment = new ContextFragments.StringFragment(
                         contextManager, diff, description, syntaxStyle, Set.copyOf(changedFiles));
                 contextManager.addFragments(fragment);
                 chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Added changes for commit range to context");
@@ -348,7 +347,7 @@ public interface GitDiffUiUtil {
                 var syntaxStyle = files.isEmpty()
                         ? SyntaxConstants.SYNTAX_STYLE_NONE
                         : SyntaxDetector.fromExtension(files.getFirst().extension());
-                var fragment = new ContextFragment.StringFragment(
+                var fragment = new ContextFragments.StringFragment(
                         contextManager, diffs, description, syntaxStyle, Set.copyOf(files));
                 contextManager.addFragments(fragment);
                 chrome.showNotification(
@@ -369,48 +368,41 @@ public interface GitDiffUiUtil {
         var file = new ProjectFile(cm.getRoot(), filePath);
 
         cm.submitBackgroundTask("Loading compare-with-local for " + file.getFileName(), () -> {
-            try {
-                // Figure out the base commit ID and title components
-                String baseCommitId = commitId;
-                String baseCommitTitle = commitId;
-                String baseCommitShort = ((GitRepo) repo).shortHash(commitId);
-
-                if (useParent) {
-                    baseCommitId = commitId + "^";
-                    baseCommitTitle = commitId + "^";
-                    baseCommitShort = ((GitRepo) repo).shortHash(commitId) + "^";
-                }
-
-                // Read old content from the base commit
-                var oldContent = repo.getFileContent(baseCommitId, file);
-
-                // Create panel on Swing thread
-                String finalOldContent = oldContent;
-                String finalBaseCommitTitle = baseCommitTitle;
-                String finalBaseCommitId = baseCommitId;
-                String finalDialogTitle = "Diff: %s [Local vs %s]".formatted(file.getFileName(), baseCommitShort);
-
-                SwingUtilities.invokeLater(() -> {
-                    // Check if we already have a window showing this diff
-                    var leftSource = new BufferSource.StringSource(
-                            finalOldContent, finalBaseCommitTitle, file.toString(), finalBaseCommitId);
-                    var rightSource = new BufferSource.FileSource(file);
-
-                    if (DiffWindowManager.tryRaiseExistingWindow(List.of(leftSource), List.of(rightSource))) {
-                        return; // Existing window raised, don't create new one
-                    }
-
-                    // No existing window found, create new one
-                    var brokkDiffPanel = new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
-                            .leftSource(leftSource)
-                            .rightSource(rightSource)
-                            .build();
-                    brokkDiffPanel.showInFrame(finalDialogTitle);
-                });
-            } catch (Exception ex) {
-                cm.getIo().toolError("Error loading compare-with-local diff: " + ex.getMessage());
+            // Figure out the base commit ID and title components
+            String baseCommitId;
+            String baseCommitTitle;
+            if (useParent) {
+                baseCommitId = commitId + "^";
+                baseCommitTitle = commitId + "^";
+            } else {
+                baseCommitId = commitId;
+                baseCommitTitle = commitId;
             }
-            return null;
+
+            // Read old content from the base commit
+
+            // Create panel on Swing thread
+            String oldContent = null;
+            try {
+                oldContent = repo.getFileContent(baseCommitId, file);
+            } catch (GitAPIException e) {
+                logger.warn(e);
+                oldContent = "Unable to read file: " + e.getMessage();
+            }
+            String finalOldContent = oldContent;
+            String finalDialogTitle = "Diff: %s".formatted(file.getFileName());
+
+            SwingUtilities.invokeLater(() -> {
+                var leftSource =
+                        new BufferSource.StringSource(finalOldContent, baseCommitTitle, file.toString(), baseCommitId);
+                var rightSource = new BufferSource.FileSource(file);
+
+                new BrokkDiffPanel.Builder(chrome.getTheme(), cm)
+                        .leftSource(leftSource)
+                        .rightSource(rightSource)
+                        .build()
+                        .showInTab(chrome.getPreviewManager(), finalDialogTitle);
+            });
         });
     }
 
@@ -489,17 +481,11 @@ public interface GitDiffUiUtil {
                         .formatted(commitInfo.message().lines().findFirst().orElse(""), shortId);
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if we already have a window showing this diff
-                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return;
-                    }
-
-                    // No existing window found, create new one
                     var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), cm);
                     for (int i = 0; i < leftSources.size(); i++) {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }
-                    builder.build().showInFrame(title);
+                    builder.build().showInTab(chrome.getPreviewManager(), title);
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
@@ -547,10 +533,11 @@ public interface GitDiffUiUtil {
                     builder.setInitialFileIndex(targetFileIndex);
                 }
 
-                String shortId = ((GitRepo) repo).shortHash(commitInfo.id());
-                var title = "Commit Diff: %s (%s)"
-                        .formatted(commitInfo.message().lines().findFirst().orElse(""), shortId);
-                SwingUtilities.invokeLater(() -> builder.build().showInFrame(title));
+                String title = "Diff of " + targetFileName.substring(targetFileName.lastIndexOf('/') + 1);
+
+                SwingUtilities.invokeLater(() -> {
+                    builder.build().showInTab(chrome.getPreviewManager(), title);
+                });
             } catch (Exception ex) {
                 chrome.toolError("Error opening commit diff: " + ex.getMessage());
             }
@@ -587,18 +574,11 @@ public interface GitDiffUiUtil {
                 }
 
                 SwingUtilities.invokeLater(() -> {
-                    // Check if we already have a window showing this diff
-                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return;
-                    }
-
-                    // No existing window found, create new one
                     var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
                     for (int i = 0; i < leftSources.size(); i++) {
                         builder.addComparison(leftSources.get(i), rightSources.get(i));
                     }
-                    var panel = builder.build();
-                    panel.showInFrame("Compare " + shortId + " to Local");
+                    builder.build().showInTab(chrome.getPreviewManager(), "Compare " + shortId + " to Local");
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening multi-file diff: " + ex.getMessage());
@@ -627,7 +607,7 @@ public interface GitDiffUiUtil {
                                 .map(IGitRepo.ModifiedFile::file)
                                 .collect(Collectors.toList());
                 var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
-                var fragment = new ContextFragment.StringFragment(
+                var fragment = new ContextFragments.StringFragment(
                         cm, diff, description, SyntaxConstants.SYNTAX_STYLE_NONE, Set.copyOf(changedFiles));
                 cm.addFragments(fragment);
                 chrome.showNotification(
@@ -770,7 +750,7 @@ public interface GitDiffUiUtil {
                             SyntaxDetector.fromExtension(changedFiles.getFirst().extension());
                 }
 
-                var fragment = new ContextFragment.StringFragment(
+                var fragment = new ContextFragments.StringFragment(
                         cm, diff, description, syntaxStyle, Set.copyOf(changedFiles));
                 cm.addFragments(fragment);
                 chrome.showNotification(
@@ -889,9 +869,10 @@ public interface GitDiffUiUtil {
                     builder.setInitialFileIndex(targetFileIndex);
                 }
 
+                String title = "Diff of " + targetFilePath.substring(targetFilePath.lastIndexOf('/') + 1);
+
                 SwingUtilities.invokeLater(() -> {
-                    var diffPanel = builder.build();
-                    diffPanel.showInFrame(PrTitleFormatter.formatDiffTitle(pr));
+                    builder.build().showInTab(chrome.getPreviewManager(), title);
                 });
 
             } catch (Exception ex) {

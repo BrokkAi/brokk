@@ -25,15 +25,11 @@ import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.terminal.TaskListPanel;
-import ai.brokk.gui.terminal.TerminalDrawerPanel;
-import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.tests.FileBasedTestRunsStore;
 import ai.brokk.gui.tests.TestRunnerPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
-import ai.brokk.gui.util.BadgedIcon;
-import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.init.onboarding.BuildSettingsStep;
 import ai.brokk.init.onboarding.GitConfigStep;
@@ -41,7 +37,6 @@ import ai.brokk.init.onboarding.MigrationStep;
 import ai.brokk.init.onboarding.OnboardingOrchestrator;
 import ai.brokk.init.onboarding.OnboardingStep;
 import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
-import ai.brokk.issues.IssueProviderType;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.*;
@@ -62,7 +57,6 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
-import java.util.prefs.Preferences;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
@@ -77,8 +71,6 @@ public class Chrome
     private static final Set<Chrome> openInstances = ConcurrentHashMap.newKeySet();
 
     // Default layout proportions - can be overridden by saved preferences
-    private static final double DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT = 0.583; // 58.3% workspace, 41.7% instructions
-    private static final double DEFAULT_OUTPUT_MAIN_SPLIT = 0.4; // 40% output, 60% main content
     private static final double MIN_SIDEBAR_WIDTH_FRACTION = 0.12; // 12% minimum sidebar width
     private static final int MIN_SIDEBAR_WIDTH_PX = 220; // absolute minimum sidebar width for usability
     private static final double MAX_SIDEBAR_WIDTH_FRACTION = 0.40; // 40% maximum sidebar width (normal screens)
@@ -91,9 +83,6 @@ public class Chrome
 
     // Preview management
     private final PreviewManager previewManager;
-
-    // Track preview windows by ProjectFile for refresh on file changes
-    public final Map<ProjectFile, JFrame> projectFileToPreviewWindow;
 
     // Per-Chrome instance dialog tracking to support multiple Chrome windows with independent dialogs
     private final Map<String, JDialog> openDialogs = new ConcurrentHashMap<>();
@@ -114,143 +103,33 @@ public class Chrome
     @Nullable
     private Component lastRelevantFocusOwner = null;
 
-    // Debouncing for tab toggle to prevent duplicate events
-    private long lastTabToggleTime = 0;
-    private static final long TAB_TOGGLE_DEBOUNCE_MS = 150;
-
-    private void handleTabToggle(int tabIndex) {
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - lastTabToggleTime < TAB_TOGGLE_DEBOUNCE_MS) {
-            return; // Ignore rapid successive clicks
-        }
-        lastTabToggleTime = currentTime;
-
-        if (!sidebarCollapsed && leftTabbedPanel.getSelectedIndex() == tabIndex) {
-            // Tab already selected: capture current expanded width (if not already minimized), then minimize
-            int currentLocation = bottomSplitPane.getDividerLocation();
-            if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
-                lastExpandedSidebarLocation = currentLocation;
-            }
-
-            // Relax minimum sizes to allow full collapse to compact width
-            leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
-            leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
-
-            leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
-            bottomSplitPane.setDividerSize(0);
-            sidebarCollapsed = true;
-            bottomSplitPane.setDividerLocation(40);
-            // Persist user's intent to have the sidebar closed
-            saveSidebarOpenSetting(false);
-        } else {
-            leftTabbedPanel.setSelectedIndex(tabIndex);
-            // Restore panel if it was minimized
-            if (sidebarCollapsed) {
-                bottomSplitPane.setDividerSize(originalBottomDividerSize);
-                int target = (lastExpandedSidebarLocation > 0)
-                        ? lastExpandedSidebarLocation
-                        : computeInitialSidebarWidth() + bottomSplitPane.getDividerSize();
-                bottomSplitPane.setDividerLocation(target);
-                sidebarCollapsed = false;
-
-                // Restore minimum sizes for normal operation so min-width clamp is enforced again,
-                // using the current dynamic minimum instead of a hard constant.
-                int minPx = computeMinSidebarWidthPx();
-                leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
-                leftTabbedPanel.setMinimumSize(new Dimension(minPx, 0));
-                // Persist user's intent to have the sidebar open
-                saveSidebarOpenSetting(true);
-            }
-
-            // Refresh Project Files tab badge if that tab was selected
-            if (tabIndex >= 0 && tabIndex < leftTabbedPanel.getTabCount()) {
-                var comp = leftTabbedPanel.getComponentAt(tabIndex);
-                if (comp == projectFilesPanel) {
-                    int liveCount = getProject().getLiveDependencies().size();
-                    updateProjectFilesTabBadge(liveCount);
-                }
-            }
-        }
-    }
-
     // Store original divider size for hiding/showing divider
     private int originalBottomDividerSize;
-
-    // Remember the last non-minimized divider location of the left sidebar
-    // Used to restore the previous width when re-expanding after a minimize
-    private int lastExpandedSidebarLocation = -1;
-    private boolean sidebarCollapsed = false;
-
-    // Workspace collapse state (toggled by clicking token/cost label)
-    private boolean workspaceCollapsed = false;
-
-    // Pin exact Instructions height (in px) during collapse so only Output resizes
-    private int pinnedInstructionsHeightPx = -1;
-
-    // Guard to prevent recursion when clamping the Output↔Bottom divider
-    private boolean adjustingMainDivider = false;
 
     // Swing components:
     final JFrame frame;
     private JLabel backgroundStatusLabel;
-    private final JPanel bottomPanel;
+    private final JPanel mainPanel;
 
-    private final JSplitPane topSplitPane; // Instructions | Workspace
-    private final JSplitPane mainVerticalSplitPane; // (Instructions+Workspace) | Tabbed bottom
-
-    private final JTabbedPane leftTabbedPanel; // ProjectFiles, Git tabs
+    private final RightPanel rightPanel;
+    private final ToolsPane toolsPane;
     private final JSplitPane leftVerticalSplitPane; // Left: tabs (top) + file history (bottom)
-    private final JTabbedPane historyTabbedPane; // Bottom area for file history
+    private final JTabbedPane fileHistoryPane; // Bottom area for file history
     private int originalLeftVerticalDividerSize;
-    private final HistoryOutputPanel historyOutputPanel;
+
     /**
      * Horizontal split between left tab stack and right output stack
      */
-    private JSplitPane bottomSplitPane;
-
-    private final JTabbedPane rightTabbedPanel; // Instructions and other right-side tabs
-
-    @SuppressWarnings("NullAway.Init") // Initialized in constructor
-    private JPanel workspaceTopContainer;
+    private JSplitPane horizontalSplitPane;
 
     // Panels:
-    private final WorkspacePanel workspacePanel;
+    private final ContextActionsHandler contextActionsHandler;
     private final ProjectFilesPanel projectFilesPanel; // New panel for project files
     private final TestRunnerPanel testRunnerPanel;
     private final DependenciesPanel dependenciesPanel;
 
-    // Git
-    @Nullable
-    private final GitCommitTab gitCommitTab;
-
-    @Nullable
-    private final GitLogTab gitLogTab;
-
-    @Nullable
-    private final GitWorktreeTab gitWorktreeTab;
-
     // For GitHistoryTab instances opened as top-level tabs
     private final Map<String, GitHistoryTab> fileHistoryTabs = new HashMap<>();
-
-    @Nullable
-    private GitPullRequestsTab pullRequestsPanel;
-
-    @Nullable
-    private GitIssuesTab issuesPanel;
-
-    // Git tab badge components
-    @Nullable
-    private JLabel gitTabLabel;
-
-    @Nullable
-    private BadgedIcon gitTabBadgedIcon;
-
-    // Project Files tab badge components
-    @Nullable
-    private BadgedIcon projectFilesTabBadgedIcon;
-
-    @Nullable
-    private JLabel projectFilesTabLabel;
 
     // Caches the last branch string we applied to InstructionsPanel to avoid redundant UI refreshes
     @Nullable
@@ -260,24 +139,6 @@ public class Chrome
     @SuppressWarnings("NullAway.Init") // Initialized by MenuBar after constructor
     private JMenuItem blitzForgeMenuItem;
 
-    // Command input panel is now encapsulated in InstructionsPanel.
-    private final InstructionsPanel instructionsPanel;
-    private final TaskListPanel taskListPanel;
-    private final TerminalPanel terminalPanel;
-
-    // Right-hand drawer (tools) - removed drawer split; rightTabbedPanel occupies full right side
-    private @Nullable TerminalDrawerPanel terminalDrawer = null;
-    // Branch selector moved to Chrome so it can be shown above the right tab stack
-    private @Nullable BranchSelectorButton branchSelectorButton = null;
-    // Container that wraps the right tabbed pane plus the header (branch button + title).
-    // Declared as a field because various methods (collapse/expand etc.) reference it.
-    private @Nullable JPanel rightTabbedContainer = null;
-    // Reference to the small header panel placed above the right tab stack (holds branch selector).
-    // Stored so we can toggle its visibility later (e.g. in applyAdvancedModeVisibility()).
-    private @Nullable JPanel rightTabbedHeader = null;
-    // Combined panel used when Vertical Activity Layout is enabled (Activity above Instructions | Output on the right)
-    private @Nullable JSplitPane verticalActivityCombinedPanel = null;
-
     /**
      * Default constructor sets up the UI.
      */
@@ -286,15 +147,6 @@ public class Chrome
         assert SwingUtilities.isEventDispatchThread() : "Chrome constructor must run on EDT";
         this.contextManager = contextManager;
         this.previewManager = new PreviewManager(this);
-        this.projectFileToPreviewWindow = previewManager.getProjectFileToPreviewWindow();
-        this.contextManager.addFileChangeListener(changedFiles -> {
-            // Refresh preview windows when tracked files change
-            Set<ProjectFile> openPreviewFiles = new HashSet<>(projectFileToPreviewWindow.keySet());
-            openPreviewFiles.retainAll(changedFiles);
-            if (!openPreviewFiles.isEmpty()) {
-                refreshPreviewsForFiles(openPreviewFiles);
-            }
-        });
         this.activeContext = Context.EMPTY; // Initialize activeContext
 
         // 2) Build main window
@@ -315,12 +167,16 @@ public class Chrome
         gbc.gridx = 0;
         gbc.insets = new Insets(2, 2, 2, 2);
 
-        // Create instructions panel and history/output panel
-        instructionsPanel = new InstructionsPanel(this);
-        historyOutputPanel = new HistoryOutputPanel(this, this.contextManager);
+        // Initialize theme manager before creating UI components that may need it
+        initializeThemeManager();
+
+        // Create encapsulated build stack
+        rightPanel = new RightPanel(this, contextManager);
+        // Wire up the scroll pane now that buildPane exists
+        themeManager.setMainScrollPane(rightPanel.getHistoryOutputPanel().getLlmScrollPane());
 
         // Bottom Area: Context/Git + Status
-        bottomPanel = new JPanel(new BorderLayout());
+        this.mainPanel = new JPanel(new BorderLayout());
         // Status labels at the very bottom
         // System message label (left side)
 
@@ -339,15 +195,15 @@ public class Chrome
         statusPanel.add(backgroundStatusLabel, BorderLayout.EAST);
 
         var statusLabels = (JComponent) statusPanel;
-        bottomPanel.add(statusLabels, BorderLayout.SOUTH);
+        this.mainPanel.add(statusLabels, BorderLayout.SOUTH);
         // Center of bottomPanel will be filled in onComplete based on git presence
 
         gbc.weighty = 1.0;
         gbc.gridy = 0;
-        contentPanel.add(bottomPanel, gbc);
+        contentPanel.add(this.mainPanel, gbc);
 
         mainPanel.add(contentPanel, BorderLayout.CENTER);
-        frame.add(mainPanel, BorderLayout.CENTER); // instructionsPanel is created here
+        frame.add(mainPanel, BorderLayout.CENTER);
 
         // Initialize global undo/redo actions now that instructionsPanel is available
         // contextManager is also available (passed in constructor)
@@ -358,7 +214,6 @@ public class Chrome
         this.globalPasteAction = new GlobalPasteAction("Paste");
         this.globalToggleMicAction = new ToggleMicAction("Toggle Microphone");
 
-        initializeThemeManager();
         // Defer restoring window size and divider positions until after
         // all split panes are fully constructed.
         var rootPath = getProject().getRoot();
@@ -374,391 +229,68 @@ public class Chrome
         var testRunsStore = new FileBasedTestRunsStore(brokkDir.resolve("test_runs.json"));
         this.testRunnerPanel = new TestRunnerPanel(this, testRunsStore);
 
-        // Create workspace panel, dependencies panel, and project files panel
-        workspacePanel = new WorkspacePanel(this, contextManager);
+        // Create context actions, dependencies panel, and project files panel
+        contextActionsHandler = new ContextActionsHandler(this, contextManager);
         dependenciesPanel = new DependenciesPanel(this);
         projectFilesPanel = new ProjectFilesPanel(this, contextManager, dependenciesPanel);
 
-        // Register analyzer callback to notify MainProject's dependency scheduler when ready
-        contextManager.addAnalyzerCallback(new IContextManager.AnalyzerCallback() {
-            @Override
-            public void onAnalyzerReady() {
-                getProject().getMainProject().getDependencyUpdateScheduler().onAnalyzerReady();
-            }
-        });
+        toolsPane = new ToolsPane(this, contextManager, projectFilesPanel, testRunnerPanel);
 
-        // Register for dependency state changes to update badge and border title
-        dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
+        // Register all listeners after all components are initialized
+        registerAllListeners();
 
-        // Create left vertical-tabbed pane for ProjectFiles and Git with vertical tab placement
-        leftTabbedPanel = new JTabbedPane(JTabbedPane.LEFT);
-        // Enforce a reasonable minimum width so the sidebar cannot be shrunk to an unusable size
-        leftTabbedPanel.setMinimumSize(new Dimension(MIN_SIDEBAR_WIDTH_PX, 0));
-        // Ensure all tabs are accessible when there are too many to fit (prevents "missing" icons)
-        leftTabbedPanel.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
-
-        projectFilesTabBadgedIcon = new BadgedIcon(Icons.FOLDER_CODE, themeManager);
-        leftTabbedPanel.addTab(null, projectFilesTabBadgedIcon, projectFilesPanel);
-        var projectTabIdx = leftTabbedPanel.indexOfComponent(projectFilesPanel);
-        var projectShortcut =
-                KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
-        projectFilesTabLabel =
-                createSquareTabLabel(projectFilesTabBadgedIcon, "Project Files (" + projectShortcut + ")");
-        leftTabbedPanel.setTabComponentAt(projectTabIdx, projectFilesTabLabel);
-        projectFilesTabLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                handleTabToggle(projectTabIdx);
-            }
-        });
-
-        // Initialize the Project Files tab badge with the current dependency count
-        try {
-            updateProjectFilesTabBadge(getProject().getLiveDependencies().size());
-        } catch (Exception ex) {
-            logger.debug("Failed to initialize Project Files tab badge", ex);
-        }
-
-        // --- New top-level Tests tab moved up (second position) ---
-        {
-            var testsIcon = Icons.SCIENCE;
-            leftTabbedPanel.addTab(null, testsIcon, testRunnerPanel);
-            var testsTabIdx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
-            var testsShortcut =
-                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_2));
-            var testsTabLabel = createSquareTabLabel(testsIcon, "Tests (" + testsShortcut + ")");
-            leftTabbedPanel.setTabComponentAt(testsTabIdx, testsTabLabel);
-            testsTabLabel.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mousePressed(MouseEvent e) {
-                    handleTabToggle(testsTabIdx);
-                }
-            });
-        }
-
-        // Add Git tabs (Changes, Log, Worktrees) if available (in the requested visual order)
-        // Always construct Git tabs when the project has git; show/hide based on Advanced Mode
         if (getProject().hasGit()) {
-            gitCommitTab = new GitCommitTab(this, contextManager);
-            gitLogTab = new GitLogTab(this, contextManager);
-            gitWorktreeTab = new GitWorktreeTab(this, contextManager);
-
-            if (GlobalUiSettings.isAdvancedMode()) {
-                // Changes tab (with badge)
-                var commitIcon = Icons.COMMIT;
-                gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
-                leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
-                var commitTabIdx = leftTabbedPanel.indexOfComponent(gitCommitTab);
-                var changesShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-                gitTabLabel = createSquareTabLabel(gitTabBadgedIcon, "Changes (" + changesShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(commitTabIdx, gitTabLabel);
-                gitTabLabel.addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mousePressed(MouseEvent e) {
-                        handleTabToggle(commitTabIdx);
-                    }
-                });
-
-                // Log tab (after Changes)
-                var logIcon = Icons.FLOWSHEET;
-                leftTabbedPanel.addTab(null, logIcon, gitLogTab);
-                var logTabIdx = leftTabbedPanel.indexOfComponent(gitLogTab);
-                var logShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
-                var logTabLabel = createSquareTabLabel(logIcon, "Log (" + logShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(logTabIdx, logTabLabel);
-                logTabLabel.addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mousePressed(MouseEvent e) {
-                        handleTabToggle(logTabIdx);
-                    }
-                });
-
-                // Worktrees tab (after Log)
-                var worktreeIcon = Icons.FLOWCHART;
-                leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
-                var worktreeTabIdx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
-                var worktreesShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
-                var worktreeTabLabel = createSquareTabLabel(worktreeIcon, "Worktrees (" + worktreesShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(worktreeTabIdx, worktreeTabLabel);
-                worktreeTabLabel.addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mousePressed(MouseEvent e) {
-                        handleTabToggle(worktreeTabIdx);
-                    }
-                });
-            }
-
             // Initial refreshes are now done in the background
             contextManager.submitBackgroundTask("Loading project state", () -> {
                 updateGitRepo();
                 projectFilesPanel.requestUpdate();
                 return null;
             });
-        } else {
-            gitCommitTab = null;
-            gitLogTab = null;
-            gitWorktreeTab = null;
         }
-
-        // --- New top-level Pull-Requests panel ---------------------------------
-        if (getProject().isGitHubRepo() && gitLogTab != null) {
-            pullRequestsPanel = new GitPullRequestsTab(this, contextManager, gitLogTab);
-            var prIcon = Icons.PULL_REQUEST;
-            if (GlobalUiSettings.isAdvancedMode()) {
-                leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
-                var prIdx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
-                var prShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
-                var prLabel = createSquareTabLabel(prIcon, "Pull Requests (" + prShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(prIdx, prLabel);
-                prLabel.addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mousePressed(MouseEvent e) {
-                        handleTabToggle(prIdx);
-                    }
-                });
-            }
-        }
-
-        // --- New top-level Issues panel ----------------------------------------
-        if (getProject().getIssuesProvider().type() != IssueProviderType.NONE) {
-            issuesPanel = new GitIssuesTab(this, contextManager);
-            var issIcon = Icons.ADJUST;
-            if (GlobalUiSettings.isAdvancedMode()) {
-                leftTabbedPanel.addTab(null, issIcon, issuesPanel);
-                var issIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
-                var issuesShortcut =
-                        KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
-                var issLabel = createSquareTabLabel(issIcon, "Issues (" + issuesShortcut + ")");
-                leftTabbedPanel.setTabComponentAt(issIdx, issLabel);
-                issLabel.addMouseListener(new MouseAdapter() {
-                    @Override
-                    public void mousePressed(MouseEvent e) {
-                        handleTabToggle(issIdx);
-                    }
-                });
-            }
-        }
-
-        /*
-         * Desired layout (left→right, top→bottom):
-         * ┌────────────────────────────┬──────────────────────────────┐
-         * │ Vert-tabbed (Project/Git)  │  Output (top)               │
-         * │                            │  Workspace (middle)         │
-         * │                            │  Instructions (bottom)      │
-         * └────────────────────────────┴──────────────────────────────┘
-         */
-
-        // 1) Nested split for Workspace (top) / Instructions (bottom)
-        JSplitPane workspaceInstructionsSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-
-        workspaceTopContainer = new JPanel(new BorderLayout());
-        workspaceTopContainer.add(workspacePanel, BorderLayout.CENTER);
-
-        // Create right-side tabbed panel with Instructions as first tab (with icons)
-        rightTabbedPanel = new JTabbedPane(JTabbedPane.TOP);
-        rightTabbedPanel.addTab("Instructions", Icons.CHAT_BUBBLE, instructionsPanel);
-        rightTabbedPanel.setToolTipTextAt(0, "Enter instructions for AI coding tasks");
-
-        // Wrap the tabbed panel in a container that includes a small header above it.
-        // The header hosts the branch selector on the left and a centered "Instructions" title.
-        this.rightTabbedContainer = new JPanel(new BorderLayout());
-        this.rightTabbedContainer.setOpaque(false);
-
-        var headerPanel = new JPanel(new BorderLayout(H_GAP, 0));
-        headerPanel.setOpaque(true);
-        var lineBorder = BorderFactory.createLineBorder(UIManager.getColor("Component.borderColor"));
-        var titledBorder = BorderFactory.createTitledBorder(lineBorder, "Branch");
-        var marginBorder = BorderFactory.createEmptyBorder(4, 4, 4, 4);
-        headerPanel.setBorder(BorderFactory.createCompoundBorder(marginBorder, titledBorder));
-        // Keep a reference to this header so it can be shown/hidden by mode toggles later.
-        this.rightTabbedHeader = headerPanel;
-
-        // Branch selector button on the left
-        branchSelectorButton = new BranchSelectorButton(this);
-        int branchWidth = 210;
-        // Use a reasonable default height for compact header. The exact height will be adjusted by layout.
-        var branchDim = new Dimension(branchWidth, 28);
-        branchSelectorButton.setPreferredSize(branchDim);
-        branchSelectorButton.setMinimumSize(branchDim);
-        branchSelectorButton.setMaximumSize(branchDim);
-
-        var leftHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        leftHeader.setOpaque(false);
-        leftHeader.setBorder(BorderFactory.createEmptyBorder(0, 12, 0, 0));
-        leftHeader.add(branchSelectorButton);
-        headerPanel.add(leftHeader, BorderLayout.WEST);
-
-        rightTabbedContainer.add(headerPanel, BorderLayout.NORTH);
-        rightTabbedContainer.add(rightTabbedPanel, BorderLayout.CENTER);
-
-        // Create and add TaskListPanel as second tab (with list icon)
-        taskListPanel = new TaskListPanel(this);
-        rightTabbedPanel.addTab("Tasks", Icons.LIST, taskListPanel);
-        rightTabbedPanel.setToolTipTextAt(1, "Manage and run task lists");
-
-        // Create and add TerminalPanel as third tab (with terminal icon)
-        this.terminalPanel =
-                new TerminalPanel(this, () -> {}, true, getProject().getRoot());
-        rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
-        rightTabbedPanel.setToolTipTextAt(2, "Embedded terminal");
-
-        var contextAreaContainer = instructionsPanel.getContextAreaContainer();
-        rightTabbedPanel.addChangeListener(e -> {
-            var selected = rightTabbedPanel.getSelectedComponent();
-            if (selected == instructionsPanel) {
-                // Move shared Context area back to Instructions
-                taskListPanel.restoreControls();
-                try {
-                    // Remove from any existing parent first
-                    var currentParent = contextAreaContainer.getParent();
-                    if (currentParent != null) {
-                        currentParent.remove(contextAreaContainer);
-                        currentParent.revalidate();
-                        currentParent.repaint();
-                    }
-                    // Insert just below the command input (index 1 is safe for current layout)
-                    var center = instructionsPanel.getCenterPanel();
-                    int targetIndex = Math.min(1, Math.max(0, center.getComponentCount()));
-                    center.add(contextAreaContainer, targetIndex);
-                    center.revalidate();
-                    center.repaint();
-                } catch (Exception ex) {
-                    logger.debug("Unable to move Context area back to Instructions", ex);
-                }
-
-                // Move shared ModelSelector back to Instructions bottom bar (always try this)
-                instructionsPanel.restoreModelSelectorToBottom();
-            } else if (selected == taskListPanel) {
-                // Move shared Context area to Tasks
-                var parent = contextAreaContainer.getParent();
-                if (parent != null) {
-                    parent.remove(contextAreaContainer);
-                    parent.revalidate();
-                    parent.repaint();
-                }
-                taskListPanel.setSharedContextArea(contextAreaContainer);
-
-                // Move shared ModelSelector to the TaskList controls (next to Play/Stop)
-                try {
-                    var comp = instructionsPanel.getModelSelectorComponent();
-                    taskListPanel.setSharedModelSelector(comp);
-                } catch (Exception ex) {
-                    logger.debug("Unable to move shared ModelSelector to TaskListPanel", ex);
-                }
-
-            } else if (selected == terminalPanel) {
-                // Keep analyzer strip pinned to bottom status bar; just focus terminal
-                try {
-                    terminalPanel.requestFocusInTerminal();
-                } catch (Exception ex) {
-                    logger.debug("Unable to focus terminal on tab selection", ex);
-                }
-            }
-        });
-
-        // No right-side drawer; the rightTabbedContainer occupies full right side
-        rightTabbedContainer.setMinimumSize(new Dimension(200, 325));
-
-        // Attach the combined components as the bottom component
-        workspaceInstructionsSplit.setTopComponent(workspaceTopContainer);
-        // Use the container (with header) as the bottom component so the header sits just north of the tabs.
-        workspaceInstructionsSplit.setBottomComponent(rightTabbedContainer);
-        workspaceInstructionsSplit.setResizeWeight(0.583); // ~35 % Workspace / 25 % Instructions
-        // Ensure the bottom area of the Output↔Bottom split (when workspace is visible) never collapses
-        workspaceInstructionsSplit.setMinimumSize(new Dimension(200, 325));
-
-        // Keep reference so existing persistence logic still works
-        topSplitPane = workspaceInstructionsSplit;
-
-        // 2) Split for Output (top) / (Workspace+Instructions) (bottom)
-        JSplitPane outputStackSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        outputStackSplit.setTopComponent(historyOutputPanel);
-        outputStackSplit.setBottomComponent(workspaceInstructionsSplit);
-        outputStackSplit.setResizeWeight(0.4); // ~40 % to Output
-
-        // Keep reference so existing persistence logic still works
-        mainVerticalSplitPane = outputStackSplit;
 
         // 3) Final horizontal split: left tabs | right stack
-        bottomSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        horizontalSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
 
         // Create a vertical split on the left: top = regular tabs, bottom = per-file history tabs
-        historyTabbedPane = new JTabbedPane();
-        historyTabbedPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT); // keep single row; scroll horizontally
-        historyTabbedPane.setVisible(false); // hidden until a history tab is added
+        fileHistoryPane = new JTabbedPane();
+        fileHistoryPane.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT); // keep single row; scroll horizontally
+        fileHistoryPane.setVisible(false); // hidden until a history tab is added
 
         leftVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-        leftVerticalSplitPane.setTopComponent(leftTabbedPanel);
-        leftVerticalSplitPane.setBottomComponent(historyTabbedPane);
+        leftVerticalSplitPane.setTopComponent(toolsPane);
+        leftVerticalSplitPane.setBottomComponent(fileHistoryPane);
         leftVerticalSplitPane.setResizeWeight(0.7); // top gets most space by default
         // Ensure the entire left stack (tabs + per-file history) honors the minimum sidebar width
         leftVerticalSplitPane.setMinimumSize(new Dimension(MIN_SIDEBAR_WIDTH_PX, 0));
         originalLeftVerticalDividerSize = leftVerticalSplitPane.getDividerSize();
         leftVerticalSplitPane.setDividerSize(0); // hide divider when no history is shown
 
-        bottomSplitPane.setLeftComponent(leftVerticalSplitPane);
-        bottomSplitPane.setRightComponent(outputStackSplit);
+        horizontalSplitPane.setLeftComponent(leftVerticalSplitPane);
+        horizontalSplitPane.setRightComponent(rightPanel);
         // Let the left side drive the minimum width for the whole sidebar region
         // Ensure the right stack can shrink enough so the sidebar can grow
-        outputStackSplit.setMinimumSize(new Dimension(200, 0));
+        rightPanel.setMinimumSize(new Dimension(200, 0));
         // Left panel keeps its preferred width; right panel takes the remaining space
-        bottomSplitPane.setResizeWeight(0.0);
+        horizontalSplitPane.setResizeWeight(0.0);
         int tempDividerLocation = 300; // Reasonable default that will be recalculated
-        bottomSplitPane.setDividerLocation(tempDividerLocation);
+        horizontalSplitPane.setDividerLocation(tempDividerLocation);
         // Initialize the remembered expanded location (will be updated later)
-        lastExpandedSidebarLocation = tempDividerLocation;
+        toolsPane.setLastExpandedSidebarLocation(tempDividerLocation);
 
         // Store original divider size
-        originalBottomDividerSize = bottomSplitPane.getDividerSize();
+        originalBottomDividerSize = horizontalSplitPane.getDividerSize();
 
-        bottomPanel.add(bottomSplitPane, BorderLayout.CENTER);
+        this.mainPanel.add(horizontalSplitPane, BorderLayout.CENTER);
 
         // Force layout update for the bottom panel
-        bottomPanel.revalidate();
-        bottomPanel.repaint();
+        this.mainPanel.revalidate();
+        this.mainPanel.repaint();
 
         // Set initial enabled state for global actions after all components are ready
         this.globalUndoAction.updateEnabledState();
         this.globalRedoAction.updateEnabledState();
         this.globalCopyAction.updateEnabledState();
         this.globalPasteAction.updateEnabledState();
-
-        // Listen for focus changes to update action states and track relevant focus
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
-            Component oldFocusOwner = (Component) evt.getOldValue();
-            Component newFocusOwner = (Component) evt.getNewValue();
-
-            // Apply global focus highlighting
-            applyFocusHighlighting(oldFocusOwner, newFocusOwner);
-
-            // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
-            if (newFocusOwner != null) {
-                if (historyOutputPanel.getHistoryTable() != null) {
-                    if (newFocusOwner == instructionsPanel.getInstructionsArea()
-                            || SwingUtilities.isDescendingFrom(newFocusOwner, workspacePanel)
-                            || SwingUtilities.isDescendingFrom(newFocusOwner, historyOutputPanel.getHistoryTable())
-                            || SwingUtilities.isDescendingFrom(
-                                    newFocusOwner, historyOutputPanel.getLlmStreamArea())) // Check for LLM area
-                    {
-                        this.lastRelevantFocusOwner = newFocusOwner;
-                    }
-                    // else: lastRelevantFocusOwner remains unchanged if focus moves to a menu or irrelevant component
-                }
-            }
-
-            globalUndoAction.updateEnabledState();
-            globalRedoAction.updateEnabledState();
-            globalCopyAction.updateEnabledState();
-            globalPasteAction.updateEnabledState();
-            globalToggleMicAction.updateEnabledState();
-        });
-
-        // Listen for context changes and analyzer events
-        contextManager.addContextListener(this);
 
         // Build menu (now that everything else is ready)
         frame.setJMenuBar(MenuBar.buildMenuBar(this));
@@ -768,22 +300,22 @@ public class Chrome
 
         // Set up focus traversal with individual components for granular navigation
         var focusOrder = List.<Component>of(
-                instructionsPanel.getInstructionsArea(),
-                instructionsPanel.getModelSelectorComponent(),
-                instructionsPanel.getMicButton(),
-                instructionsPanel.getWandButton(),
-                instructionsPanel.getHistoryDropdown(),
-                taskListPanel.getGoStopButton(),
-                taskListPanel.getTaskInput(),
-                taskListPanel.getTaskList(),
+                rightPanel.getInstructionsPanel().getInstructionsArea(),
+                rightPanel.getInstructionsPanel().getModelSelectorComponent(),
+                rightPanel.getInstructionsPanel().getMicButton(),
+                rightPanel.getInstructionsPanel().getWandButton(),
+                rightPanel.getInstructionsPanel().getHistoryDropdown(),
+                rightPanel.getTaskListPanel().getGoStopButton(),
+                rightPanel.getTaskListPanel().getTaskInput(),
+                rightPanel.getTaskListPanel().getTaskList(),
                 projectFilesPanel.getSearchField(),
                 projectFilesPanel.getRefreshButton(),
                 projectFilesPanel.getProjectTree(),
                 dependenciesPanel.getDependencyTable(),
                 dependenciesPanel.getAddButton(),
                 dependenciesPanel.getRemoveButton(),
-                historyOutputPanel.getHistoryTable(),
-                historyOutputPanel.getLlmStreamArea());
+                rightPanel.getHistoryOutputPanel().getHistoryTable(),
+                rightPanel.getHistoryOutputPanel().getLlmStreamArea());
         frame.setFocusTraversalPolicy(new ChromeFocusTraversalPolicy(focusOrder));
         frame.setFocusCycleRoot(true);
         frame.setFocusTraversalPolicyProvider(true);
@@ -799,10 +331,13 @@ public class Chrome
         // Apply Advanced Mode visibility at startup so default (easy mode) hides advanced UI
         try {
             applyAdvancedModeVisibility();
-            instructionsPanel.applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
+            rightPanel.getInstructionsPanel().applyAdvancedModeForInstructions(GlobalUiSettings.isAdvancedMode());
         } catch (Exception ex) {
             logger.debug("applyAdvancedModeVisibility at startup failed (non-fatal)", ex);
         }
+
+        updateWorkspace();
+        updateContextHistoryTable();
 
         // Now show the window with complete layout
         frame.setVisible(true);
@@ -842,12 +377,9 @@ public class Chrome
     }
 
     private void initializeThemeManager() {
-
         logger.trace("Initializing theme manager");
-        // JMHighlightPainter.initializePainters(); // Removed: Painters are now created dynamically with theme colors
-        // Initialize theme manager now that all components are created
-        // and contextManager should be properly set
-        themeManager = new GuiTheme(frame, historyOutputPanel.getLlmScrollPane(), this);
+        // Initialize theme manager with null scroll pane initially to break circular dependency with buildPane
+        themeManager = new GuiTheme(frame, null, this);
 
         // Apply current theme and wrap mode based on global settings
         String currentTheme = MainProject.getTheme();
@@ -864,29 +396,26 @@ public class Chrome
         final boolean updateOutput = (!activeContext.equals(ctx) && !contextManager.isTaskScopeInProgress());
         activeContext = ctx;
         SwingUtilities.invokeLater(() -> {
-            workspacePanel.populateContextTable(ctx);
-            taskListPanel.contextChanged(ctx);
+            rightPanel.getTaskListPanel().contextChanged(ctx);
             // Determine if the current context (ctx) is the latest one in the history
             boolean isEditable;
             Context latestContext = contextManager.getContextHistory().liveContext();
             isEditable = latestContext.equals(ctx);
-            // workspacePanel is a final field initialized in the constructor, so it won't be null here.
-            workspacePanel.setWorkspaceEditable(isEditable);
             // Toggle read-only state for InstructionsPanel UI (chips + token bar)
-            instructionsPanel.setContextReadOnly(!isEditable);
+            rightPanel.getInstructionsPanel().setContextReadOnly(!isEditable);
             // Also update instructions panel (token bar/chips) to reflect the selected context and read-only state
-            instructionsPanel.contextChanged(ctx);
+            rightPanel.getInstructionsPanel().contextChanged(ctx);
 
             // only update the MOP when no task is in progress
             // otherwise the TaskScope.append() will take care of it
             if (updateOutput) {
                 var taskHistory = ctx.getTaskHistory();
                 if (taskHistory.isEmpty()) {
-                    historyOutputPanel.clearLlmOutput();
+                    rightPanel.getHistoryOutputPanel().clearLlmOutput();
                 } else {
                     var historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
                     var mainTask = taskHistory.getLast();
-                    historyOutputPanel.setLlmAndHistoryOutput(historyTasks, mainTask);
+                    rightPanel.getHistoryOutputPanel().setLlmAndHistoryOutput(historyTasks, mainTask);
                 }
             }
 
@@ -924,21 +453,15 @@ public class Chrome
     @Override
     public List<ChatMessage> getLlmRawMessages() {
         if (SwingUtilities.isEventDispatchThread()) {
-            return historyOutputPanel.getLlmRawMessages();
+            return rightPanel.getHistoryOutputPanel().getLlmRawMessages();
         }
 
-        // this can get interrupted at the end of a Code or Ask action, but we don't want to just throw
-        // InterruptedException
-        // because at this point we're basically done with the action and all that's left is reporting the result. So if
-        // we're
-        // unlucky enough to be interrupted at exactly the wrong time, we retry instead.
         while (true) {
             try {
-                // flush all EDT tasks that were posted before this point (e.g., pending llmOutput appends)
                 SwingUtilities.invokeAndWait(() -> {});
-
                 final CompletableFuture<List<ChatMessage>> future = new CompletableFuture<>();
-                SwingUtilities.invokeAndWait(() -> future.complete(historyOutputPanel.getLlmRawMessages()));
+                SwingUtilities.invokeAndWait(
+                        () -> future.complete(rightPanel.getHistoryOutputPanel().getLlmRawMessages()));
                 return future.get();
             } catch (InterruptedException e) {
                 // retry
@@ -954,44 +477,38 @@ public class Chrome
      * Retrieves the current text from the command input.
      */
     public String getInputText() {
-        return instructionsPanel.getInstructions();
+        return rightPanel.getInstructionsPanel().getInstructions();
     }
 
     @Override
     public void disableActionButtons() {
         SwingUtil.runOnEdt(() -> {
             disableHistoryPanel();
-            instructionsPanel.disableButtons();
-            // Keep TaskListPanel visuals in sync with LLM lifecycle (event-driven like InstructionsPanel)
-            taskListPanel.disablePlay();
-            // TerminalDrawerPanel removed from right side; no-op for terminal play control.
-            if (gitCommitTab != null) {
-                gitCommitTab.disableButtons();
+            rightPanel.getInstructionsPanel().disableButtons();
+            rightPanel.getTaskListPanel().disablePlay();
+            if (toolsPane.getGitCommitTab() != null) {
+                toolsPane.getGitCommitTab().disableButtons();
             }
             blitzForgeMenuItem.setEnabled(false);
-            blitzForgeMenuItem.setToolTipText("Waiting for current action to complete");
         });
     }
 
     @Override
     public void enableActionButtons() {
         SwingUtil.runOnEdt(() -> {
-            instructionsPanel.enableButtons();
-            // Keep TaskListPanel visuals in sync with LLM lifecycle (event-driven like InstructionsPanel)
-            taskListPanel.enablePlay();
-            // TerminalDrawerPanel removed from right side; no-op for terminal play control.
-            if (gitCommitTab != null) {
-                gitCommitTab.enableButtons();
+            rightPanel.getInstructionsPanel().enableButtons();
+            rightPanel.getTaskListPanel().enablePlay();
+            if (toolsPane.getGitCommitTab() != null) {
+                toolsPane.getGitCommitTab().enableButtons();
             }
             blitzForgeMenuItem.setEnabled(true);
-            blitzForgeMenuItem.setToolTipText(null);
         });
     }
 
     @Override
     public void updateCommitPanel() {
-        if (gitCommitTab != null) {
-            gitCommitTab.requestUpdate();
+        if (toolsPane.getGitCommitTab() != null) {
+            toolsPane.getGitCommitTab().requestUpdate();
         }
     }
 
@@ -1042,36 +559,26 @@ public class Chrome
         }
 
         // Update individual Git-related panels and log what is being updated
-        if (gitCommitTab != null) {
+        if (toolsPane.getGitCommitTab() != null) {
             logger.trace("updateGitRepo: updating GitCommitTab");
-            gitCommitTab.requestUpdate();
-        } else {
-            logger.trace("updateGitRepo: GitCommitTab not present (skipping)");
+            toolsPane.getGitCommitTab().requestUpdate();
         }
 
-        if (gitLogTab != null) {
+        if (toolsPane.getGitLogTab() != null) {
             logger.trace("updateGitRepo: updating GitLogTab");
-            gitLogTab.requestUpdate();
-        } else {
-            logger.trace("updateGitRepo: GitLogTab not present (skipping)");
+            toolsPane.getGitLogTab().requestUpdate();
         }
 
-        if (gitWorktreeTab != null) {
+        if (toolsPane.getGitWorktreeTab() != null) {
             logger.trace("updateGitRepo: refreshing GitWorktreeTab");
-            gitWorktreeTab.requestUpdate();
-        } else {
-            logger.trace("updateGitRepo: GitWorktreeTab not present (skipping)");
+            toolsPane.getGitWorktreeTab().requestUpdate();
         }
 
         logger.trace("updateGitRepo: updating ProjectFilesPanel");
         projectFilesPanel.requestUpdate();
 
         // Ensure the Changes tab reflects the current repo/branch state
-        try {
-            historyOutputPanel.requestDiffUpdate();
-        } catch (Exception ex) {
-            logger.debug("Unable to refresh Changes tab after repo update", ex);
-        }
+        rightPanel.requestReviewUpdate();
 
         logger.trace("updateGitRepo: finished");
     }
@@ -1080,6 +587,7 @@ public class Chrome
      * Executes a set of test files and streams the output to the test runner panel.
      */
     public void runTests(Set<ProjectFile> testFiles) throws InterruptedException {
+        SwingUtilities.invokeLater(toolsPane::selectTestsTab);
         testRunnerPanel.runTests(testFiles);
     }
 
@@ -1087,27 +595,7 @@ public class Chrome
      * Recreate the top-level Issues panel (e.g. after provider change).
      */
     public void recreateIssuesPanel() {
-        SwingUtilities.invokeLater(() -> {
-            if (issuesPanel != null) {
-                var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
-                if (idx != -1) leftTabbedPanel.remove(idx);
-            }
-            issuesPanel = new GitIssuesTab(this, contextManager);
-            var icon = Icons.ADJUST;
-            leftTabbedPanel.addTab(null, icon, issuesPanel);
-            var tabIdx = leftTabbedPanel.indexOfComponent(issuesPanel);
-            var recreateShortcut =
-                    KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
-            var label = createSquareTabLabel(icon, "Issues (" + recreateShortcut + ")");
-            leftTabbedPanel.setTabComponentAt(tabIdx, label);
-            label.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mousePressed(MouseEvent e) {
-                    leftTabbedPanel.setSelectedIndex(tabIdx);
-                }
-            });
-            leftTabbedPanel.setSelectedIndex(tabIdx);
-        });
+        SwingUtilities.invokeLater(() -> toolsPane.recreateIssuesPanel(contextManager));
     }
 
     private void registerGlobalKeyboardShortcuts() {
@@ -1165,16 +653,14 @@ public class Chrome
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_ENTER, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         // Bind directly to instructions area instead of globally to avoid interfering with other components
-        instructionsPanel
-                .getInstructionsArea()
-                .getInputMap(JComponent.WHEN_FOCUSED)
-                .put(submitKeyStroke, "submitAction");
-        instructionsPanel.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
+        var ip = rightPanel.getInstructionsPanel();
+        ip.getInstructionsArea().getInputMap(JComponent.WHEN_FOCUSED).put(submitKeyStroke, "submitAction");
+        ip.getInstructionsArea().getActionMap().put("submitAction", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 SwingUtilities.invokeLater(() -> {
                     try {
-                        instructionsPanel.onActionButtonPressed();
+                        ip.onActionButtonPressed();
                     } catch (Exception ex) {
                         logger.error("Error executing submit action", ex);
                     }
@@ -1197,7 +683,7 @@ public class Chrome
                         return;
                     }
                     try {
-                        instructionsPanel.toggleCodeAnswerMode();
+                        ip.toggleCodeAnswerMode();
                         showNotification(NotificationRole.INFO, "Toggled Code/Ask mode");
                     } catch (Exception ex) {
                         logger.warn("Error toggling Code/Answer mode via shortcut", ex);
@@ -1240,7 +726,7 @@ public class Chrome
         rootPane.getActionMap().put("switchToProjectFiles", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                leftTabbedPanel.setSelectedIndex(0); // Project Files is always at index 0
+                toolsPane.getToolsPane().setSelectedIndex(0); // Project Files is always at index 0
             }
         });
 
@@ -1251,77 +737,83 @@ public class Chrome
         rootPane.getActionMap().put("switchToTests", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                var idx = leftTabbedPanel.indexOfComponent(testRunnerPanel);
-                if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                var tools = toolsPane.getToolsPane();
+                var idx = tools.indexOfComponent(testRunnerPanel);
+                if (idx != -1) tools.setSelectedIndex(idx);
             }
         });
 
         // Alt/Cmd+3 for Changes (GitCommitTab)
-        if (gitCommitTab != null) {
+        if (toolsPane.getGitCommitTab() != null) {
             KeyStroke switchToChanges = GlobalUiSettings.getKeybinding(
                     "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
             bindKey(rootPane, switchToChanges, "switchToChanges");
             rootPane.getActionMap().put("switchToChanges", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                    var tools = toolsPane.getToolsPane();
+                    var idx = tools.indexOfComponent(toolsPane.getGitCommitTab());
+                    if (idx != -1) tools.setSelectedIndex(idx);
                 }
             });
         }
 
         // Alt/Cmd+4 for Log
-        if (gitLogTab != null) {
+        if (toolsPane.getGitLogTab() != null) {
             KeyStroke switchToLog = GlobalUiSettings.getKeybinding(
                     "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
             bindKey(rootPane, switchToLog, "switchToLog");
             rootPane.getActionMap().put("switchToLog", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(gitLogTab);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                    var tools = toolsPane.getToolsPane();
+                    var idx = tools.indexOfComponent(toolsPane.getGitLogTab());
+                    if (idx != -1) tools.setSelectedIndex(idx);
                 }
             });
         }
 
         // Alt/Cmd+5 for Worktrees
-        if (gitWorktreeTab != null) {
+        if (toolsPane.getGitWorktreeTab() != null) {
             KeyStroke switchToWorktrees = GlobalUiSettings.getKeybinding(
                     "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
             bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
             rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                    var tools = toolsPane.getToolsPane();
+                    var idx = tools.indexOfComponent(toolsPane.getGitWorktreeTab());
+                    if (idx != -1) tools.setSelectedIndex(idx);
                 }
             });
         }
 
         // Alt/Cmd+6 for Pull Requests panel (if available)
-        if (pullRequestsPanel != null) {
+        if (toolsPane.getPullRequestsPanel() != null) {
             KeyStroke switchToPR = GlobalUiSettings.getKeybinding(
                     "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
             bindKey(rootPane, switchToPR, "switchToPullRequests");
             rootPane.getActionMap().put("switchToPullRequests", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                    var tools = toolsPane.getToolsPane();
+                    var idx = tools.indexOfComponent(toolsPane.getPullRequestsPanel());
+                    if (idx != -1) tools.setSelectedIndex(idx);
                 }
             });
         }
 
         // Alt/Cmd+7 for Issues panel (if available)
-        if (issuesPanel != null) {
+        if (toolsPane.getIssuesPanel() != null) {
             KeyStroke switchToIssues = GlobalUiSettings.getKeybinding(
                     "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
             bindKey(rootPane, switchToIssues, "switchToIssues");
             rootPane.getActionMap().put("switchToIssues", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
-                    if (idx != -1) leftTabbedPanel.setSelectedIndex(idx);
+                    var tools = toolsPane.getToolsPane();
+                    var idx = tools.indexOfComponent(toolsPane.getIssuesPanel());
+                    if (idx != -1) tools.setSelectedIndex(idx);
                 }
             });
         }
@@ -1338,10 +830,7 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 // Terminal drawer removed; instead, switch to the Terminal tab if present.
-                SwingUtilities.invokeLater(() -> {
-                    int idx = rightTabbedPanel.indexOfTab("Terminal");
-                    if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
-                });
+                SwingUtilities.invokeLater(rightPanel::selectTerminalTab);
             }
         });
 
@@ -1354,10 +843,7 @@ public class Chrome
         rootPane.getActionMap().put("switchToTerminalTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> {
-                    int idx = rightTabbedPanel.indexOfTab("Terminal");
-                    if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
-                });
+                SwingUtilities.invokeLater(rightPanel::selectTerminalTab);
             }
         });
 
@@ -1370,10 +856,7 @@ public class Chrome
         rootPane.getActionMap().put("switchToTasksTab", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> {
-                    int idx = rightTabbedPanel.indexOfTab("Tasks");
-                    if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
-                });
+                SwingUtilities.invokeLater(rightPanel::selectTasksTab);
             }
         });
 
@@ -1385,7 +868,7 @@ public class Chrome
         rootPane.getActionMap().put("attachContext", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog());
+                SwingUtilities.invokeLater(() -> getContextActionsHandler().attachContextViaDialog());
             }
         });
 
@@ -1396,7 +879,7 @@ public class Chrome
         rootPane.getActionMap().put("attachFilesAndSummarize", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> getContextPanel().attachContextViaDialog(true));
+                SwingUtilities.invokeLater(() -> getContextActionsHandler().attachContextViaDialog(true));
             }
         });
 
@@ -1427,7 +910,7 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 // Use MOP webview zoom for global zoom functionality
-                historyOutputPanel.getLlmStreamArea().zoomIn();
+                rightPanel.getHistoryOutputPanel().getLlmStreamArea().zoomIn();
             }
         });
 
@@ -1435,7 +918,7 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 // Use MOP webview zoom for global zoom functionality
-                historyOutputPanel.getLlmStreamArea().zoomOut();
+                rightPanel.getHistoryOutputPanel().getLlmStreamArea().zoomOut();
             }
         });
 
@@ -1443,7 +926,7 @@ public class Chrome
             @Override
             public void actionPerformed(ActionEvent e) {
                 // Use MOP webview zoom for global zoom functionality
-                historyOutputPanel.getLlmStreamArea().resetZoom();
+                rightPanel.getHistoryOutputPanel().getLlmStreamArea().resetZoom();
             }
         });
     }
@@ -1459,18 +942,6 @@ public class Chrome
             }
         }
         im.put(stroke, actionKey);
-    }
-
-    /**
-     * Applies advanced mode to the instructions panel with consistent error handling.
-     * Centralized helper to avoid duplication and ensure uniform logging.
-     */
-    private void applyAdvancedModeToInstructionsSafely(boolean advanced) {
-        try {
-            instructionsPanel.applyAdvancedModeForInstructions(advanced);
-        } catch (Exception ex) {
-            logger.warn("Failed to apply advanced mode to instructions panel", ex);
-        }
     }
 
     /** Re-registers global keyboard shortcuts from current GlobalUiSettings. */
@@ -1490,35 +961,28 @@ public class Chrome
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         if (SwingUtilities.isEventDispatchThread()) {
-            historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning);
+            rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, isNewMessage, isReasoning);
         } else {
             SwingUtilities.invokeLater(
-                    () -> historyOutputPanel.appendLlmOutput(token, type, isNewMessage, isReasoning));
+                    () -> rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, isNewMessage, isReasoning));
         }
     }
 
-    /**
-     * Resets the Output to history + main, and clears internal message buffers. After this, getLlmRawMessages will
-     * return only the messages from `main`. Typically this use called with a single UserMessage in `main` to reset the
-     * output to a fresh state for a new task.
-     *
-     * <p>You should probably call ContextManager::beginTask instead of calling this directly.
-     */
     @Override
     public void setLlmAndHistoryOutput(List<TaskEntry> history, TaskEntry main) {
-        SwingUtilities.invokeLater(() -> historyOutputPanel.setLlmAndHistoryOutput(history, main));
+        SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().setLlmAndHistoryOutput(history, main));
     }
 
     @Override
     public void prepareOutputForNextStream(List<TaskEntry> history) {
         if (SwingUtilities.isEventDispatchThread()) {
-            historyOutputPanel.prepareOutputForNextStream(history);
+            rightPanel.getHistoryOutputPanel().prepareOutputForNextStream(history);
         } else {
             try {
-                SwingUtilities.invokeAndWait(() -> historyOutputPanel.prepareOutputForNextStream(history));
+                SwingUtilities.invokeAndWait(
+                        () -> rightPanel.getHistoryOutputPanel().prepareOutputForNextStream(history));
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                logger.warn("Interrupted while preparing output for next stream", e);
             } catch (InvocationTargetException e) {
                 logger.error("Error preparing output for next stream", e);
             }
@@ -1559,29 +1023,76 @@ public class Chrome
         openInstances.remove(this);
     }
 
+    private void registerAllListeners() {
+        // 1. Context and File Listeners
+        contextManager.addContextListener(this);
+        contextManager.addFileChangeListener(changedFiles -> {
+            // Refresh preview windows when tracked files change
+            Set<ProjectFile> openPreviewFiles =
+                    new HashSet<>(previewManager.getProjectFileToPreviewWindow().keySet());
+            openPreviewFiles.retainAll(changedFiles);
+            if (!openPreviewFiles.isEmpty()) {
+                refreshPreviewsForFiles(openPreviewFiles);
+            }
+        });
+
+        // 2. Analyzer Callbacks
+        contextManager.addAnalyzerCallback(new IContextManager.AnalyzerCallback() {
+            @Override
+            public void onAnalyzerReady() {
+                getProject().getMainProject().getDependencyUpdateScheduler().onAnalyzerReady();
+            }
+        });
+
+        // 3. UI Component Listeners
+        dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
+
+        // 4. Focus and Action State Management
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
+            Component oldFocusOwner = (Component) evt.getOldValue();
+            Component newFocusOwner = (Component) evt.getNewValue();
+
+            // Apply global focus highlighting
+            applyFocusHighlighting(oldFocusOwner, newFocusOwner);
+
+            // Update lastRelevantFocusOwner only if the new focus owner is one of our primary targets
+            if (newFocusOwner != null) {
+                var hop = rightPanel.getHistoryOutputPanel();
+                if (hop.getHistoryTable() != null) {
+                    if (newFocusOwner == rightPanel.getInstructionsPanel().getInstructionsArea()
+                            || SwingUtilities.isDescendingFrom(newFocusOwner, hop.getHistoryTable())
+                            || SwingUtilities.isDescendingFrom(newFocusOwner, hop.getLlmStreamArea())) {
+                        this.lastRelevantFocusOwner = newFocusOwner;
+                    }
+                }
+            }
+
+            globalUndoAction.updateEnabledState();
+            globalRedoAction.updateEnabledState();
+            globalCopyAction.updateEnabledState();
+            globalPasteAction.updateEnabledState();
+            globalToggleMicAction.updateEnabledState();
+        });
+    }
+
     @Override
     public void contextChanged(Context newCtx) {
         SwingUtilities.invokeLater(() -> {
-            // This method is called by ContextManager when its history might have changed
-            // (e.g., after an undo/redo operation affecting context or any pushContext).
-            // We need to ensure the global action states are updated even if focus didn't change.
             globalUndoAction.updateEnabledState();
             globalRedoAction.updateEnabledState();
             globalCopyAction.updateEnabledState();
             globalPasteAction.updateEnabledState();
             globalToggleMicAction.updateEnabledState();
 
-            // Also update HistoryOutputPanel's local buttons
-            historyOutputPanel.updateUndoRedoButtonStates();
-            setContext(newCtx); // Handles contextPanel update and historyOutputPanel.resetLlmOutput
-            updateContextHistoryTable(newCtx); // Handles historyOutputPanel.updateHistoryTable
+            rightPanel.getHistoryOutputPanel().updateUndoRedoButtonStates();
+            setContext(newCtx);
+            updateContextHistoryTable(newCtx);
         });
     }
 
     @Override
     public void onTrackedFileChange() {
-        // Also refresh the Review tab to show updated changes
-        historyOutputPanel.requestDiffUpdate();
+        rightPanel.requestReviewUpdate();
     }
 
     /**
@@ -1600,7 +1111,7 @@ public class Chrome
     /**
      * Called by PreviewTextFrame when it's being disposed to clear our reference.
      */
-    public void clearPreviewTextFrame() {
+    public void clearPreviewFrame() {
         previewManager.clearPreviewTextFrame();
     }
 
@@ -1623,6 +1134,10 @@ public class Chrome
      */
     public void refreshPreviewsForFiles(Set<ProjectFile> changedFiles, @Nullable JFrame excludeFrame) {
         previewManager.refreshPreviewsForFiles(changedFiles, excludeFrame);
+    }
+
+    public PreviewManager getPreviewManager() {
+        return previewManager;
     }
 
     /**
@@ -1759,37 +1274,35 @@ public class Chrome
                 properDividerLocation = Math.min(globalHorizontalPos, Math.max(50, frame.getWidth() - 200));
             } else {
                 int computedWidth = computeInitialSidebarWidth();
-                properDividerLocation = computedWidth + bottomSplitPane.getDividerSize();
+                properDividerLocation = computedWidth + horizontalSplitPane.getDividerSize();
             }
         }
 
         // Restore open/closed state; default to CLOSED when no preference exists
-        Boolean sidebarOpenPref = getSavedSidebarOpenPreference();
+        Boolean sidebarOpenPref = toolsPane.getSavedSidebarOpenPreference();
         boolean shouldOpen = (sidebarOpenPref != null) && sidebarOpenPref;
 
         if (!shouldOpen) {
             // Collapse sidebar by default or if explicitly saved as closed
-            lastExpandedSidebarLocation = Math.max(lastExpandedSidebarLocation, properDividerLocation);
+            toolsPane.setLastExpandedSidebarLocation(
+                    Math.max(toolsPane.getLastExpandedSidebarLocation(), properDividerLocation));
             // Relax minimum sizes to allow full collapse to compact width
             leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
-            leftTabbedPanel.setMinimumSize(new Dimension(0, 0));
-            leftTabbedPanel.setSelectedIndex(0); // Always show Project Files when collapsed
-            bottomSplitPane.setDividerSize(0);
-            sidebarCollapsed = true;
-            bottomSplitPane.setDividerLocation(40);
-            // Persist collapsed state for future runs (project + global)
-            saveSidebarOpenSetting(false);
+            toolsPane.getToolsPane().setMinimumSize(new Dimension(0, 0));
+            toolsPane.getToolsPane().setSelectedIndex(0); // Always show Project Files when collapsed
+            horizontalSplitPane.setDividerSize(0);
+            toolsPane.setSidebarCollapsed(true);
+            horizontalSplitPane.setDividerLocation(40);
         } else {
             // Open sidebar using the saved or computed divider location
-            bottomSplitPane.setDividerLocation(properDividerLocation);
-            bottomSplitPane.setDividerSize(originalBottomDividerSize);
-            sidebarCollapsed = false;
-            lastExpandedSidebarLocation = properDividerLocation;
+            horizontalSplitPane.setDividerLocation(properDividerLocation);
+            horizontalSplitPane.setDividerSize(originalBottomDividerSize);
+            toolsPane.setSidebarCollapsed(false);
+            toolsPane.setLastExpandedSidebarLocation(properDividerLocation);
             // Restore minimum sizes so min-width clamp is enforced
             int minPx = computeMinSidebarWidthPx();
             leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
-            leftTabbedPanel.setMinimumSize(new Dimension(minPx, 0));
-            saveSidebarOpenSetting(true);
+            toolsPane.getToolsPane().setMinimumSize(new Dimension(minPx, 0));
         }
 
         // Add property change listeners for future updates (also persist globally)
@@ -1811,34 +1324,10 @@ public class Chrome
         frame.validate();
 
         // NOW calculate vertical split pane dividers with proper component heights
-
-        // Global-first for top split (Workspace | Instructions)
-        int topSplitPos = GlobalUiSettings.getLeftVerticalSplitPosition();
-        if (topSplitPos > 0) {
-            topSplitPane.setDividerLocation(topSplitPos);
-        } else {
-            // Calculate absolute position with proper component height
-            int topSplitHeight = topSplitPane.getHeight();
-            int defaultTopSplitPos = (int) (topSplitHeight * DEFAULT_WORKSPACE_INSTRUCTIONS_SPLIT);
-            topSplitPane.setDividerLocation(defaultTopSplitPos);
-        }
-
-        // Global-first for main vertical split (Output | Main)
-        int mainVerticalPos = GlobalUiSettings.getRightVerticalSplitPosition();
-        if (mainVerticalPos > 0) {
-            mainVerticalSplitPane.setDividerLocation(mainVerticalPos);
-        } else {
-            // Calculate absolute position with proper component height
-            int mainVerticalHeight = mainVerticalSplitPane.getHeight();
-            int defaultMainVerticalPos = (int) (mainVerticalHeight * DEFAULT_OUTPUT_MAIN_SPLIT);
-            mainVerticalSplitPane.setDividerLocation(defaultMainVerticalPos);
-        }
+        rightPanel.restoreDividerLocation();
 
         // Restore drawer states from global settings
         restoreDrawersFromGlobalSettings();
-
-        // Always start with workspace collapsed on every session
-        setWorkspaceCollapsed(true);
     }
 
     /**
@@ -1852,173 +1341,39 @@ public class Chrome
 
     // --- Workspace collapsed persistence (per-project with global fallback) ---
 
-    private static final String PREFS_ROOT = "io.github.jbellis.brokk";
-    private static final String PREFS_PROJECTS = "projects";
-    private static final String PREF_KEY_WORKSPACE_COLLAPSED = "workspaceCollapsed";
-    private static final String PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL = "workspaceCollapsedGlobal";
-    private static final String PREF_KEY_SIDEBAR_OPEN = "sidebarOpen";
-    private static final String PREF_KEY_SIDEBAR_OPEN_GLOBAL = "sidebarOpenGlobal";
-
-    private static Preferences prefsRoot() {
-        return Preferences.userRoot().node(PREFS_ROOT);
-    }
-
-    private static String sanitizeNodeName(String s) {
-        // Preferences node names may not contain '/'.
-        return s.replace('/', '_').replace('\\', '_').replace(':', '_');
-    }
-
-    private Preferences projectPrefsNode() {
-        String projKey = sanitizeNodeName(getProject().getRoot().toString());
-        return prefsRoot().node(PREFS_PROJECTS).node(projKey);
-    }
-
-    /**
-     * Save the current workspace collapsed state both per-project and as a global default.
-     */
-    private void saveWorkspaceCollapsedSetting(boolean collapsed) {
-        try {
-            // Per-project
-            var p = projectPrefsNode();
-            p.putBoolean(PREF_KEY_WORKSPACE_COLLAPSED, collapsed);
-            p.flush();
-        } catch (Exception ignored) {
-            // Non-fatal persistence failure
-        }
-        try {
-            // Global default
-            var g = prefsRoot();
-            g.putBoolean(PREF_KEY_WORKSPACE_COLLAPSED_GLOBAL, collapsed);
-            g.flush();
-        } catch (Exception ignored) {
-            // Non-fatal persistence failure
-        }
-    }
-
-    private void saveSidebarOpenSetting(boolean open) {
-        try {
-            var p = projectPrefsNode();
-            p.putBoolean(PREF_KEY_SIDEBAR_OPEN, open);
-            p.flush();
-        } catch (Exception ignored) {
-            // Non-fatal persistence failure
-        }
-        try {
-            var g = prefsRoot();
-            g.putBoolean(PREF_KEY_SIDEBAR_OPEN_GLOBAL, open);
-            g.flush();
-        } catch (Exception ignored) {
-            // Non-fatal persistence failure
-        }
-    }
-
-    /**
-     * Reads the saved sidebar open preference with project-level preference taking precedence,
-     * then global fallback. Returns null if neither preference exists.
-     */
-    private @Nullable Boolean getSavedSidebarOpenPreference() {
-        try {
-            var p = projectPrefsNode();
-            // Preferences.get(key, null) returns null when not present; use that to detect explicit setting.
-            if (p.get(PREF_KEY_SIDEBAR_OPEN, null) != null) {
-                return p.getBoolean(PREF_KEY_SIDEBAR_OPEN, true);
-            }
-        } catch (Exception e) {
-            logger.error("Failed to read project sidebar open preference", e);
-        }
-        try {
-            var g = prefsRoot();
-            if (g.get(PREF_KEY_SIDEBAR_OPEN_GLOBAL, null) != null) {
-                return g.getBoolean(PREF_KEY_SIDEBAR_OPEN_GLOBAL, true);
-            }
-        } catch (Exception e) {
-            logger.error("Failed to read global sidebar open preference", e);
-        }
-        return null; // not explicitly set anywhere
-    }
-
     /**
      * Adds property change listeners to split panes for saving positions (global-first).
      */
     private void addSplitPaneListeners(AbstractProject project) {
-        topSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (topSplitPane.isShowing()) {
-                var newPos = topSplitPane.getDividerLocation();
-                if (newPos > 0) {
-                    // Keep backward-compat but persist globally as the source of truth
-                    project.saveLeftVerticalSplitPosition(newPos);
-                    GlobalUiSettings.saveLeftVerticalSplitPosition(newPos);
-                }
-            }
-        });
+        // BuildSplitPane listener moved to BuildPane.
 
-        mainVerticalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (!mainVerticalSplitPane.isShowing()) {
+        horizontalSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+            if (!horizontalSplitPane.isShowing()) {
                 return;
             }
 
-            int newPos = mainVerticalSplitPane.getDividerLocation();
-
-            // Clamp so the bottom (Instructions area) never shrinks below its minimum height.
-            int total = mainVerticalSplitPane.getHeight();
-            if (total > 0) {
-                int dividerSize = mainVerticalSplitPane.getDividerSize();
-                Component bottom = mainVerticalSplitPane.getBottomComponent();
-                int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
-                int maxLocation = Math.max(0, total - dividerSize - minBottom);
-
-                if (newPos > maxLocation) {
-                    if (!adjustingMainDivider) {
-                        adjustingMainDivider = true;
-                        SwingUtilities.invokeLater(() -> {
-                            try {
-                                mainVerticalSplitPane.setDividerLocation(maxLocation);
-                            } finally {
-                                adjustingMainDivider = false;
-                            }
-                        });
-                    }
-                    // Do not persist out-of-bounds positions
-                    return;
-                }
-            }
-
-            if (newPos > 0) {
-                // Keep backward-compat but persist globally as the source of truth
-                project.saveRightVerticalSplitPosition(newPos);
-                GlobalUiSettings.saveRightVerticalSplitPosition(newPos);
-            }
-        });
-
-        bottomSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (!bottomSplitPane.isShowing()) {
-                return;
-            }
-
-            int newPos = bottomSplitPane.getDividerLocation();
+            int newPos = horizontalSplitPane.getDividerLocation();
             if (newPos <= 0) {
                 return;
             }
 
             // Treat the UI as "collapsed" when the divider is hidden or very close to the left edge.
-            boolean isCollapsedUi = bottomSplitPane.getDividerSize() == 0 || newPos < SIDEBAR_COLLAPSED_THRESHOLD;
+            boolean isCollapsedUi = horizontalSplitPane.getDividerSize() == 0 || newPos < SIDEBAR_COLLAPSED_THRESHOLD;
             if (isCollapsedUi) {
-                // Persist collapsed intent
-                saveSidebarOpenSetting(false);
                 return;
             }
 
             // When the sidebar is expanded, clamp the divider so the left drawer
             // can never be shrunk below the minimum usable width.
-            if (!sidebarCollapsed) {
+            if (!toolsPane.isSidebarCollapsed()) {
                 int minWidth = computeMinSidebarWidthPx();
                 if (newPos < minWidth) {
                     // Clamp visually and skip persistence of too-small positions
                     if (SwingUtilities.isEventDispatchThread()) {
-                        bottomSplitPane.setDividerLocation(minWidth);
+                        horizontalSplitPane.setDividerLocation(minWidth);
                     } else {
                         try {
-                            SwingUtilities.invokeAndWait(() -> bottomSplitPane.setDividerLocation(minWidth));
+                            SwingUtilities.invokeAndWait(() -> horizontalSplitPane.setDividerLocation(minWidth));
                         } catch (InterruptedException | InvocationTargetException ex) {
                             // Log or handle as appropriate; here we ignore
                         }
@@ -2032,10 +1387,8 @@ public class Chrome
             GlobalUiSettings.saveHorizontalSplitPosition(newPos);
             // Remember expanded locations only (ignore collapsed sidebar)
             if (newPos >= SIDEBAR_COLLAPSED_THRESHOLD) {
-                lastExpandedSidebarLocation = newPos;
+                toolsPane.setLastExpandedSidebarLocation(newPos);
             }
-            // Persist open state
-            saveSidebarOpenSetting(true);
         });
 
         // Terminal drawer removed; no persistence listeners required.
@@ -2048,8 +1401,8 @@ public class Chrome
     }
 
     @Override
-    public void updateContextHistoryTable(@Nullable Context contextToSelect) { // contextToSelect can be null
-        historyOutputPanel.updateHistoryTable(contextToSelect);
+    public void updateContextHistoryTable(@Nullable Context contextToSelect) {
+        rightPanel.getHistoryOutputPanel().updateHistoryTable(contextToSelect);
     }
 
     public boolean isPositionOnScreen(int x, int y) {
@@ -2064,13 +1417,14 @@ public class Chrome
     }
 
     public void updateCaptureButtons() {
-        var messageSize = historyOutputPanel.getLlmRawMessages().size();
+        var hop = rightPanel.getHistoryOutputPanel();
+        var messageSize = hop.getLlmRawMessages().size();
         SwingUtilities.invokeLater(() -> {
-            var enabled = messageSize > 0 || historyOutputPanel.hasDisplayableOutput();
-            historyOutputPanel.setCopyButtonEnabled(enabled);
-            historyOutputPanel.setClearButtonEnabled(enabled);
-            historyOutputPanel.setCaptureButtonEnabled(enabled);
-            historyOutputPanel.setOpenWindowButtonEnabled(enabled);
+            var enabled = messageSize > 0 || hop.hasDisplayableOutput();
+            hop.setCopyButtonEnabled(enabled);
+            hop.setClearButtonEnabled(enabled);
+            hop.setCaptureButtonEnabled(enabled);
+            hop.setOpenWindowButtonEnabled(enabled);
         });
     }
 
@@ -2084,52 +1438,41 @@ public class Chrome
      */
     @Override
     public void showOutputSpinner(String message) {
-        SwingUtilities.invokeLater(() -> {
-            historyOutputPanel.showSpinner(message);
-        });
+        SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().showSpinner(message));
     }
 
-    /**
-     * Hides the inline loading spinner in the output panel.
-     */
     @Override
     public void hideOutputSpinner() {
-        SwingUtilities.invokeLater(historyOutputPanel::hideSpinner);
+        SwingUtilities.invokeLater(rightPanel.getHistoryOutputPanel()::hideSpinner);
     }
 
-    /**
-     * Shows the session switching spinner in the history panel.
-     */
     @Override
     public void showSessionSwitchSpinner() {
-        SwingUtilities.invokeLater(historyOutputPanel::showSessionSwitchSpinner);
+        SwingUtilities.invokeLater(rightPanel.getHistoryOutputPanel()::showSessionSwitchSpinner);
     }
 
-    /**
-     * Hides the session switching spinner in the history panel.
-     */
     @Override
     public void hideSessionSwitchSpinner() {
-        SwingUtilities.invokeLater(historyOutputPanel::hideSessionSwitchSpinner);
+        SwingUtilities.invokeLater(rightPanel.getHistoryOutputPanel()::hideSessionSwitchSpinner);
     }
 
     @Override
     public void showTransientMessage(String message) {
-        SwingUtilities.invokeLater(() -> historyOutputPanel.showTransientMessage(message));
+        SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().showTransientMessage(message));
     }
 
     @Override
     public void hideTransientMessage() {
-        SwingUtilities.invokeLater(historyOutputPanel::hideTransientMessage);
+        SwingUtilities.invokeLater(rightPanel.getHistoryOutputPanel()::hideTransientMessage);
     }
 
     public void focusInput() {
-        SwingUtilities.invokeLater(instructionsPanel::requestCommandInputFocus);
+        SwingUtilities.invokeLater(rightPanel.getInstructionsPanel()::requestCommandInputFocus);
     }
 
     @Override
     public void updateWorkspace() {
-        workspacePanel.updateContextTable();
+        // No-op for now; WorkspaceItemsChipPanel updates via ContextListener
     }
 
     public ContextManager getContextManager() {
@@ -2140,26 +1483,22 @@ public class Chrome
         return projectFilesPanel;
     }
 
-    public List<ContextFragment> getSelectedFragments() {
-        return workspacePanel.getSelectedFragments();
-    }
-
     public Map<String, JDialog> getOpenDialogs() {
         return openDialogs;
     }
 
-    public JTabbedPane getLeftTabbedPanel() {
-        return leftTabbedPanel;
+    public JTabbedPane getToolsPane() {
+        return toolsPane.getToolsPane();
     }
 
     @Nullable
     public GitPullRequestsTab getPullRequestsPanel() {
-        return pullRequestsPanel;
+        return toolsPane.getPullRequestsPanel();
     }
 
     @Nullable
     public GitIssuesTab getIssuesPanel() {
-        return issuesPanel;
+        return toolsPane.getIssuesPanel();
     }
 
     public DependenciesPanel getDependenciesPanel() {
@@ -2173,26 +1512,27 @@ public class Chrome
     // --- New helpers for Git tabs moved into Chrome ---
 
     public void updateLogTab() {
-        if (gitLogTab != null) {
-            gitLogTab.requestUpdate();
+        if (toolsPane.getGitLogTab() != null) {
+            toolsPane.getGitLogTab().requestUpdate();
         }
     }
 
     public void selectCurrentBranchInLogTab() {
-        if (gitLogTab != null) {
-            gitLogTab.selectCurrentBranch();
+        if (toolsPane.getGitLogTab() != null) {
+            toolsPane.getGitLogTab().selectCurrentBranch();
         }
     }
 
     public void showCommitInLogTab(String commitId) {
-        if (gitLogTab != null) {
-            for (int i = 0; i < leftTabbedPanel.getTabCount(); i++) {
-                if (leftTabbedPanel.getComponentAt(i) == gitLogTab) {
-                    leftTabbedPanel.setSelectedIndex(i);
+        if (toolsPane.getGitLogTab() != null) {
+            var tools = toolsPane.getToolsPane();
+            for (int i = 0; i < tools.getTabCount(); i++) {
+                if (tools.getComponentAt(i) == toolsPane.getGitLogTab()) {
+                    tools.setSelectedIndex(i);
                     break;
                 }
             }
-            gitLogTab.selectCommitById(commitId);
+            toolsPane.getGitLogTab().selectCommitById(commitId);
         }
     }
 
@@ -2203,16 +1543,16 @@ public class Chrome
         }
 
         // Ensure the history pane is visible
-        if (!historyTabbedPane.isVisible()) {
-            historyTabbedPane.setVisible(true);
+        if (!fileHistoryPane.isVisible()) {
+            fileHistoryPane.setVisible(true);
             leftVerticalSplitPane.setDividerSize(originalLeftVerticalDividerSize);
             leftVerticalSplitPane.setDividerLocation(0.7);
         }
 
-        int count = historyTabbedPane.getTabCount();
+        int count = fileHistoryPane.getTabCount();
         for (int i = 0; i < count; i++) {
-            if (historyTabbedPane.getComponentAt(i) == existing) {
-                historyTabbedPane.setSelectedIndex(i);
+            if (fileHistoryPane.getComponentAt(i) == existing) {
+                fileHistoryPane.setSelectedIndex(i);
                 break;
             }
         }
@@ -2230,47 +1570,22 @@ public class Chrome
         }
 
         var historyTab = new GitHistoryTab(this, contextManager, file);
-
         var tabHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         tabHeader.setOpaque(false);
-
         var titleLabel = new JLabel(file.getFileName());
-        titleLabel.setOpaque(false);
 
         var closeButton = new JButton("×");
         closeButton.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 16));
         closeButton.setPreferredSize(new Dimension(24, 24));
-        closeButton.setMargin(new Insets(0, 0, 0, 0));
         closeButton.setContentAreaFilled(false);
         closeButton.setBorderPainted(false);
-        closeButton.setFocusPainted(false);
-        closeButton.setToolTipText("Close");
-        var closeFg = UIManager.getColor("Button.close.foreground");
-        closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
-
-        closeButton.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseEntered(MouseEvent e) {
-                closeButton.setForeground(Color.RED);
-                closeButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            }
-
-            @Override
-            public void mouseExited(MouseEvent e) {
-                var closeFg = UIManager.getColor("Button.close.foreground");
-                closeButton.setForeground(closeFg != null ? closeFg : Color.GRAY);
-                closeButton.setCursor(Cursor.getDefaultCursor());
-            }
-        });
         closeButton.addActionListener(e -> {
-            int idx = historyTabbedPane.indexOfComponent(historyTab);
+            int idx = fileHistoryPane.indexOfComponent(historyTab);
             if (idx >= 0) {
-                historyTabbedPane.remove(idx);
+                fileHistoryPane.remove(idx);
                 fileHistoryTabs.remove(filePath);
-
-                // Hide history pane if now empty and remove divider
-                if (historyTabbedPane.getTabCount() == 0) {
-                    historyTabbedPane.setVisible(false);
+                if (fileHistoryPane.getTabCount() == 0) {
+                    fileHistoryPane.setVisible(false);
                     leftVerticalSplitPane.setDividerSize(0);
                 }
             }
@@ -2279,70 +1594,61 @@ public class Chrome
         tabHeader.add(titleLabel);
         tabHeader.add(closeButton);
 
-        // Ensure history pane is visible and divider shown
-        if (!historyTabbedPane.isVisible()) {
-            historyTabbedPane.setVisible(true);
+        if (!fileHistoryPane.isVisible()) {
+            fileHistoryPane.setVisible(true);
             leftVerticalSplitPane.setDividerSize(originalLeftVerticalDividerSize);
             leftVerticalSplitPane.setDividerLocation(0.7);
         }
 
-        historyTabbedPane.addTab(file.getFileName(), historyTab);
-        int newIndex = historyTabbedPane.indexOfComponent(historyTab);
-        historyTabbedPane.setTabComponentAt(newIndex, tabHeader);
-        historyTabbedPane.setSelectedIndex(newIndex);
-
+        fileHistoryPane.addTab(file.getFileName(), historyTab);
+        int newIdx = fileHistoryPane.indexOfComponent(historyTab);
+        fileHistoryPane.setTabComponentAt(newIdx, tabHeader);
+        fileHistoryPane.setSelectedIndex(newIdx);
         fileHistoryTabs.put(filePath, historyTab);
     }
 
     @Nullable
     public GitCommitTab getGitCommitTab() {
-        return gitCommitTab;
+        return toolsPane.getGitCommitTab();
     }
 
     @Nullable
     public GitLogTab getGitLogTab() {
-        return gitLogTab;
+        return toolsPane.getGitLogTab();
     }
 
     @Nullable
     public GitWorktreeTab getGitWorktreeTab() {
-        return gitWorktreeTab;
+        return toolsPane.getGitWorktreeTab();
     }
 
-    /**
-     * Called by MenuBar after constructing the BlitzForge menu item.
-     */
-    public void setBlitzForgeMenuItem(JMenuItem blitzForgeMenuItem) {
-        this.blitzForgeMenuItem = blitzForgeMenuItem;
+    public void setBlitzForgeMenuItem(JMenuItem it) {
+        this.blitzForgeMenuItem = it;
     }
 
-    public void showFileInProjectTree(ProjectFile projectFile) {
-        projectFilesPanel.showFileInTree(projectFile);
+    public void showFileInProjectTree(ProjectFile pf) {
+        projectFilesPanel.showFileInTree(pf);
     }
 
     @Override
     public InstructionsPanel getInstructionsPanel() {
-        return instructionsPanel;
+        return rightPanel.getInstructionsPanel();
     }
 
     public TaskListPanel getTaskListPanel() {
-        return taskListPanel;
+        return rightPanel.getTaskListPanel();
     }
 
-    public WorkspacePanel getContextPanel() {
-        return workspacePanel;
+    public ContextActionsHandler getContextActionsHandler() {
+        return contextActionsHandler;
     }
 
     public HistoryOutputPanel getHistoryOutputPanel() {
-        return historyOutputPanel;
+        return rightPanel.getHistoryOutputPanel();
     }
 
-    public @Nullable TerminalDrawerPanel getTerminalDrawer() {
-        return terminalDrawer;
-    }
-
-    public JTabbedPane getRightTabbedPanel() {
-        return rightTabbedPanel;
+    public JTabbedPane getCommandPane() {
+        return rightPanel.getCommandPane();
     }
 
     public void updateTerminalFontSize() {}
@@ -2354,414 +1660,24 @@ public class Chrome
      * Safe to call from any thread.
      */
     public void applyAdvancedModeVisibility() {
-        Runnable r = () -> {
-            boolean advanced = GlobalUiSettings.isAdvancedMode();
+        SwingUtilities.invokeLater(() -> {
+            rightPanel.applyAdvancedModeVisibility();
+            toolsPane.applyAdvancedModeVisibility();
+            updateGitTabBadge(getModifiedFiles().size());
+            refreshKeybindings();
+        });
+    }
 
-            // Apply advanced mode to instructions panel (hide mode badge, disable dropdown in EZ mode)
-            // Centralized here to avoid duplication in settings dialog and elsewhere
-            applyAdvancedModeToInstructionsSafely(advanced);
-
-            // Ensure the small header above the right tab stack is updated immediately.
-            // Keep the branch selector header visible whenever the project has Git,
-            // regardless of EZ/Advanced mode.
-            try {
-                if (rightTabbedHeader != null) {
-                    boolean showHeader = getProject().hasGit();
-                    rightTabbedHeader.setVisible(showHeader);
-                    if (rightTabbedContainer != null) {
-                        rightTabbedContainer.revalidate();
-                        rightTabbedContainer.repaint();
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("Failed to update rightTabbedHeader visibility (early)", ex);
-            }
-            // Update session management visibility in History panel
-            historyOutputPanel.setAdvancedMode(advanced);
-
-            // --- Left (sidebar) tabs: hide/show advanced Git tabs ---
-            if (!advanced) {
-                if (gitCommitTab != null) {
-                    int idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
-                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
-                }
-                if (gitLogTab != null) {
-                    int idx = leftTabbedPanel.indexOfComponent(gitLogTab);
-                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
-                }
-                if (gitWorktreeTab != null) {
-                    int idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
-                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
-                }
-                if (pullRequestsPanel != null) {
-                    int idx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
-                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
-                }
-                if (issuesPanel != null) {
-                    int idx = leftTabbedPanel.indexOfComponent(issuesPanel);
-                    if (idx != -1) leftTabbedPanel.removeTabAt(idx);
-                }
-
-                // Ensure a valid selection after removals
-                if (leftTabbedPanel.getTabCount() > 0) {
-                    int sel = leftTabbedPanel.getSelectedIndex();
-                    if (sel < 0 || sel >= leftTabbedPanel.getTabCount()) {
-                        leftTabbedPanel.setSelectedIndex(0);
-                    }
-                }
-            } else {
-                // Advanced ON: re-add tabs if applicable and not already present
-
-                // Changes tab (GitCommitTab)
-                if (gitCommitTab != null && leftTabbedPanel.indexOfComponent(gitCommitTab) == -1) {
-                    var commitIcon = Icons.COMMIT;
-                    gitTabBadgedIcon = new BadgedIcon(commitIcon, themeManager);
-                    leftTabbedPanel.addTab(null, gitTabBadgedIcon, gitCommitTab);
-                    var idx = leftTabbedPanel.indexOfComponent(gitCommitTab);
-                    var ks = GlobalUiSettings.getKeybinding(
-                            "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-                    gitTabLabel = createSquareTabLabel(
-                            gitTabBadgedIcon, "Changes (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
-                    leftTabbedPanel.setTabComponentAt(idx, gitTabLabel);
-                    final int tabIdx = idx;
-                    gitTabLabel.addMouseListener(new MouseAdapter() {
-                        @Override
-                        public void mousePressed(MouseEvent e) {
-                            handleTabToggle(tabIdx);
-                        }
-                    });
-                }
-
-                // Log tab
-                if (gitLogTab != null && leftTabbedPanel.indexOfComponent(gitLogTab) == -1) {
-                    var logIcon = Icons.FLOWSHEET;
-                    leftTabbedPanel.addTab(null, logIcon, gitLogTab);
-                    var idx = leftTabbedPanel.indexOfComponent(gitLogTab);
-                    var ks = GlobalUiSettings.getKeybinding(
-                            "panel.switchToLog", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_4));
-                    var tooltip = "Log (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
-                    var label = createSquareTabLabel(logIcon, tooltip);
-                    leftTabbedPanel.setTabComponentAt(idx, label);
-                    final int tabIdx = idx;
-                    label.addMouseListener(new MouseAdapter() {
-                        @Override
-                        public void mousePressed(MouseEvent e) {
-                            handleTabToggle(tabIdx);
-                        }
-                    });
-                }
-
-                // Worktrees tab
-                if (gitWorktreeTab != null && leftTabbedPanel.indexOfComponent(gitWorktreeTab) == -1) {
-                    var worktreeIcon = Icons.FLOWCHART;
-                    leftTabbedPanel.addTab(null, worktreeIcon, gitWorktreeTab);
-                    var idx = leftTabbedPanel.indexOfComponent(gitWorktreeTab);
-                    var ks = GlobalUiSettings.getKeybinding(
-                            "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
-                    var tooltip = "Worktrees (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
-                    var label = createSquareTabLabel(worktreeIcon, tooltip);
-                    leftTabbedPanel.setTabComponentAt(idx, label);
-                    final int tabIdx = idx;
-                    label.addMouseListener(new MouseAdapter() {
-                        @Override
-                        public void mousePressed(MouseEvent e) {
-                            handleTabToggle(tabIdx);
-                        }
-                    });
-                }
-
-                // Pull Requests tab (only when repo supports PRs i.e., GitHub)
-                if (pullRequestsPanel != null
-                        && getProject().isGitHubRepo()
-                        && gitLogTab != null
-                        && leftTabbedPanel.indexOfComponent(pullRequestsPanel) == -1) {
-                    var prIcon = Icons.PULL_REQUEST;
-                    leftTabbedPanel.addTab(null, prIcon, pullRequestsPanel);
-                    var idx = leftTabbedPanel.indexOfComponent(pullRequestsPanel);
-                    var ks = GlobalUiSettings.getKeybinding(
-                            "panel.switchToPullRequests", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_6));
-                    var tooltip = "Pull Requests (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
-                    var label = createSquareTabLabel(prIcon, tooltip);
-                    leftTabbedPanel.setTabComponentAt(idx, label);
-                    final int tabIdx = idx;
-                    label.addMouseListener(new MouseAdapter() {
-                        @Override
-                        public void mousePressed(MouseEvent e) {
-                            handleTabToggle(tabIdx);
-                        }
-                    });
-                }
-
-                // Issues tab (only when provider is not NONE)
-                if (issuesPanel != null
-                        && getProject().getIssuesProvider().type() != IssueProviderType.NONE
-                        && leftTabbedPanel.indexOfComponent(issuesPanel) == -1) {
-                    var issIcon = Icons.ADJUST;
-                    leftTabbedPanel.addTab(null, issIcon, issuesPanel);
-                    var idx = leftTabbedPanel.indexOfComponent(issuesPanel);
-                    var ks = GlobalUiSettings.getKeybinding(
-                            "panel.switchToIssues", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_7));
-                    var tooltip = "Issues (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")";
-                    var label = createSquareTabLabel(issIcon, tooltip);
-                    leftTabbedPanel.setTabComponentAt(idx, label);
-                    final int tabIdx = idx;
-                    label.addMouseListener(new MouseAdapter() {
-                        @Override
-                        public void mousePressed(MouseEvent e) {
-                            handleTabToggle(tabIdx);
-                        }
-                    });
-                }
-            }
-
-            // Update badge count immediately after adding tabs so the Changes tab badged icon reflects current state
-            try {
-                updateGitTabBadge(getModifiedFiles().size());
-            } catch (Exception ex) {
-                logger.debug("Failed to update Git tab badge after advanced-mode toggle", ex);
-            }
-
-            leftTabbedPanel.revalidate();
-            leftTabbedPanel.repaint();
-
-            // --- Right (Instructions/Tasks/Terminal) tabs: hide/show Terminal tab dynamically ---
-            int terminalIdx = rightTabbedPanel.indexOfTab("Terminal");
-            boolean terminalTabPresent = terminalIdx != -1;
-            boolean terminalWasSelected =
-                    terminalTabPresent && rightTabbedPanel.getSelectedComponent() == terminalPanel;
-
-            if (!advanced) {
-                // Remove Terminal tab if present
-                if (terminalTabPresent) {
-                    rightTabbedPanel.removeTabAt(terminalIdx);
-                    // If it was selected, switch to Tasks or Instructions
-                    if (terminalWasSelected) {
-                        int tasksIdx = rightTabbedPanel.indexOfTab("Tasks");
-                        if (tasksIdx != -1) {
-                            rightTabbedPanel.setSelectedIndex(tasksIdx);
-                        } else if (rightTabbedPanel.getTabCount() > 0) {
-                            rightTabbedPanel.setSelectedIndex(0);
-                        }
-                    }
-                }
-            } else {
-                // Add Terminal tab if missing
-                if (!terminalTabPresent) {
-                    rightTabbedPanel.addTab("Terminal", Icons.TERMINAL, this.terminalPanel);
-                }
-            }
-
-            rightTabbedPanel.revalidate();
-            rightTabbedPanel.repaint();
-
-            // Show/hide the small header above the right tab stack (e.g. branch selector).
-            // Keep it visible whenever the project has Git, regardless of EZ/Advanced mode.
-            try {
-                if (rightTabbedHeader != null) {
-                    boolean showHeader = getProject().hasGit();
-                    rightTabbedHeader.setVisible(showHeader);
-                    if (rightTabbedContainer != null) {
-                        rightTabbedContainer.revalidate();
-                        rightTabbedContainer.repaint();
-                    }
-                }
-            } catch (Exception ex) {
-                logger.debug("Failed to update rightTabbedHeader visibility", ex);
-            }
-
-            // Refresh keybindings once after all UI updates to update toggle-mode shortcut
-            // Centralized here to ensure consistency and avoid duplicate calls
-            try {
-                refreshKeybindings();
-            } catch (Exception ex) {
-                logger.debug("Failed to refresh keybindings after advanced-mode toggle", ex);
-            }
-        };
-
-        if (SwingUtilities.isEventDispatchThread()) {
-            r.run();
-        } else {
-            SwingUtilities.invokeLater(r);
-        }
+    public RightPanel getRightPanel() {
+        return rightPanel;
     }
 
     public void applyVerticalActivityLayout() {
-        Runnable task = () -> {
-            if (rightTabbedContainer == null) {
-                return;
-            }
-
-            boolean enabled = GlobalUiSettings.isVerticalActivityLayout();
-            var activityTabs = historyOutputPanel.getActivityTabs();
-            var outputTabs = historyOutputPanel.getOutputTabs();
-            var activityTabsContainer = historyOutputPanel.getActivityTabsContainer();
-            var outputTabsContainer = historyOutputPanel.getOutputTabsContainer();
-            outputTabsContainer.setVisible(!enabled);
-
-            if (enabled) {
-                if (verticalActivityCombinedPanel != null
-                        && verticalActivityCombinedPanel.getParent() == bottomSplitPane) {
-                    bottomSplitPane.setRightComponent(verticalActivityCombinedPanel);
-                } else {
-                    detachFromParent(activityTabs);
-                    if (outputTabs != null) {
-                        detachFromParent(outputTabs);
-                    }
-                    detachFromParent(rightTabbedContainer);
-                    var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
-                    detachFromParent(sessionHeader);
-
-                    if (topSplitPane.getBottomComponent() == rightTabbedContainer) {
-                        topSplitPane.setBottomComponent(null);
-                    }
-
-                    // Create top-left composite: Session header above Activity tabs
-                    var leftTopPanel = new JPanel(new BorderLayout());
-                    leftTopPanel.add(sessionHeader, BorderLayout.NORTH);
-                    leftTopPanel.add(activityTabs, BorderLayout.CENTER);
-
-                    // Create left panel: (Session+Activity) (top) | Instructions (bottom) with resizable divider
-                    var leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
-                    leftSplitPane.setTopComponent(leftTopPanel);
-                    leftSplitPane.setBottomComponent(rightTabbedContainer);
-                    leftSplitPane.setResizeWeight(0.4);
-
-                    // Restore saved position or use default
-                    int savedLeftPos = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
-                    if (savedLeftPos > 0) {
-                        leftSplitPane.setDividerLocation(savedLeftPos);
-                    } else {
-                        leftSplitPane.setDividerLocation(0.4);
-                    }
-
-                    // Add listener to save position changes
-                    leftSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                        if (leftSplitPane.isShowing()) {
-                            int newPos = leftSplitPane.getDividerLocation();
-                            if (newPos > 0) {
-                                GlobalUiSettings.saveVerticalLayoutLeftSplitPosition(newPos);
-                            }
-                        }
-                    });
-
-                    // Create horizontal split: left split pane | output tabs
-                    var verticalSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-                    verticalSplit.setLeftComponent(leftSplitPane);
-                    if (outputTabs != null) {
-                        verticalSplit.setRightComponent(outputTabs);
-                    }
-                    verticalSplit.setResizeWeight(0.5);
-
-                    // Restore saved position or use default
-                    int savedHorizPos = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
-                    if (savedHorizPos > 0) {
-                        verticalSplit.setDividerLocation(savedHorizPos);
-                    } else {
-                        // Default to a width similar to the left sidebar (Project Files/Tests)
-                        // Use the last known expanded sidebar location if available; otherwise compute an initial
-                        // width.
-                        final int desiredLeftWidth = (lastExpandedSidebarLocation > 0)
-                                ? lastExpandedSidebarLocation
-                                : computeInitialSidebarWidth();
-
-                        // Defer until after layout so we can clamp against the actual container width and right min
-                        // size
-                        SwingUtilities.invokeLater(() -> {
-                            try {
-                                int containerWidth = verticalSplit.getWidth();
-                                int dividerSize = verticalSplit.getDividerSize();
-                                int rightMin = 200; // fallback
-                                if (outputTabs != null) {
-                                    java.awt.Dimension min = outputTabs.getMinimumSize();
-                                    if (min != null) {
-                                        rightMin = Math.max(rightMin, min.width);
-                                    }
-                                }
-                                int maxAllowed = Math.max(0, containerWidth - dividerSize - rightMin);
-                                int target = Math.max(0, Math.min(desiredLeftWidth, maxAllowed));
-                                verticalSplit.setDividerLocation(target);
-                            } catch (Exception ex) {
-                                // If anything goes wrong, keep the default; users can resize manually
-                            }
-                        });
-                    }
-
-                    // Add listener to save position changes
-                    verticalSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-                        if (verticalSplit.isShowing()) {
-                            int newPos = verticalSplit.getDividerLocation();
-                            if (newPos > 0) {
-                                GlobalUiSettings.saveVerticalLayoutHorizontalSplitPosition(newPos);
-                            }
-                        }
-                    });
-
-                    verticalActivityCombinedPanel = verticalSplit;
-                    bottomSplitPane.setRightComponent(verticalSplit);
-
-                    // Ensure the capture/notification bar under Output maintains fixed sizing in vertical layout
-                    historyOutputPanel.applyFixedCaptureBarSizing(true);
-
-                    verticalSplit.revalidate();
-                    verticalSplit.repaint();
-                }
-            } else {
-                if (verticalActivityCombinedPanel != null) {
-                    detachFromParent(activityTabs);
-                    if (outputTabs != null) {
-                        detachFromParent(outputTabs);
-                    }
-                    detachFromParent(rightTabbedContainer);
-
-                    // Return to standard layout; the bar sizing is already correct there.
-                    historyOutputPanel.applyFixedCaptureBarSizing(false);
-
-                    if (activityTabs.getParent() != activityTabsContainer) {
-                        activityTabsContainer.add(activityTabs, BorderLayout.EAST);
-                    }
-                    if (outputTabs != null && outputTabs.getParent() != outputTabsContainer) {
-                        outputTabsContainer.add(outputTabs, BorderLayout.CENTER);
-                    }
-                    if (topSplitPane.getBottomComponent() != rightTabbedContainer) {
-                        topSplitPane.setBottomComponent(rightTabbedContainer);
-                    }
-                    // Restore session header back to HistoryOutputPanel's top
-                    var sessionHeader = historyOutputPanel.getSessionHeaderPanel();
-                    detachFromParent(sessionHeader);
-                    historyOutputPanel.add(sessionHeader, BorderLayout.NORTH);
-
-                    verticalActivityCombinedPanel = null;
-                }
-                bottomSplitPane.setRightComponent(mainVerticalSplitPane);
-            }
-
-            activityTabsContainer.revalidate();
-            activityTabsContainer.repaint();
-            outputTabsContainer.revalidate();
-            outputTabsContainer.repaint();
-            topSplitPane.revalidate();
-            topSplitPane.repaint();
-            mainVerticalSplitPane.revalidate();
-            mainVerticalSplitPane.repaint();
-            bottomSplitPane.revalidate();
-            bottomSplitPane.repaint();
+        SwingUtilities.invokeLater(() -> {
+            rightPanel.applyVerticalActivityLayout();
+            horizontalSplitPane.setRightComponent(rightPanel);
             frame.revalidate();
             frame.repaint();
-        };
-
-        if (SwingUtilities.isEventDispatchThread()) {
-            task.run();
-        } else {
-            SwingUtilities.invokeLater(task);
-        }
-    }
-
-    public void refreshTaskListUI() {
-        // Terminal drawer removed — bring the Tasks tab to front instead.
-        SwingUtilities.invokeLater(() -> {
-            int idx = rightTabbedPanel.indexOfTab("Tasks");
-            if (idx != -1) rightTabbedPanel.setSelectedIndex(idx);
-            taskListPanel.refreshFromManager();
         });
     }
 
@@ -2987,11 +1903,11 @@ public class Chrome
 
     private boolean isFocusInContextArea(@Nullable Component focusOwner) {
         if (focusOwner == null) return false;
-        // Check if focus is within ContextPanel or HistoryOutputPanel's historyTable
-        boolean inContextPanel = SwingUtilities.isDescendingFrom(focusOwner, workspacePanel);
-        boolean inHistoryTable = historyOutputPanel.getHistoryTable() != null
-                && SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getHistoryTable());
-        return inContextPanel || inHistoryTable;
+        // Check if focus is within HistoryOutputPanel's historyTable
+        var hop = rightPanel.getHistoryOutputPanel();
+        boolean inHistoryTable =
+                hop.getHistoryTable() != null && SwingUtilities.isDescendingFrom(focusOwner, hop.getHistoryTable());
+        return inHistoryTable;
     }
 
     public GuiTheme getThemeManager() {
@@ -3006,29 +1922,31 @@ public class Chrome
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                if (instructionsPanel.getCommandInputUndoManager().canUndo()) {
-                    instructionsPanel.getCommandInputUndoManager().undo();
+            var ip = rightPanel.getInstructionsPanel();
+            if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
+                if (ip.getCommandInputUndoManager().canUndo()) {
+                    ip.getCommandInputUndoManager().undo();
                 }
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 if (contextManager.getContextHistory().hasUndoStates()) {
                     contextManager.undoContextAsync();
                 }
-            } else if (instructionsPanel.getCommandInputUndoManager().canUndo()) {
+            } else if (ip.getCommandInputUndoManager().canUndo()) {
                 // Fallback: undo instructions panel when focus is elsewhere
-                instructionsPanel.getCommandInputUndoManager().undo();
+                ip.getCommandInputUndoManager().undo();
             }
         }
 
         public void updateEnabledState() {
+            var ip = rightPanel.getInstructionsPanel();
             boolean canUndoNow = false;
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                canUndoNow = instructionsPanel.getCommandInputUndoManager().canUndo();
+            if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
+                canUndoNow = ip.getCommandInputUndoManager().canUndo();
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 canUndoNow = contextManager.getContextHistory().hasUndoStates();
             } else {
                 // Fallback: enable if instructions panel has undoable content
-                canUndoNow = instructionsPanel.getCommandInputUndoManager().canUndo();
+                canUndoNow = ip.getCommandInputUndoManager().canUndo();
             }
             setEnabled(canUndoNow);
         }
@@ -3041,29 +1959,31 @@ public class Chrome
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                if (instructionsPanel.getCommandInputUndoManager().canRedo()) {
-                    instructionsPanel.getCommandInputUndoManager().redo();
+            var ip = rightPanel.getInstructionsPanel();
+            if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
+                if (ip.getCommandInputUndoManager().canRedo()) {
+                    ip.getCommandInputUndoManager().redo();
                 }
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 if (contextManager.getContextHistory().hasRedoStates()) {
                     contextManager.redoContextAsync();
                 }
-            } else if (instructionsPanel.getCommandInputUndoManager().canRedo()) {
+            } else if (ip.getCommandInputUndoManager().canRedo()) {
                 // Fallback: redo instructions panel when focus is elsewhere
-                instructionsPanel.getCommandInputUndoManager().redo();
+                ip.getCommandInputUndoManager().redo();
             }
         }
 
         public void updateEnabledState() {
+            var ip = rightPanel.getInstructionsPanel();
             boolean canRedoNow = false;
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                canRedoNow = instructionsPanel.getCommandInputUndoManager().canRedo();
+            if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
+                canRedoNow = ip.getCommandInputUndoManager().canRedo();
             } else if (isFocusInContextArea(lastRelevantFocusOwner)) {
                 canRedoNow = contextManager.getContextHistory().hasRedoStates();
             } else {
                 // Fallback: enable if instructions panel has redoable content
-                canRedoNow = instructionsPanel.getCommandInputUndoManager().canRedo();
+                canRedoNow = ip.getCommandInputUndoManager().canRedo();
             }
             setEnabled(canRedoNow);
         }
@@ -3080,19 +2000,15 @@ public class Chrome
             if (lastRelevantFocusOwner == null) {
                 return;
             }
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                instructionsPanel.getInstructionsArea().copy();
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getLlmStreamArea())) {
-                historyOutputPanel.getLlmStreamArea().copy(); // Assumes MarkdownOutputPanel has copy()
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)
-                    || SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, historyOutputPanel.getHistoryTable())) {
-                // If focus is in ContextPanel, use its selected fragments.
-                // If focus is in HistoryTable, it's like "Copy All" from ContextPanel.
-                List<ContextFragment> fragmentsToCopy = List.of(); // Default to "all"
-                if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
-                    fragmentsToCopy = workspacePanel.getSelectedFragments();
-                }
-                workspacePanel.performContextActionAsync(WorkspacePanel.ContextAction.COPY, fragmentsToCopy);
+            var ip = rightPanel.getInstructionsPanel();
+            var hop = rightPanel.getHistoryOutputPanel();
+            if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
+                ip.getInstructionsArea().copy();
+            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getLlmStreamArea())) {
+                hop.getLlmStreamArea().copy(); // Assumes MarkdownOutputPanel has copy()
+            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, hop.getHistoryTable())) {
+                // If focus is in HistoryTable, it's like "Copy All"
+                contextActionsHandler.performContextActionAsync(ContextActionsHandler.ContextAction.COPY, List.of());
             }
         }
 
@@ -3103,9 +2019,12 @@ public class Chrome
                 return;
             }
 
+            var ip = rightPanel.getInstructionsPanel();
+            var hop = rightPanel.getHistoryOutputPanel();
+
             // Instructions area: enable if there's either a selection or any text
-            if (focusOwner == instructionsPanel.getInstructionsArea()) {
-                var field = instructionsPanel.getInstructionsArea();
+            if (focusOwner == ip.getInstructionsArea()) {
+                var field = ip.getInstructionsArea();
                 boolean hasSelection = field.getSelectedText() != null
                         && !field.getSelectedText().isEmpty();
                 boolean hasText = !field.getText().isEmpty();
@@ -3115,14 +2034,13 @@ public class Chrome
 
             // If focus is in the MarkdownOutputPanel (LLM output), always enable Copy.
             // The copy handler will choose selection vs full content.
-            if (SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getLlmStreamArea())) {
+            if (SwingUtilities.isDescendingFrom(focusOwner, hop.getLlmStreamArea())) {
                 setEnabled(true);
                 return;
             }
 
-            // Focus is in a context area (Workspace panel or History table): Copy is available.
-            if (SwingUtilities.isDescendingFrom(focusOwner, workspacePanel)
-                    || SwingUtilities.isDescendingFrom(focusOwner, historyOutputPanel.getHistoryTable())) {
+            // Focus is in History table: Copy is available.
+            if (SwingUtilities.isDescendingFrom(focusOwner, hop.getHistoryTable())) {
                 setEnabled(true);
                 return;
             }
@@ -3151,7 +2069,7 @@ public class Chrome
      * @return The system clipboard, or null if temporarily unavailable
      */
     @Nullable
-    private static Clipboard getSystemClipboardSafe() {
+    static Clipboard getSystemClipboardSafe() {
         try {
             return Toolkit.getDefaultToolkit().getSystemClipboard();
         } catch (IllegalStateException | HeadlessException e) {
@@ -3217,32 +2135,21 @@ public class Chrome
                 return;
             }
 
-            if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
-                instructionsPanel.getInstructionsArea().paste();
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
-                // Check clipboard availability before attempting paste to avoid Windows clipboard lock exceptions.
-                // On Windows, the system clipboard can be temporarily locked by other processes, causing
-                // IllegalStateException. We treat this as transient and show a notification instead of failing.
-                var clipboard = getSystemClipboardSafe();
-                if (clipboard == null) {
-                    showNotification(NotificationRole.INFO, "Clipboard is temporarily unavailable");
-                    return;
-                }
-                workspacePanel.performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
+            var ip = rightPanel.getInstructionsPanel();
+            if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
+                ip.getInstructionsArea().paste();
             }
         }
 
         public void updateEnabledState() {
+            var ip = rightPanel.getInstructionsPanel();
             boolean canPasteNow = false;
             if (lastRelevantFocusOwner == null) {
                 // leave it false
-            } else if (lastRelevantFocusOwner == instructionsPanel.getInstructionsArea()) {
+            } else if (lastRelevantFocusOwner == ip.getInstructionsArea()) {
                 // Use safe wrapper instead of direct isDataFlavorAvailable() to avoid Windows clipboard
                 // lock exceptions during rapid focus changes on EDT. See JDK-8353950.
                 canPasteNow = readStringFromClipboardSafe() != null;
-            } else if (SwingUtilities.isDescendingFrom(lastRelevantFocusOwner, workspacePanel)) {
-                // ContextPanel's doPasteAction checks clipboard content type
-                canPasteNow = true;
             }
             setEnabled(canPasteNow);
         }
@@ -3256,14 +2163,14 @@ public class Chrome
 
         @Override
         public void actionPerformed(ActionEvent e) {
-            VoiceInputButton micButton = Chrome.this.instructionsPanel.getVoiceInputButton();
+            VoiceInputButton micButton = rightPanel.getInstructionsPanel().getVoiceInputButton();
             if (micButton.isEnabled()) {
                 micButton.doClick();
             }
         }
 
         public void updateEnabledState() {
-            VoiceInputButton micButton = Chrome.this.instructionsPanel.getVoiceInputButton();
+            VoiceInputButton micButton = rightPanel.getInstructionsPanel().getVoiceInputButton();
             boolean canToggleMic = micButton.isEnabled();
             setEnabled(canToggleMic);
         }
@@ -3334,7 +2241,7 @@ public class Chrome
      */
     @Override
     public void disableHistoryPanel() {
-        historyOutputPanel.disableHistory();
+        rightPanel.getHistoryOutputPanel().disableHistory();
     }
 
     /**
@@ -3342,7 +2249,7 @@ public class Chrome
      */
     @Override
     public void enableHistoryPanel() {
-        historyOutputPanel.enableHistory();
+        rightPanel.getHistoryOutputPanel().enableHistory();
     }
 
     /**
@@ -3351,7 +2258,7 @@ public class Chrome
     @Override
     public void setTaskInProgress(boolean taskInProgress) {
         SwingUtilities.invokeLater(() -> {
-            historyOutputPanel.setTaskInProgress(taskInProgress);
+            rightPanel.getHistoryOutputPanel().setTaskInProgress(taskInProgress);
         });
     }
 
@@ -3392,7 +2299,7 @@ public class Chrome
                 };
         if (!allowed) return;
 
-        SwingUtilities.invokeLater(() -> historyOutputPanel.showNotification(role, message));
+        SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().showNotification(role, message));
     }
 
     /**
@@ -3469,138 +2376,33 @@ public class Chrome
      */
     public void updateGitTabBadge(int modifiedCount) {
         assert SwingUtilities.isEventDispatchThread() : "updateGitTabBadge(int) must be called on EDT";
-
-        if (gitTabBadgedIcon == null) {
-            return; // No git support
-        }
-
-        gitTabBadgedIcon.setCount(modifiedCount, leftTabbedPanel);
-
-        // Update tooltip to show the count and keyboard shortcut
-        if (gitTabLabel != null) {
-            var configuredShortcut = GlobalUiSettings.getKeybinding(
-                    "panel.switchToChanges", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_3));
-            var shortcut = KeyboardShortcutUtil.formatKeyStroke(configuredShortcut);
-            String tooltip;
-            if (modifiedCount > 0) {
-                tooltip = String.format(
-                        "Changes (%d modified file%s) (%s)", modifiedCount, modifiedCount == 1 ? "" : "s", shortcut);
-            } else {
-                tooltip = "Changes (" + shortcut + ")";
-            }
-            gitTabLabel.setToolTipText(tooltip);
-        }
-
-        // Repaint the tab to show the updated badge
-        if (gitTabLabel != null) {
-            gitTabLabel.repaint();
-        }
+        toolsPane.updateGitTabBadge(modifiedCount);
     }
 
     /**
      * Updates the Project Files tab badge with the current number of live dependencies. Should be called whenever
      * the dependency count changes or on startup to initialize the badge. EDT-safe.
      */
+    @SuppressWarnings("RedundantNullCheck")
     public void updateProjectFilesTabBadge(int dependencyCount) {
         SwingUtil.runOnEdt(() -> {
-            if (projectFilesTabBadgedIcon == null) {
-                return; // No badge support (should not happen in normal operation)
+            if (toolsPane != null) {
+                toolsPane.updateProjectFilesTabBadge(dependencyCount);
             }
+        });
+    }
 
-            projectFilesTabBadgedIcon.setCount(dependencyCount, leftTabbedPanel);
-
-            // Update tooltip to show the count and keyboard shortcut
-            if (projectFilesTabLabel != null) {
-                var configuredShortcut = GlobalUiSettings.getKeybinding(
-                        "panel.switchToProjectFiles", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
-                var shortcut = KeyboardShortcutUtil.formatKeyStroke(configuredShortcut);
-                String tooltip;
-                if (dependencyCount > 0) {
-                    tooltip = String.format(
-                            "Project Files (%d dependenc%s) (%s)",
-                            dependencyCount, dependencyCount == 1 ? "y" : "ies", shortcut);
-                } else {
-                    tooltip = "Project Files (" + shortcut + ")";
-                }
-                projectFilesTabLabel.setToolTipText(tooltip);
-            }
-
-            // Repaint the tab to show the updated badge
-            if (projectFilesTabLabel != null) {
-                projectFilesTabLabel.repaint();
-            }
-
-            // Update the panel border title with current branch and dependency count
+    public void refreshBranchUi(@Nullable String branchName) {
+        SwingUtilities.invokeLater(() -> {
+            rightPanel.setBranchLabel(branchName);
             projectFilesPanel.updateBorderTitle();
         });
     }
 
     /**
-     * Refresh the branch selector UI hosted in Chrome. Safe to call from any thread.
-     *
-     * @param branchName the branch name to display (may be null/blank)
-     */
-    public void refreshBranchUi(@Nullable String branchName) {
-        SwingUtilities.invokeLater(() -> {
-            if (branchSelectorButton != null) {
-                try {
-                    // BranchSelectorButton.refreshBranch expects a displayable string; pass empty string
-                    // when branchName is null to avoid unexpected null handling in downstream UI code.
-                    branchSelectorButton.refreshBranch(branchName == null ? "" : branchName);
-                } catch (Exception ex) {
-                    logger.debug("branchSelectorButton.refreshBranch failed", ex);
-                }
-            }
-            // Keep the project files drawer title in sync with current branch and dependency count
-            try {
-                projectFilesPanel.updateBorderTitle();
-            } catch (Exception ex) {
-                logger.debug("projectFilesPanel.updateBorderTitle failed", ex);
-            }
-        });
-    }
-
-    /**
-     * Builds a JLabel for use as a square tab component, ensuring width == height.
-     */
-    private static JLabel createSquareTabLabel(Icon icon, String tooltip) {
-        var label = new JLabel(icon);
-        int size = Math.max(icon.getIconWidth(), icon.getIconHeight());
-        // add a little padding so the icon isn't flush against the border
-        // tabs are usually a bit width biased, so let's also reduce width a bit
-        label.setPreferredSize(new Dimension(size, size + 8));
-        label.setMinimumSize(label.getPreferredSize());
-        label.setHorizontalAlignment(SwingConstants.CENTER);
-        label.setToolTipText(tooltip);
-
-        // If this is a themed icon wrapper, ask it to ensure its delegate is resolved (non-blocking).
-        if (icon instanceof SwingUtil.ThemedIcon themedIcon) {
-            try {
-                themedIcon.ensureResolved();
-            } catch (Exception ex) {
-                // Defensive: do not let icon resolution errors interrupt UI construction
-                logger.debug("Failed to resolve themed icon; continuing without blocking UI", ex);
-            }
-        }
-
-        // Ensure we repaint when the label becomes showing; some themed icons resolve lazily and
-        // a repaint on SHOWING ensures the resolved image is painted immediately (fixes hover-only reveal).
-        label.addHierarchyListener(e -> {
-            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && label.isShowing()) {
-                SwingUtilities.invokeLater(() -> {
-                    label.revalidate();
-                    label.repaint();
-                });
-            }
-        });
-
-        return label;
-    }
-
-    /**
      * Calculates an appropriate initial width for the left sidebar based on content and window size.
      */
-    private int computeInitialSidebarWidth() {
+    public int computeInitialSidebarWidth() {
         int ideal = projectFilesPanel.getPreferredSize().width;
         int frameWidth = frame.getWidth();
 
@@ -3618,111 +2420,10 @@ public class Chrome
      * Computes the minimum allowed sidebar width in pixels, combining the
      * absolute minimum with a fraction of the current frame width.
      */
-    private int computeMinSidebarWidthPx() {
+    public int computeMinSidebarWidthPx() {
         int frameWidth = frame.getWidth();
         int byFraction = (int) (frameWidth * MIN_SIDEBAR_WIDTH_FRACTION);
         return Math.max(MIN_SIDEBAR_WIDTH_PX, byFraction);
-    }
-
-    /**
-     * Toggle collapsing the Workspace (top of Workspace|Instructions split) and hide/show the divider between Output
-     * and the bottom stack.
-     */
-    public void toggleWorkspaceCollapsed() {
-        setWorkspaceCollapsed(!workspaceCollapsed);
-    }
-
-    /**
-     * Collapse the Workspace area. Expand requests are ignored; the workspace remains permanently hidden.
-     *
-     * <p>When collapsed, the Workspace+Instructions split is removed from the bottom stack and only the
-     * Instructions/Drawer is shown as the bottom component. The Output↔Bottom divider remains visible.
-     * Once collapsed, the workspace cannot be expanded. Any call to expand (collapsed=false) is a no-op.
-     */
-    public void setWorkspaceCollapsed(boolean collapsed) {
-        Runnable r = () -> {
-            if (this.workspaceCollapsed == collapsed) {
-                return;
-            }
-
-            if (collapsed) {
-                // Also save as a proportion for robust restore after resizes
-                // Measure the current on-screen height of the Instructions area so we can keep it EXACT
-                int instructionsHeightPx = 0;
-                try {
-                    // Bottom of the topSplitPane is the Instructions container when expanded
-                    Component bottom = topSplitPane.getBottomComponent();
-                    if (bottom != null) {
-                        instructionsHeightPx = Math.max(0, bottom.getHeight());
-                    }
-                    // Fallback estimate if height not realized yet
-                    if (instructionsHeightPx == 0) {
-                        int tsTotal = Math.max(0, topSplitPane.getHeight());
-                        int tsDivider = topSplitPane.getDividerSize();
-                        int maxFromTop = Math.max(0, tsTotal - tsDivider);
-                        int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
-                        instructionsHeightPx =
-                                Math.min(Math.max(minBottom, rightTabbedPanel.getMinimumSize().height), maxFromTop);
-                    }
-                } catch (Exception ex) {
-                    // Defensive; we'll clamp during restore regardless
-                    logger.debug("Failed to calculate pinned Instructions height; using clamped restore", ex);
-                }
-                // Pin the measured Instructions height for exact restore later
-                pinnedInstructionsHeightPx = instructionsHeightPx;
-
-                // Swap to Instructions-only in the bottom (now using the rightTabbedContainer directly)
-                mainVerticalSplitPane.setBottomComponent(rightTabbedContainer);
-
-                // Revalidate layout, then set the main divider so bottom == pinned Instructions height
-                mainVerticalSplitPane.revalidate();
-                SwingUtilities.invokeLater(
-                        () -> applyMainDividerForExactBottomHeight(Math.max(0, pinnedInstructionsHeightPx)));
-
-                this.workspaceCollapsed = true;
-
-                // Refresh layout/paint
-                mainVerticalSplitPane.revalidate();
-                mainVerticalSplitPane.repaint();
-
-                // Persist collapsed/expanded state (per-project + global)
-                try {
-                    saveWorkspaceCollapsedSetting(this.workspaceCollapsed);
-                } catch (Exception ignored) {
-                    // Non-fatal persistence failure
-                }
-            }
-            // else: ignore expand requests; workspace stays collapsed permanently
-        };
-
-        if (SwingUtilities.isEventDispatchThread()) {
-            r.run();
-        } else {
-            SwingUtilities.invokeLater(r);
-        }
-    }
-
-    /**
-     * Set the Output↔Bottom divider so that the bottom height equals the exact desired pixel height, clamped to the
-     * bottom component's minimum size. This is used when collapsing Workspace to guarantee the Instructions area does
-     * not resize at all.
-     */
-    private void applyMainDividerForExactBottomHeight(int desiredBottomPx) {
-        int total = mainVerticalSplitPane.getHeight();
-        if (total <= 0) {
-            return;
-        }
-        int dividerSize = mainVerticalSplitPane.getDividerSize();
-        Component bottom = mainVerticalSplitPane.getBottomComponent();
-        int minBottom = (bottom != null) ? Math.max(0, bottom.getMinimumSize().height) : 0;
-
-        int target = Math.max(0, desiredBottomPx);
-        int minAllowed = minBottom;
-        int maxAllowed = Math.max(minAllowed, total - dividerSize); // cannot exceed available space
-        int clampedBottom = Math.max(minAllowed, Math.min(target, maxAllowed));
-
-        int safeDivider = Math.max(0, total - dividerSize - clampedBottom);
-        mainVerticalSplitPane.setDividerLocation(safeDivider);
     }
 
     /**
@@ -3731,10 +2432,10 @@ public class Chrome
      * Safe to call from any thread.
      */
     public List<ProjectFile> getModifiedFiles() {
-        if (gitCommitTab == null) {
+        if (toolsPane.getGitCommitTab() == null) {
             return List.of();
         }
-        return gitCommitTab.getModifiedFiles();
+        return toolsPane.getGitCommitTab().getModifiedFiles();
     }
 
     /**
@@ -3775,17 +2476,20 @@ public class Chrome
      * Note: Swing components can have only one parent; callers should remove it from
      * a previous parent before adding it elsewhere.
      */
-    public JComponent getAnalyzerStatusStrip() {
-        return analyzerStatusStrip;
+    public JSplitPane getHorizontalSplitPane() {
+        return horizontalSplitPane;
     }
 
-    private static void detachFromParent(Component component) {
-        Container parent = component.getParent();
-        if (parent != null) {
-            parent.remove(component);
-            parent.revalidate();
-            parent.repaint();
-        }
+    public JSplitPane getLeftVerticalSplitPane() {
+        return leftVerticalSplitPane;
+    }
+
+    public int getOriginalBottomDividerSize() {
+        return originalBottomDividerSize;
+    }
+
+    public JComponent getAnalyzerStatusStrip() {
+        return analyzerStatusStrip;
     }
 
     @Override
@@ -3918,23 +2622,27 @@ public class Chrome
             return false;
         }
 
+        var ip = rightPanel.getInstructionsPanel();
+        var tlp = rightPanel.getTaskListPanel();
+        var hop = rightPanel.getHistoryOutputPanel();
+
         // Check if component is one of our main navigable components
-        return component == instructionsPanel.getInstructionsArea()
-                || component == instructionsPanel.getMicButton()
-                || component == instructionsPanel.getWandButton()
-                || component == instructionsPanel.getHistoryDropdown()
-                || component == instructionsPanel.getModelSelectorComponent()
+        return component == ip.getInstructionsArea()
+                || component == ip.getMicButton()
+                || component == ip.getWandButton()
+                || component == ip.getHistoryDropdown()
+                || component == ip.getModelSelectorComponent()
                 || component == projectFilesPanel.getSearchField()
                 || component == projectFilesPanel.getRefreshButton()
                 || component == projectFilesPanel.getProjectTree()
                 || component == dependenciesPanel.getDependencyTable()
                 || component == dependenciesPanel.getAddButton()
                 || component == dependenciesPanel.getRemoveButton()
-                || component == taskListPanel.getTaskInput()
-                || component == taskListPanel.getGoStopButton()
-                || component == taskListPanel.getTaskList()
-                || component == historyOutputPanel.getHistoryTable()
-                || component == historyOutputPanel.getLlmStreamArea();
+                || component == tlp.getTaskInput()
+                || component == tlp.getGoStopButton()
+                || component == tlp.getTaskList()
+                || component == hop.getHistoryTable()
+                || component == hop.getLlmStreamArea();
     }
 
     private void applyFocusHighlight(Component component) {

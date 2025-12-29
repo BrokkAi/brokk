@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -40,6 +41,7 @@ public class EditBlockSyntaxTest {
 
     @BeforeEach
     void setupEach() throws IOException {
+        SyntaxAwareConfig.setSyntaxAwareExtensions(Set.of("java"));
         final var testResourcesPath =
                 Path.of("src/test/resources/testcode-java").toAbsolutePath().normalize();
         assertTrue(Files.exists(testResourcesPath), "Test resource directory 'testcode-java' not found.");
@@ -53,9 +55,8 @@ public class EditBlockSyntaxTest {
 
     @AfterEach
     void teardownEach() {
-        if (testProject != null) {
-            testProject.close();
-        }
+        SyntaxAwareConfig.resetSyntaxAwareExtensions();
+        testProject.close();
     }
 
     // ==================== BRK_FUNCTION Tests ====================
@@ -82,7 +83,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for unique method");
+        assertTrue(result.failures().isEmpty(), "Should succeed for unique method");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("modified"), "Expected " + file + " to contain 'modified'. Full content:\n" + content);
@@ -120,10 +121,10 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "Should fail for overloaded method");
+        assertEquals(1, result.failures().size(), "Should fail for overloaded method");
         assertEquals(
                 EditBlock.EditBlockFailureReason.AMBIGUOUS_MATCH,
-                result.failedBlocks().getFirst().reason(),
+                result.failures().getFirst().reason(),
                 "Should fail with AMBIGUOUS_MATCH");
     }
 
@@ -167,7 +168,7 @@ public class EditBlockSyntaxTest {
 
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
-        assertTrue(result.failedBlocks().isEmpty(), "Edit should apply successfully");
+        assertTrue(result.failures().isEmpty(), "Edit should apply successfully");
 
         var content = Files.readString(file.absPath());
 
@@ -222,7 +223,7 @@ public class EditBlockSyntaxTest {
 
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
-        assertTrue(result.failedBlocks().isEmpty(), "Edit should apply successfully");
+        assertTrue(result.failures().isEmpty(), "Edit should apply successfully");
 
         var content = Files.readString(file.absPath());
 
@@ -277,7 +278,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for static method");
+        assertTrue(result.failures().isEmpty(), "Should succeed for static method");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("return 42;"),
@@ -306,7 +307,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for nested class method");
+        assertTrue(result.failures().isEmpty(), "Should succeed for nested class method");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("nested modified"),
@@ -335,7 +336,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for constructor");
+        assertTrue(result.failures().isEmpty(), "Should succeed for constructor");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("modified constructor"),
@@ -362,10 +363,10 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "Should fail for non-existent method");
+        assertEquals(1, result.failures().size(), "Should fail for non-existent method");
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
-                result.failedBlocks().getFirst().reason(),
+                result.failures().getFirst().reason(),
                 "Should fail with NO_MATCH");
     }
 
@@ -389,10 +390,10 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "Should fail for wrong class name");
+        assertEquals(1, result.failures().size(), "Should fail for wrong class name");
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
-                result.failedBlocks().getFirst().reason(),
+                result.failures().getFirst().reason(),
                 "Should fail with NO_MATCH");
     }
 
@@ -418,7 +419,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for packaged class method");
+        assertTrue(result.failures().isEmpty(), "Should succeed for packaged class method");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("modified bar"),
@@ -451,7 +452,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for simple class");
+        assertTrue(result.failures().isEmpty(), "Should succeed for simple class");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("modified parent"),
@@ -486,7 +487,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for class with multiple methods");
+        assertTrue(result.failures().isEmpty(), "Should succeed for class with multiple methods");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("new method"),
@@ -525,7 +526,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), result.failedBlocks().toString());
+        assertTrue(result.failures().isEmpty(), result.failures().toString());
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("new inner"),
@@ -564,7 +565,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for doubly nested class");
+        assertTrue(result.failures().isEmpty(), "Should succeed for doubly nested class");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("doubly nested new"),
@@ -610,7 +611,7 @@ public class EditBlockSyntaxTest {
 
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
-        assertTrue(result.failedBlocks().isEmpty(), "Edit should apply successfully");
+        assertTrue(result.failures().isEmpty(), "Edit should apply successfully");
 
         var content = Files.readString(file.absPath());
 
@@ -650,7 +651,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for static nested class");
+        assertTrue(result.failures().isEmpty(), "Should succeed for static nested class");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("static nested"),
@@ -679,7 +680,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for enum class");
+        assertTrue(result.failures().isEmpty(), "Should succeed for enum class");
         var content = Files.readString(file.absPath());
         assertTrue(content.contains("BAZ"), "Expected " + file + " to contain 'BAZ'. Full content:\n" + content);
     }
@@ -708,7 +709,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for record class");
+        assertTrue(result.failures().isEmpty(), "Should succeed for record class");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("Modified Foo constructor"),
@@ -744,10 +745,10 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "Should fail for non-existent class");
+        assertEquals(1, result.failures().size(), "Should fail for non-existent class");
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
-                result.failedBlocks().getFirst().reason(),
+                result.failures().getFirst().reason(),
                 "Should fail with NO_MATCH");
     }
 
@@ -779,7 +780,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for packaged class");
+        assertTrue(result.failures().isEmpty(), "Should succeed for packaged class");
         var content = Files.readString(file.absPath());
         assertTrue(content.contains("modified packaged class"), "Packaged class should be updated");
         assertTrue(content.contains("newMethod"), "New method should be added");
@@ -815,7 +816,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "Should still fail for overloaded methods even with comments");
+        assertEquals(1, result.failures().size(), "Should still fail for overloaded methods even with comments");
     }
 
     @Test
@@ -844,7 +845,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for annotated inner class");
+        assertTrue(result.failures().isEmpty(), "Should succeed for annotated inner class");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("Modified Helper"),
@@ -891,7 +892,7 @@ public class EditBlockSyntaxTest {
         var blocks = parseBlocks(response, ctx);
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertTrue(result.failedBlocks().isEmpty(), "Should succeed for multiple edits to same file");
+        assertTrue(result.failures().isEmpty(), "Should succeed for multiple edits to same file");
         var content = Files.readString(file.absPath());
         assertTrue(
                 content.contains("Modified static method"),
@@ -908,9 +909,10 @@ public class EditBlockSyntaxTest {
     }
 
     private List<EditBlock.SearchReplaceBlock> parseBlocks(String response, TestContextManager ctx) {
-        return EditBlockParser.instance
+        var blocks = EditBlockParser.instance
                 .parseEditBlocks(response, ctx.getFilesInContext())
                 .blocks();
+        return new ArrayList<>(blocks);
     }
 
     /**

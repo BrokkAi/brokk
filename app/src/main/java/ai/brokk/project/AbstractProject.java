@@ -60,6 +60,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     // File filtering service that encapsulates baseline exclusions + gitignore handling.
     protected final FileFilteringService fileFilteringService;
 
+    // Cached pattern matcher for file exclusions (invalidated when patterns change)
+    private Set<String> cachedPatternSet = Set.of();
+    private FileFilteringService.FilePatternMatcher cachedPatternMatcher =
+            FileFilteringService.createPatternMatcher(Set.of());
+
     public AbstractProject(Path root) {
         assert root.isAbsolute() : root;
         this.root = root.toAbsolutePath().normalize();
@@ -627,6 +632,16 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    public boolean isEmptyProject() {
+        Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
+                .filter(lang -> lang != Languages.NONE)
+                .flatMap(lang -> lang.getExtensions().stream())
+                .collect(Collectors.toSet());
+
+        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
+    }
+
+    @Override
     public void close() {
         if (repo instanceof AutoCloseable autoCloseableRepo) {
             try {
@@ -732,9 +747,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @VisibleForTesting
     public Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
-        // Always apply baseline exclusions, regardless of Git presence
-        Set<String> rawExclusions = loadBuildDetails().excludedDirectories();
-        return fileFilteringService.filterFiles(files, rawExclusions);
+        // Always apply baseline exclusions and file patterns, regardless of Git presence
+        var buildDetails = loadBuildDetails();
+        return fileFilteringService.filterFiles(files, buildDetails.exclusionPatterns());
     }
 
     @Override
@@ -748,15 +763,15 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public boolean isDirectoryIgnored(Path directoryRelPath) {
+    public boolean isGitignored(Path relPath) {
         if (!(repo instanceof GitRepo)) {
             return false; // No git repo = nothing is ignored
         }
 
         try {
-            return fileFilteringService.isDirectoryIgnored(directoryRelPath);
+            return fileFilteringService.isGitignored(relPath);
         } catch (Exception e) {
-            logger.warn("Error checking if directory {} is ignored: {}", directoryRelPath, e.getMessage());
+            logger.warn("Error checking if path {} is gitignored: {}", relPath, e.getMessage());
             return false; // On error, assume not ignored (conservative)
         }
     }
@@ -769,10 +784,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
-    public Set<String> getExcludedDirectories() {
+    public Set<String> getExclusionPatterns() {
         var exclusions = new HashSet<String>();
-        exclusions.addAll(loadBuildDetails().excludedDirectories());
+        exclusions.addAll(loadBuildDetails().exclusionPatterns());
 
+        // Also exclude non-live dependencies
         var dependenciesDir = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesDir) || !Files.isDirectory(dependenciesDir)) {
             return exclusions;
@@ -794,5 +810,16 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         }
 
         return exclusions;
+    }
+
+    @Override
+    public boolean isPathExcluded(String relativePath, boolean isDirectory) {
+        var patterns = getExclusionPatterns();
+        // Check if cache is still valid
+        if (!patterns.equals(cachedPatternSet)) {
+            cachedPatternSet = patterns;
+            cachedPatternMatcher = FileFilteringService.createPatternMatcher(patterns);
+        }
+        return cachedPatternMatcher.isPathExcluded(relativePath, isDirectory);
     }
 }

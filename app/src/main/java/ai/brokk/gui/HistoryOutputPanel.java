@@ -1,27 +1,19 @@
 package ai.brokk.gui;
 
-import static ai.brokk.SessionManager.SessionInfo;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
-import ai.brokk.git.GitRepo;
-import ai.brokk.git.GitWorkflow;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
-import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
-import ai.brokk.gui.dialogs.CreatePullRequestDialog;
-import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -29,14 +21,11 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.project.IProject;
-import ai.brokk.project.MainProject;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.GlobalUiSettings;
 import dev.langchain4j.agent.tool.ToolContext;
-import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -44,8 +33,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -67,18 +54,13 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Queue;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
-import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
 import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
@@ -97,8 +79,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final MaterialButton redoButton;
     private final MaterialButton compressButton;
 
-    private final SplitButton sessionNameLabel;
-    private final MaterialButton newSessionButton;
     private ResetArrowLayerUI arrowLayerUI;
 
     @Nullable
@@ -119,27 +99,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JTabbedPane activityTabs;
 
-    // Output tabs
-    @Nullable
-    private JTabbedPane outputTabs;
-
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JPanel activityTabsContainer;
 
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
-    private JPanel outputTabsContainer;
-
-    // Session header panel (exposed so Chrome can reparent in vertical layout)
-    private JPanel sessionHeaderPanel;
-
-    @Nullable
-    private JPanel changesTabPlaceholder;
-
-    @Nullable
-    private BrokkDiffPanel aggregatedChangesPanel;
-
-    @Nullable
-    private JTextArea captureDescriptionArea;
+    private JPanel llmOutputContainer;
 
     // Capture/notification bar container for fixed sizing in vertical layout
     @Nullable
@@ -150,7 +114,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private final MaterialButton captureButton;
     private final MaterialButton openWindowButton;
     private final JPanel notificationAreaPanel;
-    private final DeferredUpdateHelper deferredUpdateHelper;
 
     private final MaterialButton notificationsButton = new MaterialButton();
     private final List<NotificationEntry> notifications = new CopyOnWriteArrayList<>();
@@ -192,11 +155,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         };
     }
 
-    private final List<OutputWindow> activeStreamingWindows = new ArrayList<>();
-
-    @Nullable
-    private String lastSpinnerMessage = null; // Explicitly initialize
-
     // Preset state for staging history before next new message
     private @Nullable List<TaskEntry> pendingHistory = null;
 
@@ -213,22 +171,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Viewport preservation flags for group expand/collapse operations
     private boolean suppressScrollOnNextUpdate = false;
     private @Nullable Point pendingViewportPosition = null;
-
-    // Session AI response counts and in-flight loaders
-    private final Map<UUID, Integer> sessionAiResponseCounts = new ConcurrentHashMap<>();
-    private final Set<UUID> sessionCountLoading = ConcurrentHashMap.newKeySet();
-
-    @Nullable
-    private JList<SessionInfo> sessionsList;
-
-    @Nullable
-    private DiffService.CumulativeChanges lastCumulativeChanges;
-
-    @Nullable
-    private String lastBaselineLabel;
-
-    @Nullable
-    private BaselineMode lastBaselineMode;
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -255,121 +197,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         this.compressButton = new MaterialButton();
         this.notificationAreaPanel = buildNotificationAreaPanel();
 
-        // Initialize new session button early (used by buildCaptureOutputPanel)
-        this.newSessionButton = new MaterialButton();
-        this.newSessionButton.setToolTipText("Create a new session");
-        this.newSessionButton.addActionListener(e -> {
-            contextManager
-                    .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
-        });
-        // Set the "+" icon asynchronously (keeps EDT responsive for lookups)
-        SwingUtilities.invokeLater(() -> this.newSessionButton.setIcon(Icons.ADD));
-
-        // Session selector split button (dropdown only)
-        this.sessionNameLabel = new SplitButton("");
-        this.sessionNameLabel.setUnifiedHover(true);
-        this.sessionNameLabel.setMenuSupplier(() -> {
-            var popup = new JPopupMenu();
-
-            // Build the sessions list model
-            var model = new DefaultListModel<SessionInfo>();
-            var sessions = contextManager.getProject().getSessionManager().listSessions();
-            sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
-            for (var s : sessions) model.addElement(s);
-
-            var list = new JList<SessionInfo>(model);
-            this.sessionsList = list;
-            int visibleRowCount = Math.min(8, Math.max(3, model.getSize()));
-            list.setVisibleRowCount(visibleRowCount);
-            list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-            list.setCellRenderer(new SessionInfoRenderer());
-            // Prototype for efficient cell sizing - avoids calling renderer on all cells.
-            // Name content doesn't affect width (scroll pane is fixed at 360px), just need non-empty for height.
-            list.setPrototypeCellValue(
-                    new SessionInfo(UUID.randomUUID(), "X", System.currentTimeMillis(), System.currentTimeMillis()));
-
-            // Select current session in the list
-            var currentSessionId = contextManager.getCurrentSessionId();
-            for (int i = 0; i < model.getSize(); i++) {
-                if (model.getElementAt(i).id().equals(currentSessionId)) {
-                    list.setSelectedIndex(i);
-                    break;
-                }
-            }
-
-            // Mouse click: switch session and close popup
-            list.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    var sel = list.getSelectedValue();
-                    if (sel == null) return;
-                    UUID current = contextManager.getCurrentSessionId();
-                    if (!sel.id().equals(current)) {
-                        contextManager
-                                .switchSessionAsync(sel.id())
-                                .thenRun(() -> updateSessionComboBox())
-                                .exceptionally(ex -> {
-                                    logger.debug("Session switch rejected", ex);
-                                    SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
-                                    return null;
-                                });
-                    }
-                    Component c = list;
-                    while (c != null && !(c instanceof JPopupMenu)) {
-                        c = c.getParent();
-                    }
-                    if (c instanceof JPopupMenu popupOwner) {
-                        popupOwner.setVisible(false);
-                    }
-                }
-            });
-
-            // Enter key: switch session and close popup
-            list.addKeyListener(new java.awt.event.KeyAdapter() {
-                @Override
-                public void keyPressed(KeyEvent e) {
-                    if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-                        var sel = list.getSelectedValue();
-                        if (sel == null) return;
-                        UUID current = contextManager.getCurrentSessionId();
-                        if (!sel.id().equals(current)) {
-                            contextManager
-                                    .switchSessionAsync(sel.id())
-                                    .thenRun(() -> updateSessionComboBox())
-                                    .exceptionally(ex -> {
-                                        logger.debug("Session switch rejected", ex);
-                                        SwingUtilities.invokeLater(HistoryOutputPanel.this::updateSessionComboBox);
-                                        return null;
-                                    });
-                        }
-                        Component c = list;
-                        while (c != null && !(c instanceof JPopupMenu)) {
-                            c = c.getParent();
-                        }
-                        if (c instanceof JPopupMenu popupOwner) {
-                            popupOwner.setVisible(false);
-                        }
-                    }
-                }
-            });
-
-            var scroll = new JScrollPane(list);
-            scroll.setBorder(BorderFactory.createEmptyBorder());
-            scroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
-            int prefWidth = 360;
-            int rowHeight = list.getFont().getSize() + 6;
-            int prefHeight = Math.min(list.getVisibleRowCount() * rowHeight, 8 * rowHeight);
-            int available = getAvailableSpaceBelow(sessionNameLabel);
-            int cappedHeight = Math.min(prefHeight, available);
-            scroll.setPreferredSize(new Dimension(prefWidth, cappedHeight));
-
-            popup.add(scroll);
-            chrome.getThemeManager().registerPopupMenu(popup);
-            return popup;
-        });
-        this.sessionNameLabel.addActionListener(e -> this.sessionNameLabel.showPopupMenuInternal());
-
         var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
 
         // Initialize notification persistence and load saved notifications
@@ -393,22 +220,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
 
-        // Ensure session label under Output is initialized
-        updateSessionComboBox();
-
-        // Create header panel with all controls in a simple horizontal layout
-        this.sessionHeaderPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        sessionHeaderPanel.setOpaque(true);
-        var titledBorder = BorderFactory.createTitledBorder("Session");
-        var paddingBorder = BorderFactory.createEmptyBorder(0, 8, 0, 8);
-        sessionHeaderPanel.setBorder(BorderFactory.createCompoundBorder(titledBorder, paddingBorder));
-
-        sessionHeaderPanel.add(newSessionButton);
-        sessionHeaderPanel.add(new VerticalDivider());
-
-        sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        sessionHeaderPanel.add(sessionNameLabel);
-
         // Wrap activity panel in a tabbed pane with single "Activity" tab
         activityTabs = new JTabbedPane(JTabbedPane.TOP);
         activityTabs.addTab("Activity", activityPanel);
@@ -418,10 +229,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Create center container with both tab panels
         activityTabsContainer = new JPanel(new BorderLayout(Constants.H_GAP, 0));
         activityTabsContainer.add(centerPanel, BorderLayout.CENTER);
-        activityTabsContainer.add(activityTabs, BorderLayout.EAST);
 
-        // Main layout: header at top, center container in center
-        add(sessionHeaderPanel, BorderLayout.NORTH);
+        // Main layout: activityTabsContainer (containing centerPanel and activityTabs)
         add(activityTabsContainer, BorderLayout.CENTER);
 
         // Set minimum sizes for the main panel
@@ -435,9 +244,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Respect current Advanced Mode on construction
         setAdvancedMode(GlobalUiSettings.isAdvancedMode());
-
-        // Deferred update helper for Changes tab recomputation
-        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefreshBranchDiffPanel);
     }
 
     private void buildSessionSwitchPanel() {
@@ -477,100 +283,20 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Build capture output panel (copyButton is passed in)
         var capturePanel = buildCaptureOutputPanel(copyButton);
 
-        // Build the content for the Output tab (existing UI)
+        // Build the content for the Output area
         var outputPanel = new JPanel(new BorderLayout());
         outputPanel.setBorder(BorderFactory.createEtchedBorder());
 
         outputPanel.add(llmScrollPane, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
-        // Placeholder for the Changes tab
-        var placeholder = new JPanel(new BorderLayout());
-        var placeholderLabel = new JLabel("Review will appear here", SwingConstants.CENTER);
-        placeholderLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
-        placeholder.add(placeholderLabel, BorderLayout.CENTER);
-        this.changesTabPlaceholder = placeholder;
-
-        // Create the tabbed pane and add both tabs
-        var tabs = new JTabbedPane();
-        tabs.addTab("Output", outputPanel);
-        tabs.addTab("Review", placeholder);
-        this.outputTabs = tabs;
-
-        // Toggle Output/Changes with Space from Output area or tabs
-        Runnable toggleTabs = () -> {
-            var tp = outputTabs;
-            if (tp == null) return;
-            if (tp.getTabCount() < 2) return;
-            int idx = tp.getSelectedIndex();
-            tp.setSelectedIndex((idx + 1) % 2);
-        };
-        tabs.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggleTabsSpace");
-        tabs.getActionMap().put("toggleTabsSpace", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                toggleTabs.run();
-            }
-        });
-        llmStreamArea
-                .getInputMap(JComponent.WHEN_FOCUSED)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0), "toggleTabsSpace");
-        llmStreamArea.getActionMap().put("toggleTabsSpace", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                toggleTabs.run();
-            }
-        });
-
-        // Container for the combined section
+        // Container for the output area
         var centerContainer = new JPanel(new BorderLayout());
-        centerContainer.add(tabs, BorderLayout.CENTER);
-        centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for combined area
-        outputTabsContainer = centerContainer;
+        centerContainer.add(outputPanel, BorderLayout.CENTER);
+        centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for output area
+        llmOutputContainer = centerContainer;
 
         return centerContainer;
-    }
-
-    // Integrator note: When sessions are created/deleted/renamed externally, call
-    // HistoryOutputPanel.updateSessionComboBox() to keep the compact session label
-    // and popup list synchronized.
-
-    /**
-     * Refresh the compact session label and (if present) the sessions popup list model.
-     *
-     * <p>This method runs on the EDT and updates the right-aligned compact session label,
-     * and, if the session popup list has already been created/opened, swaps in a new
-     * list model showing the current sessions and selects the active session.
-     *
-     * <p>Call this from outside when the active session or the session list has changed
-     * (for example, the SessionManager, SessionsDialog, or other UI components mutate sessions).
-     * It is safe to call from non-EDT threads because this method schedules work via
-     * {@link SwingUtilities#invokeLater(Runnable)}.
-     */
-    public void updateSessionComboBox() {
-        SwingUtilities.invokeLater(() -> {
-            var sessions = contextManager.getProject().getSessionManager().listSessions();
-            sessions.sort(Comparator.comparingLong(SessionInfo::modified).reversed());
-
-            // Update compact label to show the active session name (with ellipsize and tooltip)
-            var currentSessionId = contextManager.getCurrentSessionId();
-            String labelText = "";
-            for (var s : sessions) {
-                if (s.id().equals(currentSessionId)) {
-                    labelText = s.name();
-                    break;
-                }
-            }
-            if (labelText.isBlank()) {
-                labelText = ContextManager.DEFAULT_SESSION_NAME;
-            }
-
-            final String fullName = labelText;
-            sessionNameLabel.setText(fullName);
-            sessionNameLabel.setToolTipText(fullName);
-            sessionNameLabel.revalidate();
-        });
     }
 
     /**
@@ -603,6 +329,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         contextManager.setSelectedContext(ctx);
                         // setContext is for *previewing* a context without changing selection state in the manager
                         chrome.setContext(ctx);
+
+                        // On-demand diff for selection
+                        var ds = contextManager.getContextHistory().getDiffService();
+                        ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
                     }
                 }
             }
@@ -666,7 +396,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Add table to scroll pane with AutoScroller
         this.historyScrollPane = new JScrollPane(historyTable);
         var layer = new JLayer<>(historyScrollPane, arrowLayerUI);
-        historyScrollPane.getViewport().addChangeListener(e -> layer.repaint());
+        historyScrollPane.getViewport().addChangeListener(e -> {
+            layer.repaint();
+            // Trigger on-demand diffs for the currently visible rows
+            requestVisibleDiffs();
+        });
         historyScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         AutoScroller.install(historyScrollPane);
         BorderUtils.addFocusBorder(historyScrollPane, historyTable);
@@ -844,7 +578,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         newSessionFromWorkspaceItem.addActionListener(event -> {
             contextManager
                     .createSessionFromContextAsync(context, ContextManager.DEFAULT_SESSION_NAME)
-                    .thenRun(() -> updateSessionComboBox())
+                    .thenRun(() -> chrome.getRightPanel().updateSessionComboBox())
                     .exceptionally(ex -> {
                         chrome.toolError("Failed to create new session from workspace: " + ex.getMessage());
                         return null;
@@ -908,9 +642,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 ctx1.allFragments().forEach(f -> ComputedSubscription.bind(f, historyTable, historyTable::repaint));
             }
 
-            // Warm up diffs centrally via ContextHistory.DiffService
+            // Diff warm-up is deferred; request diffs only for visible rows and current selection.
             var diffService = contextManager.getContextHistory().getDiffService();
-            diffService.warmUp(contexts);
             var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary);
             latestDescriptors = descriptors;
 
@@ -1010,52 +743,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
             }
 
+            // Request diffs for visible rows and current selection only.
+            requestVisibleDiffs();
+
             contextManager.getProject().getMainProject().sessionsListChanged();
             var resetEdges = contextManager.getContextHistory().getResetEdges();
             arrowLayerUI.setResetEdges(resetEdges);
             updateUndoRedoButtonStates();
-
-            // Put the Changes tab into a loading state before aggregation
-            var tabs = outputTabs;
-            if (tabs != null) {
-                int idx = -1;
-                if (changesTabPlaceholder != null) {
-                    idx = tabs.indexOfComponent(changesTabPlaceholder);
-                }
-                if (idx < 0 && tabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
-                }
-                if (idx >= 0) {
-                    try {
-                        tabs.setTitleAt(idx, "Review (...)");
-                        tabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Tab might have changed; ignore safely
-                    }
-                }
-
-                // Replace content with a spinner while loading
-                if (changesTabPlaceholder != null) {
-                    var container = changesTabPlaceholder;
-                    container.removeAll();
-                    container.setLayout(new BorderLayout());
-
-                    var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
-                    var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
-                    if (spinnerIcon != null) {
-                        spinnerLabel.setIcon(spinnerIcon);
-                        spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
-                        spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
-                    }
-
-                    container.add(spinnerLabel, BorderLayout.CENTER);
-                    container.revalidate();
-                    container.repaint();
-                }
-            }
-
-            // Recompute cumulative changes summary for the Changes tab in the background
-            refreshCumulativeChangesAsync();
         });
     }
 
@@ -1111,20 +805,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return activityTabs;
     }
 
-    public @Nullable JTabbedPane getOutputTabs() {
-        return outputTabs;
-    }
-
     public JPanel getActivityTabsContainer() {
         return activityTabsContainer;
     }
 
-    public JPanel getOutputTabsContainer() {
-        return outputTabsContainer;
-    }
-
-    public JPanel getSessionHeaderPanel() {
-        return sessionHeaderPanel;
+    public JPanel getLlmOutputContainer() {
+        return llmOutputContainer;
     }
 
     /**
@@ -1156,16 +842,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Fixed height for capture panel
         panel.setPreferredSize(new Dimension(0, 38));
         panel.setMinimumSize(new Dimension(0, 38));
-
-        // Placeholder area in center - will get all extra space
-        captureDescriptionArea = new JTextArea("");
-        captureDescriptionArea.setEditable(false);
-        captureDescriptionArea.setBackground(panel.getBackground());
-        captureDescriptionArea.setBorder(null);
-        captureDescriptionArea.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        captureDescriptionArea.setLineWrap(true);
-        captureDescriptionArea.setWrapStyleWord(true);
-        // notification area now occupies the CENTER; description area removed
 
         // Buttons panel on the left
         var buttonsPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
@@ -1228,7 +904,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                 var copyItem = new JMenuItem("Copy Output");
                 copyItem.addActionListener(event -> performContextActionOnLatestHistoryFragment(
-                        WorkspacePanel.ContextAction.COPY, "No active context to copy from."));
+                        ContextActionsHandler.ContextAction.COPY, "No active context to copy from."));
                 copyItem.setEnabled(copyButton.isEnabled());
                 popup.add(copyItem);
 
@@ -1241,7 +917,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                 var clearItem = new JMenuItem("Clear Output");
                 clearItem.addActionListener(event -> performContextActionOnLatestHistoryFragment(
-                        WorkspacePanel.ContextAction.DROP, "No active context to clear from."));
+                        ContextActionsHandler.ContextAction.DROP, "No active context to clear from."));
                 clearItem.setEnabled(clearButton.isEnabled());
                 popup.add(clearItem);
 
@@ -1281,7 +957,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * context. Shows appropriate user feedback if there is no active context or no history fragment.
      */
     private void performContextActionOnLatestHistoryFragment(
-            WorkspacePanel.ContextAction action, String noContextMessage) {
+            ContextActionsHandler.ContextAction action, String noContextMessage) {
         var ctx = contextManager.selectedContext();
         if (ctx == null) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, noContextMessage);
@@ -1299,7 +975,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var historyFrag = historyOpt.get();
-        chrome.getContextPanel().performContextActionAsync(action, List.of(historyFrag));
+        chrome.getContextActionsHandler().performContextActionAsync(action, List.of(historyFrag));
     }
 
     // Notification API
@@ -1308,7 +984,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var entry = new NotificationEntry(role, message, System.currentTimeMillis());
             notifications.add(entry);
             notificationQueue.offer(entry);
-            updateNotificationsButton();
             persistNotificationsAsync();
             refreshLatestNotificationCard();
             refreshNotificationsDialog();
@@ -1583,11 +1258,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    // Update the notifications button (removed count display)
-    private void updateNotificationsButton() {
-        // No-op: button just shows icon without count
-    }
-
     // Notification persistence
 
     private Path computeNotificationsFile() {
@@ -1661,9 +1331,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 notifications.add(new NotificationEntry(role, message, ts));
             }
 
-            SwingUtilities.invokeLater(() -> {
-                updateNotificationsButton();
-            });
+            SwingUtilities.invokeLater(() -> {});
         } catch (Exception e) {
             logger.warn("Failed to load persisted notifications from {}", notificationsFile, e);
         }
@@ -1731,7 +1399,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         clearAllBtn.addActionListener(e -> {
             notifications.clear();
             notificationQueue.clear();
-            updateNotificationsButton();
             persistNotificationsAsync();
             if (notificationsDialog != null && notificationsListPanel != null) {
                 rebuildNotificationsList(notificationsDialog, notificationsListPanel);
@@ -1819,7 +1486,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 closeBtn.addActionListener(e -> {
                     notifications.remove(n);
                     notificationQueue.removeIf(entry -> entry == n);
-                    updateNotificationsButton();
                     persistNotificationsAsync();
                     rebuildNotificationsList(dialog, listPanel);
                 });
@@ -1884,8 +1550,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     // Simple container for notifications
-    private static class VerticalDivider extends JPanel {
-        VerticalDivider() {
+    static class VerticalDivider extends JPanel {
+        public VerticalDivider() {
             setOpaque(false);
             setPreferredSize(new Dimension(2, 32));
             setMinimumSize(new Dimension(2, 32));
@@ -1917,78 +1583,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    /**
-     * Sets the Changes tab title and tooltip based on the provided cumulative changes result,
-     * using theme-appropriate + / - colors. Safe if the tab lineup changes while updating.
-     */
-    private void setChangesTabTitleAndTooltip(DiffService.CumulativeChanges res) {
-        var tabs = outputTabs;
-        if (tabs == null) return;
-
-        int idx = -1;
-        if (changesTabPlaceholder != null) {
-            idx = tabs.indexOfComponent(changesTabPlaceholder);
-        }
-        if (idx < 0) {
-            try {
-                if (tabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Review"
-                }
-            } catch (IndexOutOfBoundsException ignore) {
-                return;
-            }
-        }
-        if (idx < 0) return;
-
-        // For special baseline states (detached HEAD or no repository), omit the suffix
-        boolean isSpecialState = "detached HEAD".equals(lastBaselineLabel) || "No repository".equals(lastBaselineLabel);
-        String baselineSuffix = (!isSpecialState && lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
-                ? " vs " + lastBaselineLabel
-                : "";
-
-        try {
-            if (res.filesChanged() == 0) {
-                tabs.setTitleAt(idx, "Review (0)" + baselineSuffix);
-                String tooltipMsg;
-                if (isSpecialState) {
-                    tooltipMsg = "No baseline to compare";
-                } else if ("HEAD".equals(lastBaselineLabel)) {
-                    tooltipMsg = "Working tree is clean";
-                } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
-                    tooltipMsg = "No changes vs " + lastBaselineLabel;
-                } else {
-                    tooltipMsg = "No changes to review";
-                }
-                tabs.setToolTipTextAt(idx, tooltipMsg + ".");
-            } else {
-                boolean isDark = chrome.getTheme().isDarkTheme();
-                Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
-                Color minusColor = ThemeColors.getColor(isDark, "diff_deleted_fg");
-                String htmlTitle = String.format(
-                        "<html>Review (%d, <span style='color:%s'>+%d</span>/<span style='color:%s'>-%d</span>)%s</html>",
-                        res.filesChanged(),
-                        ColorUtil.toHex(plusColor),
-                        res.totalAdded(),
-                        ColorUtil.toHex(minusColor),
-                        res.totalDeleted(),
-                        escapeHtml(baselineSuffix));
-                tabs.setTitleAt(idx, htmlTitle);
-                String tooltip = "Cumulative changes: "
-                        + res.filesChanged()
-                        + " files, +" + res.totalAdded()
-                        + "/-" + res.totalDeleted()
-                        + baselineSuffix;
-                tabs.setToolTipTextAt(idx, tooltip);
-            }
-        } catch (IndexOutOfBoundsException ignore) {
-            // Tab lineup changed; ignore safely
-        }
-    }
-
     private void removeNotificationCard() {
         Runnable r = () -> {
             refreshLatestNotificationCard();
-            updateNotificationsButton();
             persistNotificationsAsync();
             refreshNotificationsDialog();
         };
@@ -2074,7 +1671,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         pendingHistory = null;
 
         // Set an explicit empty main TaskEntry (new-task placeholder) and display the staged history
-        var emptyMainFragment = new ContextFragment.TaskFragment(contextManager, List.of(), "");
+        var emptyMainFragment = new ContextFragments.TaskFragment(contextManager, List.of(), "");
         var emptyMainTask = new TaskEntry(-1, emptyMainFragment, null);
         llmStreamArea.setMainThenHistoryAsync(emptyMainTask, history);
     }
@@ -2087,8 +1684,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         applyPresetIfNeeded();
 
         llmStreamArea.append(text, type, isNewMessage, isReasoning);
-        activeStreamingWindows.forEach(
-                window -> window.getMarkdownOutputPanel().append(text, type, isNewMessage, isReasoning));
     }
 
     /**
@@ -2124,8 +1719,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     public void showSpinner(String message) {
         llmStreamArea.showSpinner(message);
-        lastSpinnerMessage = message;
-        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().showSpinner(message));
     }
 
     /**
@@ -2133,8 +1726,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     public void hideSpinner() {
         llmStreamArea.hideSpinner();
-        lastSpinnerMessage = null;
-        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().hideSpinner());
     }
 
     /**
@@ -2143,49 +1734,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public void showSessionSwitchSpinner() {
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
-
-            // Dispose and clear any existing aggregated Changes panel
-            if (aggregatedChangesPanel != null) {
-                aggregatedChangesPanel.dispose();
-            }
-            aggregatedChangesPanel = null;
-
-            // Update the Changes tab to a loading state and show a spinner placeholder
-            if (outputTabs != null) {
-                int idx = -1;
-                if (changesTabPlaceholder != null) {
-                    idx = outputTabs.indexOfComponent(changesTabPlaceholder);
-                }
-                if (idx < 0 && outputTabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
-                }
-                if (idx >= 0) {
-                    try {
-                        outputTabs.setTitleAt(idx, "(...)");
-                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Safe-guard: tab lineup may have changed
-                    }
-                }
-            }
-
-            if (changesTabPlaceholder != null) {
-                var container = changesTabPlaceholder;
-                container.removeAll();
-                container.setLayout(new BorderLayout());
-
-                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
-                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
-                if (spinnerIcon != null) {
-                    spinnerLabel.setIcon(spinnerIcon);
-                    spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
-                    spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
-                }
-
-                container.add(spinnerLabel, BorderLayout.CENTER);
-                container.revalidate();
-                container.repaint();
-            }
 
             JPanel ssp = sessionSwitchPanel;
             if (ssp == null) {
@@ -2209,95 +1757,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 sessionSwitchPanel.revalidate();
                 sessionSwitchPanel.repaint();
             }
-
-            // Show loading state in Changes tab before triggering refresh
-            if (outputTabs != null && changesTabPlaceholder != null) {
-                int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
-                if (idx < 0 && outputTabs.getTabCount() >= 2) {
-                    idx = 1;
-                }
-                if (idx >= 0) {
-                    try {
-                        outputTabs.setTitleAt(idx, "Review (...)");
-                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Safe-guard
-                    }
-                }
-
-                var container = changesTabPlaceholder;
-                container.removeAll();
-                container.setLayout(new BorderLayout());
-
-                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
-                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
-                if (spinnerIcon != null) {
-                    spinnerLabel.setIcon(spinnerIcon);
-                    spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
-                    spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
-                }
-
-                container.add(spinnerLabel, BorderLayout.CENTER);
-                container.revalidate();
-                container.repaint();
-            }
-
-            // Trigger a fresh aggregation for the newly selected session
-            refreshCumulativeChangesAsync();
-        });
-    }
-
-    /**
-     * Public entry-point to refresh the branch-based Changes tab on demand.
-     * Safe to call from any thread. Defers the heavy recompute if the panel is not visible.
-     */
-    public void requestDiffUpdate() {
-        deferredUpdateHelper.requestUpdate();
-    }
-
-    /** Runs the original refreshBranchDiffPanel logic when visible. */
-    private void performRefreshBranchDiffPanel() {
-        SwingUtil.runOnEdt(() -> {
-            // Dispose and clear any existing aggregated diff panel
-            if (aggregatedChangesPanel != null) {
-                aggregatedChangesPanel.dispose();
-            }
-            aggregatedChangesPanel = null;
-
-            // Put the Changes tab into a loading state with spinner
-            if (outputTabs != null && changesTabPlaceholder != null) {
-                int idx = outputTabs.indexOfComponent(changesTabPlaceholder);
-                if (idx < 0 && outputTabs.getTabCount() >= 2) {
-                    idx = 1; // Fallback: assume second tab is "Changes"
-                }
-                if (idx >= 0) {
-                    try {
-                        outputTabs.setTitleAt(idx, "Review (...)");
-                        outputTabs.setToolTipTextAt(idx, "Computing branch-based changes...");
-                    } catch (IndexOutOfBoundsException ignore) {
-                        // Tab lineup might have changed; ignore safely
-                    }
-                }
-
-                var container = changesTabPlaceholder;
-                container.removeAll();
-                container.setLayout(new BorderLayout());
-
-                var spinnerLabel = new JLabel("Computing branch-based changes...", SwingConstants.CENTER);
-                var spinnerIcon = SpinnerIconUtil.getSpinner(chrome, true);
-                if (spinnerIcon != null) {
-                    spinnerLabel.setIcon(spinnerIcon);
-                    spinnerLabel.setHorizontalTextPosition(SwingConstants.CENTER);
-                    spinnerLabel.setVerticalTextPosition(SwingConstants.BOTTOM);
-                }
-
-                container.add(spinnerLabel, BorderLayout.CENTER);
-                container.revalidate();
-                container.repaint();
-            }
-
-            // Kick off asynchronous recompute
-            refreshCumulativeChangesAsync();
         });
     }
 
@@ -2318,7 +1777,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public void setTaskInProgress(boolean inProgress) {
         llmStreamArea.setTaskInProgress(inProgress);
-        activeStreamingWindows.forEach(window -> window.getMarkdownOutputPanel().setTaskInProgress(inProgress));
     }
 
     /**
@@ -2348,42 +1806,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private void openOutputWindowFromContext(Context context) {
         var taskHistory = context.getTaskHistory();
-        TaskEntry mainTask = null;
-        List<TaskEntry> historyTasks = List.of();
-        if (!taskHistory.isEmpty()) {
-            historyTasks = taskHistory.subList(0, taskHistory.size() - 1);
-            mainTask = taskHistory.getLast();
-        } else {
+        if (taskHistory.isEmpty()) {
             var output = context.getParsedOutput();
             if (output != null) {
-                mainTask = new TaskEntry(-1, output, null);
+                taskHistory = List.of(new TaskEntry(-1, output, null));
             }
         }
-        if (mainTask != null) {
-            String titleHint = context.getAction();
-            new OutputWindow(this, historyTasks, mainTask, titleHint, MainProject.getTheme(), false);
+
+        if (!taskHistory.isEmpty()) {
+            var fragment = new ContextFragments.HistoryFragment(contextManager, taskHistory);
+            chrome.openFragmentPreview(fragment);
         }
     }
 
     private void openOutputWindowStreaming() {
-        // show all = grab all messages, including reasoning for preview window
         List<ChatMessage> currentMessages = llmStreamArea.getRawMessages();
-        var tempFragment = new ContextFragment.TaskFragment(contextManager, currentMessages, "Streaming Output...");
-        var history = contextManager.liveContext().getTaskHistory();
-        var mainTask = new TaskEntry(-1, tempFragment, null);
-        String titleHint = lastSpinnerMessage;
-        OutputWindow newStreamingWindow =
-                new OutputWindow(this, history, mainTask, titleHint, MainProject.getTheme(), true);
-        if (lastSpinnerMessage != null) {
-            newStreamingWindow.getMarkdownOutputPanel().showSpinner(lastSpinnerMessage);
-        }
-        activeStreamingWindows.add(newStreamingWindow);
-        newStreamingWindow.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosed(WindowEvent evt) {
-                activeStreamingWindows.remove(newStreamingWindow);
-            }
-        });
+        var tempFragment = new ContextFragments.TaskFragment(contextManager, currentMessages, "Streaming Output...");
+        var history = new ArrayList<>(contextManager.liveContext().getTaskHistory());
+        history.add(new TaskEntry(-1, tempFragment, null));
+
+        var fragment = new ContextFragments.HistoryFragment(contextManager, history);
+        chrome.openFragmentPreview(fragment);
     }
 
     /**
@@ -2429,7 +1872,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 (last.log() != null) ? last.log().text().future() : CompletableFuture.completedFuture(last.summary());
 
         captureTextFuture.thenAccept(captureText -> {
-            if (captureText == null || captureText.isBlank()) {
+            if (captureText.isBlank()) {
                 chrome.systemNotify("No content to capture", "Capture failed", JOptionPane.WARNING_MESSAGE);
                 return;
             }
@@ -2444,7 +1887,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     var system = new SystemMessage(
                             """
     You are generating an actionable, incremental task list based on the provided capture. Do not speculate beyond it.
-    You MUST produce tasks via exactly one tool call: createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks: List<String>).
+    You MUST produce tasks via exactly one tool call: createOrReplaceTaskList(explanation: String, tasks: List<String>).
                                     Do not output free-form text.
     """);
                     var user = new UserMessage(
@@ -2462,7 +1905,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                                     - Avoid external/non-code tasks.
                                     - Include all the relevant details that you see in the capture for each task, but do not embellish or speculate.
 
-                                    Call createOrReplaceTaskList(explanation: String, tasks: List<String>) or appendTaskList(explanation: String, tasks:List<String>) with your final list. Do not include any explanation outside the tool call.
+                                    Call createOrReplaceTaskList(explanation: String, tasks: List<String>) with your final list. Do not include any explanation outside the tool call.
 
         Guidance:
     %s
@@ -2478,12 +1921,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             .register(ws)
                             .build();
 
-                    var toolSpecs = new ArrayList<ToolSpecification>();
-                    toolSpecs.addAll(tr.getTools(List.of("createOrReplaceTaskList", "appendTaskList")));
+                    var toolSpecs = new ArrayList<>(tr.getTools(List.of("createOrReplaceTaskList")));
                     if (toolSpecs.isEmpty()) {
-                        chrome.toolError(
-                                "Required tools 'createOrReplaceTaskList' or 'appendTaskList' are not registered.",
-                                "Task List");
+                        chrome.toolError("Required tool 'createOrReplaceTaskList' is not registered.", "Task List");
                         return;
                     }
 
@@ -2498,7 +1938,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
                         assert ai.hasToolExecutionRequests(); // LLM enforces
                         for (var req : ai.toolExecutionRequests()) {
-                            if (!"createOrReplaceTaskList".equals(req.name()) && !"appendTaskList".equals(req.name())) {
+                            if (!"createOrReplaceTaskList".equals(req.name())) {
                                 continue;
                             }
                             var ter = tr.executeTool(req);
@@ -2524,161 +1964,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 }
             });
         });
-    }
-
-    /**
-     * Inner class representing a detached window for viewing output text
-     */
-    private static class OutputWindow extends JFrame {
-        private final IProject project;
-        private final MarkdownOutputPanel outputPanel;
-
-        /**
-         * Creates a new output window with the given content and optional history.
-         *
-         * @param parentPanel      The parent HistoryOutputPanel
-         * @param history          The conversation tasks to display in the history section (all but the main task)
-         * @param main             The main/last task to display in the live area
-         * @param titleHint        A hint for the window title (e.g., task summary or spinner message)
-         * @param themeName        The theme name (dark, light, or high-contrast)
-         * @param isTaskInProgress Whether the window shows a streaming (in-progress) output
-         */
-        public OutputWindow(
-                HistoryOutputPanel parentPanel,
-                List<TaskEntry> history,
-                TaskEntry main,
-                @Nullable String titleHint,
-                String themeName,
-                boolean isTaskInProgress) {
-            super(determineWindowTitle(titleHint, isTaskInProgress)); // Call superclass constructor first
-
-            // Set icon from Chrome.newFrame
-            try {
-                var iconUrl = Chrome.class.getResource(Brokk.ICON_RESOURCE);
-                if (iconUrl != null) {
-                    var icon = new ImageIcon(iconUrl);
-                    setIconImage(icon.getImage());
-                }
-            } catch (Exception e) {
-                logger.debug("Failed to set OutputWindow icon", e);
-            }
-
-            // Apply macOS full-window-content and title bar styling
-            Chrome.maybeApplyMacFullWindowContent(this);
-            ThemeTitleBarManager.maybeApplyMacTitleBar(this, determineWindowTitle(titleHint, isTaskInProgress));
-
-            this.project = parentPanel.contextManager.getProject(); // Get project reference
-            setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-
-            // Create markdown panel with the text
-            outputPanel = new MarkdownOutputPanel();
-            outputPanel.withContextForLookups(parentPanel.contextManager, parentPanel.chrome);
-            outputPanel.updateTheme(themeName);
-            // Seed main content first, then history
-            outputPanel
-                    .setMainThenHistoryAsync(main, history)
-                    .thenRun(() -> outputPanel.setTaskInProgress(isTaskInProgress));
-
-            // Create toolbar panel with capture button if not task in progress
-            JPanel toolbarPanel = null;
-            if (!isTaskInProgress) {
-                toolbarPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-                toolbarPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 0));
-
-                MaterialButton captureButton = new MaterialButton();
-                SwingUtilities.invokeLater(() -> {
-                    captureButton.setIcon(Icons.CONTENT_CAPTURE);
-                });
-                captureButton.setToolTipText("Capture output to workspace");
-                captureButton.addActionListener(e -> {
-                    parentPanel.presentCaptureChoice();
-                });
-                toolbarPanel.add(captureButton);
-            }
-
-            // Use shared utility method to create searchable content panel with optional toolbar
-            JPanel contentPanel = Chrome.createSearchableContentPanel(List.of(outputPanel), toolbarPanel);
-
-            // Add the content panel to the frame
-            add(contentPanel);
-
-            // Load saved size and position, or use defaults
-            var bounds = project.getOutputWindowBounds();
-            if (bounds.width <= 0 || bounds.height <= 0) {
-                setSize(800, 600); // Default size
-                setLocationRelativeTo(parentPanel); // Center relative to parent
-            } else {
-                setSize(bounds.width, bounds.height);
-                if (bounds.x >= 0 && bounds.y >= 0 && parentPanel.chrome.isPositionOnScreen(bounds.x, bounds.y)) {
-                    setLocation(bounds.x, bounds.y);
-                } else {
-                    setLocationRelativeTo(parentPanel); // Center relative to parent if off-screen
-                }
-            }
-
-            // Add listeners to save position/size on change
-            addComponentListener(new ComponentAdapter() {
-                @Override
-                public void componentResized(ComponentEvent e) {
-                    project.saveOutputWindowBounds(OutputWindow.this);
-                }
-
-                @Override
-                public void componentMoved(ComponentEvent e) {
-                    project.saveOutputWindowBounds(OutputWindow.this);
-                }
-            });
-
-            // Add ESC key binding to close the window
-            var rootPane = getRootPane();
-            var actionMap = rootPane.getActionMap();
-            var inputMap = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-
-            inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "closeWindow");
-            actionMap.put("closeWindow", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    dispose();
-                }
-            });
-
-            // Make window visible
-            setVisible(true);
-        }
-
-        private static String determineWindowTitle(@Nullable String titleHint, boolean isTaskInProgress) {
-            String windowTitle;
-            if (isTaskInProgress) {
-                windowTitle = "Output (In progress)";
-                if (titleHint != null && !titleHint.isBlank()) {
-                    windowTitle = "Output: " + titleHint;
-                    String taskType = null;
-                    if (titleHint.contains(InstructionsPanel.ACTION_CODE)) {
-                        taskType = InstructionsPanel.ACTION_CODE;
-                    } else if (titleHint.contains(InstructionsPanel.ACTION_LUTZ)) {
-                        taskType = InstructionsPanel.ACTION_LUTZ;
-                    } else if (titleHint.contains(InstructionsPanel.ACTION_ASK)) {
-                        taskType = InstructionsPanel.ACTION_ASK;
-                    }
-                    if (taskType != null) {
-                        windowTitle = String.format("Output (%s in progress)", taskType);
-                    }
-                }
-            } else {
-                windowTitle = "Output";
-                if (titleHint != null && !titleHint.isBlank()) {
-                    windowTitle = "Output: " + titleHint;
-                }
-            }
-            return windowTitle;
-        }
-
-        /**
-         * Gets the MarkdownOutputPanel used by this window.
-         */
-        public MarkdownOutputPanel getMarkdownOutputPanel() {
-            return outputPanel;
-        }
     }
 
     /**
@@ -2897,110 +2182,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         assert SwingUtilities.isEventDispatchThread() : "applyTheme must be called on EDT";
         // Propagate theme to child output area
         llmStreamArea.applyTheme(guiTheme);
-        // Propagate to aggregated Changes panel (BrokkDiffPanel implements ThemeAware)
-        if (aggregatedChangesPanel != null) {
-            aggregatedChangesPanel.applyTheme(guiTheme);
-        }
-
-        // Recompute the Changes tab title colors to match the new theme if we have a computed summary
-        if (lastCumulativeChanges != null) {
-            setChangesTabTitleAndTooltip(lastCumulativeChanges);
-        }
 
         SwingUtilities.updateComponentTreeUI(this);
         revalidate();
         repaint();
     }
 
-    /** Performs a pull operation on the current branch with user feedback. */
-    private void performPull() {
-        try {
-            var repoOpt = repo();
-            if (repoOpt.isEmpty()) {
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No repository available.");
-                return;
-            }
-
-            var gitRepo = repoOpt.get();
-            String currentBranch = gitRepo.getCurrentBranch();
-
-            contextManager.submitExclusiveAction(() -> {
-                try {
-                    showSpinner("Pulling " + currentBranch + "...");
-                    var workflow = new GitWorkflow(contextManager);
-                    var pullResult = workflow.pull(currentBranch);
-
-                    SwingUtilities.invokeLater(() -> {
-                        hideSpinner();
-                        if (pullResult.isEmpty()) {
-                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull completed successfully.");
-                        } else {
-                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull: " + pullResult);
-                        }
-                        requestDiffUpdate();
-                        chrome.updateGitRepo();
-                    });
-                } catch (Exception e) {
-                    logger.error("Error pulling branch {}", currentBranch, e);
-                    SwingUtilities.invokeLater(() -> {
-                        hideSpinner();
-                        chrome.toolError("Pull failed: " + e.getMessage(), "Pull Error");
-                    });
-                }
-                return null;
-            });
-        } catch (Exception e) {
-            logger.error("Error initiating pull", e);
-            chrome.toolError("Pull failed: " + e.getMessage(), "Pull Error");
-        }
-    }
-
-    /** Performs a push operation on the current branch with user feedback. */
-    private void performPush() {
-        try {
-            var repoOpt = repo();
-            if (repoOpt.isEmpty()) {
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No repository available.");
-                return;
-            }
-
-            var gitRepo = repoOpt.get();
-            String currentBranch = gitRepo.getCurrentBranch();
-
-            contextManager.submitExclusiveAction(() -> {
-                try {
-                    showSpinner("Pushing " + currentBranch + "...");
-                    var workflow = new GitWorkflow(contextManager);
-                    var pushResult = workflow.push(currentBranch);
-
-                    SwingUtilities.invokeLater(() -> {
-                        hideSpinner();
-                        if (pushResult.isEmpty()) {
-                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push completed successfully.");
-                        } else {
-                            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push: " + pushResult);
-                        }
-                        requestDiffUpdate();
-                        chrome.updateGitRepo();
-                    });
-                } catch (Exception e) {
-                    logger.error("Error pushing branch {}", currentBranch, e);
-                    SwingUtilities.invokeLater(() -> {
-                        hideSpinner();
-                        chrome.toolError("Push failed: " + e.getMessage(), "Push Error");
-                    });
-                }
-                return null;
-            });
-        } catch (Exception e) {
-            logger.error("Error initiating push", e);
-            chrome.toolError("Push failed: " + e.getMessage(), "Push Error");
-        }
-    }
-
-    /**
-     * Releases owned resources. Must be called on the EDT.
-     */
     public void showTransientMessage(String message) {
         // Apply preset layout before showing transient message
         applyPresetIfNeeded();
@@ -3013,11 +2200,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public void dispose() {
         assert SwingUtilities.isEventDispatchThread() : "dispose must be called on EDT";
-        // Dispose aggregated changes panel if present
-        if (aggregatedChangesPanel != null) {
-            aggregatedChangesPanel.dispose();
-        }
-        aggregatedChangesPanel = null;
         // Dispose the web-based markdown output panel
         try {
             llmStreamArea.dispose();
@@ -3053,6 +2235,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     .setRootTitle("Diff: " + ctx.getAction())
                     .setInitialFileIndex(0);
 
+            String tabTitle = "Diff: " + ctx.getAction();
+            if (diffs.size() == 1) {
+                var files = diffs.getFirst().fragment().files().join();
+                if (!files.isEmpty()) {
+                    tabTitle = "Diff of " + files.iterator().next().getFileName();
+                }
+            }
+
             var diffPairFutures = new ArrayList<CompletableFuture<BufferedSourcePair>>();
             for (var de : diffs) {
                 var task = contextManager.submitBackgroundTask("Compute diff window entry for:" + de, () -> {
@@ -3083,362 +2273,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 builder.addComparison(pair.left(), pair.right());
             });
 
+            final String finalTabTitle = tabTitle;
             SwingUtilities.invokeLater(() -> {
                 // Contract: callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists
-                // the
-                // user's choice when they toggle view (Fixes #1679)
+                // the user's choice when they toggle view (Fixes #1679)
                 var panel = builder.build();
-                panel.showInFrame("Diff: " + ctx.getAction());
+                panel.showInTab(chrome.getPreviewManager(), finalTabTitle);
             });
         });
-    }
-
-    private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync() {
-        return contextManager
-                .submitBackgroundTask("Compute branch-based changes", () -> {
-                    var repoOpt = repo();
-                    if (repoOpt.isEmpty()) {
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-                    }
-
-                    var repo = repoOpt.get();
-
-                    // Branch-specific methods require GitRepo, not just IGitRepo
-                    if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-                    }
-
-                    var baseline = computeBaselineForChanges();
-                    lastBaselineLabel = baseline.displayLabel();
-                    lastBaselineMode = baseline.mode();
-
-                    // Handle cases with no baseline
-                    if (baseline.mode() == BaselineMode.DETACHED || baseline.mode() == BaselineMode.NO_BASELINE) {
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-                    }
-
-                    try {
-                        // use map: deduplicate by file path, preferring working tree status over branch/commit status
-                        // => don't show a file twice when the state in the 2 branchses differs
-                        Map<ProjectFile, IGitRepo.ModifiedFile> fileMap = new HashMap<>();
-                        String leftCommitSha = null;
-                        String currentBranch = gitRepo.getCurrentBranch();
-
-                        switch (baseline.mode()) {
-                            case NON_DEFAULT_BRANCH -> {
-                                String defaultBranch = baseline.baselineRef();
-                                // Use fully-qualified ref to avoid ambiguity with tags
-                                String defaultBranchRef = "refs/heads/" + defaultBranch;
-
-                                // Get merge base first - this is the fork point
-                                leftCommitSha = gitRepo.getMergeBase(currentBranch, defaultBranchRef);
-
-                                // Get files changed on our side only (merge-base to HEAD) when merge-base exists
-                                if (leftCommitSha != null) {
-                                    var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
-                                    for (var mf : myChanges) {
-                                        fileMap.putIfAbsent(mf.file(), mf);
-                                    }
-                                } else {
-                                    // Fallback: no merge-base found; restrict baseline to HEAD (working tree only)
-                                    leftCommitSha = "HEAD";
-                                }
-
-                                // Union with working tree changes (prefer working tree status)
-                                for (var mf : gitRepo.getModifiedFiles()) {
-                                    fileMap.put(mf.file(), mf);
-                                }
-                            }
-                            case DEFAULT_WITH_UPSTREAM -> {
-                                String upstreamRef = baseline.baselineRef();
-
-                                // Use merge-base as baseline to show only our changes
-                                leftCommitSha = gitRepo.getMergeBase("HEAD", upstreamRef);
-
-                                // Get files changed on our side only (merge-base to HEAD) when merge-base exists
-                                if (leftCommitSha != null) {
-                                    var myChanges = gitRepo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
-                                    for (var mf : myChanges) {
-                                        fileMap.putIfAbsent(mf.file(), mf);
-                                    }
-                                } else {
-                                    // Fallback: no merge-base found; restrict baseline to HEAD (working tree only)
-                                    leftCommitSha = "HEAD";
-                                }
-
-                                // Union with working tree changes (prefer working tree status)
-                                for (var mf : gitRepo.getModifiedFiles()) {
-                                    fileMap.put(mf.file(), mf);
-                                }
-                            }
-                            case DEFAULT_LOCAL_ONLY -> {
-                                // Only working tree changes
-                                for (var mf : gitRepo.getModifiedFiles()) {
-                                    fileMap.put(mf.file(), mf);
-                                }
-                                leftCommitSha = "HEAD";
-                            }
-                            case DETACHED, NO_BASELINE -> {
-                                // Earlier guard already returns empty results for these modes.
-                                throw new AssertionError();
-                            }
-                        }
-
-                        // Deduplicated set of files to summarize
-                        var fileSet = new java.util.HashSet<>(fileMap.values());
-
-                        // Use DiffService to summarize changes between baseline and working tree
-                        var summarizedChanges =
-                                DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
-                        var perFileChanges = summarizedChanges.perFileChanges();
-                        int totalAdded = summarizedChanges.totalAdded();
-                        int totalDeleted = summarizedChanges.totalDeleted();
-
-                        GitWorkflow.PushPullState pushPullState = null;
-                        try {
-                            boolean hasUpstream = gitRepo.hasUpstreamBranch(currentBranch);
-                            boolean canPush;
-                            Set<String> unpushedCommitIds = new HashSet<>();
-                            if (hasUpstream) {
-                                unpushedCommitIds.addAll(gitRepo.remote().getUnpushedCommitIds(currentBranch));
-                                canPush = !unpushedCommitIds.isEmpty();
-                            } else {
-                                // Can push to create upstream branch
-                                canPush = true;
-                            }
-                            pushPullState =
-                                    new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
-                        } catch (Exception e) {
-                            logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
-                        }
-
-                        return new DiffService.CumulativeChanges(
-                                perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, pushPullState);
-
-                    } catch (Exception e) {
-                        logger.warn("Failed to compute branch-based changes", e);
-                        return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
-                    }
-                })
-                .thenApply(result -> {
-                    // Precompute titles/contents and sorting OFF the EDT
-                    var preparedSummaries = DiffService.preparePerFileSummaries(result);
-                    // Update UI on EDT
-                    SwingUtilities.invokeLater(() -> {
-                        lastCumulativeChanges = result;
-                        setChangesTabTitleAndTooltip(result);
-                        updateChangesTabContentUi(result, preparedSummaries);
-                    });
-                    return result;
-                });
-    }
-
-    // Build and insert the aggregated multi-file diff panel into the Changes tab using precomputed data.
-    // Must be called on the EDT.
-    private void updateChangesTabContentUi(
-            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
-        assert SwingUtilities.isEventDispatchThread() : "updateChangesTabContentUi must run on EDT";
-        var container = changesTabPlaceholder;
-        if (container == null) {
-            return;
-        }
-
-        // Dispose any previous diff panel to free resources
-        if (aggregatedChangesPanel != null) {
-            aggregatedChangesPanel.dispose();
-        }
-        aggregatedChangesPanel = null;
-
-        container.removeAll();
-
-        if (res.filesChanged() == 0) {
-            String message;
-            if ("detached HEAD".equals(lastBaselineLabel)) {
-                message = "Detached HEAD \u2014 no changes to review";
-            } else if ("No repository".equals(lastBaselineLabel)) {
-                message = "No baseline to compare";
-            } else if ("HEAD".equals(lastBaselineLabel)) {
-                message = "Working tree is clean (no uncommitted changes).";
-            } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
-                message = "No changes vs " + lastBaselineLabel + ".";
-            } else {
-                message = "No changes to review.";
-            }
-            var none = new JLabel(message, SwingConstants.CENTER);
-            none.setBorder(new EmptyBorder(20, 0, 20, 0));
-            container.setLayout(new BorderLayout());
-            container.add(none, BorderLayout.CENTER);
-            container.revalidate();
-            container.repaint();
-            return;
-        }
-
-        var aggregatedPanel = buildAggregatedChangesPanel(res, prepared);
-        container.setLayout(new BorderLayout());
-        container.add(aggregatedPanel, BorderLayout.CENTER);
-        container.revalidate();
-        container.repaint();
-    }
-
-    private JPanel buildAggregatedChangesPanel(
-            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
-        var wrapper = new JPanel(new BorderLayout());
-
-        // Build header with baseline label and buttons
-        var headerPanel = new JPanel(new BorderLayout(8, 0));
-        headerPanel.setOpaque(false);
-
-        // Baseline label on the left
-        String baselineLabelText = (lastBaselineLabel != null && !lastBaselineLabel.isEmpty())
-                ? "Comparing vs " + lastBaselineLabel
-                : "Branch-based changes";
-        var baselineLabel = new JLabel(baselineLabelText);
-        baselineLabel.setFont(baselineLabel.getFont().deriveFont(Font.BOLD));
-        headerPanel.add(baselineLabel, BorderLayout.WEST);
-
-        // Create right-aligned button panel for all action buttons
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-        buttonPanel.setOpaque(false);
-
-        // Determine if there are uncommitted working tree changes
-        boolean hasUncommittedChanges = false;
-        try {
-            var repoOpt = repo();
-            if (repoOpt.isPresent()) {
-                hasUncommittedChanges = !repoOpt.get().getModifiedFiles().isEmpty();
-            }
-        } catch (Exception e) {
-            logger.debug("Unable to determine uncommitted changes state", e);
-            hasUncommittedChanges = false; // default safe behavior
-        }
-
-        // Add "Changes to Commit" primary button when uncommitted changes exist
-        if (hasUncommittedChanges) {
-            var changesToCommitButton = new MaterialButton("Changes to Commit");
-            SwingUtil.applyPrimaryButtonStyle(changesToCommitButton);
-            changesToCommitButton.setToolTipText("Review and commit pending changes");
-            changesToCommitButton.addActionListener(e -> {
-                SwingUtilities.invokeLater(() -> {
-                    var content = new GitCommitTab(chrome, contextManager);
-                    content.requestUpdate();
-
-                    var dialog = new BaseThemedDialog(chrome.getFrame(), "Changes");
-                    dialog.setDefaultCloseOperation(BaseThemedDialog.DISPOSE_ON_CLOSE);
-                    dialog.getContentRoot().add(content);
-
-                    Dimension prefSize = content.getPreferredSize();
-                    int width = Math.max(prefSize.width, 800);
-                    int height = Math.max(prefSize.height, 600);
-                    dialog.setSize(width, height);
-
-                    dialog.setLocationRelativeTo(chrome.getFrame());
-                    Chrome.applyIcon(dialog);
-
-                    content.applyTheme(chrome.getTheme());
-
-                    // Add window listener to refresh UI after commit dialog closes
-                    dialog.addWindowListener(new WindowAdapter() {
-                        @Override
-                        public void windowClosed(WindowEvent e) {
-                            requestDiffUpdate();
-                            var commitTab = chrome.getGitCommitTab();
-                            if (commitTab != null) {
-                                commitTab.requestUpdate();
-                            }
-                        }
-                    });
-
-                    dialog.setVisible(true);
-                });
-            });
-            buttonPanel.add(changesToCommitButton);
-        }
-
-        // Add Pull button (left of Create PR button)
-        var pushPullState = res.pushPullState();
-        if (pushPullState != null && pushPullState.canPull()) {
-            var pullButton = new MaterialButton("Pull");
-            pullButton.setToolTipText("Pull changes from upstream");
-            pullButton.setEnabled(!hasUncommittedChanges);
-            pullButton.addActionListener(e -> performPull());
-            buttonPanel.add(pullButton);
-        }
-
-        // Add Push button (left of Create PR button)
-        if (pushPullState != null && pushPullState.canPush()) {
-            var pushButton = new MaterialButton("Push");
-            pushButton.setToolTipText("Push commits to remote");
-            pushButton.setEnabled(!hasUncommittedChanges && pushPullState.canPush());
-            pushButton.addActionListener(e -> performPush());
-            buttonPanel.add(pushButton);
-        }
-
-        // Create PR button on the right (conditionally visible)
-        boolean showCreatePR = false;
-        if (lastBaselineMode != null) {
-            showCreatePR = (lastBaselineMode == BaselineMode.NON_DEFAULT_BRANCH)
-                    || (lastBaselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
-        }
-        if (showCreatePR) {
-            var createPRButton = new MaterialButton("Create PR");
-            createPRButton.setToolTipText("Create a Pull Request for these changes");
-            createPRButton.setEnabled(!hasUncommittedChanges);
-            createPRButton.addActionListener(e -> {
-                SwingUtilities.invokeLater(() -> {
-                    CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager);
-                });
-            });
-            buttonPanel.add(createPRButton);
-        }
-
-        // Always add button panel to header for consistent UI
-        headerPanel.add(buttonPanel, BorderLayout.EAST);
-
-        var topContainer = new JPanel(new BorderLayout(0, 6));
-        topContainer.setOpaque(false);
-        topContainer.add(headerPanel, BorderLayout.NORTH);
-
-        // Use a compound border: line border for separation + padding
-        wrapper.setBorder(new CompoundBorder(
-                new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
-
-        // Build BrokkDiffPanel with string sources
-        String projectName = "Project";
-        try {
-            var proj = contextManager.getProject();
-            var root = proj.getRoot();
-            if (root.getFileName() != null) {
-                projectName = root.getFileName().toString();
-            }
-        } catch (Exception e) {
-            logger.debug("Unable to resolve project name for aggregated Changes panel; using default", e);
-        }
-
-        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
-                .setMultipleCommitsContext(false)
-                .setRootTitle(projectName)
-                .setInitialFileIndex(0)
-                .setForceFileTree(true);
-
-        // Use precomputed list in stable order; do not call Context.DiffEntry::title here
-        for (var entry : prepared) {
-            String path = entry.getKey();
-            Context.DiffEntry de = entry.getValue();
-            BufferSource left = new BufferSource.StringSource(de.oldContent(), "", path, null);
-            BufferSource right = new BufferSource.StringSource(de.newContent(), "", path, null);
-            builder.addComparison(left, right);
-        }
-
-        // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the user's choice
-        // when they toggle view (Fixes #1679)
-        var diffPanel = builder.build();
-        aggregatedChangesPanel = diffPanel;
-        // Ensure the embedded diff reflects the current theme immediately
-        diffPanel.applyTheme(chrome.getTheme());
-
-        topContainer.add(diffPanel, BorderLayout.CENTER);
-        wrapper.add(topContainer, BorderLayout.CENTER);
-        return wrapper;
     }
 
     @Blocking
@@ -3698,23 +2540,35 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         updateHistoryTable(null);
     }
 
-    // Adapted from BranchSelectorButton#getAvailableSpaceBelow:
-    // Compute vertical space available below the given anchor within the current screen,
-    // accounting for taskbar/dock insets. If the component is not yet showing, fall back to 400.
-    private int getAvailableSpaceBelow(Component anchor) {
-        try {
-            Point screenLoc = anchor.getLocationOnScreen();
-            GraphicsConfiguration gc = anchor.getGraphicsConfiguration();
-            Rectangle screenBounds = (gc != null)
-                    ? gc.getBounds()
-                    : new Rectangle(Toolkit.getDefaultToolkit().getScreenSize());
-            Insets insets = (gc != null) ? Toolkit.getDefaultToolkit().getScreenInsets(gc) : new Insets(0, 0, 0, 0);
-            int bottomEdge = screenBounds.y + screenBounds.height - insets.bottom;
-            int anchorBottom = screenLoc.y + anchor.getHeight();
-            return Math.max(0, bottomEdge - anchorBottom);
-        } catch (IllegalComponentStateException e) {
-            // If not yet showing, fall back to a reasonable default
-            return 400;
+    private void requestVisibleDiffs() {
+        if (historyTable.getRowCount() == 0) {
+            return;
+        }
+        var viewport = historyScrollPane.getViewport();
+        if (viewport == null) {
+            return;
+        }
+        var ds = contextManager.getContextHistory().getDiffService();
+        Rectangle viewRect = viewport.getViewRect();
+
+        int first = historyTable.rowAtPoint(new Point(viewRect.x, viewRect.y));
+        if (first < 0) first = 0;
+        int last = historyTable.rowAtPoint(new Point(viewRect.x, viewRect.y + viewRect.height - 1));
+        if (last < 0) last = historyTable.getRowCount() - 1;
+
+        for (int row = first; row <= last; row++) {
+            Object v = historyModel.getValueAt(row, 2);
+            if (v instanceof Context ctx) {
+                ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
+            }
+        }
+
+        int sel = historyTable.getSelectedRow();
+        if (sel >= 0 && sel < historyTable.getRowCount()) {
+            Object sv = historyModel.getValueAt(sel, 2);
+            if (sv instanceof Context sctx) {
+                ds.diff(sctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(sctx)));
+            }
         }
     }
 
@@ -3735,191 +2589,5 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private String formatModified(long modifiedMillis) {
         var instant = Instant.ofEpochMilli(modifiedMillis);
         return GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault()));
-    }
-
-    /**
-     * Kicks off a background load of the AI-response count for a single session.
-     * Safe to call repeatedly; concurrent calls are deduped by sessionCountLoading.
-     */
-    private void triggerAiCountLoad(SessionInfo session) {
-        var id = session.id();
-        if (sessionAiResponseCounts.containsKey(id) || !sessionCountLoading.add(id)) {
-            return;
-        }
-
-        Thread.ofPlatform().name("ai-count-" + id).start(() -> {
-            int count = 0;
-            try {
-                var sm = contextManager.getProject().getSessionManager();
-                count = sm.countAiResponses(id);
-            } catch (Throwable t) {
-                logger.warn("Failed to count AI responses for session {}", id, t);
-            }
-            sessionAiResponseCounts.put(id, count);
-            sessionCountLoading.remove(id);
-            SwingUtilities.invokeLater(() -> {
-                if (sessionsList != null) {
-                    sessionsList.repaint();
-                }
-            });
-        });
-    }
-
-    /**
-     * Returns the Git repository for the current project, if available.
-     */
-    private Optional<IGitRepo> repo() {
-        try {
-            return Optional.of(contextManager.getProject().getRepo());
-        } catch (Exception e) {
-            return Optional.empty();
-        }
-    }
-
-    /**
-     * Returns true if the given string looks like a Git commit hash (hex string of 7-40 chars).
-     * Used to detect detached HEAD states.
-     */
-    private static boolean isLikelyCommitHash(String s) {
-        if (s.length() < 7 || s.length() > 40) {
-            return false;
-        }
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Modes for determining the baseline reference for showing changes.
-     */
-    private enum BaselineMode {
-        NON_DEFAULT_BRANCH,
-        DEFAULT_WITH_UPSTREAM,
-        DEFAULT_LOCAL_ONLY,
-        DETACHED,
-        NO_BASELINE
-    }
-
-    /**
-     * Information about the computed baseline for showing changes.
-     */
-    private record BaselineInfo(BaselineMode mode, String baselineRef, String displayLabel) {}
-
-    /**
-     * Computes the appropriate baseline reference for displaying changes in the Changes tab.
-     * This determines what to diff against based on the current branch state.
-     *
-     * @return BaselineInfo containing the mode, baseline ref, and display label
-     */
-    private BaselineInfo computeBaselineForChanges() {
-        var repoOpt = repo();
-        if (repoOpt.isEmpty()) {
-            return new BaselineInfo(BaselineMode.NO_BASELINE, "", "No repository");
-        }
-
-        var repo = repoOpt.get();
-
-        try {
-            String defaultBranch = repo.getDefaultBranch();
-            String currentBranch = repo.getCurrentBranch();
-
-            // Check if detached HEAD (either looks like a hash or not in local branches)
-            boolean isDetached = isLikelyCommitHash(currentBranch);
-            if (!isDetached && repo instanceof GitRepo gitRepo) {
-                var localBranches = gitRepo.listLocalBranches();
-                isDetached = !localBranches.contains(currentBranch);
-            }
-
-            if (isDetached) {
-                return new BaselineInfo(BaselineMode.DETACHED, "HEAD", "detached HEAD");
-            }
-
-            // If not on default branch, diff against default
-            if (!currentBranch.equals(defaultBranch)) {
-                return new BaselineInfo(BaselineMode.NON_DEFAULT_BRANCH, defaultBranch, defaultBranch);
-            }
-
-            // On default branch - check for upstream remote
-            if (repo instanceof GitRepo gitRepo) {
-                var remoteBranches = gitRepo.listRemoteBranches();
-                String upstreamRef = "origin/" + defaultBranch;
-                if (remoteBranches.contains(upstreamRef)) {
-                    return new BaselineInfo(BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRef, upstreamRef);
-                }
-            }
-
-            // On default branch but no upstream remote
-            return new BaselineInfo(BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD", "HEAD");
-
-        } catch (Exception e) {
-            logger.warn("Failed to compute baseline for changes", e);
-            return new BaselineInfo(BaselineMode.NO_BASELINE, "", "Error: " + e.getMessage());
-        }
-    }
-
-    private class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionInfo> {
-        private final JLabel nameLabel = new JLabel();
-        private final JLabel timeLabel = new JLabel();
-        private final JLabel countLabel = new JLabel();
-        private final JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, Constants.H_GAP, 0));
-
-        SessionInfoRenderer() {
-            setLayout(new BorderLayout());
-            setOpaque(true);
-
-            // Remove bold from nameLabel
-            // nameLabel.setFont(nameLabel.getFont().deriveFont(Font.BOLD));
-
-            var baseSize = timeLabel.getFont().getSize2D();
-            timeLabel.setFont(timeLabel.getFont().deriveFont(Math.max(10f, baseSize - 2f)));
-            countLabel.setFont(timeLabel.getFont());
-
-            row2.setOpaque(false);
-            row2.setBorder(new EmptyBorder(0, Constants.H_GAP, 0, 0));
-            row2.add(timeLabel);
-            row2.add(countLabel);
-
-            add(nameLabel, BorderLayout.NORTH);
-            add(row2, BorderLayout.CENTER);
-        }
-
-        @Override
-        public Component getListCellRendererComponent(
-                JList<? extends SessionInfo> list,
-                SessionInfo value,
-                int index,
-                boolean isSelected,
-                boolean cellHasFocus) {
-            if (index == -1) {
-                var label = new JLabel(value.name());
-                label.setOpaque(false);
-                label.setEnabled(list.isEnabled());
-                label.setForeground(list.getForeground());
-                return label;
-            }
-            nameLabel.setText(value.name());
-            timeLabel.setText(formatModified(value.modified()));
-
-            var cnt = sessionAiResponseCounts.get(value.id());
-            if (cnt == null) {
-                triggerAiCountLoad(value);
-            }
-            countLabel.setText(cnt != null ? String.format("%d %s", cnt, cnt == 1 ? "task" : "tasks") : "");
-
-            var bg = isSelected ? list.getSelectionBackground() : list.getBackground();
-            var fg = isSelected ? list.getSelectionForeground() : list.getForeground();
-
-            setBackground(bg);
-            nameLabel.setForeground(fg);
-            timeLabel.setForeground(fg);
-            countLabel.setForeground(fg);
-
-            setEnabled(list.isEnabled());
-            return this;
-        }
     }
 }

@@ -18,10 +18,22 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class EditBlockTest {
+    @BeforeEach
+    void setupEach() {
+        SyntaxAwareConfig.setSyntaxAwareExtensions(Set.of("java"));
+    }
+
+    @AfterEach
+    void teardownEach() {
+        SyntaxAwareConfig.resetSyntaxAwareExtensions();
+    }
+
     @Test
     void testParseEditBlocksSimple() {
         String edit =
@@ -40,7 +52,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
+        var blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(1, blocks.length);
         assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("Two\n", blocks[0].beforeText());
@@ -66,7 +78,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
+        var blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(1, blocks.length);
         assertEquals("foo.txt", blocks[0].rawFileName().toString());
         assertEquals("Two\n", blocks[0].beforeText());
@@ -100,7 +112,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo.txt"));
+        var blocks = parseBlocks(edit, Set.of("foo.txt"));
         assertEquals(2, blocks.length);
         // first block
         assertEquals("foo.txt", blocks[0].rawFileName().toString());
@@ -134,7 +146,7 @@ class EditBlockTest {
                       >>>>>>> REPLACE
                       ```"""; // no final newline
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("foo/coder.py"));
+        var blocks = parseBlocks(edit, Set.of("foo/coder.py"));
         assertEquals(2, blocks.length);
         assertEquals("lineA\n", blocks[0].beforeText());
         assertEquals("lineB\n", blocks[0].afterText());
@@ -171,7 +183,7 @@ class EditBlockTest {
                       Hope you like it!
                       """;
 
-        EditBlock.SearchReplaceBlock[] blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
+        var blocks = parseBlocks(edit, Set.of("filename/to/a/file1.txt"));
         assertEquals(2, blocks.length);
         assertEquals("filename/to/a/file2.txt", blocks[0].rawFileName());
         assertEquals("BRK_ENTIRE_FILE\n", blocks[0].beforeText());
@@ -232,15 +244,15 @@ class EditBlockTest {
     void testApplyEditsFailsForUnknownFile(@TempDir Path tempDir) throws IOException, InterruptedException {
         TestConsoleIO io = new TestConsoleIO();
 
-        Path existingFile = tempDir.resolve("fileA.txt");
-        Files.writeString(existingFile, "Line X\n");
+        Path fileAPath = tempDir.resolve("fileA.txt");
+        Files.writeString(fileAPath, "Line X\n");
 
         String response =
                 """
                           ```
                           unknownFile.txt
                           <<<<<<< SEARCH
-                          replacement
+                          target
                           =======
                           replacement
                           >>>>>>> REPLACE
@@ -252,7 +264,7 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
-        assertFalse(result.failedBlocks().isEmpty(), "Expected failures for unknownFile.txt but got none");
+        assertFalse(result.failures().isEmpty(), result.toString());
     }
 
     @Test
@@ -279,10 +291,10 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, io, blocks);
 
-        assertEquals(1, result.failedBlocks().size());
+        assertEquals(1, result.failures().size());
         assertEquals(
                 EditBlock.EditBlockFailureReason.FILE_NOT_FOUND,
-                result.failedBlocks().getFirst().reason());
+                result.failures().getFirst().reason());
     }
 
     /**
@@ -336,14 +348,6 @@ class EditBlockTest {
         assertNull(result.blocks().getFirst().rawFileName());
     }
 
-    /** Test detection of a possible "mangled" or fuzzy filename match. */
-    @Test
-    void testResolveFilenameIgnoreCase(@TempDir Path tempDir) throws EditBlock.SymbolResolutionException {
-        TestContextManager cm = new TestContextManager(tempDir, Set.of("foo.txt"));
-        var f = EditBlock.resolveProjectFile(cm.liveContext(), "fOo.TXt");
-        assertEquals("foo.txt", f.getFileName());
-    }
-
     @Test
     void testNoMatchFailure(@TempDir Path tempDir)
             throws IOException, EditBlock.AmbiguousMatchException, EditBlock.NoMatchException, InterruptedException {
@@ -357,7 +361,7 @@ class EditBlockTest {
                           ```
                           fileA.txt
                           <<<<<<< SEARCH
-                          replacement
+                          target
                           =======
                           replacement
                           >>>>>>> REPLACE
@@ -371,10 +375,10 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with the correct reason
-        assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
+        assertEquals(1, result.failures().size(), result.toString());
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
-                result.failedBlocks().getFirst().reason(),
+                result.failures().getFirst().reason(),
                 "Expected failure reason to be NO_MATCH");
 
         // Assert that the file content remains unchanged after the failed edit
@@ -451,7 +455,7 @@ class EditBlockTest {
         String actualContent = Files.readString(testFile);
         assertEquals(replacementContent, actualContent);
 
-        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+        assertTrue(result.failures().isEmpty(), "No failures expected");
         assertTrue(io.getErrorLog().isEmpty(), "No IO errors expected");
     }
 
@@ -477,7 +481,7 @@ class EditBlockTest {
         TestContextManager ctx = new TestContextManager(tempDir, Set.of("foo.txt"));
         var result = EditBlockParser.instance.parseEditBlocks(content, ctx.getFilesInContext());
         // Expect exactly one successfully parsed block, no parse errors
-        assertEquals(1, result.blocks().size(), "Should parse a single block");
+        assertEquals(1, result.blocks().size(), result.toString());
         assertNull(result.parseError(), "No parse errors expected");
 
         var block = result.blocks().getFirst();
@@ -536,8 +540,8 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with NO_MATCH reason
-        assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
-        var failedBlock = result.failedBlocks().getFirst();
+        assertEquals(1, result.failures().size(), result.toString());
+        var failedBlock = result.failures().getFirst();
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
                 failedBlock.reason(),
@@ -551,6 +555,41 @@ class EditBlockTest {
         // Assert that the file content remains unchanged
         String finalContent = Files.readString(existingFile);
         assertEquals(fileContent, finalContent, "File content should remain unchanged after the failed edit");
+    }
+
+    @Test
+    void testNoMatchFailureWithMatchInOtherFile(@TempDir Path tempDir) throws IOException, InterruptedException {
+        TestConsoleIO io = new TestConsoleIO();
+        Path fileA = tempDir.resolve("fileA.txt");
+        Path fileB = tempDir.resolve("fileB.txt");
+        String contentA = "Content for A\n";
+        String contentB = "Target text to find\n";
+        Files.writeString(fileA, contentA);
+        Files.writeString(fileB, contentB);
+
+        // Try to search for contentB's text inside fileA
+        String response =
+                """
+                          ```
+                          fileA.txt
+                          <<<<<<< SEARCH
+                          Target text to find
+                          =======
+                          Replacement
+                          >>>>>>> REPLACE
+                          ```
+                          """;
+
+        TestContextManager ctx = new TestContextManager(tempDir, Set.of("fileA.txt", "fileB.txt"));
+        var blocks = EditBlockParser.instance
+                .parseEditBlocks(response, ctx.getFilesInContext())
+                .blocks();
+        var result = EditBlock.apply(ctx, io, blocks);
+
+        assertEquals(1, result.failures().size(), result.toString());
+        var failedBlock = result.failures().getFirst();
+        assertEquals(EditBlock.EditBlockFailureReason.NO_MATCH, failedBlock.reason());
+        assertTrue(failedBlock.commentary().contains("fileB.txt"), failedBlock.commentary());
     }
 
     @Test
@@ -582,8 +621,8 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, blocks);
 
         // Assert exactly one failure with NO_MATCH reason
-        assertEquals(1, result.failedBlocks().size(), "Expected exactly one failed block");
-        var failedBlock = result.failedBlocks().getFirst();
+        assertEquals(1, result.failures().size(), result.toString());
+        var failedBlock = result.failures().getFirst();
         assertEquals(
                 EditBlock.EditBlockFailureReason.NO_MATCH,
                 failedBlock.reason(),
@@ -669,7 +708,7 @@ class EditBlockTest {
 
         TestContextManager cm = new TestContextManager(tempDir, Set.of("src%sfoo.txt".formatted(sep)));
 
-        ProjectFile pf = EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep));
+        ProjectFile pf = EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep), false);
         assertEquals("foo.txt", pf.getFileName());
         assertEquals(filePath, pf.absPath());
     }
@@ -680,7 +719,79 @@ class EditBlockTest {
         TestContextManager cm = new TestContextManager(tempDir, Set.of());
         assertThrows(
                 EditBlock.SymbolInvalidException.class,
-                () -> EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep)));
+                () -> EditBlock.resolveProjectFile(cm.liveContext(), "%ssrc%sfoo.txt".formatted(sep, sep), false));
+    }
+
+    @Test
+    void testResolveFilenameBasics(@TempDir Path tempDir) throws Exception {
+        // Create the file so Context metadata lookups don't fail/log exceptions
+        Path fooPath = tempDir.resolve("src/Foo.java");
+        Files.createDirectories(fooPath.getParent());
+        Files.writeString(fooPath, "content");
+
+        TestContextManager cm = new TestContextManager(tempDir, Set.of("src/Foo.java"));
+        var ctx = cm.liveContext();
+
+        // 1. Comment stripping
+        assertEquals(
+                "Foo.java",
+                EditBlock.resolveProjectFile(ctx, "// src/Foo.java", false).getFileName());
+        assertEquals(
+                "Foo.java",
+                EditBlock.resolveProjectFile(ctx, "# src/Foo.java", false).getFileName());
+        // Test leading slash stripping (often used by LLMs as a project-root relative indicator)
+        assertEquals(
+                "Foo.java",
+                EditBlock.resolveProjectFile(ctx, "src/Foo.java", false).getFileName());
+
+        // 2. Blank/Null handling
+        assertThrows(EditBlock.SymbolInvalidException.class, () -> EditBlock.resolveProjectFile(ctx, null, false));
+        assertThrows(EditBlock.SymbolInvalidException.class, () -> EditBlock.resolveProjectFile(ctx, "", false));
+        assertThrows(EditBlock.SymbolInvalidException.class, () -> EditBlock.resolveProjectFile(ctx, "   ", false));
+
+        // 3. maybeNewFile flag
+        // Should return the file regardless of existence if maybeNewFile is true
+        var nonExistent = EditBlock.resolveProjectFile(ctx, "New.java", true);
+        assertEquals("New.java", nonExistent.getFileName());
+        assertFalse(nonExistent.exists());
+
+        // 4. Case where file doesn't exist and maybeNewFile is false, and not in context
+        // It still returns the ProjectFile (it's up to the app to handle non-existence later)
+        var missing = EditBlock.resolveProjectFile(ctx, "Missing.java", false);
+        assertEquals("Missing.java", missing.getFileName());
+    }
+
+    @Test
+    void testResolveFilenameFromContextFragments(@TempDir Path tempDir) throws Exception {
+        // Setup: One file exists on disk, another is "editable" (in fragments) but maybe doesn't exist yet
+        Path existingPath = tempDir.resolve("src/Existing.java");
+        Files.createDirectories(existingPath.getParent());
+        Files.writeString(existingPath, "public class Existing {}");
+
+        // We simulate a context where "MissingInDir.java" is an editable file
+        TestContextManager cm = new TestContextManager(tempDir, Set.of("src/Existing.java", "other/MissingInDir.java"));
+        var ctx = cm.liveContext();
+
+        // Match existing file by partial name
+        assertEquals(
+                existingPath,
+                EditBlock.resolveProjectFile(ctx, "Existing.java", false).absPath());
+
+        // Match non-existent file that is present in editable fragments
+        assertEquals(
+                "MissingInDir.java",
+                EditBlock.resolveProjectFile(ctx, "MissingInDir.java", false).getFileName());
+
+        // Ambiguous match in fragments should throw
+        Path dupDir = tempDir.resolve("dup");
+        Files.createDirectories(dupDir);
+        Files.writeString(dupDir.resolve("Existing.java"), "another one");
+
+        TestContextManager cmAmbiguous =
+                new TestContextManager(tempDir, Set.of("src/Existing.java", "dup/Existing.java"));
+        assertThrows(
+                EditBlock.SymbolAmbiguousException.class,
+                () -> EditBlock.resolveProjectFile(cmAmbiguous.liveContext(), "Existing.java", false));
     }
 
     @Test
@@ -711,8 +822,8 @@ class EditBlockTest {
                         "app/src/main/java/ai/brokk/util/IndentUtil.java",
                         "app/src/test/java/ai/brokk/util/IndentUtil.java"));
 
-        var resolved =
-                EditBlock.resolveProjectFile(ctx.liveContext(), "app/src/test/java/ai/brokk/util/IndentUtil.java");
+        var resolved = EditBlock.resolveProjectFile(
+                ctx.liveContext(), "app/src/test/java/ai/brokk/util/IndentUtil.java", false);
         assertEquals(testUtilDir.resolve("IndentUtil.java"), resolved.absPath());
     }
 
@@ -749,7 +860,33 @@ class EditBlockTest {
         assertEquals("old\n", Files.readString(existingFile), "Existing 'a/b/c/file.java' must remain unchanged");
 
         // And no failures
-        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+        assertTrue(result.failures().isEmpty(), "No failures expected");
+    }
+
+    @Test
+    void testResolveAmbiguousBasenameThrowsException(@TempDir Path tempDir) throws Exception {
+        Path dir1 = tempDir.resolve("alpha");
+        Path dir2 = tempDir.resolve("beta");
+        Files.createDirectories(dir1);
+        Files.createDirectories(dir2);
+
+        Path file1 = dir1.resolve("Common.java");
+        Path file2 = dir2.resolve("Common.java");
+        Files.writeString(file1, "one");
+        Files.writeString(file2, "two");
+
+        // We simulate these being in the editable fragments
+        TestContextManager cm = new TestContextManager(tempDir, Set.of("alpha/Common.java", "beta/Common.java"));
+        var ctx = cm.liveContext();
+
+        // Providing just "Common.java" when two matching files exist in context should be ambiguous
+        assertThrows(
+                EditBlock.SymbolAmbiguousException.class,
+                () -> EditBlock.resolveProjectFile(ctx, "Common.java", false));
+
+        // Providing enough path to disambiguate should work
+        var resolved = EditBlock.resolveProjectFile(ctx, "alpha/Common.java", false);
+        assertEquals(file1, resolved.absPath());
     }
 
     // ----------------------------------------------------
@@ -775,7 +912,7 @@ class EditBlockTest {
         var result = EditBlock.apply(ctx, io, List.of(block));
 
         // Should have applied successfully
-        assertTrue(result.failedBlocks().isEmpty(), "No failures expected when replacing unique BRK conflict block");
+        assertTrue(result.failures().isEmpty(), "No failures expected when replacing unique BRK conflict block");
 
         String finalContent = Files.readString(testFile);
         assertEquals("start\nResolved line\nend\n", finalContent);
@@ -818,7 +955,7 @@ class EditBlockTest {
 
         var content = Files.readString(rootDir.resolve("A.java"));
         assertTrue(content.contains("return 2;"), "Method body should be updated");
-        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+        assertTrue(result.failures().isEmpty(), "No failures expected");
     }
 
     @Test
@@ -857,8 +994,8 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "One failed block expected");
-        var fb = result.failedBlocks().getFirst();
+        assertEquals(1, result.failures().size(), result.toString());
+        var fb = result.failures().getFirst();
         assertEquals(
                 EditBlock.EditBlockFailureReason.AMBIGUOUS_MATCH,
                 fb.reason(),
@@ -910,7 +1047,7 @@ class EditBlockTest {
 
         var content = Files.readString(rootDir.resolve("C.java"));
         assertTrue(content.contains("return 42;"), "Class body should be replaced");
-        assertTrue(result.failedBlocks().isEmpty(), "No failures expected");
+        assertTrue(result.failures().isEmpty(), "No failures expected");
     }
 
     @Test
@@ -976,8 +1113,8 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "Expected one failed block for unknown class");
-        var fb = result.failedBlocks().getFirst();
+        assertEquals(1, result.failures().size(), result.toString());
+        var fb = result.failures().getFirst();
         assertEquals(EditBlock.EditBlockFailureReason.NO_MATCH, fb.reason(), "Should be categorized as NO_MATCH");
         assertTrue(
                 fb.commentary().contains("No class source found for 'NoSuchClass'"),
@@ -1019,8 +1156,8 @@ class EditBlockTest {
                 .blocks();
         var result = EditBlock.apply(ctx, new TestConsoleIO(), blocks);
 
-        assertEquals(1, result.failedBlocks().size(), "Expected one failed block for unknown method");
-        var fb = result.failedBlocks().getFirst();
+        assertEquals(1, result.failures().size(), result.toString());
+        var fb = result.failures().getFirst();
         assertEquals(EditBlock.EditBlockFailureReason.NO_MATCH, fb.reason(), "Should be categorized as NO_MATCH");
         assertTrue(
                 fb.commentary().contains("No method source found for 'A.missingMethod'"),

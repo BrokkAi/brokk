@@ -5,7 +5,7 @@ import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.GitWorkflow;
@@ -524,7 +524,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         registerMenu(commitsContextMenu);
 
         addToContextItem = new JMenuItem("Capture Diff");
-        captureWorkspaceSelectionsItem = new JMenuItem("Capture workspace selections at this revision");
+        captureWorkspaceSelectionsItem = new JMenuItem("Capture workspace content at this revision");
         softResetItem = new JMenuItem("Soft Reset to Here");
         revertCommitItem = new JMenuItem("Revert Commit");
         viewChangesItem = new JMenuItem("View Diff");
@@ -595,13 +595,15 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
         var firstCommitInfo = (ICommitInfo) commitsTableModel.getValueAt(selectedRows[0], COL_COMMIT_OBJ);
         boolean isStash = firstCommitInfo.stashIndex().isPresent(); // boolean preferred by style guide
-        boolean hasWorkspaceSelections =
-                !chrome.getContextPanel().getSelectedProjectFiles().isEmpty();
+        var ctx = chrome.getContextManager().selectedContext();
+        boolean hasProjectFilesInContext = ctx != null
+                && ctx.getAllFragmentsInDisplayOrder().stream()
+                        .anyMatch(f -> !f.files().renderNowOr(Set.of()).isEmpty());
 
         viewChangesItem.setEnabled(selectedRows.length == 1);
         compareAllToLocalItem.setEnabled(selectedRows.length == 1 && !isStash);
         captureWorkspaceSelectionsItem.setVisible(!isStash);
-        captureWorkspaceSelectionsItem.setEnabled(selectedRows.length == 1 && !isStash && hasWorkspaceSelections);
+        captureWorkspaceSelectionsItem.setEnabled(selectedRows.length == 1 && !isStash && hasProjectFilesInContext);
         softResetItem.setVisible(!isStash);
         softResetItem.setEnabled(selectedRows.length == 1 && !isStash);
         revertCommitItem.setVisible(!isStash);
@@ -692,8 +694,14 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             final String shortId = getRepo().shortHash(commitId);
 
             // Gather selected project files from the workspace
-            var selectedFiles = chrome.getContextPanel().getSelectedProjectFiles();
-            if (selectedFiles.isEmpty()) {
+            var ctx = chrome.getContextManager().selectedContext();
+            var projectFilesInContext = (ctx == null)
+                    ? Set.<ProjectFile>of()
+                    : ctx.getAllFragmentsInDisplayOrder().stream()
+                            .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                            .collect(Collectors.toSet());
+
+            if (projectFilesInContext.isEmpty()) {
                 chrome.showNotification(
                         IConsoleIO.NotificationRole.INFO, "No project files selected in the workspace to capture.");
                 return;
@@ -701,10 +709,10 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
             contextManager.submitExclusiveAction(() -> {
                 int success = 0;
-                for (var pf : selectedFiles) {
+                for (var pf : projectFilesInContext) {
                     try {
                         final String content = getRepo().getFileContent(commitId, pf);
-                        var fragment = new ContextFragment.GitFileFragment(pf, shortId, content);
+                        var fragment = new ContextFragments.GitFileFragment(pf, shortId, content);
                         contextManager.addFragmentAsync(fragment);
                         success++;
                     } catch (GitAPIException ex) {

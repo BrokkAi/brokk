@@ -19,6 +19,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.InstructionsPanel;
@@ -410,11 +411,18 @@ public final class BrokkCli implements Callable<Integer> {
 
             try (var scope = cm.beginTask(searchWorkspace, false)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
+                // Honor --disable-context-scan flag via ScanConfig
+                var scanConfig = disableContextScan
+                        ? SearchAgent.ScanConfig.disabled()
+                        : SearchAgent.ScanConfig.withModel(searchModel);
                 var agent = new SearchAgent(
-                        cm.liveContext(), searchWorkspace, searchModel, SearchAgent.Objective.WORKSPACE_ONLY, scope);
-                if (!disableContextScan) {
-                    agent.scanInitialContext(searchModel);
-                }
+                        cm.liveContext(),
+                        searchWorkspace,
+                        searchModel,
+                        SearchAgent.Objective.WORKSPACE_ONLY,
+                        scope,
+                        cm.getIo(),
+                        scanConfig);
                 searchResult = agent.execute();
                 scope.append(searchResult);
                 success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
@@ -449,7 +457,7 @@ public final class BrokkCli implements Callable<Integer> {
         var context = cm.liveContext();
         for (var readFile : resolvedReadFiles) {
             var pf = cm.toFile(readFile);
-            var fragment = new ContextFragment.ProjectPathFragment(pf, cm);
+            var fragment = new ContextFragments.ProjectPathFragment(pf, cm);
             context = context.addFragments(fragment);
             context = context.setReadonly(fragment, true);
         }
@@ -473,15 +481,15 @@ public final class BrokkCli implements Callable<Integer> {
 
         // Add usages, callers, callees (simple fragment creation)
         for (var symbol : addUsages) {
-            var fragment = new ContextFragment.UsageFragment(cm, symbol);
+            var fragment = new ContextFragments.UsageFragment(cm, symbol);
             context = context.addFragments(fragment);
         }
         for (var entry : addCallers.entrySet()) {
-            var fragment = new ContextFragment.CallGraphFragment(cm, entry.getKey(), entry.getValue(), false);
+            var fragment = new ContextFragments.CallGraphFragment(cm, entry.getKey(), entry.getValue(), false);
             context = context.addFragments(fragment);
         }
         for (var entry : addCallees.entrySet()) {
-            var fragment = new ContextFragment.CallGraphFragment(cm, entry.getKey(), entry.getValue(), true);
+            var fragment = new ContextFragments.CallGraphFragment(cm, entry.getKey(), entry.getValue(), true);
             context = context.addFragments(fragment);
         }
 
@@ -567,7 +575,7 @@ public final class BrokkCli implements Callable<Integer> {
                     }
                 }
             } else {
-                io.toolError("Deep Scan did not complete successfully: " + recommendations.reasoning());
+                io.toolError("Deep Scan did not complete successfully");
             }
 
             // If deepscan is standalone, exit here with success
@@ -625,7 +633,7 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     var agent = new CodeAgent(cm, codeModel);
-                    result = agent.runTask(codePrompt, Set.of());
+                    result = agent.execute(codePrompt, Set.of());
                     context = scope.append(result);
                 } else if (askPrompt != null) {
                     if (codeModel == null) {
@@ -668,13 +676,13 @@ public final class BrokkCli implements Callable<Integer> {
                         System.err.println("Error: --search-answer requires --planmodel to be specified.");
                         return 1;
                     }
+                    // SearchAgent now handles scanning internally via execute()
                     var agent = new SearchAgent(
                             cm.liveContext(),
                             requireNonNull(searchAnswerPrompt),
                             planModel,
                             SearchAgent.Objective.ANSWER_ONLY,
                             scope);
-                    agent.scanInitialContext();
                     result = agent.execute();
                     context = scope.append(result);
                 } else if (build) {
@@ -719,13 +727,13 @@ public final class BrokkCli implements Callable<Integer> {
                         System.err.println("Error: --lutz requires --codemodel to be specified.");
                         return 1;
                     }
+                    // SearchAgent now handles scanning internally via execute()
                     var agent = new SearchAgent(
                             cm.liveContext(),
                             requireNonNull(lutzPrompt),
                             planModel,
                             SearchAgent.Objective.TASKS_ONLY,
                             scope);
-                    agent.scanInitialContext();
                     result = agent.execute();
                     context = scope.append(result);
 
@@ -1045,11 +1053,11 @@ public final class BrokkCli implements Callable<Integer> {
                                 "Read {} files and {} classes from properties cache", files.size(), classes.size());
 
                         var fileFragments = files.stream()
-                                .map(fname -> (ContextFragment) new ContextFragment.SummaryFragment(
+                                .map(fname -> (ContextFragment) new ContextFragments.SummaryFragment(
                                         cm, fname, ContextFragment.SummaryType.FILE_SKELETONS))
                                 .toList();
                         var classFragments = classes.stream()
-                                .map(fqcn -> (ContextFragment) new ContextFragment.SummaryFragment(
+                                .map(fqcn -> (ContextFragment) new ContextFragments.SummaryFragment(
                                         cm, fqcn, ContextFragment.SummaryType.CODEUNIT_SKELETON))
                                 .toList();
 
@@ -1057,7 +1065,6 @@ public final class BrokkCli implements Callable<Integer> {
                                 true,
                                 Streams.concat(fileFragments.stream(), classFragments.stream())
                                         .toList(),
-                                "",
                                 null));
                     }
                 } catch (IOException e) {
@@ -1083,13 +1090,13 @@ public final class BrokkCli implements Callable<Integer> {
         var files = new ArrayList<String>();
         var classes = new ArrayList<String>();
         for (var cf : rec.fragments()) {
-            if (cf instanceof ContextFragment.SummaryFragment sf) {
+            if (cf instanceof ContextFragments.SummaryFragment sf) {
                 if (sf.getSummaryType() == ContextFragment.SummaryType.FILE_SKELETONS) {
                     files.add(sf.getTargetIdentifier());
                 } else {
                     classes.add(sf.getTargetIdentifier());
                 }
-            } else if (cf instanceof ContextFragment.ProjectPathFragment ppf) {
+            } else if (cf instanceof ContextFragments.ProjectPathFragment ppf) {
                 files.add(ppf.file().toString());
             } else {
                 throw new IllegalArgumentException(cf.toString());

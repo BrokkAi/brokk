@@ -1,10 +1,10 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.ChipColorUtils.ChipKind;
 import ai.brokk.gui.components.MaterialButton;
@@ -154,7 +154,7 @@ public class WorkspaceChip extends JPanel {
 
         // Initial label text (may be updated once computed values are ready).
         // Truncate to keep the chip compact so the close button remains visible.
-        if (fragment instanceof ContextFragment.AbstractComputedFragment) {
+        if (fragment instanceof ContextFragments.AbstractComputedFragment) {
             label.setText("Loading...");
         } else if (kind == ChipKind.OTHER) {
             label.setText(truncateForDisplay(capitalizeFirst(safeShortDescription)));
@@ -427,7 +427,7 @@ public class WorkspaceChip extends JPanel {
 
         // Special styling for Task List: dedicated color scheme
         ContextFragment fragment = getPrimaryFragment();
-        if (fragment instanceof ContextFragment.StringFragment sf) {
+        if (fragment instanceof ContextFragments.StringFragment sf) {
             if (SpecialTextType.TASK_LIST.description().equals(sf.description().renderNowOrNull())) {
                 bg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BACKGROUND);
                 fg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_FOREGROUND);
@@ -661,6 +661,13 @@ public class WorkspaceChip extends JPanel {
 
     // Context menu helpers
 
+    protected void safeAddSeparator(JPopupMenu menu) {
+        int count = menu.getComponentCount();
+        if (count > 0 && !(menu.getComponent(count - 1) instanceof javax.swing.JSeparator)) {
+            menu.addSeparator();
+        }
+    }
+
     private static boolean isDropAction(Object actionOrItem) {
         try {
             if (actionOrItem instanceof JMenuItem mi) {
@@ -697,53 +704,44 @@ public class WorkspaceChip extends JPanel {
             menu.addSeparator();
         }
 
-        var scenario = new WorkspacePanel.SingleFragment(fragment);
-        var actions = scenario.getActions(chrome.getContextPanel());
-        boolean addedAnyAction = false;
+        var scenario = new ContextActionsHandler.SingleFragment(fragment);
+        var actions = scenario.getActions(chrome.getContextActionsHandler());
+        boolean separatorPending = false;
         for (var action : actions) {
+            if (action == null) {
+                separatorPending = true;
+                continue;
+            }
             if (isDropAction(action)) {
                 continue;
             }
+
+            if (separatorPending) {
+                safeAddSeparator(menu);
+                separatorPending = false;
+            }
             menu.add(action);
-            addedAnyAction = true;
         }
 
         JMenuItem dropOther = new JMenuItem("Drop Others");
         dropOther.getAccessibleContext().setAccessibleName("Drop Others");
 
         var selected = contextManager.selectedContext();
-        if (selected == null) {
-            dropOther.setEnabled(false);
-        } else {
-            var possible = selected.getAllFragmentsInDisplayOrder().stream()
-                    .filter(f -> !Objects.equals(f, fragment))
-                    .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
-                    .toList();
-            dropOther.setEnabled(!possible.isEmpty());
-            dropOther.addActionListener(e -> {
-                if (!ensureMutatingAllowed()) {
-                    return;
-                }
-
-                var toDrop = selected.getAllFragmentsInDisplayOrder().stream()
-                        .filter(f -> !Objects.equals(f, fragment))
+        List<ContextFragment> toDrop = (selected == null)
+                ? List.of()
+                : selected.getAllFragmentsInDisplayOrder().stream()
+                        .filter(f -> !fragments.contains(f))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
                         .toList();
 
-                if (toDrop.isEmpty()) {
-                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No other non-history fragments to drop");
-                    return;
-                }
+        dropOther.setEnabled(!toDrop.isEmpty());
+        dropOther.addActionListener(e -> {
+            if (ensureMutatingAllowed()) {
+                contextManager.submitContextTask(() -> contextManager.dropWithHistorySemantics(toDrop));
+            }
+        });
 
-                contextManager.submitContextTask(() -> {
-                    contextManager.dropWithHistorySemantics(toDrop);
-                });
-            });
-        }
-
-        if (addedAnyAction) {
-            menu.addSeparator();
-        }
+        safeAddSeparator(menu);
         menu.add(dropOther);
 
         chrome.getThemeManager().registerPopupMenu(menu);
@@ -1284,26 +1282,31 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected JPopupMenu createContextMenu() {
             JPopupMenu menu = new JPopupMenu();
-            var scenario = new WorkspacePanel.MultiFragment(summaryFragments);
-            var actions = scenario.getActions(chrome.getContextPanel());
-            boolean addedAnyAction = false;
+            var scenario = new ContextActionsHandler.MultiFragment(summaryFragments);
+            var actions = scenario.getActions(chrome.getContextActionsHandler());
+
+            boolean separatorPending = false;
             for (var action : actions) {
-                if (action != null) {
-                    String actionName = (String) action.getValue(Action.NAME);
-                    if ("Summarize all References".equals(actionName)) {
-                        continue;
-                    }
-                    if (isDropAction(action)) {
-                        continue;
-                    }
+                if (action == null) {
+                    separatorPending = true;
+                    continue;
+                }
+                String actionName = (String) action.getValue(Action.NAME);
+                if ("Summarize all References".equals(actionName)) {
+                    continue;
+                }
+                if (isDropAction(action)) {
+                    continue;
+                }
+
+                if (separatorPending) {
+                    safeAddSeparator(menu);
+                    separatorPending = false;
                 }
                 menu.add(action);
-                addedAnyAction = true;
             }
 
-            if (addedAnyAction) {
-                menu.addSeparator();
-            }
+            safeAddSeparator(menu);
 
             // Add "Drop Invalid Summaries" if there are any invalid summaries
             if (invalidSummaryCount > 0) {
@@ -1314,26 +1317,21 @@ public class WorkspaceChip extends JPanel {
                         : "Drop Invalid Summaries (" + invalidSummaryCount + ")";
                 JMenuItem dropInvalidItem = new JMenuItem(dropInvalidLabel);
                 dropInvalidItem.addActionListener(e -> {
-                    if (!ensureMutatingAllowed()) {
-                        return;
+                    if (ensureMutatingAllowed()) {
+                        invalidSummaries.forEach(metricsCache::remove);
+                        contextManager.submitContextTask(
+                                () -> contextManager.dropWithHistorySemantics(invalidSummaries));
                     }
-                    contextManager.submitContextTask(() -> {
-                        for (var f : invalidSummaries) {
-                            metricsCache.remove(f);
-                        }
-                        contextManager.dropWithHistorySemantics(invalidSummaries);
-                    });
                 });
                 menu.add(dropInvalidItem);
-                menu.addSeparator();
+                safeAddSeparator(menu);
             }
 
-            for (var fragment : summaryFragments) {
-                String labelText = buildIndividualDropLabel(fragment);
-                JMenuItem item = new JMenuItem(labelText);
-                item.addActionListener(e -> dropSingleFragment(fragment));
+            summaryFragments.forEach(f -> {
+                JMenuItem item = new JMenuItem(buildIndividualDropLabel(f));
+                item.addActionListener(e -> dropSingleFragment(f));
                 menu.add(item);
-            }
+            });
 
             chrome.getThemeManager().registerPopupMenu(menu);
             return menu;
@@ -1368,7 +1366,7 @@ public class WorkspaceChip extends JPanel {
                     .map(Map.Entry::getKey)
                     .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            var syntheticFragment = new ContextFragment.StringFragment(
+            var syntheticFragment = new ContextFragments.StringFragment(
                     chrome.getContextManager(), combinedText.toString(), title, syntaxStyle);
             chrome.openFragmentPreview(syntheticFragment);
         }
@@ -1496,7 +1494,7 @@ public class WorkspaceChip extends JPanel {
                 candidateFiles = List.of();
             } else {
                 candidateFiles = selected.getAllFragmentsInDisplayOrder().stream()
-                        .filter(f -> !(f instanceof ContextFragment.SummaryFragment))
+                        .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
                         .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                         .distinct()
@@ -1513,7 +1511,7 @@ public class WorkspaceChip extends JPanel {
                         }
                     })
                     .thenAccept(content -> SwingUtilities.invokeLater(() -> {
-                        var syntheticFragment = new ContextFragment.StringFragment(
+                        var syntheticFragment = new ContextFragments.StringFragment(
                                 chrome.getContextManager(), content, LABEL_TEXT, SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
                         chrome.openFragmentPreview(syntheticFragment);
                     }));
@@ -1528,12 +1526,16 @@ public class WorkspaceChip extends JPanel {
             showContentsItem.addActionListener(e -> onPrimaryClick());
             menu.add(showContentsItem);
 
-            var scenario = new WorkspacePanel.SingleFragment(fragment);
-            var actions = scenario.getActions(chrome.getContextPanel());
+            var scenario = new ContextActionsHandler.SingleFragment(fragment);
+            var actions = scenario.getActions(chrome.getContextActionsHandler());
+
+            boolean separatorPending = false;
             for (var action : actions) {
                 if (action == null) {
+                    separatorPending = true;
                     continue;
                 }
+
                 if (isDropAction(action)) {
                     continue;
                 }
@@ -1546,6 +1548,11 @@ public class WorkspaceChip extends JPanel {
                     if ("Drop".equals(s) || "Drop Others".equals(s)) {
                         continue;
                     }
+                }
+
+                if (separatorPending) {
+                    safeAddSeparator(menu);
+                    separatorPending = false;
                 }
                 menu.add(action);
             }

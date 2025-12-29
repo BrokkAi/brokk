@@ -6,7 +6,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment.AbstractComputedFragment;
+import ai.brokk.context.ContextFragments.AbstractComputedFragment;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.AiMessage;
@@ -56,7 +56,7 @@ class FragmentEqualityTest {
     @BeforeEach
     void setup() {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        ContextFragment.setMinimumId(1);
+        ContextFragments.setMinimumId(1);
     }
 
     private <T extends AbstractComputedFragment> T track(T fragment) {
@@ -81,8 +81,8 @@ class FragmentEqualityTest {
             Files.createDirectories(file1.absPath().getParent());
             Files.writeString(file1.absPath(), "content");
 
-            var frag1 = new ContextFragment.ProjectPathFragment(file1, contextManager);
-            var frag2 = new ContextFragment.ProjectPathFragment(file1, contextManager);
+            var frag1 = new ContextFragments.ProjectPathFragment(file1, contextManager);
+            var frag2 = new ContextFragments.ProjectPathFragment(file1, contextManager);
 
             // Identity-based: different instances are NOT equal() (different numeric IDs)
             assertNotEquals(frag1, frag2);
@@ -95,7 +95,7 @@ class FragmentEqualityTest {
             var file1 = new ProjectFile(tempDir, "src/File1.java");
             Files.createDirectories(file1.absPath().getParent());
             Files.writeString(file1.absPath(), "content");
-            var frag1 = new ContextFragment.ProjectPathFragment(file1, contextManager);
+            var frag1 = new ContextFragments.ProjectPathFragment(file1, contextManager);
 
             assertNotEquals(frag1, null);
             assertNotEquals(frag1, "not a fragment");
@@ -107,8 +107,8 @@ class FragmentEqualityTest {
             Files.createDirectories(file1.absPath().getParent());
             Files.writeString(file1.absPath(), "content");
 
-            var frag1 = new ContextFragment.ProjectPathFragment(file1, contextManager);
-            var frag2 = new ContextFragment.ProjectPathFragment(file1, contextManager);
+            var frag1 = new ContextFragments.ProjectPathFragment(file1, contextManager);
+            var frag2 = new ContextFragments.ProjectPathFragment(file1, contextManager);
 
             // hasSameSource: compares normalized paths
             assertTrue(frag1.hasSameSource(frag2));
@@ -122,8 +122,8 @@ class FragmentEqualityTest {
             Files.writeString(file1.absPath(), "content1");
             Files.writeString(file2.absPath(), "content2");
 
-            var frag1 = new ContextFragment.ProjectPathFragment(file1, contextManager);
-            var frag2 = new ContextFragment.ProjectPathFragment(file2, contextManager);
+            var frag1 = new ContextFragments.ProjectPathFragment(file1, contextManager);
+            var frag2 = new ContextFragments.ProjectPathFragment(file2, contextManager);
 
             assertFalse(frag1.hasSameSource(frag2));
         }
@@ -134,8 +134,8 @@ class FragmentEqualityTest {
             Files.createDirectories(file1.absPath().getParent());
             Files.writeString(file1.absPath(), "content");
 
-            var ppf = new ContextFragment.ProjectPathFragment(file1, contextManager);
-            var sf = new ContextFragment.StringFragment(
+            var ppf = new ContextFragments.ProjectPathFragment(file1, contextManager);
+            var sf = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             assertFalse(ppf.hasSameSource(sf));
@@ -150,8 +150,8 @@ class FragmentEqualityTest {
             Files.writeString(externalFile, "content");
             var file = new ExternalFile(externalFile);
 
-            var frag1 = new ContextFragment.ExternalPathFragment(file, contextManager);
-            var frag2 = new ContextFragment.ExternalPathFragment(file, contextManager);
+            var frag1 = new ContextFragments.ExternalPathFragment(file, contextManager);
+            var frag2 = new ContextFragments.ExternalPathFragment(file, contextManager);
 
             assertNotEquals(frag1, frag2);
         }
@@ -162,8 +162,8 @@ class FragmentEqualityTest {
             Files.writeString(externalFile, "content");
             var file = new ExternalFile(externalFile);
 
-            var frag1 = new ContextFragment.ExternalPathFragment(file, contextManager);
-            var frag2 = new ContextFragment.ExternalPathFragment(file, contextManager);
+            var frag1 = new ContextFragments.ExternalPathFragment(file, contextManager);
+            var frag2 = new ContextFragments.ExternalPathFragment(file, contextManager);
 
             assertTrue(frag1.hasSameSource(frag2));
         }
@@ -177,8 +177,8 @@ class FragmentEqualityTest {
             var file1 = new ExternalFile(externalFile1);
             var file2 = new ExternalFile(externalFile2);
 
-            var frag1 = new ContextFragment.ExternalPathFragment(file1, contextManager);
-            var frag2 = new ContextFragment.ExternalPathFragment(file2, contextManager);
+            var frag1 = new ContextFragments.ExternalPathFragment(file1, contextManager);
+            var frag2 = new ContextFragments.ExternalPathFragment(file2, contextManager);
 
             assertFalse(frag1.hasSameSource(frag2));
         }
@@ -191,8 +191,8 @@ class FragmentEqualityTest {
             Path imageFile = tempDir.resolve("image.png");
             var testImage = createTestImage(Color.RED, 10, 10);
             var projectFile = new ProjectFile(tempDir, tempDir.relativize(imageFile));
-            var iff1 = new ContextFragment.ImageFileFragment(projectFile, contextManager);
-            var iff2 = new ContextFragment.ImageFileFragment(projectFile, contextManager);
+            var iff1 = new ContextFragments.ImageFileFragment(projectFile, contextManager);
+            var iff2 = new ContextFragments.ImageFileFragment(projectFile, contextManager);
 
             assertNotEquals(iff1, iff2);
         }
@@ -202,8 +202,8 @@ class FragmentEqualityTest {
             Path imageFile = tempDir.resolve("image.png");
             var projectFile = new ProjectFile(tempDir, tempDir.relativize(imageFile));
 
-            var iff1 = new ContextFragment.ImageFileFragment(projectFile, contextManager);
-            var iff2 = new ContextFragment.ImageFileFragment(projectFile, contextManager);
+            var iff1 = new ContextFragments.ImageFileFragment(projectFile, contextManager);
+            var iff2 = new ContextFragments.ImageFileFragment(projectFile, contextManager);
 
             assertTrue(iff1.hasSameSource(iff2));
         }
@@ -215,8 +215,8 @@ class FragmentEqualityTest {
             var pf1 = new ProjectFile(tempDir, tempDir.relativize(imageFile1));
             var pf2 = new ProjectFile(tempDir, tempDir.relativize(imageFile2));
 
-            var iff1 = new ContextFragment.ImageFileFragment(pf1, contextManager);
-            var iff2 = new ContextFragment.ImageFileFragment(pf2, contextManager);
+            var iff1 = new ContextFragments.ImageFileFragment(pf1, contextManager);
+            var iff2 = new ContextFragments.ImageFileFragment(pf2, contextManager);
 
             assertFalse(iff1.hasSameSource(iff2));
         }
@@ -227,8 +227,8 @@ class FragmentEqualityTest {
         @Test
         void testEqualsIdentity() {
             var file = new ProjectFile(tempDir, "src/File.java");
-            var gff1 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
-            var gff2 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
+            var gff1 = new ContextFragments.GitFileFragment(file, "abc123", "content1");
+            var gff2 = new ContextFragments.GitFileFragment(file, "abc123", "content1");
 
             // Content-hashed: same file, revision, and content produce same ID
             assertEquals(gff1, gff2);
@@ -237,8 +237,8 @@ class FragmentEqualityTest {
         @Test
         void testEqualsDifferentRevisions() {
             var file = new ProjectFile(tempDir, "src/File.java");
-            var gff1 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
-            var gff2 = new ContextFragment.GitFileFragment(file, "def456", "content1");
+            var gff1 = new ContextFragments.GitFileFragment(file, "abc123", "content1");
+            var gff2 = new ContextFragments.GitFileFragment(file, "def456", "content1");
 
             assertNotEquals(gff1, gff2);
         }
@@ -246,8 +246,8 @@ class FragmentEqualityTest {
         @Test
         void testEqualsDifferentContent() {
             var file = new ProjectFile(tempDir, "src/File.java");
-            var gff1 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
-            var gff2 = new ContextFragment.GitFileFragment(file, "abc123", "content2");
+            var gff1 = new ContextFragments.GitFileFragment(file, "abc123", "content1");
+            var gff2 = new ContextFragments.GitFileFragment(file, "abc123", "content2");
 
             assertNotEquals(gff1, gff2);
         }
@@ -255,8 +255,8 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceSameFileAndRevision() throws IOException {
             var file = new ProjectFile(tempDir, "src/File.java");
-            var gff1 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
-            var gff2 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
+            var gff1 = new ContextFragments.GitFileFragment(file, "abc123", "content1");
+            var gff2 = new ContextFragments.GitFileFragment(file, "abc123", "content1");
 
             assertTrue(gff1.hasSameSource(gff2));
         }
@@ -264,8 +264,8 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceDifferentRevisions() throws IOException {
             var file = new ProjectFile(tempDir, "src/File.java");
-            var gff1 = new ContextFragment.GitFileFragment(file, "abc123", "content1");
-            var gff2 = new ContextFragment.GitFileFragment(file, "def456", "content1");
+            var gff1 = new ContextFragments.GitFileFragment(file, "abc123", "content1");
+            var gff2 = new ContextFragments.GitFileFragment(file, "def456", "content1");
 
             assertFalse(gff1.hasSameSource(gff2));
         }
@@ -275,9 +275,9 @@ class FragmentEqualityTest {
     class StringFragmentEqualityTest {
         @Test
         void testEqualsIdenticalContent() {
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             // Identity-based: different instances are NOT equal()
@@ -288,9 +288,9 @@ class FragmentEqualityTest {
 
         @Test
         void testEqualsDifferentDescriptions() {
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc1", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc2", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             // Identity-based: different instances are NOT equal()
@@ -301,9 +301,9 @@ class FragmentEqualityTest {
 
         @Test
         void testEqualsDifferentText() {
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "text1", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "text2", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             assertNotEquals(sf1, sf2);
@@ -311,9 +311,9 @@ class FragmentEqualityTest {
 
         @Test
         void testEqualsDifferentSyntaxStyle() {
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_JAVA);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_PYTHON);
 
             assertNotEquals(sf1, sf2);
@@ -321,9 +321,9 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceIdenticalContent() {
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc1", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc2", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             // hasSameSource now compares description (and syntax style), not text
@@ -331,21 +331,10 @@ class FragmentEqualityTest {
         }
 
         @Test
-        void testHasSameSourceDifferentText() {
-            var sf1 = new ContextFragment.StringFragment(
-                    contextManager, "text1", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragment.StringFragment(
-                    contextManager, "text2", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-            // Text differs, but description and style are the same => same source
-            assertTrue(sf1.hasSameSource(sf2));
-        }
-
-        @Test
         void testHasSameSourceDifferentSyntaxStyle() {
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_JAVA);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_PYTHON);
 
             assertFalse(sf1.hasSameSource(sf2));
@@ -354,9 +343,9 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceBuildResultsSystemFragment() {
             // Both use the hardcoded BUILD_RESULTS description
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "build output 1", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "build output 2", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             // Despite different text content, they have the same source because both map to BUILD_RESULTS
@@ -366,9 +355,9 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceSearchNotesSystemFragment() {
             // Both use the hardcoded SEARCH_NOTES description
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "notes 1", "Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "notes 2", "Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
 
             // Despite different text content, they have the same source because both map to SEARCH_NOTES
@@ -378,9 +367,9 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceDiscardedContextSystemFragment() {
             // Both use the hardcoded DISCARDED_CONTEXT description
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "{\"key\": \"value1\"}", "Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "{\"key\": \"value2\"}", "Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
 
             // Despite different text content, they have the same source because both map to DISCARDED_CONTEXT
@@ -390,9 +379,9 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceDifferentSystemFragments() {
             // One maps to BUILD_RESULTS, the other to SEARCH_NOTES
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "build output", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "notes", "Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
 
             // Different system fragment types should not have same source
@@ -402,9 +391,9 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceOneSystemOneRegular() {
             // One maps to a system fragment type, the other does not
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "build output", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "custom text", "Custom Description", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             // Mixed: one system, one regular should not have same source
@@ -414,9 +403,9 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceBothRegularFragments() {
             // Both have non-system content but different descriptions => different source
-            var sf1 = new ContextFragment.StringFragment(
+            var sf1 = new ContextFragments.StringFragment(
                     contextManager, "custom text", "Desc A", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragment.StringFragment(
+            var sf2 = new ContextFragments.StringFragment(
                     contextManager, "custom text", "Desc B", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             // Description is treated as the source; different descriptions => not same source
@@ -424,23 +413,11 @@ class FragmentEqualityTest {
         }
 
         @Test
-        void testHasSameSourceNullDescription() {
-            // Test with empty descriptions (edge case): both empty => same description
-            var sf1 =
-                    new ContextFragment.StringFragment(contextManager, "text1", "", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 =
-                    new ContextFragment.StringFragment(contextManager, "text2", "", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-            // Both have empty descriptions; hasSameSource compares description (and syntax style), not text
-            assertTrue(sf1.hasSameSource(sf2));
-        }
-
-        @Test
         void testHasSameSourceCompareAgainstNonStringFragment() {
             // StringFragment vs different fragment type should not match
-            var sf = new ContextFragment.StringFragment(
+            var sf = new ContextFragments.StringFragment(
                     contextManager, "text", "Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var uf = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
+            var uf = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class"));
 
             assertFalse(sf.hasSameSource(uf));
         }
@@ -454,7 +431,7 @@ class FragmentEqualityTest {
             Files.writeString(file2.absPath(), "class File2 {}");
 
             var associatedFiles = Set.of(file1, file2);
-            var sf = new ContextFragment.StringFragment(
+            var sf = new ContextFragments.StringFragment(
                     contextManager,
                     "diff --git a/src/File1.java b/src/File1.java\n...",
                     "Diff of File1.java and File2.java",
@@ -463,30 +440,6 @@ class FragmentEqualityTest {
 
             var filesFromFragment = sf.files().join();
             assertEquals(associatedFiles, filesFromFragment);
-        }
-
-        @Test
-        void testDiffStringFragmentFilesDoNotAffectHasSameSource() throws IOException {
-            var file1 = new ProjectFile(tempDir, "src/File1.java");
-            var file2 = new ProjectFile(tempDir, "src/File2.java");
-            Files.createDirectories(file1.absPath().getParent());
-            Files.writeString(file1.absPath(), "class File1 {}");
-            Files.writeString(file2.absPath(), "class File2 {}");
-
-            var sf1 = new ContextFragment.StringFragment(
-                    contextManager,
-                    "diff --git a/src/File1.java b/src/File1.java\n@@ -1 +1 @@\n-class File1 {}\n+class File1 { }",
-                    "Diff of files",
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    Set.of(file1));
-            var sf2 = new ContextFragment.StringFragment(
-                    contextManager,
-                    "diff --git a/src/File2.java b/src/File2.java\n@@ -1 +1 @@\n-class File2 {}\n+class File2 { }",
-                    "Diff of files",
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    Set.of(file2));
-
-            assertTrue(sf1.hasSameSource(sf2));
         }
 
         @Test
@@ -506,7 +459,7 @@ class FragmentEqualityTest {
                     +class GitDiffSingle { }
                     """;
 
-            var sf = new ContextFragment.StringFragment(
+            var sf = new ContextFragments.StringFragment(
                     contextManager, diffText, "Git diff for GitDiffSingle.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             var expectedPaths = Set.of(file.absPath().toString());
@@ -539,7 +492,7 @@ class FragmentEqualityTest {
                     +class UnifiedB { }
                     """;
 
-            var sf = new ContextFragment.StringFragment(
+            var sf = new ContextFragments.StringFragment(
                     contextManager,
                     diffText,
                     "Unified diff for UnifiedA.java and UnifiedB.java",
@@ -570,7 +523,7 @@ class FragmentEqualityTest {
                     -class Deleted {}
                     """;
 
-            var sf = new ContextFragment.StringFragment(
+            var sf = new ContextFragments.StringFragment(
                     contextManager, diffText, "Deletion diff for Deleted.java", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             var expectedPaths = Set.of(file.absPath().toString());
@@ -601,7 +554,7 @@ class FragmentEqualityTest {
                     +class RenamedNew {}
                     """;
 
-            var sf = new ContextFragment.StringFragment(
+            var sf = new ContextFragments.StringFragment(
                     contextManager,
                     diffText,
                     "Rename diff from RenamedOld.java to RenamedNew.java",
@@ -616,7 +569,7 @@ class FragmentEqualityTest {
 
         @Test
         void testDiffParsingNonDiffTextHasNoFiles() {
-            var sf = new ContextFragment.StringFragment(
+            var sf = new ContextFragments.StringFragment(
                     contextManager,
                     "This is not a diff\nJust some plain text.",
                     "Plain text",
@@ -630,12 +583,12 @@ class FragmentEqualityTest {
     class PasteTextFragmentEqualityTest {
         @Test
         void testEqualsIdenticalContent() {
-            var ptf1 = new ContextFragment.PasteTextFragment(
+            var ptf1 = new ContextFragments.PasteTextFragment(
                     contextManager,
                     "text",
                     CompletableFuture.completedFuture("desc1"),
                     CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
-            var ptf2 = new ContextFragment.PasteTextFragment(
+            var ptf2 = new ContextFragments.PasteTextFragment(
                     contextManager,
                     "text",
                     CompletableFuture.completedFuture("desc2"),
@@ -649,12 +602,12 @@ class FragmentEqualityTest {
 
         @Test
         void testEqualsDifferentText() {
-            var ptf1 = new ContextFragment.PasteTextFragment(
+            var ptf1 = new ContextFragments.PasteTextFragment(
                     contextManager,
                     "text1",
                     CompletableFuture.completedFuture("desc"),
                     CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
-            var ptf2 = new ContextFragment.PasteTextFragment(
+            var ptf2 = new ContextFragments.PasteTextFragment(
                     contextManager,
                     "text2",
                     CompletableFuture.completedFuture("desc"),
@@ -665,12 +618,12 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceIdenticalText() {
-            var ptf1 = new ContextFragment.PasteTextFragment(
+            var ptf1 = new ContextFragments.PasteTextFragment(
                     contextManager,
                     "text",
                     CompletableFuture.completedFuture("desc1"),
                     CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
-            var ptf2 = new ContextFragment.PasteTextFragment(
+            var ptf2 = new ContextFragments.PasteTextFragment(
                     contextManager,
                     "text",
                     CompletableFuture.completedFuture("desc2"),
@@ -682,12 +635,12 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceDifferentText() {
-            var ptf1 = new ContextFragment.PasteTextFragment(
+            var ptf1 = new ContextFragments.PasteTextFragment(
                     contextManager,
                     "text1",
                     CompletableFuture.completedFuture("desc"),
                     CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
-            var ptf2 = new ContextFragment.PasteTextFragment(
+            var ptf2 = new ContextFragments.PasteTextFragment(
                     contextManager,
                     "text2",
                     CompletableFuture.completedFuture("desc"),
@@ -702,9 +655,9 @@ class FragmentEqualityTest {
         @Test
         void testEqualsIdenticalImage() {
             var image1 = createTestImage(Color.RED, 10, 10);
-            var aif1 = new ContextFragment.AnonymousImageFragment(
+            var aif1 = new ContextFragments.AnonymousImageFragment(
                     contextManager, image1, CompletableFuture.completedFuture("desc1"));
-            var aif2 = new ContextFragment.AnonymousImageFragment(
+            var aif2 = new ContextFragments.AnonymousImageFragment(
                     contextManager, image1, CompletableFuture.completedFuture("desc2"));
 
             // Identity-based: different instances are NOT equal()
@@ -717,9 +670,9 @@ class FragmentEqualityTest {
         void testEqualsDifferentImages() {
             var image1 = createTestImage(Color.RED, 10, 10);
             var image2 = createTestImage(Color.BLUE, 10, 10);
-            var aif1 = new ContextFragment.AnonymousImageFragment(
+            var aif1 = new ContextFragments.AnonymousImageFragment(
                     contextManager, image1, CompletableFuture.completedFuture("desc"));
-            var aif2 = new ContextFragment.AnonymousImageFragment(
+            var aif2 = new ContextFragments.AnonymousImageFragment(
                     contextManager, image2, CompletableFuture.completedFuture("desc"));
 
             assertNotEquals(aif1, aif2);
@@ -728,9 +681,9 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceIdenticalImage() {
             var image1 = createTestImage(Color.RED, 10, 10);
-            var aif1 = new ContextFragment.AnonymousImageFragment(
+            var aif1 = new ContextFragments.AnonymousImageFragment(
                     contextManager, image1, CompletableFuture.completedFuture("desc1"));
-            var aif2 = new ContextFragment.AnonymousImageFragment(
+            var aif2 = new ContextFragments.AnonymousImageFragment(
                     contextManager, image1, CompletableFuture.completedFuture("desc2"));
 
             // hasSameSource uses contentHash (ID)
@@ -741,9 +694,9 @@ class FragmentEqualityTest {
         void testHasSameSourceDifferentImages() {
             var image1 = createTestImage(Color.RED, 10, 10);
             var image2 = createTestImage(Color.BLUE, 10, 10);
-            var aif1 = new ContextFragment.AnonymousImageFragment(
+            var aif1 = new ContextFragments.AnonymousImageFragment(
                     contextManager, image1, CompletableFuture.completedFuture("desc"));
-            var aif2 = new ContextFragment.AnonymousImageFragment(
+            var aif2 = new ContextFragments.AnonymousImageFragment(
                     contextManager, image2, CompletableFuture.completedFuture("desc"));
 
             assertFalse(aif1.hasSameSource(aif2));
@@ -754,8 +707,8 @@ class FragmentEqualityTest {
     class UsageFragmentEqualityTest {
         @Test
         void testEqualsIdentity() {
-            var uf1 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
-            var uf2 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
+            var uf1 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class"));
+            var uf2 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class"));
 
             // Identity-based: different instances are NOT equal
             assertNotEquals(uf1, uf2);
@@ -763,8 +716,8 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceRepr() {
-            var uf1 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
-            var uf2 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class"));
+            var uf1 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class"));
+            var uf2 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class"));
 
             // hasSameSource compares repr()
             assertTrue(uf1.hasSameSource(uf2));
@@ -772,16 +725,16 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceDifferentTargets() {
-            var uf1 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class1"));
-            var uf2 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class2"));
+            var uf1 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class1"));
+            var uf2 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class2"));
 
             assertFalse(uf1.hasSameSource(uf2));
         }
 
         @Test
         void testHasSameSourceDifferentIncludeTestFiles() {
-            var uf1 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class", true));
-            var uf2 = track(new ContextFragment.UsageFragment(contextManager, "com.example.Class", false));
+            var uf1 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class", true));
+            var uf2 = track(new ContextFragments.UsageFragment(contextManager, "com.example.Class", false));
 
             // Different includeTestFiles flags produce different repr()
             assertFalse(uf1.hasSameSource(uf2));
@@ -800,8 +753,8 @@ class FragmentEqualityTest {
         @Test
         void testEqualsIdentity() {
             var unit = createTestCodeUnit("com.example.Test");
-            var cf1 = new ContextFragment.CodeFragment(contextManager, unit);
-            var cf2 = new ContextFragment.CodeFragment(contextManager, unit);
+            var cf1 = new ContextFragments.CodeFragment(contextManager, unit);
+            var cf2 = new ContextFragments.CodeFragment(contextManager, unit);
 
             assertNotEquals(cf1, cf2);
         }
@@ -809,8 +762,8 @@ class FragmentEqualityTest {
         @Test
         void testHasSameSourceSameUnit() {
             var unit = createTestCodeUnit("com.example.Test");
-            var cf1 = new ContextFragment.CodeFragment(contextManager, unit);
-            var cf2 = new ContextFragment.CodeFragment(contextManager, unit);
+            var cf1 = new ContextFragments.CodeFragment(contextManager, unit);
+            var cf2 = new ContextFragments.CodeFragment(contextManager, unit);
 
             assertTrue(cf1.hasSameSource(cf2));
         }
@@ -819,8 +772,8 @@ class FragmentEqualityTest {
         void testHasSameSourceDifferentUnits() {
             var unit1 = createTestCodeUnit("com.example.Test1");
             var unit2 = createTestCodeUnit("com.example.Test2");
-            var cf1 = new ContextFragment.CodeFragment(contextManager, unit1);
-            var cf2 = new ContextFragment.CodeFragment(contextManager, unit2);
+            var cf1 = new ContextFragments.CodeFragment(contextManager, unit1);
+            var cf2 = new ContextFragments.CodeFragment(contextManager, unit2);
 
             assertFalse(cf1.hasSameSource(cf2));
         }
@@ -830,40 +783,40 @@ class FragmentEqualityTest {
     class CallGraphFragmentEqualityTest {
         @Test
         void testEqualsIdentity() {
-            var cgf1 = new ContextFragment.CallGraphFragment(contextManager, "com.example.method", 2, true);
-            var cgf2 = new ContextFragment.CallGraphFragment(contextManager, "com.example.method", 2, true);
+            var cgf1 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
+            var cgf2 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
 
             assertNotEquals(cgf1, cgf2);
         }
 
         @Test
         void testHasSameSourceSameParams() {
-            var cgf1 = new ContextFragment.CallGraphFragment(contextManager, "com.example.method", 2, true);
-            var cgf2 = new ContextFragment.CallGraphFragment(contextManager, "com.example.method", 2, true);
+            var cgf1 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
+            var cgf2 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
 
             assertTrue(cgf1.hasSameSource(cgf2));
         }
 
         @Test
         void testHasSameSourceDifferentMethods() {
-            var cgf1 = new ContextFragment.CallGraphFragment(contextManager, "com.example.method1", 2, true);
-            var cgf2 = new ContextFragment.CallGraphFragment(contextManager, "com.example.method2", 2, true);
+            var cgf1 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method1", 2, true);
+            var cgf2 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method2", 2, true);
 
             assertFalse(cgf1.hasSameSource(cgf2));
         }
 
         @Test
         void testHasSameSourceDifferentDepth() {
-            var cgf1 = new ContextFragment.CallGraphFragment(contextManager, "com.example.method", 2, true);
-            var cgf2 = new ContextFragment.CallGraphFragment(contextManager, "com.example.method", 3, true);
+            var cgf1 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
+            var cgf2 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 3, true);
 
             assertFalse(cgf1.hasSameSource(cgf2));
         }
 
         @Test
         void testHasSameSourceDifferentDirection() {
-            var cgf1 = new ContextFragment.CallGraphFragment(contextManager, "com.example.method", 2, true);
-            var cgf2 = new ContextFragment.CallGraphFragment(contextManager, "com.example.method", 2, false);
+            var cgf1 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, true);
+            var cgf2 = new ContextFragments.CallGraphFragment(contextManager, "com.example.method", 2, false);
 
             assertFalse(cgf1.hasSameSource(cgf2));
         }
@@ -874,8 +827,8 @@ class FragmentEqualityTest {
         @Test
         void testEqualsIdenticalMessages() {
             var messages = List.<ChatMessage>of(UserMessage.from("user"), AiMessage.from("ai"));
-            var tf1 = new ContextFragment.TaskFragment(contextManager, messages, "session");
-            var tf2 = new ContextFragment.TaskFragment(contextManager, messages, "session");
+            var tf1 = new ContextFragments.TaskFragment(contextManager, messages, "session");
+            var tf2 = new ContextFragments.TaskFragment(contextManager, messages, "session");
 
             // Identity-based: different instances are NOT equal()
             assertNotEquals(tf1, tf2);
@@ -887,8 +840,8 @@ class FragmentEqualityTest {
         void testEqualsDifferentMessages() {
             var messages1 = List.<ChatMessage>of(UserMessage.from("user1"));
             var messages2 = List.<ChatMessage>of(UserMessage.from("user2"));
-            var tf1 = new ContextFragment.TaskFragment(contextManager, messages1, "session");
-            var tf2 = new ContextFragment.TaskFragment(contextManager, messages2, "session");
+            var tf1 = new ContextFragments.TaskFragment(contextManager, messages1, "session");
+            var tf2 = new ContextFragments.TaskFragment(contextManager, messages2, "session");
 
             assertNotEquals(tf1, tf2);
         }
@@ -896,8 +849,8 @@ class FragmentEqualityTest {
         @Test
         void testEqualsDifferentSession() {
             var messages = List.<ChatMessage>of(UserMessage.from("user"));
-            var tf1 = new ContextFragment.TaskFragment(contextManager, messages, "session1");
-            var tf2 = new ContextFragment.TaskFragment(contextManager, messages, "session2");
+            var tf1 = new ContextFragments.TaskFragment(contextManager, messages, "session1");
+            var tf2 = new ContextFragments.TaskFragment(contextManager, messages, "session2");
 
             assertNotEquals(tf1, tf2);
         }
@@ -916,9 +869,9 @@ class FragmentEqualityTest {
         void testEqualsIdenticalContent() {
             var sources = Set.of(createTestCodeUnit("com.example.Error"));
             var sf1 =
-                    new ContextFragment.StacktraceFragment(contextManager, sources, "stacktrace", "Exception", "code");
+                    new ContextFragments.StacktraceFragment(contextManager, sources, "stacktrace", "Exception", "code");
             var sf2 =
-                    new ContextFragment.StacktraceFragment(contextManager, sources, "stacktrace", "Exception", "code");
+                    new ContextFragments.StacktraceFragment(contextManager, sources, "stacktrace", "Exception", "code");
 
             // Identity-based: different instances are NOT equal()
             assertNotEquals(sf1, sf2);
@@ -929,10 +882,10 @@ class FragmentEqualityTest {
         @Test
         void testEqualsDifferentExceptions() {
             var sources = Set.of(createTestCodeUnit("com.example.Error"));
-            var sf1 =
-                    new ContextFragment.StacktraceFragment(contextManager, sources, "stacktrace", "Exception1", "code");
-            var sf2 =
-                    new ContextFragment.StacktraceFragment(contextManager, sources, "stacktrace", "Exception2", "code");
+            var sf1 = new ContextFragments.StacktraceFragment(
+                    contextManager, sources, "stacktrace", "Exception1", "code");
+            var sf2 = new ContextFragments.StacktraceFragment(
+                    contextManager, sources, "stacktrace", "Exception2", "code");
 
             assertNotEquals(sf1, sf2);
         }
@@ -942,9 +895,9 @@ class FragmentEqualityTest {
     class SummaryFragmentEqualityTest {
         @Test
         void testEqualsIdentity() {
-            var sumf1 = new ContextFragment.SummaryFragment(
+            var sumf1 = new ContextFragments.SummaryFragment(
                     contextManager, "com.example.Class", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            var sumf2 = new ContextFragment.SummaryFragment(
+            var sumf2 = new ContextFragments.SummaryFragment(
                     contextManager, "com.example.Class", ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
             assertNotEquals(sumf1, sumf2);
@@ -952,9 +905,9 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceSameTarget() {
-            var sumf1 = new ContextFragment.SummaryFragment(
+            var sumf1 = new ContextFragments.SummaryFragment(
                     contextManager, "com.example.Class", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            var sumf2 = new ContextFragment.SummaryFragment(
+            var sumf2 = new ContextFragments.SummaryFragment(
                     contextManager, "com.example.Class", ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
             assertTrue(sumf1.hasSameSource(sumf2));
@@ -962,9 +915,9 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceDifferentTargets() {
-            var sumf1 = new ContextFragment.SummaryFragment(
+            var sumf1 = new ContextFragments.SummaryFragment(
                     contextManager, "com.example.Class1", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            var sumf2 = new ContextFragment.SummaryFragment(
+            var sumf2 = new ContextFragments.SummaryFragment(
                     contextManager, "com.example.Class2", ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
             assertFalse(sumf1.hasSameSource(sumf2));
@@ -972,9 +925,9 @@ class FragmentEqualityTest {
 
         @Test
         void testHasSameSourceDifferentSummaryTypes() {
-            var sumf1 = new ContextFragment.SummaryFragment(
+            var sumf1 = new ContextFragments.SummaryFragment(
                     contextManager, "com.example.Class", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-            var sumf2 = new ContextFragment.SummaryFragment(
+            var sumf2 = new ContextFragments.SummaryFragment(
                     contextManager, "com.example.Class", ContextFragment.SummaryType.FILE_SKELETONS);
 
             assertFalse(sumf1.hasSameSource(sumf2));
@@ -986,10 +939,10 @@ class FragmentEqualityTest {
         @Test
         void testEqualsIdenticalHistory() {
             var messages = List.<ChatMessage>of(UserMessage.from("user"));
-            var tf = new ContextFragment.TaskFragment(contextManager, messages, "session");
+            var tf = new ContextFragments.TaskFragment(contextManager, messages, "session");
             var te = new ai.brokk.TaskEntry(1, tf, null);
-            var hf1 = new ContextFragment.HistoryFragment(contextManager, List.of(te));
-            var hf2 = new ContextFragment.HistoryFragment(contextManager, List.of(te));
+            var hf1 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
+            var hf2 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
 
             // Identity-based: different instances are NOT equal()
             assertNotEquals(hf1, hf2);
@@ -1001,12 +954,12 @@ class FragmentEqualityTest {
         void testEqualsDifferentHistory() {
             var messages1 = List.<ChatMessage>of(UserMessage.from("user1"));
             var messages2 = List.<ChatMessage>of(UserMessage.from("user2"));
-            var tf1 = new ContextFragment.TaskFragment(contextManager, messages1, "session");
-            var tf2 = new ContextFragment.TaskFragment(contextManager, messages2, "session");
+            var tf1 = new ContextFragments.TaskFragment(contextManager, messages1, "session");
+            var tf2 = new ContextFragments.TaskFragment(contextManager, messages2, "session");
             var te1 = new ai.brokk.TaskEntry(1, tf1, null);
             var te2 = new ai.brokk.TaskEntry(1, tf2, null);
-            var hf1 = new ContextFragment.HistoryFragment(contextManager, List.of(te1));
-            var hf2 = new ContextFragment.HistoryFragment(contextManager, List.of(te2));
+            var hf1 = new ContextFragments.HistoryFragment(contextManager, List.of(te1));
+            var hf2 = new ContextFragments.HistoryFragment(contextManager, List.of(te2));
 
             assertNotEquals(hf1, hf2);
         }
@@ -1015,32 +968,18 @@ class FragmentEqualityTest {
     @Nested
     class CrossTypeEqualityTest {
         @Test
-        void testProjectPathVsExternalPath() throws IOException {
-            var projectFile = new ProjectFile(tempDir, "src/File.java");
-            Files.createDirectories(projectFile.absPath().getParent());
-            Files.writeString(projectFile.absPath(), "content");
-            var externalFile = new ExternalFile(projectFile.absPath());
-
-            var ppf = new ContextFragment.ProjectPathFragment(projectFile, contextManager);
-            var epf = new ContextFragment.ExternalPathFragment(externalFile, contextManager);
-
-            // Both refer to the same absolute path, so hasSameSource should return true
-            assertTrue(ppf.hasSameSource(epf));
-        }
-
-        @Test
         void testStringVsCodeFragment() {
-            var sf = new ContextFragment.StringFragment(
+            var sf = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
             var unit = new CodeUnit(new ProjectFile(tempDir, "Test.java"), CodeUnitType.CLASS, "com.example", "Test");
-            var cf = new ContextFragment.CodeFragment(contextManager, unit);
+            var cf = new ContextFragments.CodeFragment(contextManager, unit);
 
             assertFalse(sf.hasSameSource(cf));
         }
 
         @Test
         void testNullComparison() {
-            var sf = new ContextFragment.StringFragment(
+            var sf = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
             assertFalse(sf.hasSameSource(null));

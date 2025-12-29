@@ -16,6 +16,7 @@ import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.VoiceInputButton;
 import ai.brokk.gui.components.EditorFontSizeControl;
@@ -165,7 +166,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Capture button (conditionally added for GitHistoryFragment)
         if (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE) {
-            var ghf = (ContextFragment.GitFileFragment) fragment;
+            var ghf = (ContextFragments.GitFileFragment) fragment;
             captureButton = new MaterialButton("Capture this Revision");
             SwingUtilities.invokeLater(() -> requireNonNull(captureButton).setIcon(Icons.CONTENT_CAPTURE));
             var finalCaptureButton = captureButton; // Final reference for lambda
@@ -1135,6 +1136,13 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             }
         };
         addHierarchyListener(listener);
+    }
+
+    /**
+     * Returns true if this panel has unsaved changes.
+     */
+    public boolean hasUnsavedChanges() {
+        return saveButton != null && saveButton.isEnabled();
     }
 
     /**

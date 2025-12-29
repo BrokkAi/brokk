@@ -2,7 +2,7 @@ package ai.brokk.difftool.ui;
 
 import ai.brokk.*;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.doc.AbstractBufferDocument;
 import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.node.JMDiffNode;
@@ -10,7 +10,6 @@ import ai.brokk.difftool.performance.PerformanceConstants;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.git.GitRepo;
-import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
@@ -31,8 +30,6 @@ import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -1028,7 +1025,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 // Check if this file is already in the current workspace context
                 var editableFilesList = currentContext.fileFragments().toList();
                 boolean inWorkspace = editableFilesList.stream()
-                        .anyMatch(f -> f instanceof ContextFragment.ProjectPathFragment ppf
+                        .anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment ppf
                                 && ppf.file().equals(file));
                 if (!inWorkspace) {
                     externalFiles.add(file);
@@ -1256,7 +1253,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             } else {
                 // Reserved by another thread, show loading and wait (unless skipping loading UI)
                 if (!skipLoadingUI) {
-                    showLoadingForFile(fileIndex);
+                    showLoadingForFile();
                 }
             }
             return;
@@ -1264,7 +1261,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         // Show loading UI only if not skipping (e.g., during view mode switch)
         if (!skipLoadingUI) {
-            showLoadingForFile(fileIndex);
+            showLoadingForFile();
         }
 
         // Use hybrid approach - sync for small files, async for large files
@@ -1278,10 +1275,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 fileIndex);
     }
 
-    private void showLoadingForFile(int fileIndex) {
+    private void showLoadingForFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-
-        var compInfo = fileComparisons.get(fileIndex);
 
         // Disable all control buttons during loading
         disableAllControlButtons();
@@ -1293,8 +1288,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         var loadingPanel = new JPanel(new BorderLayout());
         loadingPanel.add(loadingLabel, BorderLayout.NORTH);
         add(loadingPanel, BorderLayout.CENTER);
-
-        updateFileIndicatorLabel("Loading: " + compInfo.getDisplayName());
 
         revalidate();
         repaint();
@@ -1388,7 +1381,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         }
 
         // Update file indicator
-        updateFileIndicatorLabel(compInfo.getDisplayName());
+        compInfo.getDisplayName();
+        // No-op: filename label removed from toolbar
 
         // Re-enable control buttons after loading is complete
         updateNavigationButtons();
@@ -1427,7 +1421,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         tabbedPane.addTab(compInfo.getDisplayName() + " (Too Big)", errorPanel);
 
         // Update file indicator
-        updateFileIndicatorLabel(compInfo.getDisplayName() + " - Too Big");
+        compInfo.getDisplayName();
+        // No-op: filename label removed from toolbar
 
         // Re-enable navigation buttons but keep current panel null
         updateNavigationButtons();
@@ -1448,45 +1443,15 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     }
 
     /**
-     * Shows the diff panel in a frame. Window bounds are managed via the ContextManager provided during construction.
+     * Shows this diff panel in the shared preview tab system.
      *
-     * @param title The frame title
+     * @param manager The PreviewManager to delegate to
+     * @param title   The title for the tab
      */
-    public void showInFrame(String title) {
-        var frame = Chrome.newFrame(title);
-
-        // Always intercept close and decide explicitly in windowClosing.
-        // This ensures quit actions (eg. Cmd+Q) are intercepted and the user can be prompted.
-        frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        frame.getContentPane().add(this);
-
-        // Get saved bounds from Project via the stored ContextManager
-        var bounds = contextManager.getProject().getDiffWindowBounds();
-        frame.setBounds(bounds);
-
-        // Save window position and size when closing. We handle the actual disposal here so a
-        // global quit (Cmd+Q) still triggers our prompt and can be cancelled by the user.
-        frame.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                // Ask user to save if there are unsaved changes. If they cancel, do nothing and keep window open.
-                if (confirmClose(frame)) {
-                    // User chose to proceed (and possibly saved). Persist window bounds and dispose.
-                    try {
-                        contextManager.getProject().saveDiffWindowBounds(frame);
-                    } catch (Exception ex) {
-                        // Be robust: log and continue with dispose even if saving bounds fails.
-                        logger.warn("Failed to save diff window bounds on close: {}", ex.getMessage(), ex);
-                    }
-                    // Explicitly dispose the frame to close the window.
-                    frame.dispose();
-                } else {
-                    // User cancelled - do nothing to prevent closing.
-                }
-            }
-        });
-
-        frame.setVisible(true);
+    public void showInTab(ai.brokk.gui.PreviewManager manager, String title) {
+        var leftSources = fileComparisons.stream().map(fc -> fc.leftSource).toList();
+        var rightSources = fileComparisons.stream().map(fc -> fc.rightSource).toList();
+        manager.showDiffInTab(title, this, leftSources, rightSources);
     }
 
     private void navigateToNextChange() {
@@ -1707,7 +1672,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                 }
             }
 
-            var fragment = new ContextFragment.StringFragment(
+            var fragment = new ContextFragments.StringFragment(
                     contextManager, combinedBuilder.toString(), description, syntaxStyle, filesForFragment);
 
             contextManager.submitContextTask(() -> {
@@ -1718,11 +1683,6 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
                                 IConsoleIO.NotificationRole.INFO, "Added captured diffs to context: " + description);
             });
         });
-    }
-
-    @SuppressWarnings("UnusedVariable")
-    private void updateFileIndicatorLabel(String text) {
-        // No-op: filename label removed from toolbar
     }
 
     private void performUndoRedo(Consumer<AbstractContentPanel> action) {

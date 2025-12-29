@@ -13,11 +13,13 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.ContextFragments;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.EditBlockParser;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
@@ -108,21 +110,25 @@ class CodeAgentTest {
 
     protected CodeAgent.ConversationState createConversationState(
             List<ChatMessage> taskMessages, UserMessage nextRequest) {
-        return new CodeAgent.ConversationState(new ArrayList<>(taskMessages), nextRequest, taskMessages.size());
+        return new CodeAgent.ConversationState(
+                new ArrayList<>(taskMessages),
+                new ArrayList<>(taskMessages),
+                nextRequest,
+                taskMessages.size(),
+                "Placeholder goal");
     }
 
-    private CodeAgent.EditState createEditState(
-            List<EditBlock.SearchReplaceBlock> pendingBlocks, int blocksAppliedWithoutBuild) {
+    private CodeAgent.EditState createEditState(int blocksAppliedWithoutBuild) {
         return new CodeAgent.EditState(
-                new ArrayList<>(pendingBlocks), // Modifiable copy
                 0, // consecutiveParseFailures
                 0, // consecutiveApplyFailures
                 0, // consecutiveBuildFailures
                 blocksAppliedWithoutBuild,
                 "", // lastBuildError
-                new HashSet<>(), // changedFiles
-                new HashMap<>(), // originalFileContents
-                Collections.emptyMap() // javaLintDiagnostics
+                new HashSet<ProjectFile>(), // changedFiles
+                new HashMap<ProjectFile, String>(), // originalFileContents
+                Collections.<ProjectFile, List<CodeAgent.JavaDiagnostic>>emptyMap(), // javaLintDiagnostics
+                false // hasAttemptedBuild
                 );
     }
 
@@ -134,24 +140,24 @@ class CodeAgentTest {
     @Test
     void testParsePhase_proseOnlyResponseIsNotError() {
         var cs = createBasicConversationState();
-        var es = createEditState(List.of(), 0);
+        var es = createEditState(0);
         // This input contains no blocks and should be treated as a successful, empty parse.
         String proseOnlyText = "Okay, I will make the changes now.";
 
-        var result = codeAgent.parsePhase(cs, es, proseOnlyText, false, EditBlockParser.instance, null);
+        var result = codeAgent.parsePhase(cs, es, proseOnlyText, EditBlockParser.instance, null);
 
         // A prose-only response is not a parse error; it should result in a Continue step.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
         assertEquals(0, continueStep.es().consecutiveParseFailures());
-        assertTrue(continueStep.es().pendingBlocks().isEmpty());
+        assertTrue(continueStep.blocks().isEmpty());
     }
 
     // P-2: parsePhase – partial parse + error
     @Test
     void testParsePhase_partialParseWithError() {
         var cs = createBasicConversationState();
-        var es = createEditState(List.of(), 0);
+        var es = createEditState(0);
         // A valid block followed by malformed text. The lenient parser should find
         // the first block and then stop without reporting an error.
         String llmText =
@@ -167,14 +173,14 @@ class CodeAgentTest {
                          This is some trailing text.
                          """;
 
-        var result = codeAgent.parsePhase(cs, es, llmText, false, EditBlockParser.instance, null);
+        var result = codeAgent.parsePhase(cs, es, llmText, EditBlockParser.instance, null);
 
         // The parser is lenient; it finds the valid block and ignores the rest.
         // This is not a parse error, so we continue.
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
         assertEquals(0, continueStep.es().consecutiveParseFailures());
-        assertEquals(1, continueStep.es().pendingBlocks().size(), "One block should be parsed and now pending.");
+        assertEquals(1, continueStep.blocks().size(), "One block should be parsed.");
     }
 
     // P-3: parsePhase - pure parse error, should retry with reminder
@@ -198,11 +204,13 @@ class CodeAgentTest {
         taskMessages.add(originalRequest);
         taskMessages.add(badAiResponse);
 
-        var cs = new CodeAgent.ConversationState(taskMessages, new UserMessage("placeholder"), taskMessages.size());
-        var es = createEditState(List.of(), 0);
+        var rawMessages = new ArrayList<ChatMessage>(taskMessages);
+        var cs = new CodeAgent.ConversationState(
+                rawMessages, taskMessages, new UserMessage("placeholder"), taskMessages.size(), "");
+        var es = createEditState(0);
 
         // Act
-        var result = codeAgent.parsePhase(cs, es, llmTextWithParseError, false, EditBlockParser.instance, null);
+        var result = codeAgent.parsePhase(cs, es, llmTextWithParseError, EditBlockParser.instance, null);
 
         // Assert
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
@@ -223,48 +231,6 @@ class CodeAgentTest {
                 "Remember to pay close attention to the SEARCH/REPLACE block format instructions and examples!"));
     }
 
-    // P-3a: parsePhase – isPartial flag handling (with zero blocks)
-    @Test
-    void testParsePhase_isPartial_zeroBlocks() {
-        var cs = createBasicConversationState();
-        var es = createEditState(List.of(), 0);
-        String llmTextNoBlocks = "Thinking...";
-
-        var result = codeAgent.parsePhase(cs, es, llmTextNoBlocks, true, EditBlockParser.instance, null);
-
-        assertInstanceOf(CodeAgent.Step.Retry.class, result);
-        var retryStep = (CodeAgent.Step.Retry) result;
-        assertTrue(Messages.getText(requireNonNull(retryStep.cs().nextRequest()))
-                .contains("cut off before you provided any code blocks"));
-        assertTrue(retryStep.es().pendingBlocks().isEmpty());
-    }
-
-    // P-3b: parsePhase – isPartial flag handling (with >=1 block)
-    @Test
-    void testParsePhase_isPartial_withBlocks() {
-        var cs = createBasicConversationState();
-        var es = createEditState(List.of(), 0);
-        String llmTextWithBlock =
-                """
-                                  <block>
-                                  file.java
-                                  <<<<<<< SEARCH
-                                  System.out.println("Hello");
-                                  =======
-                                  System.out.println("World");
-                                  >>>>>>> REPLACE
-                                  </block>
-                                  """;
-
-        var result = codeAgent.parsePhase(cs, es, llmTextWithBlock, true, EditBlockParser.instance, null);
-
-        assertInstanceOf(CodeAgent.Step.Retry.class, result);
-        var retryStep = (CodeAgent.Step.Retry) result;
-        assertTrue(
-                Messages.getText(requireNonNull(retryStep.cs().nextRequest())).contains("continue from there"));
-        assertEquals(1, retryStep.es().pendingBlocks().size());
-    }
-
     // A-2: applyPhase – total apply failure (below fallback threshold)
     @Test
     void testApplyPhase_totalApplyFailure_belowThreshold() throws IOException {
@@ -275,17 +241,19 @@ class CodeAgentTest {
         var nonMatchingBlock =
                 new EditBlock.SearchReplaceBlock(file.toString(), "text that does not exist", "replacement");
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(nonMatchingBlock), 0);
+        var es = createEditState(0);
 
-        var result = codeAgent.applyPhase(cs, es, null);
+        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(nonMatchingBlock)), null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
         assertEquals(1, retryStep.es().consecutiveApplyFailures());
         assertEquals(0, retryStep.es().blocksAppliedWithoutBuild());
         String nextRequestText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
-        // check that the name of the file that failed to apply is mentioned in the retry prompt.
-        assertTrue(nextRequestText.contains(file.getFileName()));
+        // check that the name of the file that failed to apply is mentioned in the retry prompt's target_file tag.
+        assertTrue(
+                nextRequestText.contains("<target_file name=\"" + file.toString() + "\">"),
+                "Retry prompt should contain target_file tag for " + file);
     }
 
     // A-4: applyPhase – mix success & failure
@@ -304,9 +272,9 @@ class CodeAgentTest {
         var failureBlock = new EditBlock.SearchReplaceBlock(file2.toString(), "nonexistent", "text");
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(successBlock, failureBlock), 0);
+        var es = createEditState(0);
 
-        var result = codeAgent.applyPhase(cs, es, null);
+        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(successBlock, failureBlock)), null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
         var retryStep = (CodeAgent.Step.Retry) result;
@@ -318,8 +286,14 @@ class CodeAgentTest {
 
         // The retry message should reflect both the success and the failure.
         String nextRequestText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
-        // Weaker assertion: just check that the name of the file that failed to apply is mentioned.
-        assertTrue(nextRequestText.contains(file2.getFileName()));
+        // Verify failure is reported for file2
+        assertTrue(
+                nextRequestText.contains("<target_file name=\"" + file2.toString() + "\">"),
+                "Retry prompt should report failure for " + file2);
+        // Verify file1 is NOT reported as a failure (since it succeeded)
+        assertFalse(
+                nextRequestText.contains("<target_file name=\"" + file1.toString() + "\">"),
+                "Retry prompt should NOT report failure for successful " + file1);
 
         // Verify the successful edit was actually made.
         assertEquals("goodbye world", file1.read().orElseThrow().strip());
@@ -329,7 +303,7 @@ class CodeAgentTest {
     @Test
     void testVerifyPhase_skipWhenNoEdits() {
         var cs = createConversationState(List.of(new AiMessage("no edits")), new UserMessage("test request"));
-        var es = createEditState(List.of(), 0);
+        var es = createEditState(0);
         var result = codeAgent.verifyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
@@ -342,7 +316,7 @@ class CodeAgentTest {
     void testVerifyPhase_verificationCommandAbsent() {
         project.setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No commands
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(), 1); // 1 block applied
+        var es = createEditState(1); // 1 block applied
 
         var result = codeAgent.verifyPhase(cs, es, null);
 
@@ -375,7 +349,7 @@ class CodeAgentTest {
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(), 1); // 1 block applied
+        var es = createEditState(1); // 1 block applied
 
         // First run - build should fail
         var resultFail = codeAgent.verifyPhase(cs, es, null);
@@ -383,15 +357,19 @@ class CodeAgentTest {
         var retryStep = (CodeAgent.Step.Retry) resultFail;
         assertTrue(retryStep.es().lastBuildError().contains("Detailed build error output"));
         assertEquals(0, retryStep.es().blocksAppliedWithoutBuild()); // Reset
+        String nextReqText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
+        // The retry prompt for build failures includes the error and the goal.
         assertTrue(
-                Messages.getText(requireNonNull(retryStep.cs().nextRequest())).contains("The build failed"));
+                nextReqText.contains("Detailed build error output")
+                        || retryStep.es().lastBuildError().contains("Detailed build error output"),
+                "Build error missing from prompt or EditState");
+        assertTrue(nextReqText.contains("req"), "Original goal missing from prompt");
 
         // Second run - build should succeed
         // We must manually create a new state that simulates new edits having been applied,
         // otherwise verifyPhase will short-circuit because blocksAppliedWithoutBuild is 0 from the Retry step.
         var cs2 = retryStep.cs();
         var es2 = new CodeAgent.EditState(
-                List.of(), // pending blocks are empty
                 retryStep.es().consecutiveParseFailures(),
                 retryStep.es().consecutiveApplyFailures(),
                 retryStep.es().consecutiveBuildFailures(),
@@ -399,7 +377,8 @@ class CodeAgentTest {
                 retryStep.es().lastBuildError(),
                 retryStep.es().changedFiles(),
                 retryStep.es().originalFileContents(),
-                retryStep.es().javaLintDiagnostics());
+                retryStep.es().javaLintDiagnostics(),
+                false);
 
         var resultSuccess = codeAgent.verifyPhase(cs2, es2, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, resultSuccess);
@@ -419,7 +398,7 @@ class CodeAgentTest {
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(), 1);
+        var es = createEditState(1);
 
         var result = codeAgent.verifyPhase(cs, es, null);
         assertInstanceOf(CodeAgent.Step.Fatal.class, result);
@@ -429,12 +408,12 @@ class CodeAgentTest {
 
     // L-1: Loop termination - "no edits, no error"
     @Test
-    void testRunTask_exitsSuccessOnNoEdits() {
+    void testExecute_exitsSuccessOnNoEdits() {
         var stubModel = new TestScriptedLanguageModel("Okay, I see no changes are needed.");
         codeAgent = new CodeAgent(cm, stubModel, consoleIO);
         project.setBuildDetails(BuildAgent.BuildDetails.EMPTY); // No build command
         var initialContext = newContext();
-        var result = codeAgent.runTask(initialContext, List.of(), "A request that results in no edits", Set.of());
+        var result = codeAgent.executeWithoutHistory(initialContext, "A request that results in no edits", Set.of());
 
         assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
         assertEquals(initialContext, result.context());
@@ -442,7 +421,7 @@ class CodeAgentTest {
 
     // L-2: Loop termination - "no edits, but has build error"
     @Test
-    void testRunTask_exitsBuildErrorOnNoEditsWithPreviousError() throws IOException {
+    void testExecute_exitsBuildErrorOnNoEditsWithPreviousError() throws IOException {
         // Script:
         // 1. LLM provides a valid edit.
         // 2. Build fails. Loop retries with build error in prompt.
@@ -481,7 +460,7 @@ class CodeAgentTest {
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         codeAgent = new CodeAgent(cm, stubModel, consoleIO);
-        var result = codeAgent.runTask("change hello to goodbye", Set.of());
+        var result = codeAgent.execute("change hello to goodbye", Set.of());
 
         assertEquals(TaskResult.StopReason.BUILD_ERROR, result.stopDetails().reason());
         assertTrue(result.stopDetails().explanation().contains("Compiler error on line 5"));
@@ -497,9 +476,9 @@ class CodeAgentTest {
 
         var block = new EditBlock.SearchReplaceBlock(file.toString(), "old", "new");
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(block), 0);
+        var es = createEditState(0);
 
-        var result = codeAgent.applyPhase(cs, es, null);
+        var result = codeAgent.applyPhase(cs, es, new LinkedHashSet<>(List.of(block)), null);
 
         assertInstanceOf(CodeAgent.Step.Continue.class, result);
         var continueStep = (CodeAgent.Step.Continue) result;
@@ -522,7 +501,7 @@ class CodeAgentTest {
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(), 1);
+        var es = createEditState(1);
         var result = codeAgent.verifyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
@@ -550,7 +529,7 @@ class CodeAgentTest {
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(), 1);
+        var es = createEditState(1);
         var result = codeAgent.verifyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
@@ -583,7 +562,7 @@ class CodeAgentTest {
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(), 1);
+        var es = createEditState(1);
         var result = codeAgent.verifyPhase(cs, es, null);
 
         assertInstanceOf(CodeAgent.Step.Retry.class, result);
@@ -604,16 +583,12 @@ class CodeAgentTest {
         // Turn 1: apply "hello world" -> "goodbye world"
         var block1 = new EditBlock.SearchReplaceBlock(file.toString(), "hello world", "goodbye world");
         var es1 = new CodeAgent.EditState(
-                new ArrayList<>(List.of(block1)),
-                0,
-                0,
-                0,
-                0,
-                "",
-                new HashSet<>(),
-                new HashMap<>(),
-                Collections.emptyMap());
-        var res1 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req1")), es1, null);
+                0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap(), false);
+        var res1 = codeAgent.applyPhase(
+                createConversationState(List.of(), new UserMessage("req1")),
+                es1,
+                new LinkedHashSet<>(List.of(block1)),
+                null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res1);
         var es1b = ((CodeAgent.Step.Continue) res1).es();
 
@@ -627,16 +602,12 @@ class CodeAgentTest {
         // Prepare next turn state with empty per-turn baseline and a new change: "goodbye world" -> "ciao world"
         var block2 = new EditBlock.SearchReplaceBlock(file.toString(), "goodbye world", "ciao world");
         var es2 = new CodeAgent.EditState(
-                new ArrayList<>(List.of(block2)),
-                0,
-                0,
-                0,
-                0,
-                "",
-                new HashSet<>(),
-                new HashMap<>(),
-                Collections.emptyMap());
-        var res2 = codeAgent.applyPhase(createConversationState(List.of(), new UserMessage("req2")), es2, null);
+                0, 0, 0, 0, "", new HashSet<>(), new HashMap<>(), Collections.emptyMap(), false);
+        var res2 = codeAgent.applyPhase(
+                createConversationState(List.of(), new UserMessage("req2")),
+                es2,
+                new LinkedHashSet<>(List.of(block2)),
+                null);
         assertInstanceOf(CodeAgent.Step.Continue.class, res2);
         var es2b = ((CodeAgent.Step.Continue) res2).es();
 
@@ -665,7 +636,6 @@ class CodeAgentTest {
         file.write(revised);
 
         var es = new CodeAgent.EditState(
-                List.of(), // pending blocks
                 0,
                 0,
                 0,
@@ -673,7 +643,8 @@ class CodeAgentTest {
                 "", // lastBuildError
                 changedFiles,
                 originalMap,
-                Collections.emptyMap());
+                Collections.emptyMap(),
+                false);
 
         var blocks = es.toSearchReplaceBlocks();
         // Expect two distinct blocks (one per changed line)
@@ -704,7 +675,7 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("alpha", "beta", "ALPHA", "gamma")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
+        var es = new CodeAgent.EditState(0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap(), false);
 
         var blocks = es.toSearchReplaceBlocks();
         assertEquals(1, blocks.size(), "Should produce a single unique block");
@@ -731,7 +702,7 @@ class CodeAgentTest {
         var revised = String.join("\n", List.of("line1", "TARGET", "middle", "TARGET", "line5")) + "\n";
         file.write(revised);
 
-        var es = new CodeAgent.EditState(List.of(), 0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap());
+        var es = new CodeAgent.EditState(0, 0, 0, 1, "", changedFiles, originalMap, Collections.emptyMap(), false);
 
         var blocks = es.toSearchReplaceBlocks();
 
@@ -743,7 +714,6 @@ class CodeAgentTest {
                 b.beforeText().contains("target\nmiddle\ntarget"), "Merged before should span both targets and middle");
         assertTrue(b.afterText().contains("TARGET\nmiddle\nTARGET"), "Merged after should reflect both changes");
     }
-
     // TURN-1: replaceCurrentTurnMessages should replace the entire turn, not just last two messages
     @Test
     void testReplaceCurrentTurnMessages_replacesWholeTurn() {
@@ -758,7 +728,8 @@ class CodeAgentTest {
         msgs.add(new UserMessage("retry prompt"));
         msgs.add(new AiMessage("partial response 2"));
 
-        var cs = new CodeAgent.ConversationState(msgs, new UserMessage("next request"), turnStart);
+        var rawMsgs = new ArrayList<ChatMessage>(msgs);
+        var cs = new CodeAgent.ConversationState(rawMsgs, msgs, new UserMessage("next request"), turnStart, "");
         var summary = "Here are the SEARCH/REPLACE blocks:\n\n<summary>";
         var replaced = cs.replaceCurrentTurnMessages(summary);
 
@@ -797,7 +768,7 @@ class CodeAgentTest {
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(List.of(), 1); // 1 block applied to trigger verification
+        var es = createEditState(1); // 1 block applied to trigger verification
 
         // Act: Run verifyPhase which should process build output
         var result = codeAgent.verifyPhase(cs, es, null);
@@ -814,31 +785,28 @@ class CodeAgentTest {
                         + "(by BuildAgent), but was called " + countingModel.getPreprocessingCallCount() + " times");
     }
 
-    // Ensure that build errors recorded in Context are surfaced in the workspace prompt
     @Test
-    void testBuildErrorIsIncludedInWorkspacePrompt() throws InterruptedException {
+    void testBuildErrorIsNotIncludedInWorkspacePrompt() {
         var ctx = newContext().withBuildResult(false, "Simulated build error for prompt");
         var prologue = List.<ChatMessage>of();
         var taskMessages = new ArrayList<ChatMessage>();
         var nextRequest = new UserMessage("Please fix the build");
-        var changedFiles = Collections.<ProjectFile>emptySet();
 
+        var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST, SpecialTextType.BUILD_RESULTS);
         var messages = CodePrompts.instance.collectCodeMessages(
                 new Service.UnavailableStreamingModel(),
                 ctx,
                 prologue,
                 taskMessages,
                 nextRequest,
-                changedFiles,
-                new ViewingPolicy(TaskResult.Type.CODE));
+                suppressed,
+                Messages.getText(nextRequest));
 
         boolean found = messages.stream()
                 .map(Messages::getText)
                 .anyMatch(text -> text.contains("Simulated build error for prompt"));
 
-        assertTrue(
-                found,
-                "Workspace messages for the LLM should include the latest build error text from Context.withBuildResult");
+        assertFalse(found, messages.toString());
     }
 
     // REQ-1: requestPhase with partial response + error should continue, not exit fatally
@@ -867,7 +835,7 @@ class CodeAgentTest {
         var streamingResult = new Llm.StreamingResult(partialResponse, new RuntimeException("Connection reset"), 0);
 
         var cs = createBasicConversationState();
-        var es = createEditState(List.of(), 0);
+        var es = createEditState(0);
 
         // Act: Call requestPhase with the partial + error result
         var result = codeAgent.requestPhase(cs, es, streamingResult, null);
@@ -930,7 +898,7 @@ class CodeAgentTest {
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         // Act
-        codeAgent.runTask("change hello to goodbye", Set.of());
+        codeAgent.execute("change hello to goodbye", Set.of());
 
         // Assert: verify the edit was applied to disk
         assertEquals("goodbye", file.read().orElseThrow().strip(), "Edit should have been applied to disk");
@@ -940,19 +908,19 @@ class CodeAgentTest {
 
         assertFalse(fragments.isEmpty(), "Context should contain a fragment for the modified file");
 
-        var fragmentContent = fragments.getFirst().format().join();
+        var fragmentContent = fragments.getFirst().text().join();
         assertTrue(fragmentContent.contains("goodbye"), fragmentContent);
         assertFalse(fragmentContent.contains("hello"), fragmentContent);
     }
 
     // RO-1: Guardrail - edits to read-only files are blocked with clear error
     @Test
-    void testRunTask_blocksEditsToReadOnlyFile() throws IOException, InterruptedException {
+    void testExecute_blocksEditsToReadOnlyFile() throws IOException, InterruptedException {
         // Arrange: create a file and mark it as read-only in the workspace context
         var roFile = cm.toFile("ro.txt");
         roFile.write("hello");
         // Build a context with a ProjectPathFragment for the file, mark it read-only
-        var roFrag = new ContextFragment.ProjectPathFragment(roFile, cm);
+        var roFrag = new ContextFragments.ProjectPathFragment(roFile, cm);
         var ctx = newContext().addFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
@@ -974,7 +942,7 @@ class CodeAgentTest {
         var agent = new CodeAgent(cm, stubModel, consoleIO);
 
         // Act
-        var result = agent.runTask(ctx, List.of(), "Change ro.txt from hello to goodbye", Set.of());
+        var result = agent.executeWithoutHistory(ctx, "Change ro.txt from hello to goodbye", Set.of());
 
         // Assert: operation is blocked with READ_ONLY_EDIT and file remains unchanged
         assertEquals(
@@ -999,12 +967,12 @@ class CodeAgentTest {
 
     // RO-3: Guardrail precedence - editable ProjectPathFragment takes precedence over read-only virtual fragment
     @Test
-    void testRunTask_editablePrecedesReadOnlyVirtualFragment() throws IOException, InterruptedException {
+    void testExecute_editablePrecedesReadOnlyVirtualFragment() throws IOException, InterruptedException {
         // Arrange: create a file and add it as both an editable ProjectPathFragment
         // and a read-only virtual fragment (simulating a Code or Usage reference)
         var file = cm.toFile("file.txt");
         file.write("hello");
-        var editFrag = new ContextFragment.ProjectPathFragment(file, cm);
+        var editFrag = new ContextFragments.ProjectPathFragment(file, cm);
         var ctx = newContext().addFragments(List.of(editFrag));
 
         // Simulate a read-only virtual fragment by wrapping in a mock (this is a simplified test)
@@ -1034,7 +1002,7 @@ class CodeAgentTest {
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
         // Act
-        var result = agent.runTask(ctx, List.of(), "Change file from hello to goodbye", Set.of());
+        var result = agent.executeWithoutHistory(ctx, "Change file from hello to goodbye", Set.of());
 
         // Assert: edit should succeed because editable ProjectPathFragment takes precedence
         assertEquals(
@@ -1042,6 +1010,65 @@ class CodeAgentTest {
                 result.stopDetails().reason(),
                 "Editable ProjectPathFragment should take precedence over other fragment types");
         assertEquals("goodbye", file.read().orElseThrow().strip(), "File should be modified");
+    }
+
+    // CONV-1: CodeAgent conversation is included in TaskResult.output but NOT baked into TaskResult.context
+    @Test
+    void testExecute_conversationInOutputNotInContext() throws IOException {
+        // Arrange: file with initial content
+        var file = cm.toFile("conv.txt");
+        file.write("hello");
+        cm.addEditableFile(file);
+
+        // Create initial context with the file
+        var initialFragment = new ContextFragments.ProjectPathFragment(file, cm);
+        var initialContext = newContext().addFragments(List.of(initialFragment));
+
+        // LLM provides an edit
+        var response =
+                """
+                <block>
+                %s
+                <<<<<<< SEARCH
+                hello
+                =======
+                goodbye
+                >>>>>>> REPLACE
+                </block>
+                """
+                        .formatted(file.toString());
+
+        var stubModel = new TestScriptedLanguageModel(response);
+        codeAgent = new CodeAgent(cm, stubModel, consoleIO);
+
+        // Mock build to succeed
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> "Build successful";
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test", Set.of());
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        // Act
+        var result = codeAgent.executeWithoutHistory(initialContext, "Change hello to goodbye", Set.of());
+
+        // Assert: Task completed successfully
+        assertEquals(TaskResult.StopReason.SUCCESS, result.stopDetails().reason());
+
+        // Assert: TaskResult.output contains the conversation
+        var outputFragment = result.output();
+        assertNotNull(outputFragment, "TaskResult.output should not be null");
+        var outputText = outputFragment.text().join();
+        assertTrue(outputText.contains("goodbye"), "Output should contain the LLM response with the edit");
+
+        // Assert: TaskResult.context does NOT have the conversation baked in
+        // The context should contain file fragments but not the conversation/task messages
+        var contextFragments = result.context().getAllFragmentsInDisplayOrder();
+        boolean hasTaskFragment = contextFragments.stream().anyMatch(f -> f instanceof ContextFragments.TaskFragment);
+        assertFalse(hasTaskFragment, "TaskResult.context should NOT contain a TaskFragment with the conversation");
+
+        // Additional verification: the context should still have the file fragment
+        var hasFileFragment =
+                contextFragments.stream().anyMatch(f -> f instanceof ContextFragments.ProjectPathFragment);
+        assertTrue(hasFileFragment, "TaskResult.context should still contain file fragments");
     }
 
     // RO-4: computeReadOnlyPaths – precedence for ProjectPathFragment, SummaryFragment, CodeFragment, and explicit
@@ -1125,38 +1152,38 @@ class CodeAgentTest {
         assertFalse(analyzer.getAllDeclarations().isEmpty());
 
         // Build fragments
-        var ppfAndSummaryEditablePpf = new ContextFragment.ProjectPathFragment(ppfAndSummaryEditableFile, cm);
-        var ppfReadonlyPpf = new ContextFragment.ProjectPathFragment(ppfReadonlyFile, cm);
+        var ppfAndSummaryEditablePpf = new ContextFragments.ProjectPathFragment(ppfAndSummaryEditableFile, cm);
+        var ppfReadonlyPpf = new ContextFragments.ProjectPathFragment(ppfReadonlyFile, cm);
 
-        var summarySummaryOnly = new ContextFragment.SummaryFragment(
+        var summarySummaryOnly = new ContextFragments.SummaryFragment(
                 cm, "com.example.SummaryOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
         assertFalse(summarySummaryOnly.files().join().isEmpty());
-        var summaryPpfAndSummaryEditable = new ContextFragment.SummaryFragment(
+        var summaryPpfAndSummaryEditable = new ContextFragments.SummaryFragment(
                 cm, "com.example.PpfAndSummaryEditable", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var summaryPpfReadonly = new ContextFragment.SummaryFragment(
+        var summaryPpfReadonly = new ContextFragments.SummaryFragment(
                 cm, "com.example.PpfReadonly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var summaryCodeAndSummaryEditable = new ContextFragment.SummaryFragment(
+        var summaryCodeAndSummaryEditable = new ContextFragments.SummaryFragment(
                 cm, "com.example.CodeAndSummaryEditable", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var summaryCodeReadonlyOnly = new ContextFragment.SummaryFragment(
+        var summaryCodeReadonlyOnly = new ContextFragments.SummaryFragment(
                 cm, "com.example.CodeReadonlyOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var summaryCodeReadonlyWithPpf = new ContextFragment.SummaryFragment(
+        var summaryCodeReadonlyWithPpf = new ContextFragments.SummaryFragment(
                 cm, "com.example.CodeReadonlyWithPpf", ContextFragment.SummaryType.CODEUNIT_SKELETON);
-        var summaryCodeOnly = new ContextFragment.SummaryFragment(
+        var summaryCodeOnly = new ContextFragments.SummaryFragment(
                 cm, "com.example.CodeOnly", ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
-        var codeCodeAndSummaryEditable = new ContextFragment.CodeFragment(
+        var codeCodeAndSummaryEditable = new ContextFragments.CodeFragment(
                 cm,
                 analyzer.getTopLevelDeclarations(codeAndSummaryEditableFile).stream()
                         .filter(CodeUnit::isClass)
                         .findFirst()
                         .orElseThrow());
-        var codeCodeReadonlyOnly = new ContextFragment.CodeFragment(
+        var codeCodeReadonlyOnly = new ContextFragments.CodeFragment(
                 cm,
                 analyzer.getTopLevelDeclarations(codeReadonlyOnlyFile).stream()
                         .filter(CodeUnit::isClass)
                         .findFirst()
                         .orElseThrow());
-        var codeCodeOnly = new ContextFragment.CodeFragment(
+        var codeCodeOnly = new ContextFragments.CodeFragment(
                 cm,
                 analyzer.getTopLevelDeclarations(codeOnlyFile).stream()
                         .filter(CodeUnit::isClass)
@@ -1217,12 +1244,206 @@ class CodeAgentTest {
 
         // re-check editable/summary conflict with a FILE_SKELETON summary
         ctx = ctx.removeFragments(Set.of(summaryPpfAndSummaryEditable));
-        var summaryFilePpfAndSummaryEditable = new ContextFragment.SummaryFragment(
+        var summaryFilePpfAndSummaryEditable = new ContextFragments.SummaryFragment(
                 cm, ppfAndSummaryEditablePpf.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
         ctx = ctx.addFragments(summaryFilePpfAndSummaryEditable);
         readOnlyPaths = CodeAgent.computeReadOnlyPaths(ctx);
         assertFalse(
                 readOnlyPaths.contains(ppfAndSummaryEditablePpf.toString()),
                 "File referenced only by an editable CodeFragment should not be treated as read-only");
+    }
+
+    // New test: ensure CodePrompts.collectCodeMessages ordering and CodeAgent-style TOC append behavior
+    @Test
+    void testCollectCodeMessages_flowAndTocAppend() throws InterruptedException, IOException {
+        // Create an editable file
+        var editable = cm.toFile("editable.txt");
+        editable.write("editable content\n");
+        cm.addEditableFile(editable);
+
+        // Create a file that we'll reference via a SummaryFragment (treat as read-only in the context)
+        var roFile = cm.toFile("ro.txt");
+        roFile.write("readonly content\n");
+        cm.addEditableFile(roFile);
+
+        // Build fragments: an editable ProjectPathFragment and a SummaryFragment referring to the ro file path.
+        // Also add a ProjectPathFragment for the read-only file and mark it read-only so workspace prompts
+        // reliably include the read-only content for the test.
+        var editFrag = new ContextFragments.ProjectPathFragment(editable, cm);
+        var roPpf = new ContextFragments.ProjectPathFragment(roFile, cm);
+        var summaryFrag =
+                new ContextFragments.SummaryFragment(cm, roFile.toString(), ContextFragment.SummaryType.FILE_SKELETONS);
+
+        var ctx = newContext().addFragments(List.of(editFrag, roPpf)).addFragments(summaryFrag);
+        ctx = ctx.setReadonly(roPpf, true);
+
+        // Ensure context fragments have resolved
+        ctx.awaitContextsAreComputed(Duration.of(5, ChronoUnit.SECONDS));
+
+        var request = new UserMessage("Please fix things");
+
+        // Collect messages with no changed files
+        var msgsNoChanged = CodePrompts.instance.collectCodeMessages(
+                new Service.UnavailableStreamingModel(),
+                ctx,
+                List.of(),
+                List.of(),
+                request,
+                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
+                Messages.getText(request));
+
+        // 1) first message is SystemMessage
+        assertInstanceOf(dev.langchain4j.data.message.SystemMessage.class, msgsNoChanged.get(0));
+
+        // 2) last message should be the augmented request (original text + TOC reminder)
+        var lastMsg = msgsNoChanged.get(msgsNoChanged.size() - 1);
+        assertInstanceOf(UserMessage.class, lastMsg);
+        String lastMsgText = Messages.getText(lastMsg);
+        assertTrue(
+                lastMsgText.contains(Messages.getText(request)), "Last message should contain original request text");
+        assertTrue(lastMsgText.contains("<workspace_toc>"), "Last message should contain TOC reminder");
+
+        // 3) some message should contain the read-only file name
+        boolean containsRo =
+                msgsNoChanged.stream().map(Messages::getText).anyMatch(t -> t.contains(roFile.getFileName()));
+        assertTrue(containsRo, "Expected read-only fragment content to appear in messages when no changed files");
+
+        // Collect messages with the editable file listed as changed
+        var msgsWithChanged = CodePrompts.instance.collectCodeMessages(
+                new Service.UnavailableStreamingModel(),
+                ctx,
+                List.of(),
+                List.of(),
+                request,
+                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
+                Messages.getText(request));
+
+        // 4) ensure editable file name appears when it is provided as changed
+        boolean containsEditable =
+                msgsWithChanged.stream().map(Messages::getText).anyMatch(t -> t.contains(editable.getFileName()));
+        assertTrue(
+                containsEditable,
+                "Expected editable fragment content to appear in messages when it's listed as changed");
+
+        // 5) Simulate the CodeAgent TOC append and ensure the TOC content is present in the augmented request text
+        var toc = WorkspacePrompts.formatToc(ctx, java.util.Collections.emptySet());
+        var tocReminder =
+                """
+                Reminder: here is a list of the full contents of the Workspace that you can refer to above:
+                %s
+                """
+                        .formatted(toc);
+        var augmented = Messages.getText(request) + "\n\n" + tocReminder;
+        assertTrue(augmented.contains(Messages.getText(request)));
+        assertTrue(augmented.contains(toc));
+    }
+
+    @Test
+    void compactForBuildRetryAggregatesReasoningAndProducesSyntheticTurn() {
+        // Prepare a conversation with a leading user message and multiple AiMessages (one with blank reasoningContent)
+        List<ChatMessage> msgs = new ArrayList<>();
+        msgs.add(new UserMessage("original user"));
+        msgs.add(AiMessage.from("ai text 1", "reason-1"));
+        msgs.add(AiMessage.from("", "")); // blank reasoningContent and blank text -> should be skipped
+        msgs.add(AiMessage.from("ai text 3", "reason-3"));
+
+        // Create ConversationState with original goal
+        var rawMsgs = new ArrayList<ChatMessage>(msgs);
+        var cs = new CodeAgent.ConversationState(rawMsgs, msgs, null, 0, "my-user-goal");
+        var es = createEditState(0);
+
+        // Call the pure compaction method
+        var compactedCs = cs.forBuildRetry(new UserMessage("retry"), es);
+
+        // The compacted ConversationState should be [ UserMessage(originalGoal), AiMessage(accumulatedReasoning) ]
+        var compactedMessages = compactedCs.taskMessages();
+        assertEquals(2, compactedMessages.size());
+        assertInstanceOf(UserMessage.class, compactedMessages.get(0));
+        assertEquals("my-user-goal", ((UserMessage) compactedMessages.get(0)).singleText());
+        assertInstanceOf(AiMessage.class, compactedMessages.get(1));
+
+        // Both non-blank AI text segments should be joined and prepended with the harness note
+        // Note: ai text 1 and ai text 3 are included because they have no S/R blocks and silent redaction keeps them
+        String expectedAccumulated =
+                """
+                [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
+                 All changes have been merged into the Workspace files you see above.]
+                ai text 1
+
+                ai text 3
+                """;
+        assertEquals(
+                expectedAccumulated.trim(),
+                ((AiMessage) compactedMessages.get(1)).text().trim());
+
+        // Original goal should be preserved
+        assertEquals("my-user-goal", compactedCs.originalGoal());
+    }
+
+    @Test
+    void testRawMessagesPreservedDuringBuildRetry() {
+        // Prepare a conversation with multiple messages including an AI message with S/R blocks
+        var msgs = new ArrayList<ChatMessage>();
+        msgs.add(new UserMessage("initial request"));
+        msgs.add(new AiMessage(
+                "Here is the edit:\n```\nfile.txt\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n```"));
+        msgs.add(new UserMessage("retry prompt"));
+        msgs.add(new AiMessage(
+                "Another edit:\n```\nfile2.txt\n<<<<<<< SEARCH\nfoo\n=======\nbar\n>>>>>>> REPLACE\n```"));
+
+        var rawMsgs = new ArrayList<ChatMessage>(msgs);
+        var taskMsgs = new ArrayList<ChatMessage>(msgs);
+        var cs = new CodeAgent.ConversationState(rawMsgs, taskMsgs, null, 0, "my-goal");
+        var es = createEditState(0);
+
+        // Perform build retry compaction
+        var compacted = cs.forBuildRetry(new UserMessage("fix build"), es);
+
+        // rawMessages should be unchanged (same reference, same content)
+        assertSame(rawMsgs, compacted.rawMessages(), "rawMessages should be the same list reference");
+        assertEquals(4, compacted.rawMessages().size(), "rawMessages should still have all 4 original messages");
+
+        // taskMessages should be compacted to just [goal, summary]
+        assertEquals(2, compacted.taskMessages().size(), "taskMessages should be compacted to 2 messages");
+        assertEquals("my-goal", ((UserMessage) compacted.taskMessages().get(0)).singleText());
+
+        // The summary should NOT contain duplicate HARNESS NOTEs even if called multiple times
+        var summary = ((AiMessage) compacted.taskMessages().get(1)).text();
+        int harnessNoteCount = countOccurrences(summary, "[HARNESS NOTE:");
+        assertEquals(1, harnessNoteCount, "Summary should contain exactly one HARNESS NOTE");
+    }
+
+    private static int countOccurrences(String text, String sub) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = text.indexOf(sub, idx)) != -1) {
+            count++;
+            idx += sub.length();
+        }
+        return count;
+    }
+
+    @Test
+    void testCollectCodeMessages_goalIncluded() {
+        var consoleIO = new TestConsoleIO();
+        var project = new TestProject(projectRoot, Languages.JAVA);
+        var cm = new TestContextManager(projectRoot, consoleIO, new JavaAnalyzer(project));
+        var ctx = new Context(cm);
+
+        var request = new UserMessage("Please fix this");
+        var messages = CodePrompts.instance.collectCodeMessages(
+                new ai.brokk.Service.UnavailableStreamingModel(),
+                ctx,
+                List.of(),
+                List.of(),
+                request,
+                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
+                "My special goal text");
+
+        // First message should be the system message; ensure it contains the goal block with original text.
+        ChatMessage system = messages.get(0);
+        String sysText = Messages.getText(system);
+        assertTrue(sysText.contains("<goal>"), "System message should include a <goal> block");
+        assertTrue(sysText.contains("My special goal text"), "Goal text should appear inside the <goal> block");
     }
 }

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.EditBlock.OutputBlock;
 import ai.brokk.prompts.EditBlockParser;
+import java.util.ArrayList;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
@@ -366,12 +367,12 @@ class EditBlockParserTest {
 
             @Test
             >>>>>>> REPLACE
-            ```
+        ```
         """;
 
         var editsOnly = EditBlockParser.instance.parseEditBlocks(input, Set.of());
         assertNull(editsOnly.parseError(), "No parse errors expected");
-        var blocks = editsOnly.blocks();
+        var blocks = new ArrayList<>(editsOnly.blocks());
         assertEquals(3, blocks.size(), "Should parse exactly three edit blocks");
 
         // Block 1 assertions
@@ -446,6 +447,255 @@ class EditBlockParserTest {
         """;
         assertEquals(expectedBefore3, b3.beforeText());
         assertEquals(expectedAfter3, b3.afterText());
+    }
+
+    @Test
+    void testParserStripsFilenamePreambleFromPlainText() {
+        String input =
+                """
+                Here is some introductory text.
+                file.txt
+                <<<<<<< SEARCH
+                old content
+                =======
+                new content
+                >>>>>>> REPLACE
+                """;
+        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+
+        assertEquals(2, result.size(), "Should have one plain text block and one edit block");
+
+        // Plain text should NOT include the filename line
+        var plainBlock = result.get(0);
+        assertNotNull(plainBlock.text());
+        assertEquals("Here is some introductory text.\n", plainBlock.text());
+        assertFalse(plainBlock.text().contains("file.txt"), "Filename should be stripped from plain text");
+
+        // Edit block should have the filename
+        var editBlock = result.get(1);
+        assertNotNull(editBlock.block());
+        assertEquals("file.txt", editBlock.block().rawFileName());
+    }
+
+    @Test
+    void testParserStripsFenceAndFilenamePreambleFromPlainText() {
+        String input =
+                """
+                Here is some introductory text.
+                ```
+                file.txt
+                <<<<<<< SEARCH
+                old content
+                =======
+                new content
+                >>>>>>> REPLACE
+                ```
+                """;
+        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+
+        assertEquals(2, result.size(), "Should have one plain text block and one edit block");
+
+        // Plain text should NOT include the fence or filename lines
+        var plainBlock = result.get(0);
+        assertNotNull(plainBlock.text());
+        assertEquals("Here is some introductory text.\n", plainBlock.text());
+        assertFalse(plainBlock.text().contains("```"), "Fence should be stripped from plain text");
+        assertFalse(plainBlock.text().contains("file.txt"), "Filename should be stripped from plain text");
+
+        // Edit block should have the filename
+        var editBlock = result.get(1);
+        assertNotNull(editBlock.block());
+        assertEquals("file.txt", editBlock.block().rawFileName());
+    }
+
+    @Test
+    void testParserHandlesMultipleBlocksWithPreambleStripping() {
+        String input =
+                """
+                First part of the message.
+                file1.txt
+                <<<<<<< SEARCH
+                s1
+                =======
+                r1
+                >>>>>>> REPLACE
+                Some intermediate text.
+                file2.java
+                <<<<<<< SEARCH
+                s2
+                =======
+                r2
+                >>>>>>> REPLACE
+                Final part.""";
+        var result = EditBlockParser.instance.parse(input, Set.of()).blocks();
+
+        assertEquals(5, result.size(), "Should have 3 plain text blocks and 2 edit blocks");
+
+        // First plain text
+        assertEquals("First part of the message.\n", result.get(0).text());
+
+        // First edit block
+        assertEquals("file1.txt", result.get(1).block().rawFileName());
+
+        // Middle plain text - should not contain filename
+        assertEquals("Some intermediate text.\n", result.get(2).text());
+        assertFalse(result.get(2).text().contains("file2.java"));
+
+        // Second edit block
+        assertEquals("file2.java", result.get(3).block().rawFileName());
+
+        // Final plain text
+        assertEquals("Final part.", result.get(4).text());
+    }
+
+    @Test
+    void testTagBlocksWithStartingIndex() {
+        String input =
+                """
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+                =======
+                new1
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        String expected =
+                """
+                [BRK_BLOCK_6]
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+
+                =======
+                new1
+
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        String actual = EditBlockParser.instance.tagBlocks(input, 5);
+        assertEquals(expected, actual);
+    }
+
+    @Test
+    void testTagBlocksWithFencedAndFencelessBlocks() {
+        String input =
+                """
+                Some intro text.
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+                =======
+                new1
+                >>>>>>> REPLACE
+                ```
+                Middle text.
+                <<<<<<< SEARCH
+                old2
+                =======
+                new2
+                >>>>>>> REPLACE
+                Final text.""";
+
+        String expected =
+                """
+                Some intro text.
+                [BRK_BLOCK_1]
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+
+                =======
+                new1
+
+                >>>>>>> REPLACE
+                ```
+                Middle text.
+                [BRK_BLOCK_2]
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old2
+
+                =======
+                new2
+
+                >>>>>>> REPLACE
+                ```
+                Final text.""";
+
+        String actual = EditBlockParser.instance.tagBlocks(input);
+        assertEquals(expected, actual);
+    }
+
+    @Test
+    void testTagBlocksWithNoOpBlocks() {
+        String input =
+                """
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                same
+                =======
+                same
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        String expected = "[HARNESS NOTE: redundant block skipped; REPLACE text is identical to SEARCH text]\n";
+
+        String actual = EditBlockParser.instance.tagBlocks(input);
+        ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals(expected, actual);
+    }
+
+    @Test
+    void testTagBlocksWithRedundantBlocks() {
+        String input =
+                """
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+                =======
+                new1
+                >>>>>>> REPLACE
+                ```
+                Some text.
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+                =======
+                new1
+                >>>>>>> REPLACE
+                ```
+                """;
+
+        String expected =
+                """
+                [BRK_BLOCK_1]
+                ```
+                file1.txt
+                <<<<<<< SEARCH
+                old1
+
+                =======
+                new1
+
+                >>>>>>> REPLACE
+                ```
+                Some text.
+                [HARNESS NOTE: reundunant block skipped; duplidate of BRK_BLOCK_1]
+                """;
+
+        String actual = EditBlockParser.instance.tagBlocks(input);
+        ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals(expected, actual);
     }
 
     @Test

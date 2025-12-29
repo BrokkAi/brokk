@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.search.ScrollingUtils;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -97,11 +98,11 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
         }
 
         // Use NoSelection scenario to get standard blank-space actions
-        var scenario = new WorkspacePanel.NoSelection();
-        var actions = scenario.getActions(chrome.getContextPanel());
+        var scenario = new ContextActionsHandler.NoSelection();
+        var actions = scenario.getActions(chrome.getContextActionsHandler());
 
         // Show popup menu using PopupBuilder
-        WorkspacePanel.PopupBuilder.create(chrome).add(actions).show(this, e.getX(), e.getY());
+        ContextActionsHandler.PopupBuilder.create(chrome).add(actions).show(this, e.getX(), e.getY());
     }
 
     /**
@@ -329,7 +330,7 @@ public class WorkspaceItemsChipPanel extends javax.swing.JPanel implements Theme
         if (styleGuideChip == null) {
             // Minimal, static fragment used only to anchor the chip in menus/preview.
             // Not tied to workspace hover/selection or computed updates.
-            ContextFragment fragment = new ContextFragment.StringFragment(
+            ContextFragment fragment = new ContextFragments.StringFragment(
                     contextManager, "", "AGENTS.md", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
             styleGuideChip = new WorkspaceChip.StyleGuideChip(
                     chrome, contextManager, () -> readOnly, null, onRemoveFragment, fragment);

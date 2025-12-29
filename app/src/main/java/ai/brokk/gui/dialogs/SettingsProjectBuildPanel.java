@@ -9,6 +9,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.ExecutorValidator;
@@ -74,6 +75,13 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     @Nullable
     private Future<?> manualInferBuildTaskFuture;
+
+    // Pending BuildDetails from agent run, saved on Apply/OK
+    @Nullable
+    private BuildAgent.BuildDetails pendingBuildDetails;
+    // LLM-added patterns from the most recent agent run (for UI highlighting)
+    @Nullable
+    private Set<String> pendingLlmAddedPatterns;
 
     private final JPanel bannerPanel;
 
@@ -401,7 +409,8 @@ public class SettingsProjectBuildPanel extends JPanel {
                             try {
                                 if (detailsResult != null
                                         && !Objects.equals(detailsResult, BuildAgent.BuildDetails.EMPTY)) {
-                                    updateBuildDetailsFieldsFromAgent(detailsResult);
+                                    // No LLM patterns when loading from storage - don't highlight
+                                    updateBuildDetailsFieldsFromAgent(detailsResult, null);
                                 }
                             } catch (Exception e) {
                                 logger.warn("Error while applying build details from future: {}", e.getMessage(), e);
@@ -463,29 +472,21 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         SwingWorker<String, String> worker = new SwingWorker<>() {
             @Override
-            protected String doInBackground() throws InterruptedException {
-                var root = project.getRoot();
+            protected String doInBackground() {
 
                 // Step 1: Build/Lint command
                 String buildCmd = buildCleanCommandField.getText().trim();
                 if (!buildCmd.isEmpty()) {
                     publish("--- Verifying Build/Lint Command ---\n");
                     publish("$ " + buildCmd + "\n");
-                    try {
-                        var execCfg = ExecutorConfig.fromProject(project);
-                        var envVars = computeEnvFromUi();
-                        Environment.instance.runShellCommand(
-                                buildCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                execCfg,
-                                envVars);
+                    var envVars = computeEnvFromUi();
+                    var result =
+                            BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish(line + "\n"));
+                    if (result.success()) {
                         publish("\nSUCCESS: Build/Lint command completed successfully.\n\n");
-                    } catch (Environment.SubprocessException e) {
+                    } else {
                         publish("\nERROR: Build/Lint command failed.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
+                        publish(result.output() + "\n");
                         return "Build/Lint command failed.";
                     }
                 } else {
@@ -497,21 +498,14 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (!testAllCmd.isEmpty()) {
                     publish("--- Verifying Test All Command ---\n");
                     publish("$ " + testAllCmd + "\n");
-                    try {
-                        var execCfg = ExecutorConfig.fromProject(project);
-                        var envVars = computeEnvFromUi();
-                        Environment.instance.runShellCommand(
-                                testAllCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                execCfg,
-                                envVars);
+                    var envVars = computeEnvFromUi();
+                    var result =
+                            BuildVerifier.verifyStreaming(project, testAllCmd, envVars, line -> publish(line + "\n"));
+                    if (result.success()) {
                         publish("\nSUCCESS: Test All command completed successfully.\n\n");
-                    } catch (Environment.SubprocessException e) {
+                    } else {
                         publish("\nERROR: Test All command failed.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
+                        publish(result.output() + "\n");
                         return "Test All command failed.";
                     }
                 } else {
@@ -550,28 +544,20 @@ public class SettingsProjectBuildPanel extends JPanel {
                     }
 
                     publish("$ " + interpolatedCmd + "\n");
-                    try {
-                        var execCfg = ExecutorConfig.fromProject(project);
-                        var envVars = computeEnvFromUi();
-                        Environment.instance.runShellCommand(
-                                interpolatedCmd,
-                                root,
-                                line -> publish(line + "\n"),
-                                Environment.DEFAULT_TIMEOUT,
-                                execCfg,
-                                envVars);
+                    var envVars = computeEnvFromUi();
+                    var result = BuildVerifier.verifyStreaming(
+                            project, interpolatedCmd, envVars, line -> publish(line + "\n"));
+                    if (result.success()) {
                         publish(
                                 "\nSUCCESS: 'Test Some' command executed without errors (this is unexpected for a placeholder test).\n\n");
-                    } catch (Environment.FailureException e) {
+                    } else if (result.exitCode() >= 0) {
                         publish(
                                 "\nSUCCESS: 'Test Some' command executed and failed as expected for a placeholder test.\n");
                         publish("This confirms the command and template syntax are valid.\n\n");
-                        // This is the expected success path.
-                    } catch (Environment.SubprocessException e) {
+                    } else {
                         publish("\nERROR: 'Test Some' command failed to execute.\n");
                         publish("This may indicate an invalid executable or a syntax error in the command.\n");
-                        publish(e.getMessage() + "\n");
-                        publish(e.getOutput() + "\n");
+                        publish(result.output() + "\n");
                         return "'Test Some' command is invalid.";
                     }
                 } else {
@@ -638,39 +624,49 @@ public class SettingsProjectBuildPanel extends JPanel {
                         proj, cm.getLlm(cm.getService().getScanModel(), "Infer build details"), cm.getToolRegistry());
                 var newBuildDetails = agent.execute();
 
-                if (Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
-                    logger.warn("Build Agent returned null or empty details, considering it an error.");
-                    boolean isCancellation = ACTION_CANCEL.equals(inferBuildDetailsButton.getActionCommand());
+                // Check if task was cancelled during execution
+                if (Thread.currentThread().isInterrupted()) {
+                    logger.info("Build Agent completed but thread was interrupted - treating as cancellation");
+                    throw new InterruptedException("Build Agent cancelled by user");
+                }
 
+                if (Objects.equals(newBuildDetails, BuildAgent.BuildDetails.EMPTY)) {
+                    logger.info("Build Agent returned EMPTY - no build configuration found");
                     SwingUtilities.invokeLater(() -> {
-                        if (isCancellation) {
-                            logger.info("Build Agent execution cancelled by user");
-                            chrome.showNotification(
-                                    IConsoleIO.NotificationRole.INFO, "Build Inference Agent cancelled.");
-                            JOptionPane.showMessageDialog(
-                                    SettingsProjectBuildPanel.this,
-                                    "Build Inference Agent cancelled.",
-                                    "Build Cancelled",
-                                    JOptionPane.INFORMATION_MESSAGE);
-                        } else {
-                            String errorMessage =
-                                    "Build Agent failed to determine build details. Please check agent logs.";
-                            chrome.toolError(errorMessage);
-                            JOptionPane.showMessageDialog(
-                                    SettingsProjectBuildPanel.this,
-                                    errorMessage,
-                                    "Build Agent Error",
-                                    JOptionPane.ERROR_MESSAGE);
-                        }
+                        String message =
+                                "Could not determine build configuration - project structure may be unsupported or incomplete.";
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                        JOptionPane.showMessageDialog(
+                                SettingsProjectBuildPanel.this,
+                                message,
+                                "No Build Configuration Found",
+                                JOptionPane.INFORMATION_MESSAGE);
                     });
                 } else {
+                    var llmPatterns = agent.getLlmAddedPatterns();
                     SwingUtilities.invokeLater(() -> {
-                        updateBuildDetailsFieldsFromAgent(newBuildDetails);
+                        // Store pending details for later save on Apply/OK
+                        pendingBuildDetails = newBuildDetails;
+                        pendingLlmAddedPatterns = llmPatterns;
+                        updateBuildDetailsFieldsFromAgent(newBuildDetails, llmPatterns);
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO, "Build Agent finished. Review and apply settings.");
                     });
                 }
+            } catch (InterruptedException ex) {
+                logger.info("Build Agent execution cancelled by user");
+                Thread.currentThread().interrupt(); // Restore interrupt status
+                showBuildAgentCancelledNotification();
             } catch (Exception ex) {
+                // Check if this is a wrapped InterruptedException (BuildAgent wraps it in RuntimeException)
+                Throwable cause = ex.getCause();
+                if (cause instanceof InterruptedException) {
+                    logger.info("Build Agent execution cancelled by user (wrapped exception)");
+                    Thread.currentThread().interrupt(); // Restore interrupt status
+                    showBuildAgentCancelledNotification();
+                    return;
+                }
+                // Not a cancellation - treat as error
                 logger.error("Error running Build Agent", ex);
                 SwingUtilities.invokeLater(() -> {
                     String errorMessage = "Build Agent failed: " + ex.getMessage();
@@ -705,17 +701,18 @@ public class SettingsProjectBuildPanel extends JPanel {
                 .forEach(control -> control.setEnabled(enabled));
     }
 
-    private void updateBuildDetailsFieldsFromAgent(BuildAgent.BuildDetails details) {
+    private void updateBuildDetailsFieldsFromAgent(
+            BuildAgent.BuildDetails details, @Nullable Set<String> llmAddedPatterns) {
         SwingUtilities.invokeLater(() -> {
             // Update this panel's fields
             buildCleanCommandField.setText(details.buildLintCommand());
             allTestsCommandField.setText(details.testAllCommand());
             someTestsCommandField.setText(details.testSomeCommand());
 
-            // Also refresh the CI exclusions list model in the parent SettingsProjectPanel
+            // Also refresh the CI exclusions list in the parent SettingsProjectPanel
             try {
                 var spp = parentDialog.getProjectPanel();
-                spp.updateExcludedDirectories(details.excludedDirectories());
+                spp.updateExclusionPatternsFromAgent(details.exclusionPatterns(), llmAddedPatterns);
             } catch (Exception ex) {
                 logger.warn("Failed to update CI exclusions list from agent details: {}", ex.getMessage(), ex);
             }
@@ -766,7 +763,10 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     public boolean applySettings() {
         // Persist build-related settings to project.
-        var currentDetails = project.loadBuildDetails();
+        // Use pendingBuildDetails for build commands if available (from recent BuildAgent run),
+        // but always read exclusion patterns from disk (saveCiExclusions() just updated them)
+        var diskDetails = project.loadBuildDetails();
+        var baseDetails = pendingBuildDetails != null ? pendingBuildDetails : diskDetails;
         var newBuildLint = buildCleanCommandField.getText();
         var newTestAll = allTestsCommandField.getText();
         var newTestSome = someTestsCommandField.getText();
@@ -775,7 +775,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         var selectedPrimaryLang = (Language) primaryLanguageComboBox.getSelectedItem();
 
         // Build environment variables map
-        var envVars = new HashMap<>(currentDetails.environmentVariables());
+        var envVars = new HashMap<>(baseDetails.environmentVariables());
         envVars.remove("JAVA_HOME");
         envVars.remove("VIRTUAL_ENV");
         if (selectedPrimaryLang == Languages.JAVA) {
@@ -789,12 +789,19 @@ public class SettingsProjectBuildPanel extends JPanel {
             envVars.put("VIRTUAL_ENV", ".venv");
         }
 
+        // Always use exclusion patterns from disk - Code Intelligence panel is the source of truth
         var newDetails = new BuildAgent.BuildDetails(
-                newBuildLint, newTestAll, newTestSome, currentDetails.excludedDirectories(), envVars);
+                newBuildLint, newTestAll, newTestSome, diskDetails.exclusionPatterns(), envVars);
+
+        // Compare against what's currently saved on disk
+        var currentDetails = project.loadBuildDetails();
         if (!newDetails.equals(currentDetails)) {
             project.saveBuildDetails(newDetails);
             logger.debug("Applied Build Details changes.");
         }
+
+        // Clear pending details after save
+        pendingBuildDetails = null;
 
         MainProject.CodeAgentTestScope selectedScope =
                 runAllTestsRadio.isSelected() ? IProject.CodeAgentTestScope.ALL : IProject.CodeAgentTestScope.WORKSPACE;
@@ -1011,5 +1018,16 @@ public class SettingsProjectBuildPanel extends JPanel {
             }
         };
         worker.execute();
+    }
+
+    private void showBuildAgentCancelledNotification() {
+        SwingUtilities.invokeLater(() -> {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Build Inference Agent cancelled.");
+            JOptionPane.showMessageDialog(
+                    SettingsProjectBuildPanel.this,
+                    "Build Inference Agent cancelled.",
+                    "Build Cancelled",
+                    JOptionPane.INFORMATION_MESSAGE);
+        });
     }
 }
