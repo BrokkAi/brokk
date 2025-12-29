@@ -25,6 +25,7 @@ import java.io.File;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -104,6 +105,74 @@ public class SearchTools {
             }
         }
         return predicates;
+    }
+
+    @Tool(
+            """
+                    Returns the resolved imports (dependencies) for specified classes.
+                    Shows what classes, functions, and modules each class depends on.
+                    """)
+    public String getImports(@P("Fully qualified class names to get imports for") List<String> classNames) {
+        classNames = stripParams(classNames);
+        if (classNames.isEmpty()) {
+            return "Cannot get imports: class names list is empty";
+        }
+
+        var analyzer = getAnalyzer();
+        var result = new StringBuilder();
+        List<String> notFound = new ArrayList<>();
+
+        for (String className :
+                classNames.stream().distinct().filter(s -> !s.isBlank()).toList()) {
+            var cuOpt = analyzer.getDefinitions(className).stream()
+                    .filter(CodeUnit::isClass)
+                    .findFirst();
+
+            if (cuOpt.isEmpty()) {
+                notFound.add(className);
+                continue;
+            }
+
+            var cu = cuOpt.get();
+            var imports = analyzer.importedCodeUnitsOf(cu.source());
+            if (imports.isEmpty()) {
+                continue;
+            }
+
+            // Group by kind
+            var kindGroups = imports.stream()
+                    .collect(Collectors.groupingBy(imp -> imp.kind().name()));
+
+            result.append("<class name=\"").append(cu.fqName()).append("\">\n");
+
+            var kindOrder = List.of("CLASS", "FUNCTION", "FIELD", "MODULE");
+            kindOrder.forEach(kind -> {
+                var cus = kindGroups.get(kind);
+                if (cus != null && !cus.isEmpty()) {
+                    result.append("[").append(kind).append("]\n");
+                    cus.stream().sorted(Comparator.comparing(CodeUnit::fqName)).forEach(imp -> result.append("- ")
+                            .append(imp.fqName())
+                            .append(" (from ")
+                            .append(toUnixPath(imp.source().toString()))
+                            .append(")\n"));
+                }
+            });
+
+            result.append("</class>\n");
+        }
+
+        if (result.isEmpty()) {
+            if (!notFound.isEmpty()) {
+                return "No classes found: " + String.join(", ", notFound);
+            }
+            return "No resolved imports found for: " + String.join(", ", classNames);
+        }
+
+        if (!notFound.isEmpty()) {
+            result.append("\nNot found: ").append(String.join(", ", notFound));
+        }
+
+        return result.toString();
     }
 
     @Tool(

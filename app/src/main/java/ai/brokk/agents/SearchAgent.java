@@ -791,6 +791,7 @@ public class SearchAgent {
         names.add("getClassSources");
         names.add("getMethodSources");
         names.add("getUsages");
+        names.add("getImports");
 
         // Text-based search
         names.add("searchSubstrings");

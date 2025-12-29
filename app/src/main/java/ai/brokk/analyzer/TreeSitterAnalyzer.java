@@ -627,6 +627,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param file the project file
      * @return an unmodifiable set of resolved CodeUnits from import statements
      */
+    @Override
     public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
         return fileProperties(file).resolvedImports();
     }

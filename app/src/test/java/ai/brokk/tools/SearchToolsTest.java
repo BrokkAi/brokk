@@ -1,13 +1,16 @@
 package ai.brokk.tools;
 
+import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitRepo;
 import ai.brokk.project.AbstractProject;
+import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.lang.reflect.Proxy;
@@ -298,5 +301,65 @@ public class SearchToolsTest {
         // The refactored code uses getDefinition(String) -> filter(isClass) -> getSkeleton(CodeUnit)
         String result4 = tools.getClassSkeletons(List.of("A"));
         assertTrue(result4.contains("class A"), "CodeUnit-native API should work correctly");
+    }
+
+    @Test
+    void testGetImports() throws IOException {
+        // Create a test project with two files where one imports the other
+        var builder = InlineTestProjectCreator.code(
+                """
+                package example;
+                public class Imported {
+                    public void doSomething() {}
+                }
+                """,
+                "example/Imported.java");
+
+        try (var testProject = builder.addFileContents(
+                        """
+                import example.Imported;
+
+                public class Consumer {
+                    Imported imported = new Imported();
+                }
+                """,
+                        "Consumer.java")
+                .build()) {
+
+            IAnalyzer analyzer = createTreeSitterAnalyzer(testProject);
+
+            // Create a context manager that provides the analyzer and test project
+            IContextManager ctxWithAnalyzer = (IContextManager) Proxy.newProxyInstance(
+                    getClass().getClassLoader(), new Class<?>[] {IContextManager.class}, (proxy, method, args) -> {
+                        return switch (method.getName()) {
+                            case "getAnalyzer" -> analyzer;
+                            case "getAnalyzerUninterrupted" -> analyzer;
+                            case "getProject" -> testProject;
+                            default -> throw new UnsupportedOperationException("Unexpected call: " + method.getName());
+                        };
+                    });
+
+            SearchTools tools = new SearchTools(ctxWithAnalyzer);
+
+            // Test getImports for Consumer class
+            String result = tools.getImports(List.of("Consumer"));
+
+            // Should contain the class entry
+            assertTrue(result.contains("<class name=\"Consumer\">"), "Should have class entry for Consumer");
+
+            // Should contain the CLASS section with the imported class
+            assertTrue(result.contains("[CLASS]"), "Should have CLASS section");
+            assertTrue(result.contains("example.Imported"), "Should contain the imported class FQN");
+            assertTrue(result.contains("(from example/Imported.java)"), "Should show source file of imported class");
+
+            // Test with a class that has no imports
+            String resultNoImports = tools.getImports(List.of("example.Imported"));
+            assertTrue(
+                    resultNoImports.contains("No resolved imports found"), "Should indicate no imports for Imported");
+
+            // Test with non-existent class
+            String resultNotFound = tools.getImports(List.of("NonExistent"));
+            assertTrue(resultNotFound.contains("No classes found:"), "Should handle non-existent class");
+        }
     }
 }
