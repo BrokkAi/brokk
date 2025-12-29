@@ -344,7 +344,8 @@ public class SummaryFragmentTest {
     public class Base {}
     class ChildA extends Base {}
     class ChildB extends Base {}
-    """, "Test.java")
+    """,
+                        "Test.java")
                 .build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
@@ -353,6 +354,9 @@ public class SummaryFragmentTest {
             var sfB = new SummaryFragment(cm, "ChildB", SummaryType.CODEUNIT_SKELETON);
 
             String combined = SummaryFragment.combinedText(java.util.List.of(sfA, sfB));
+
+            // Combined text uses "by package" formatting, so it shouldn't have redundant ancestor headers
+            assertFalse(combined.contains("// Direct ancestors"), "Combined text should use flat package formatting");
 
             // Each child should be present
             assertTrue(combined.contains("class ChildA extends Base"), "Should contain ChildA");

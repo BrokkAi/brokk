@@ -27,6 +27,7 @@ import ai.brokk.util.Messages;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
 import com.github.difflib.unifieddiff.UnifiedDiffReader;
+import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
 import java.io.ByteArrayInputStream;
@@ -1758,45 +1759,56 @@ public class ContextFragments {
         }
 
         /**
-         * Combines multiple summary fragments into a single text block, deduplicating shared
-         * ancestor skeletons across fragments (e.g., if two subclasses share a superclass).
+         * Combines multiple summary fragments into a single text block.
+         *
+         * <p>Semantic aggregation:
+         * - Union CodeUnits across fragments via sources()
+         * - Deduplicate by CodeUnit.fqName() (stable first-seen)
+         * - Exclude anonymous units
+         * - Regenerate skeleton strings via SkeletonProvider
+         * - Format via SkeletonFragmentFormatter in by-package mode
          */
         public static String combinedText(List<SummaryFragment> fragments) {
-            List<String> texts = fragments.stream()
-                    .map(sf -> sf.text().join())
-                    .filter(s -> !s.isBlank())
-                    .toList();
-            return deduplicateCombinedSkeletons(texts);
-        }
-
-        /**
-         * Deduplicates skeleton blocks across multiple summary outputs.
-         * Splits by "package ..." headers and "// Direct ancestors" comments to isolate blocks.
-         */
-        private static String deduplicateCombinedSkeletons(List<String> texts) {
-            if (texts.size() <= 1) {
-                return String.join("\n\n", texts);
+            if (fragments.isEmpty()) {
+                return "";
             }
 
-            Set<String> seenBlocks = new LinkedHashSet<>();
-            StringBuilder result = new StringBuilder();
+            IAnalyzer analyzer = fragments.getFirst().contextManager.getAnalyzerUninterrupted();
+            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
+            if (skeletonProviderOpt.isEmpty()) {
+                return "";
+            }
+            SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
 
-            for (String text : texts) {
-                // Split into sections based on package declarations or ancestor comments
-                // We look for "package " at the start of lines or "// Direct ancestors"
-                String[] sections = text.split("(?m)(?=^package |^// Direct ancestors)");
-                for (String section : sections) {
-                    String trimmed = section.trim();
-                    if (trimmed.isEmpty()) continue;
-                    
-                    if (seenBlocks.add(trimmed)) {
-                        if (!result.isEmpty()) result.append("\n\n");
-                        result.append(trimmed);
+            Map<String, CodeUnit> codeUnitsByFqn = new LinkedHashMap<>();
+            for (SummaryFragment fragment : fragments) {
+                for (CodeUnit cu : fragment.sources().join()) {
+                    if (!cu.isAnonymous()) {
+                        codeUnitsByFqn.putIfAbsent(cu.fqName(), cu);
                     }
                 }
             }
-            return result.toString();
+
+            if (codeUnitsByFqn.isEmpty()) {
+                return "";
+            }
+
+            Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
+            for (CodeUnit cu : codeUnitsByFqn.values()) {
+                skeletonProvider
+                        .getSkeleton(cu)
+                        .filter(s -> !s.isBlank())
+                        .ifPresent(skeleton -> skeletonsMap.put(cu, skeleton));
+            }
+
+            if (skeletonsMap.isEmpty()) {
+                return "";
+            }
+
+            return new SkeletonFragmentFormatter()
+                    .format(new SkeletonFragmentFormatter.Request(null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
         }
+
 
         private static Set<CodeUnit> resolvePrimaryTargets(
                 String targetIdentifier, SummaryType summaryType, IAnalyzer analyzer, IContextManager contextManager) {

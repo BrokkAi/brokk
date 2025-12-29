@@ -1366,13 +1366,15 @@ public class WorkspaceChip extends JPanel {
                     .map(f -> (ContextFragments.SummaryFragment) f)
                     .toList();
 
-            contextManager.submitBackgroundTask("Aggregating summaries", () -> {
-                return ContextFragments.SummaryFragment.combinedText(fragmentsToProcess);
-            }).thenAccept(combinedText -> SwingUtilities.invokeLater(() -> {
-                var syntheticFragment = new ContextFragments.StringFragment(
-                        chrome.getContextManager(), combinedText, title, syntaxStyle);
-                chrome.openFragmentPreview(syntheticFragment);
-            }));
+            contextManager
+                    .submitBackgroundTask("Aggregating summaries", () -> {
+                        return ContextFragments.SummaryFragment.combinedText(fragmentsToProcess);
+                    })
+                    .thenAccept(combinedText -> SwingUtilities.invokeLater(() -> {
+                        var syntheticFragment = new ContextFragments.StringFragment(
+                                chrome.getContextManager(), combinedText, title, syntaxStyle);
+                        chrome.openFragmentPreview(syntheticFragment);
+                    }));
         }
 
         private void executeSyntheticChipDrop() {
