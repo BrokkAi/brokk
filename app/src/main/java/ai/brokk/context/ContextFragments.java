@@ -1752,6 +1752,35 @@ public class ContextFragments {
                     desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, (List<Byte>) null, valid);
         }
 
+        public record CodeUnitSkeleton(CodeUnit codeUnit, String skeleton) {}
+
+        @Blocking
+        public Set<CodeUnit> codeUnits() {
+            return sources().join();
+        }
+
+        @Blocking
+        public Map<String, CodeUnitSkeleton> skeletonsByFqName() {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
+            if (skeletonProviderOpt.isEmpty()) {
+                return Map.of();
+            }
+            SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
+
+            Map<String, CodeUnitSkeleton> out = new LinkedHashMap<>();
+            for (CodeUnit cu : codeUnits()) {
+                if (cu.isAnonymous()) {
+                    continue;
+                }
+                skeletonProvider
+                        .getSkeleton(cu)
+                        .filter(s -> !s.isBlank())
+                        .ifPresent(skeleton -> out.putIfAbsent(cu.fqName(), new CodeUnitSkeleton(cu, skeleton)));
+            }
+            return out;
+        }
+
         /**
          * Combines multiple summary fragments into a single text block.
          *
@@ -1759,7 +1788,7 @@ public class ContextFragments {
          * - Union CodeUnits across fragments via sources()
          * - Deduplicate by CodeUnit.fqName() (stable first-seen)
          * - Exclude anonymous units
-         * - Regenerate skeleton strings via SkeletonProvider
+         * - Use each fragment's own analyzer via SkeletonProvider to obtain skeleton text
          * - Format via SkeletonFragmentFormatter in by-package mode
          */
         @Blocking
@@ -1768,37 +1797,17 @@ public class ContextFragments {
                 return "";
             }
 
-            IAnalyzer analyzer = fragments.getFirst().contextManager.getAnalyzerUninterrupted();
-            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
-            if (skeletonProviderOpt.isEmpty()) {
-                return "";
-            }
-            SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
-
-            Map<String, CodeUnit> codeUnitsByFqn = new LinkedHashMap<>();
+            Map<String, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
             for (SummaryFragment fragment : fragments) {
-                for (CodeUnit cu : fragment.sources().join()) {
-                    if (!cu.isAnonymous()) {
-                        codeUnitsByFqn.putIfAbsent(cu.fqName(), cu);
-                    }
-                }
+                fragment.skeletonsByFqName().forEach(deduped::putIfAbsent);
             }
 
-            if (codeUnitsByFqn.isEmpty()) {
+            if (deduped.isEmpty()) {
                 return "";
             }
 
             Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
-            for (CodeUnit cu : codeUnitsByFqn.values()) {
-                skeletonProvider
-                        .getSkeleton(cu)
-                        .filter(s -> !s.isBlank())
-                        .ifPresent(skeleton -> skeletonsMap.put(cu, skeleton));
-            }
-
-            if (skeletonsMap.isEmpty()) {
-                return "";
-            }
+            deduped.values().forEach(cus -> skeletonsMap.put(cus.codeUnit(), cus.skeleton()));
 
             return new SkeletonFragmentFormatter()
                     .format(new SkeletonFragmentFormatter.Request(
