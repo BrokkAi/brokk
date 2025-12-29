@@ -1755,11 +1755,6 @@ public class ContextFragments {
         public record CodeUnitSkeleton(CodeUnit codeUnit, String skeleton) {}
 
         @Blocking
-        public Set<CodeUnit> codeUnits() {
-            return sources().join();
-        }
-
-        @Blocking
         public Map<String, CodeUnitSkeleton> skeletonsByFqName() {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
@@ -1769,7 +1764,7 @@ public class ContextFragments {
             SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
 
             Map<String, CodeUnitSkeleton> out = new LinkedHashMap<>();
-            for (CodeUnit cu : codeUnits()) {
+            for (CodeUnit cu : sources().join()) {
                 if (cu.isAnonymous()) {
                     continue;
                 }
