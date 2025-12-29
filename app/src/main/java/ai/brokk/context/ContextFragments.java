@@ -60,6 +60,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -1755,7 +1756,7 @@ public class ContextFragments {
         public record CodeUnitSkeleton(CodeUnit codeUnit, String skeleton) {}
 
         @Blocking
-        public Map<String, CodeUnitSkeleton> skeletonsByFqName() {
+        private Map<String, CodeUnitSkeleton> skeletonsByFqName() {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
             if (skeletonProviderOpt.isEmpty()) {
@@ -1790,6 +1791,10 @@ public class ContextFragments {
         public static String combinedText(List<SummaryFragment> fragments) {
             if (fragments.isEmpty()) {
                 return "";
+            }
+
+            if (SwingUtilities.isEventDispatchThread()) {
+                logger.error("combinedText is a blocking function and should not be called on the EDT!");
             }
 
             Map<String, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
