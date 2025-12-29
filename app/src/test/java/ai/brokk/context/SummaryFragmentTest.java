@@ -13,6 +13,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
@@ -312,13 +313,10 @@ public class SummaryFragmentTest {
             var fragment = new SummaryFragment(cm, childrenFile.toString(), SummaryType.FILE_SKELETONS);
             String text = fragment.text().join();
 
-            // Check that "class SharedBase" appears exactly once in the text
-            int count = 0;
-            int index = 0;
-            while ((index = text.indexOf("class SharedBase", index)) != -1) {
-                count++;
-                index += "class SharedBase".length();
-            }
+            long count = Pattern.compile("\\bclass\\s+SharedBase\\b")
+                    .matcher(text)
+                    .results()
+                    .count();
             assertEquals(1, count, "SharedBase skeleton should only appear once in the output text");
 
             // Verify the individual class skeletons are present (without assuming exact formatting)
