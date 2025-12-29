@@ -29,14 +29,9 @@ public class InlineTestProjectCreator {
         return new TestProjectBuilder().addFileContents(contents, filename);
     }
 
-    public static TestGitProjectBuilder gitCode(String contents, String filename) {
-        return (TestGitProjectBuilder) new TestGitProjectBuilder().addFileContents(contents, filename);
-    }
-
     public static class TestProjectBuilder {
 
         protected final List<FileContents> entries = new ArrayList<>();
-        protected boolean useGit = false;
 
         protected TestProjectBuilder() {}
 
@@ -45,9 +40,8 @@ public class InlineTestProjectCreator {
             return this;
         }
 
-        public TestProjectBuilder withGit() {
-            this.useGit = true;
-            return this;
+        public TestGitProjectBuilder withGit() {
+            return new TestGitProjectBuilder(this);
         }
 
         public IProject build() throws IOException {
@@ -81,11 +75,11 @@ public class InlineTestProjectCreator {
                 selectedLang = new Language.MultiLanguage(detected);
             }
 
-            if (useGit || (this instanceof TestGitProjectBuilder gitBuilder && !gitBuilder.commits.isEmpty())) {
+            if (this instanceof TestGitProjectBuilder gitBuilder) {
                 try {
                     GitRepoFactory.initRepo(newTemporaryDirectory);
                     try (Git git = Git.open(newTemporaryDirectory.toFile())) {
-                        if (this instanceof TestGitProjectBuilder gitBuilder && !gitBuilder.commits.isEmpty()) {
+                        if (!gitBuilder.commits.isEmpty()) {
                             for (var commit : gitBuilder.commits) {
                                 git.add().addFilepattern(commit.fileA()).addFilepattern(commit.fileB()).call();
                                 git.commit()
@@ -106,7 +100,8 @@ public class InlineTestProjectCreator {
                         }
                     }
                     EphemeralTestGitProject project = selectedLang != null
-                            ? new EphemeralTestGitProject(newTemporaryDirectory, selectedLang, new GitRepo(newTemporaryDirectory))
+                            ? new EphemeralTestGitProject(
+                                    newTemporaryDirectory, selectedLang, new GitRepo(newTemporaryDirectory))
                             : new EphemeralTestGitProject(newTemporaryDirectory, new GitRepo(newTemporaryDirectory));
                     project.setHasGit(true);
                     return project;
@@ -123,16 +118,21 @@ public class InlineTestProjectCreator {
 
     public static class TestGitProjectBuilder extends TestProjectBuilder {
         private record CommitOp(String fileA, String fileB) {}
+
         private final List<CommitOp> commits = new ArrayList<>();
 
-        private TestGitProjectBuilder() {
-            super();
-            this.useGit = true;
+        private TestGitProjectBuilder(TestProjectBuilder existing) {
+            this.entries.addAll(existing.entries);
         }
 
         @Override
         public TestGitProjectBuilder addFileContents(String contents, String filename) {
             super.addFileContents(contents, filename);
+            return this;
+        }
+
+        @Override
+        public TestGitProjectBuilder withGit() {
             return this;
         }
 

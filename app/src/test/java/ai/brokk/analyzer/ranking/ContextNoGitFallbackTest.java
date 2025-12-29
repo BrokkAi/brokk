@@ -306,9 +306,10 @@ public class ContextNoGitFallbackTest {
 
     @Test
     public void testWithGitOptionTracksFiles() throws Exception {
-        try (var project = InlineTestProjectCreator.gitCode(
+        try (var project = InlineTestProjectCreator.code(
                         "public class A {}", "A.java")
                 .addFileContents("public class B {}", "B.java")
+                .withGit()
                 .build()) {
 
             assertTrue(project.hasGit(), "Project should have Git enabled");
@@ -330,9 +331,10 @@ public class ContextNoGitFallbackTest {
 
     @Test
     public void testGitBuilderCommitsSequentially() throws Exception {
-        try (var project = InlineTestProjectCreator.gitCode("content a", "A.txt")
+        try (var project = InlineTestProjectCreator.code("content a", "A.txt")
                 .addFileContents("content b", "B.txt")
                 .addFileContents("content c", "C.txt")
+                .withGit()
                 .addCommit("A.txt", "B.txt")
                 .build()) {
 
@@ -348,7 +350,7 @@ public class ContextNoGitFallbackTest {
 
     @Test
     public void testGitBuilderThrowsOnMissingFile() {
-        var builder = InlineTestProjectCreator.gitCode("content a", "A.txt");
+        var builder = InlineTestProjectCreator.code("content a", "A.txt").withGit();
         try {
             builder.addCommit("A.txt", "NonExistent.txt");
             org.junit.jupiter.api.Assertions.fail("Should have thrown IllegalArgumentException");
