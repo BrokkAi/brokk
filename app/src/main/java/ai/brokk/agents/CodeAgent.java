@@ -194,8 +194,7 @@ public class CodeAgent {
         var parser = EditBlockParser.instance;
         // We'll collect the conversation as ChatMessages to store in context history.
         var taskMessages = new ArrayList<ChatMessage>();
-        UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                context, userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model));
+        UserMessage nextRequest = CodePrompts.instance.codeRequest(context, userInput.trim(), model);
 
         // FSM state - include original goal for build-retry compaction
         var rawMessages = new ArrayList<ChatMessage>();
@@ -754,8 +753,7 @@ public class CodeAgent {
                     </original_goal>
                     """
                             .formatted(buildError, cs.originalGoal());
-            UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                    context, buildPrompt, CodePrompts.instance.codeReminder(contextManager.getService(), model));
+            UserMessage nextRequest = CodePrompts.instance.codeRequest(context, buildPrompt, model);
             // Compact conversation into a concise summary for the build step
             var newCs = cs.forBuildRetry(nextRequest, es);
             var newEs = es.afterBuildFailure(buildError);
