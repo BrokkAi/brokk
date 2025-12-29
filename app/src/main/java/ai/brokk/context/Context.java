@@ -398,10 +398,10 @@ public class Context {
     }
 
     private List<ProjectFile> filterResults(List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
-        return results.stream()
-                .map(IAnalyzer.FileRelevance::file)
-                .filter(file -> !ineligibleSources.contains(file))
-                .toList();
+            return results.stream()
+                            .map(IAnalyzer.FileRelevance::file)
+                            .filter(file -> !ineligibleSources.contains(file))
+                            .toList();
     }
 
     /**
