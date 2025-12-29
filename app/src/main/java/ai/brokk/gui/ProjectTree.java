@@ -293,8 +293,6 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         }
 
         if (hasTargets) {
-            boolean allFilesTracked = project.getRepo().getTrackedFiles().containsAll(targetFiles);
-
             String editLabel = bulk ? "Attach All" : "Attach";
             String summarizeLabel = bulk ? "Summarize All" : "Summarize";
 
@@ -309,7 +307,6 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     // BLOCKED case already shows error dialog in checkAndConfirm
                 });
             });
-            editItem.setEnabled(allFilesTracked);
             contextMenu.add(editItem);
 
             boolean canSummarize = anySummarizable(targetFiles);
