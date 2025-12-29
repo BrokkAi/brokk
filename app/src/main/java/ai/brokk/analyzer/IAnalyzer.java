@@ -2,10 +2,8 @@ package ai.brokk.analyzer;
 
 import ai.brokk.project.IProject;
 import java.util.*;
-import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * Core analyzer interface providing code intelligence capabilities.
@@ -242,29 +240,18 @@ public interface IAnalyzer {
             throw new IllegalArgumentException("Search pattern may not be empty");
         }
 
-        // Prepare case-insensitive regex pattern with non-greedy quantifiers to avoid backtracking
-        @Nullable String substringFilter = null;
+        // Prepare case-insensitive regex pattern with non-greedy quantifiers
         if (autoQuote) {
-            if (!pattern.contains(".*")) {
-                substringFilter = pattern.toLowerCase(Locale.ROOT);
-            }
             pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*?" + Pattern.quote(pattern) + ".*?");
         }
 
         Pattern compiledPattern = Pattern.compile(pattern);
-        // Pre-filter with substring check to avoid expensive regex on non-matching FQNs
-        return searchDefinitions(compiledPattern, substringFilter);
+        return searchDefinitions(compiledPattern);
     }
 
     default Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
-        return searchDefinitions(compiledPattern, null);
-    }
-
-    default Set<CodeUnit> searchDefinitions(Pattern compiledPattern, @Nullable String substringFilter) {
         var matcher = compiledPattern.matcher("");
         return getAllDeclarations().stream()
-                .filter(cu -> substringFilter == null
-                        || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
                 .filter(cu -> matcher.reset(cu.fqName()).find())
                 .collect(Collectors.toSet());
     }

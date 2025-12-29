@@ -49,13 +49,13 @@ public class SearchDefinitionsBenchmark {
                 "autocompleteDefinitions('Test') x100: %.2f ms (%.2f μs per call)%n",
                 elapsed / 1_000_000.0, elapsed / 100_000.0);
 
-        // Benchmark direct pattern matching (to compare old vs new approach)
+        // Benchmark direct pattern matching (greedy vs non-greedy)
         Pattern greedyPattern = Pattern.compile("(?i).*TestClass.*");
         Pattern nonGreedyPattern = Pattern.compile("(?i).*?TestClass.*?");
 
         start = System.nanoTime();
         for (int i = 0; i < 100; i++) {
-            analyzer.searchDefinitions(greedyPattern, null);
+            analyzer.searchDefinitions(greedyPattern);
         }
         long greedyTime = System.nanoTime() - start;
         System.out.printf(
@@ -63,11 +63,11 @@ public class SearchDefinitionsBenchmark {
 
         start = System.nanoTime();
         for (int i = 0; i < 100; i++) {
-            analyzer.searchDefinitions(nonGreedyPattern, "testclass");
+            analyzer.searchDefinitions(nonGreedyPattern);
         }
         long nonGreedyTime = System.nanoTime() - start;
         System.out.printf(
-                "Non-greedy + substring filter x100: %.2f ms (%.2f μs per call)%n",
+                "Non-greedy pattern x100: %.2f ms (%.2f μs per call)%n",
                 nonGreedyTime / 1_000_000.0, nonGreedyTime / 100_000.0);
 
         double speedup = (double) greedyTime / nonGreedyTime;
