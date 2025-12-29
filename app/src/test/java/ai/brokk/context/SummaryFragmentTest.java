@@ -1,6 +1,7 @@
 package ai.brokk.context;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -286,6 +287,57 @@ public class SummaryFragmentTest {
                     .orElseThrow();
             var files = fragment.files().join();
             assertEquals(Set.of(expectedFile), files, "files() should include only Test.java");
+        }
+    }
+
+    @Test
+    public void fileSkeletonDeduplicatesSharedAncestorsInOutput() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                """
+    public class SharedBase {}
+    """,
+                "Base.java");
+        try (var testProject = builder.addFileContents(
+                        """
+    class ChildA extends SharedBase {}
+    class ChildB extends SharedBase {}
+    """,
+                        "Children.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            ProjectFile childrenFile = testProject.getAllFiles().stream()
+                    .filter(pf -> pf.getFileName().equals("Children.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var fragment = new SummaryFragment(cm, childrenFile.toString(), SummaryType.FILE_SKELETONS);
+            String text = fragment.text().join();
+
+            // Check that "class SharedBase" appears exactly once in the text
+            int count = 0;
+            int index = 0;
+            while ((index = text.indexOf("class SharedBase", index)) != -1) {
+                count++;
+                index += "class SharedBase".length();
+            }
+            assertEquals(1, count, "SharedBase skeleton should only appear once in the output text");
+
+            // Verify the individual class skeletons are present (without assuming exact formatting)
+            assertTrue(text.contains("class ChildA extends SharedBase"), 
+                    "Should contain ChildA skeleton");
+            assertTrue(text.contains("class ChildB extends SharedBase"), 
+                    "Should contain ChildB skeleton");
+            assertTrue(text.contains("public class SharedBase"), 
+                    "Should contain SharedBase skeleton");
+
+            // Verify sources() has no duplicates
+            var sources = fragment.sources().join();
+            var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+            assertEquals(Set.of("ChildA", "ChildB", "SharedBase"), fqns, 
+                    "sources() should include both children and SharedBase");
+            assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
         }
     }
 }
