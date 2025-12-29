@@ -372,16 +372,28 @@ public class Context {
         return List.copyOf(resultFiles);
     }
 
-    public boolean areManySeedsNew(Map<ProjectFile, Double> weightedSeeds, IGitRepo repo) {
-        if (weightedSeeds.isEmpty()) {
+    /**
+     * Checks if a significant portion of seed files are untracked in the Git repository.
+     * <p>
+     * This check is unweighted; it considers only the count of files. Even if the seeds
+     * have associated weights for ranking purposes, those weights are ignored here to
+     * ensure that a large number of new (untracked) files consistently triggers a
+     * fallback to import-based ranking.
+     *
+     * @param seedFiles a map of seed files (weights are ignored)
+     * @param repo the Git repository to check tracking status against
+     * @return true if the ratio of untracked seeds meets or exceeds {@link #NEW_SEED_FILE_RATIO_THRESHOLD}
+     */
+    public boolean areManySeedsNew(Map<ProjectFile, Double> seedFiles, IGitRepo repo) {
+        if (seedFiles.isEmpty()) {
             return false;
         }
         var trackedFiles = repo.getTrackedFiles();
-        long newSeedsCount = weightedSeeds.keySet().stream()
+        long newSeedsCount = seedFiles.keySet().stream()
                 .filter(f -> !trackedFiles.contains(f))
                 .count();
 
-        double ratio = (double) newSeedsCount / weightedSeeds.size();
+        double ratio = (double) newSeedsCount / seedFiles.size();
         return ratio >= NEW_SEED_FILE_RATIO_THRESHOLD;
     }
 
