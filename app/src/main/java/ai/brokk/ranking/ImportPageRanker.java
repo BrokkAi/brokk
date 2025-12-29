@@ -161,8 +161,8 @@ public final class ImportPageRanker {
             edgeCount += outIdx.length;
         }
 
-        if (n > LARGE_GRAPH_NODE_THRESHOLD && log.isWarnEnabled()) {
-            log.warn("ImportPageRanker large graph: nodes={}, edges={}, seeds={}", n, edgeCount, positiveSeeds.size());
+        if (n > LARGE_GRAPH_NODE_THRESHOLD) {
+            log.debug("ImportPageRanker large graph: nodes={}, edges={}, seeds={}", n, edgeCount, positiveSeeds.size());
         }
 
         // Personalized PageRank
