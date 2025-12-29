@@ -5,7 +5,7 @@
 This is a multi-module Gradle project with Kotlin DSL:
 
 - **`analyzer-api`** - Core analyzer interfaces and types (1% of codebase, compiled with javac)
-- **`app`** - Java 21 main application with TreeSitter analyzers (94% of codebase, compiled with javac)
+- **`app`** - Java 25 main application with TreeSitter analyzers (94% of codebase, compiled with javac)
 
 ### Module Dependency Diagram
 
@@ -279,7 +279,7 @@ The project uses jDeploy to create native application installers for all platfor
 
 Configuration is defined in the root `package.json`:
 - **JAR Source**: `app/build/libs/brokk-*.jar` (shadow JAR)
-- **Java Version**: 21 (required)
+- **Java Version**: 25 (required)
 - **JavaFX**: Enabled for GUI support
 - **JVM Args**: `--add-modules jdk.incubator.vector` for Vector API
 - **No Bundled JDK**: Uses system Java installation

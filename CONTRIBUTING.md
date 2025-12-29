@@ -4,7 +4,7 @@ Thank you for your interest in contributing. This guide covers environment setup
 
 ## Prerequisites
 
-- JDK 21 or newer (JetBrains Runtime recommended).
+- JDK 25 or newer (JetBrains Runtime recommended).
 - macOS, Windows, or Linux.
 
 ## Quick start
@@ -66,7 +66,7 @@ See:
 
 ## Build from source
 
-Ensure JDK 21+ is installed. Use the quick start commands above to run, test, and build. For deeper tasks (caching, frontend build, debugging, packaging, releases), see app/src/main/development.md.
+Ensure JDK 25+ is installed. Use the quick start commands above to run, test, and build. For deeper tasks (caching, frontend build, debugging, packaging, releases), see app/src/main/development.md.
 
 ## Increasing JVM heap when running via Gradle
 

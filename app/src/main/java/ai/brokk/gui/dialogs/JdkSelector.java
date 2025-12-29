@@ -29,7 +29,7 @@ public class JdkSelector extends JPanel {
 
     public JdkSelector() {
         super(new BorderLayout(5, 0));
-        combo.setPrototypeDisplayValue(new JdkItem("OpenJDK 21 (x64)", "/opt/jdk-21"));
+        combo.setPrototypeDisplayValue(new JdkItem("OpenJDK 25 (x64)", "/opt/jdk-25"));
         add(combo, BorderLayout.CENTER);
         add(browseButton, BorderLayout.EAST);
 
