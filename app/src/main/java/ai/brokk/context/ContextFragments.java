@@ -220,8 +220,9 @@ public class ContextFragments {
                     : ComputedValue.completed("snap-" + id, initialSnapshot);
         }
 
-        public void await(Duration timeout) throws InterruptedException {
-            snapshotCv.await(timeout);
+        @Override
+        public boolean await(Duration timeout) throws InterruptedException {
+            return snapshotCv.await(timeout).isPresent();
         }
 
         @Override
@@ -391,6 +392,11 @@ public class ContextFragments {
         @Override
         public ContextFragment refreshCopy() {
             return this;
+        }
+
+        @Override
+        public boolean await(Duration timeout) throws InterruptedException {
+            return true;
         }
     }
 
@@ -590,6 +596,11 @@ public class ContextFragments {
         @Override
         public ContextFragment refreshCopy() {
             return this;
+        }
+
+        @Override
+        public boolean await(Duration timeout) throws InterruptedException {
+            return true;
         }
     }
 
@@ -806,8 +817,13 @@ public class ContextFragments {
         }
     }
 
-    public static class StringFragment extends KnownDescriptionComputedFragment
-            implements ContextFragment.DynamicIdentity {
+    public static class StringFragment implements ContextFragment, ContextFragment.DynamicIdentity {
+        private final String id;
+        private final IContextManager contextManager;
+        private final String description;
+        private final String syntaxStyle;
+        private final ComputedValue<String> textCv;
+        private final ComputedValue<Set<ProjectFile>> filesCv;
 
         public StringFragment(
                 IContextManager contextManager,
@@ -818,10 +834,10 @@ public class ContextFragments {
             this(
                     String.valueOf(ContextFragment.nextId.getAndIncrement()),
                     contextManager,
-                    text,
+                    ComputedValue.completed(text),
                     description,
                     syntaxStyle,
-                    files);
+                    ComputedValue.completed(Set.copyOf(files)));
         }
 
         public StringFragment(
@@ -831,28 +847,28 @@ public class ContextFragments {
                 String description,
                 String syntaxStyle,
                 Set<ProjectFile> files) {
-            super(
+            this(
                     id,
                     contextManager,
+                    ComputedValue.completed(text),
                     description,
-                    description,
-                    FragmentSnapshot.textSnapshot(
-                            description, description, text, syntaxStyle, Set.of(), Set.copyOf(files)),
-                    null);
+                    syntaxStyle,
+                    ComputedValue.completed(Set.copyOf(files)));
         }
 
         public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
             this(
                     String.valueOf(ContextFragment.nextId.getAndIncrement()),
                     contextManager,
-                    CompletableFuture.completedFuture(text),
+                    ComputedValue.completed(text),
                     description,
-                    syntaxStyle);
+                    syntaxStyle,
+                    null);
         }
 
         public StringFragment(
                 String id, IContextManager contextManager, String text, String description, String syntaxStyle) {
-            this(id, contextManager, CompletableFuture.completedFuture(text), description, syntaxStyle);
+            this(id, contextManager, ComputedValue.completed(text), description, syntaxStyle, null);
         }
 
         public StringFragment(
@@ -871,13 +887,43 @@ public class ContextFragments {
                 Future<String> textFuture,
                 String description,
                 String syntaxStyle) {
-            super(
+            this(
                     id,
                     contextManager,
+                    new ComputedValue<>("text-" + id, toCompletableFuture(textFuture)),
                     description,
-                    description,
-                    null,
-                    () -> computeSnapshotFor(textFuture, description, syntaxStyle, contextManager));
+                    syntaxStyle,
+                    null);
+        }
+
+        private StringFragment(
+                String id,
+                IContextManager contextManager,
+                ComputedValue<String> textCv,
+                String description,
+                String syntaxStyle,
+                @Nullable ComputedValue<Set<ProjectFile>> filesCv) {
+            this.id = id;
+            this.contextManager = contextManager;
+            this.description = description;
+            this.syntaxStyle = syntaxStyle;
+            this.textCv = textCv;
+            this.filesCv = filesCv != null
+                    ? filesCv
+                    : textCv.map(text -> extractFilesFromDiff(text, contextManager));
+        }
+
+        private static CompletableFuture<String> toCompletableFuture(Future<String> future) {
+            if (future instanceof CompletableFuture<String> cf) {
+                return cf;
+            }
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return future.get();
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }, FRAGMENT_EXECUTOR);
         }
 
         public static StringFragment withId(
@@ -899,14 +945,6 @@ public class ContextFragments {
                 String syntaxStyle) {
             validateNumericId(existingId);
             return new StringFragment(existingId, contextManager, text, description, syntaxStyle);
-        }
-
-        private static FragmentSnapshot computeSnapshotFor(
-                Future<String> textFuture, String description, String syntaxStyle, IContextManager contextManager)
-                throws Exception {
-            String text = textFuture.get();
-            Set<ProjectFile> files = extractFilesFromDiff(text, contextManager);
-            return FragmentSnapshot.textSnapshot(description, description, text, syntaxStyle, Set.of(), files);
         }
 
         /**
@@ -979,44 +1017,89 @@ public class ContextFragments {
         }
 
         @Override
+        public String id() {
+            return id;
+        }
+
+        @Override
         public FragmentType getType() {
             return FragmentType.STRING;
         }
 
+        @Override
+        public IContextManager getContextManager() {
+            return contextManager;
+        }
+
+        @Override
+        public ComputedValue<String> description() {
+            return ComputedValue.completed("desc-" + id, description);
+        }
+
+        @Override
+        public ComputedValue<String> shortDescription() {
+            return ComputedValue.completed("short-" + id, description);
+        }
+
+        @Override
+        public ComputedValue<String> text() {
+            return textCv;
+        }
+
+        @Override
+        public ComputedValue<String> syntaxStyle() {
+            return ComputedValue.completed("syntax-" + id, syntaxStyle);
+        }
+
+        @Override
+        public ComputedValue<Set<CodeUnit>> sources() {
+            return ComputedValue.completed("sources-" + id, Set.of());
+        }
+
+        @Override
+        public ComputedValue<Set<ProjectFile>> files() {
+            return filesCv;
+        }
+
+        @Override
+        public boolean await(Duration timeout) throws InterruptedException {
+            return textCv.await(timeout).isPresent();
+        }
+
         public Optional<SpecialTextType> specialType() {
-            return snapshotCv.tryGet().flatMap(s -> SpecialTextType.fromDescription(s.description()));
+            return SpecialTextType.fromDescription(description);
         }
 
         public String previewSyntaxStyle() {
-            var snapshot = snapshotCv.tryGet().orElse(null);
-            if (snapshot == null) return SyntaxConstants.SYNTAX_STYLE_NONE;
-            return specialType().map(SpecialTextType::previewSyntaxStyle).orElse(snapshot.syntaxStyle());
+            return specialType().map(SpecialTextType::previewSyntaxStyle).orElse(syntaxStyle);
         }
 
         public String previewText() {
-            var snapshot = snapshotCv.tryGet().orElse(null);
-            if (snapshot == null) return "";
-            return specialType().map(st -> st.renderPreview(snapshot.text())).orElse(snapshot.text());
+            var text = textCv.tryGet().orElse(null);
+            if (text == null) return "";
+            return specialType().map(st -> st.renderPreview(text)).orElse(text);
         }
 
         @Override
         public String toString() {
-            return "StringFragment('%s')".formatted(description().renderNowOr("(pending)"));
+            return "StringFragment('%s')".formatted(description);
         }
 
         @Override
         public boolean hasSameSource(ContextFragment other) {
             if (this == other) return true;
             if (!(other instanceof StringFragment that)) return false;
-            var thisSnapshot = this.snapshotCv.tryGet().orElse(null);
-            var thatSnapshot = that.snapshotCv.tryGet().orElse(null);
-            if (thisSnapshot == null || thatSnapshot == null) return false;
-            var thisType = SpecialTextType.fromDescription(thisSnapshot.description());
-            var thatType = SpecialTextType.fromDescription(thatSnapshot.description());
+            var thisType = this.specialType();
+            var thatType = that.specialType();
             if (thisType.isPresent() && thisType.equals(thatType)) {
                 return true;
             }
-            return Objects.equals(thisSnapshot, thatSnapshot);
+            var thisText = this.textCv.tryGet().orElse(null);
+            var thatText = that.textCv.tryGet().orElse(null);
+            if (thisText == null || thatText == null) return false;
+            return Objects.equals(this.description, that.description)
+                    && Objects.equals(thisText, thatText)
+                    && Objects.equals(this.syntaxStyle, that.syntaxStyle);
         }
 
         @Override

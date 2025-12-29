@@ -10,6 +10,8 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.*;
+
+import java.time.Duration;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -110,6 +112,8 @@ public interface ContextFragment {
     static int getCurrentMaxId() {
         return nextId.get();
     }
+
+    boolean await(Duration timeout) throws InterruptedException;
 
     /**
      * Unique identifier for this fragment. Can be a numeric string for dynamic fragments or a hash string for

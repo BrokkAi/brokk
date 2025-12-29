@@ -438,13 +438,11 @@ public class ContextHistory {
      * Performs synchronous snapshotting of the given context to ensure stable, historical restoration.
      */
     private void snapshotContext(Context ctx) {
-        for (var fragment : ctx.allFragments().toList()) {
+        for (var cf : ctx.allFragments().toList()) {
             try {
-                if (fragment instanceof ContextFragments.AbstractComputedFragment cf) {
-                    cf.await(SNAPSHOT_AWAIT_TIMEOUT);
-                }
-            } catch (Exception e) {
-                logger.warn("Snapshot task failed for fragment {}: {}", fragment.id(), e.toString());
+                cf.await(SNAPSHOT_AWAIT_TIMEOUT);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
             }
         }
     }
