@@ -71,7 +71,7 @@ public class TestProject implements IProject {
         this.styleGuide = styleGuide;
     }
 
-    public void setHasGit(boolean hasGit) {
+    protected void setHasGit(boolean hasGit) {
         this.hasGit = hasGit;
     }
 

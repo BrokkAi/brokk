@@ -10,6 +10,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.AnalyzerCreator;
@@ -67,6 +68,8 @@ public class ContextNoGitFallbackTest {
             ProjectFile a = byName.get("a.java");
             ProjectFile b = byName.get("b.java");
             ProjectFile c = byName.get("c.java");
+
+            assertFalse(project.hasGit(), "Project should not have Git by default");
 
             AtomicBoolean repoInvoked = new AtomicBoolean(false);
 
@@ -298,6 +301,29 @@ public class ContextNoGitFallbackTest {
             // Check that B and C (linked via imports) are present
             assertTrue(results.contains(b), "Expected B.java (direct import)");
             assertTrue(results.contains(c), "Expected C.java (indirect import)");
+        }
+    }
+
+    @Test
+    public void testWithGitOptionTracksFiles() throws Exception {
+        try (var project = InlineTestProjectCreator.code(
+                        "public class A {}", "A.java")
+                .addFileContents("public class B {}", "B.java")
+                .withGit()
+                .build()) {
+
+            assertTrue(project.hasGit(), "Project should have Git enabled");
+            IGitRepo repo = project.getRepo();
+            assertTrue(repo instanceof GitRepo, "Repo should be a concrete GitRepo instance");
+
+            Set<ProjectFile> tracked = repo.getTrackedFiles();
+            assertEquals(2, tracked.size(), "Should have 2 tracked files");
+
+            boolean foundA = tracked.stream().anyMatch(f -> f.toString().endsWith("A.java"));
+            boolean foundB = tracked.stream().anyMatch(f -> f.toString().endsWith("B.java"));
+
+            assertTrue(foundA, "A.java should be tracked");
+            assertTrue(foundB, "B.java should be tracked");
         }
     }
 }

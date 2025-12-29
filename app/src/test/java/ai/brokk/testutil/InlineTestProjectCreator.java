@@ -2,6 +2,9 @@ package ai.brokk.testutil;
 
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoFactory;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileUtil;
 import java.io.IOException;
@@ -12,6 +15,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.GitAPIException;
 
 /**
  * Creates temporary projects from source code defined by content-filename pairs. This is cleaned up once closed.
@@ -27,11 +32,17 @@ public class InlineTestProjectCreator {
     public static class TestProjectBuilder {
 
         private final List<FileContents> entries = new ArrayList<>();
+        private boolean useGit = false;
 
         private TestProjectBuilder() {}
 
         public TestProjectBuilder addFileContents(String contents, String filename) {
             entries.add(new FileContents(filename, contents));
+            return this;
+        }
+
+        public TestProjectBuilder withGit() {
+            this.useGit = true;
             return this;
         }
 
@@ -66,12 +77,34 @@ public class InlineTestProjectCreator {
                 selectedLang = new Language.MultiLanguage(detected);
             }
 
+            EphemeralTestProject project;
             if (selectedLang != null) {
-                return new EphemeralTestProject(newTemporaryDirectory, selectedLang);
+                project = new EphemeralTestProject(newTemporaryDirectory, selectedLang);
             } else {
                 // No supported language detected; fall back to default behavior
-                return new EphemeralTestProject(newTemporaryDirectory);
+                project = new EphemeralTestProject(newTemporaryDirectory);
             }
+
+            if (useGit) {
+                try {
+                    GitRepoFactory.initRepo(newTemporaryDirectory);
+                    try (Git git = Git.open(newTemporaryDirectory.toFile())) {
+                        for (var entry : entries) {
+                            git.add().addFilepattern(entry.relPath).call();
+                        }
+                        git.commit()
+                                .setAuthor("Brokk Test", "test@brokk.ai")
+                                .setMessage("Initial test commit")
+                                .setSign(false)
+                                .call();
+                    }
+                    project.setHasGit(true);
+                } catch (GitAPIException e) {
+                    throw new IOException("Failed to initialize git repo for test project", e);
+                }
+            }
+
+            return project;
         }
     }
 
@@ -83,6 +116,20 @@ public class InlineTestProjectCreator {
 
         public EphemeralTestProject(Path root, Language language) {
             super(root, language);
+        }
+
+        @Override
+        public boolean hasGit() {
+            // Explicitly return the state from the parent field
+            return super.hasGit();
+        }
+
+        @Override
+        public IGitRepo getRepo() {
+            if (hasGit()) {
+                return new GitRepo(getRoot());
+            }
+            return super.getRepo();
         }
 
         @Override
