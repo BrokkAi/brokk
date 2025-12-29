@@ -302,7 +302,7 @@ public class ContextFragments {
      * Base class for computed fragments whose description and shortDescription are known at construction time
      * and don't require waiting for the snapshot computation.
      */
-    public abstract static class KnownDescriptionComputedFragment extends AbstractComputedFragment {
+    private abstract static class KnownDescriptionComputedFragment extends AbstractComputedFragment {
         private final ComputedValue<String> descriptionCv;
         private final ComputedValue<String> shortDescriptionCv;
 
@@ -330,7 +330,7 @@ public class ContextFragments {
     }
 
     // Base implementation for fragments with static/known content
-    public abstract static class AbstractStaticFragment implements ContextFragment {
+    abstract static class AbstractStaticFragment implements ContextFragment {
         protected final String id;
         protected final IContextManager contextManager;
         protected final FragmentSnapshot snapshot;

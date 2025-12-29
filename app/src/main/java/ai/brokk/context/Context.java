@@ -853,8 +853,7 @@ public class Context {
     public Optional<ContextFragments.StringFragment> getSpecial(String description) {
         // Since special looks for self-freezing fragments, we can reliably use `renderNow`
         return virtualFragments()
-                .filter(f -> f instanceof ContextFragments.AbstractStaticFragment sf
-                        && description.equals(sf.description().renderNowOrNull()))
+                .filter(cf -> description.equals(cf.description().renderNowOrNull()))
                 .map(ContextFragments.StringFragment.class::cast)
                 .findFirst();
     }
@@ -875,8 +874,7 @@ public class Context {
         }
 
         var idsToDrop = virtualFragments()
-                .filter(f -> f instanceof ContextFragments.AbstractStaticFragment sf
-                        && desc.equals(sf.description().renderNowOrNull()))
+                .filter(cf -> desc.equals(cf.description().renderNowOrNull()))
                 .map(ContextFragment::id)
                 .toList();
 
