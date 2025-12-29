@@ -1119,7 +1119,7 @@ public class Context {
     public String getBuildError() {
         return getBuildFragment()
                 .map(ContextFragment::text)
-                .map(cv -> cv.renderNowOr(""))
+                .map(ComputedValue::join)
                 .orElse("");
     }
 
