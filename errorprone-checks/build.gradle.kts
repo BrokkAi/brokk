@@ -53,9 +53,9 @@ tasks.withType<Test>().configureEach {
     // Do not fail the build if no tests are discovered when running aggregate test tasks
     failOnNoDiscoveredTests = false
 
-    // Force tests to run on Eclipse Temurin JDK 21 (full JDK with jdk.compiler)
+    // Force tests to run on Eclipse Temurin JDK 25 (full JDK with jdk.compiler)
     javaLauncher.set(javaToolchains.launcherFor {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(25))
     })
 
     // Keep assertions enabled and export javac internals for Error Prone test harness

@@ -15,7 +15,7 @@ public class BlockingOperationCheckerTest {
 
     private final CompilationTestHelper helper = CompilationTestHelper.newInstance(
                     BlockingOperationChecker.class, getClass())
-            .setArgs(List.of("--release", "21"));
+            .setArgs(List.of("--release", "25"));
 
     @Test
     public void warnsOnBlockingMethodInvocation() {
