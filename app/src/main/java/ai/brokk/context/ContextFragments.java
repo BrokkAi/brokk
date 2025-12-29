@@ -298,6 +298,37 @@ public class ContextFragments {
         }
     }
 
+    /**
+     * Base class for computed fragments whose description and shortDescription are known at construction time
+     * and don't require waiting for the snapshot computation.
+     */
+    public abstract static class KnownDescriptionComputedFragment extends AbstractComputedFragment {
+        private final ComputedValue<String> descriptionCv;
+        private final ComputedValue<String> shortDescriptionCv;
+
+        protected KnownDescriptionComputedFragment(
+                String id,
+                IContextManager contextManager,
+                String description,
+                String shortDescription,
+                @Nullable FragmentSnapshot initialSnapshot,
+                @Nullable java.util.concurrent.Callable<FragmentSnapshot> computeTask) {
+            super(id, contextManager, initialSnapshot, computeTask);
+            this.descriptionCv = ComputedValue.completed("desc-" + id, description);
+            this.shortDescriptionCv = ComputedValue.completed("shortDesc-" + id, shortDescription);
+        }
+
+        @Override
+        public ComputedValue<String> description() {
+            return descriptionCv;
+        }
+
+        @Override
+        public ComputedValue<String> shortDescription() {
+            return shortDescriptionCv;
+        }
+    }
+
     // Base implementation for fragments with static/known content
     public abstract static class AbstractStaticFragment implements ContextFragment {
         protected final String id;
@@ -363,7 +394,7 @@ public class ContextFragments {
         }
     }
 
-    public static final class ProjectPathFragment extends AbstractComputedFragment
+    public static final class ProjectPathFragment extends KnownDescriptionComputedFragment
             implements PathFragment, ContextFragment.DynamicIdentity {
         private final ProjectFile file;
 
@@ -385,10 +416,15 @@ public class ContextFragments {
             return new ProjectPathFragment(file, existingId, contextManager, snapshotText);
         }
 
+        private static String computeDescription(ProjectFile file) {
+            String name = file.getFileName();
+            return file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
+        }
+
         private static FragmentSnapshot decodeFrozen(ProjectFile file, IContextManager contextManager, byte[] bytes) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String name = file.getFileName();
-            String desc = file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
+            String desc = computeDescription(file);
             String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
             Set<CodeUnit> sources;
             try {
@@ -404,7 +440,7 @@ public class ContextFragments {
             boolean valid = file.exists();
             String text = file.read().orElse("");
             String name = file.getFileName();
-            String desc = file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
+            String desc = computeDescription(file);
             String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
             Set<CodeUnit> sources = Set.of();
             try {
@@ -421,6 +457,8 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
+                    computeDescription(file),
+                    file.getFileName(),
                     snapshotText == null
                             ? null
                             : decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
@@ -555,7 +593,7 @@ public class ContextFragments {
         }
     }
 
-    public static final class ExternalPathFragment extends AbstractComputedFragment
+    public static final class ExternalPathFragment extends KnownDescriptionComputedFragment
             implements PathFragment, ContextFragment.DynamicIdentity {
         private final ExternalFile file;
 
@@ -597,6 +635,8 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
+                    file.toString(),
+                    file.toString(),
                     snapshotText == null ? null : decodeFrozen(file, snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file) : null);
             this.file = file;
@@ -624,7 +664,7 @@ public class ContextFragments {
         }
     }
 
-    public static final class ImageFileFragment extends AbstractComputedFragment
+    public static final class ImageFileFragment extends KnownDescriptionComputedFragment
             implements PathFragment, ContextFragment.ImageFragment, ContextFragment.DynamicIdentity {
         private final BrokkFile file;
 
@@ -632,8 +672,21 @@ public class ContextFragments {
             this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
         }
 
+        private static String computeDescription(BrokkFile file) {
+            if (file instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
+                return "%s [%s]".formatted(file.getFileName(), pf.getParent());
+            }
+            return file.toString();
+        }
+
         private ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) {
-            super(id, contextManager, null, () -> computeSnapshotFor(file));
+            super(
+                    id,
+                    contextManager,
+                    computeDescription(file),
+                    file.getFileName(),
+                    null,
+                    () -> computeSnapshotFor(file));
             this.file = file;
         }
 
@@ -753,7 +806,8 @@ public class ContextFragments {
         }
     }
 
-    public static class StringFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class StringFragment extends KnownDescriptionComputedFragment
+            implements ContextFragment.DynamicIdentity {
 
         public StringFragment(
                 IContextManager contextManager,
@@ -780,6 +834,8 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
+                    description,
+                    description,
                     FragmentSnapshot.textSnapshot(
                             description, description, text, syntaxStyle, Set.of(), Set.copyOf(files)),
                     null);
@@ -818,6 +874,8 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
+                    description,
+                    description,
                     null,
                     () -> computeSnapshotFor(textFuture, description, syntaxStyle, contextManager));
         }
@@ -1192,9 +1250,14 @@ public class ContextFragments {
         }
     }
 
-    public static class UsageFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class UsageFragment extends KnownDescriptionComputedFragment
+            implements ContextFragment.DynamicIdentity {
         private final String targetIdentifier;
         private final boolean includeTestFiles;
+
+        private static String computeDescription(String targetIdentifier) {
+            return "Uses of " + targetIdentifier;
+        }
 
         public UsageFragment(IContextManager contextManager, String targetIdentifier) {
             this(contextManager, targetIdentifier, true, null);
@@ -1235,6 +1298,8 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
+                    computeDescription(targetIdentifier),
+                    computeDescription(targetIdentifier),
                     snapshotText == null
                             ? null
                             : decodeFrozen(
@@ -1543,10 +1608,16 @@ public class ContextFragments {
         }
     }
 
-    public static class CallGraphFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class CallGraphFragment extends KnownDescriptionComputedFragment
+            implements ContextFragment.DynamicIdentity {
         private final String methodName;
         private final int depth;
         private final boolean isCalleeGraph;
+
+        private static String computeDescription(String methodName, int depth, boolean isCalleeGraph) {
+            String type = isCalleeGraph ? "Callees" : "Callers";
+            return "%s of %s (depth %d)".formatted(type, methodName, depth);
+        }
 
         public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
             this(
@@ -1559,7 +1630,13 @@ public class ContextFragments {
 
         public CallGraphFragment(
                 String id, IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
-            super(id, contextManager, null, () -> computeSnapshotFor(methodName, depth, isCalleeGraph, contextManager));
+            super(
+                    id,
+                    contextManager,
+                    computeDescription(methodName, depth, isCalleeGraph),
+                    computeDescription(methodName, depth, isCalleeGraph),
+                    null,
+                    () -> computeSnapshotFor(methodName, depth, isCalleeGraph, contextManager));
             this.methodName = methodName;
             this.depth = depth;
             this.isCalleeGraph = isCalleeGraph;
@@ -1709,9 +1786,14 @@ public class ContextFragments {
         }
     }
 
-    public static class SummaryFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class SummaryFragment extends KnownDescriptionComputedFragment
+            implements ContextFragment.DynamicIdentity {
         private final String targetIdentifier;
         private final SummaryType summaryType;
+
+        private static String computeDescription(String targetIdentifier) {
+            return "Summary of %s".formatted(targetIdentifier);
+        }
 
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
             this(
@@ -1723,7 +1805,13 @@ public class ContextFragments {
 
         public SummaryFragment(
                 String id, IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
-            super(id, contextManager, null, () -> computeSnapshotFor(targetIdentifier, summaryType, contextManager));
+            super(
+                    id,
+                    contextManager,
+                    computeDescription(targetIdentifier),
+                    computeDescription(targetIdentifier),
+                    null,
+                    () -> computeSnapshotFor(targetIdentifier, summaryType, contextManager));
             this.targetIdentifier = targetIdentifier;
             this.summaryType = summaryType;
         }
