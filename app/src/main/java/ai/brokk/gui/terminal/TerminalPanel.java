@@ -248,23 +248,42 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                     return;
                 }
 
-                var buffer = w.getTerminalTextBuffer();
-                if (buffer == null) {
-                    console.systemNotify(
-                            "No terminal buffer available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
-                    return;
+                String content = null;
+                if (w.getTerminalDisplay() instanceof BrokkJediTermPanel display) {
+                    content = display.getSelectionText();
                 }
 
-                var lines = new ArrayList<String>();
-                for (int i = 0; i < buffer.getHeight(); i++) {
-                    var line = buffer.getLine(i);
-                    lines.add(line.getText());
+                if (content == null || content.isEmpty()) {
+                    var buffer = w.getTerminalTextBuffer();
+                    if (buffer == null) {
+                        console.systemNotify(
+                                "No terminal buffer available to capture",
+                                "Terminal Capture",
+                                JOptionPane.WARNING_MESSAGE);
+                        return;
+                    }
+
+                    var lines = new ArrayList<String>();
+                    buffer.lock();
+                    try {
+                        int historyCount = buffer.getHistoryLinesCount();
+                        for (int i = 0; i < historyCount; i++) {
+                            var line = buffer.getLine(i - historyCount);
+                            lines.add(line.getText());
+                        }
+
+                        for (int i = 0; i < buffer.getHeight(); i++) {
+                            var line = buffer.getLine(i);
+                            lines.add(line.getText());
+                        }
+                    } finally {
+                        buffer.unlock();
+                    }
+
+                    content = lines.stream().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
                 }
 
-                String content =
-                        lines.stream().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
-
-                if (content.isBlank()) {
+                if (content == null || content.isBlank()) {
                     console.systemNotify(
                             "No terminal content available to capture",
                             "Terminal Capture",
@@ -272,10 +291,11 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                     return;
                 }
 
+                final String capturedContent = content;
                 if (console instanceof Chrome c) {
                     c.getContextManager().submitContextTask(() -> {
                         try {
-                            c.getContextManager().addPastedTextFragment(content);
+                            c.getContextManager().addPastedTextFragment(capturedContent);
                             SwingUtilities.invokeLater(() -> {
                                 console.showNotification(
                                         IConsoleIO.NotificationRole.INFO, "Terminal content captured to workspace");
