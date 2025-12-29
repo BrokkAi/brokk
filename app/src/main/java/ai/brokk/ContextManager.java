@@ -2225,6 +2225,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return updatedContext;
         }
 
+        /**
+         * Publishes an intermediate Context snapshot to history without finalizing a TaskResult.
+         * This allows capturing checkpoints during long-running tasks.
+         */
+        public void publish(Context context) {
+            assert !closed.get() : "TaskScope already closed";
+            var updated = context.withGroup(groupId, groupLabel);
+            pushContext(currentLiveCtx -> updated);
+            io.prepareOutputForNextStream(updated.getTaskHistory()); // is this necessary?
+        }
+
         @Override
         public void close() {
             if (!closed.compareAndSet(false, true)) return;

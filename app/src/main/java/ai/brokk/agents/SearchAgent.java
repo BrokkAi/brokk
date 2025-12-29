@@ -423,11 +423,28 @@ public class SearchAgent {
                         return createResult(termReq.name(), goal);
                     }
                 }
+
+                // publish progress-so-far whenever we add something new
+                Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
+                Set<ProjectFile> added = new HashSet<>(filesAfterSet);
+                added.removeAll(filesBeforeSet);
+                if (!added.isEmpty()) {
+                    scope.publish(context);
+                }
             } finally {
                 // End turn tracking - always called even on exceptions
                 endTurnAndRecordFileChanges(filesBeforeSet);
             }
         }
+    }
+
+    private void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet) {
+        Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
+        Set<ProjectFile> added = new HashSet<>(filesAfterSet);
+        added.removeAll(filesBeforeSet);
+        metrics.recordFilesAdded(added.size());
+        metrics.recordFilesAddedPaths(toRelativePaths(added));
+        metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
     }
 
     private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst)
@@ -887,19 +904,6 @@ public class SearchAgent {
         metrics.recordOutcome(details.reason(), getWorkspaceFileSet().size());
 
         return new TaskResult(action, fragment, context, details, meta);
-    }
-
-    // =======================
-    // Metrics helpers
-    // =======================
-
-    private void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet) {
-        Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
-        Set<ProjectFile> added = new HashSet<>(filesAfterSet);
-        added.removeAll(filesBeforeSet);
-        metrics.recordFilesAdded(added.size());
-        metrics.recordFilesAddedPaths(toRelativePaths(added));
-        metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
     }
 
     private void recordFinalWorkspaceState() {
