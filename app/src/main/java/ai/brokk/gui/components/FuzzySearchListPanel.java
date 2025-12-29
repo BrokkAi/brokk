@@ -2,6 +2,8 @@ package ai.brokk.gui.components;
 
 import ai.brokk.FuzzyMatcher;
 import ai.brokk.gui.mop.ThemeColors;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
@@ -30,6 +32,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class FuzzySearchListPanel<T> {
     private static final int SEARCH_DEBOUNCE_MS = 200;
+    private static final int HTML_CACHE_MAX_SIZE = 200;
 
     private record SearchResult<T>(
             long generation, List<T> sortedMatches, Map<T, String> htmlMap, @Nullable FuzzyMatcher matcher) {}
@@ -43,7 +46,8 @@ public class FuzzySearchListPanel<T> {
     private @Nullable FuzzyMatcher currentMatcher;
     private @Nullable Consumer<T> selectionListener;
     private boolean isTyping = false;
-    private final Map<T, String> htmlCache = new HashMap<>();
+    private final Cache<T, String> htmlCache =
+            Caffeine.newBuilder().maximumSize(HTML_CACHE_MAX_SIZE).build();
     private final AtomicLong searchGeneration = new AtomicLong(0);
     private final AtomicReference<CompletableFuture<Void>> currentSearch = new AtomicReference<>();
 
@@ -86,7 +90,7 @@ public class FuzzySearchListPanel<T> {
                 // Use pre-calculated HTML from background search
                 if (currentMatcher != null && !isTyping) {
                     T item = (T) value;
-                    String cachedHtml = htmlCache.get(item);
+                    String cachedHtml = htmlCache.getIfPresent(item);
                     if (cachedHtml != null) {
                         setText(cachedHtml);
                     } else {
@@ -214,7 +218,7 @@ public class FuzzySearchListPanel<T> {
         // Empty query: fast path on EDT
         if (query.isEmpty()) {
             model.clear();
-            htmlCache.clear();
+            htmlCache.invalidateAll();
             currentMatcher = null;
             for (T item : allItems) {
                 model.addElement(item);
@@ -227,8 +231,8 @@ public class FuzzySearchListPanel<T> {
         }
 
         // Non-empty query: spawn background task
-        CompletableFuture<Void> future = CompletableFuture.supplyAsync(
-                        () -> performBackgroundSearch(generation, searchGeneration, query, itemsSnapshot, highlightBg, highlightFg))
+        CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> performBackgroundSearch(
+                        generation, searchGeneration, query, itemsSnapshot, highlightBg, highlightFg))
                 .thenAcceptAsync(this::applyResults, SwingUtilities::invokeLater);
 
         currentSearch.set(future);
@@ -240,8 +244,7 @@ public class FuzzySearchListPanel<T> {
             String query,
             List<T> items,
             Color highlightBg,
-            Color highlightFg)
-    {
+            Color highlightFg) {
         var matcher = new FuzzyMatcher(query);
         var matches = new ArrayList<T>();
         var htmlMap = new HashMap<T, String>();
@@ -278,8 +281,8 @@ public class FuzzySearchListPanel<T> {
 
         // Bulk update model and cache
         model.clear();
-        htmlCache.clear();
-        htmlCache.putAll(result.htmlMap);
+        htmlCache.invalidateAll();
+        result.htmlMap.forEach(htmlCache::put);
         currentMatcher = result.matcher;
 
         for (T item : result.sortedMatches) {
