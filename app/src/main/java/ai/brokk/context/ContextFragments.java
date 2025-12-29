@@ -1715,11 +1715,11 @@ public class ContextFragments {
                 for (CodeUnit cu : primaryTargets) {
                     skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
                 }
-                var seenAncestors = new HashSet<CodeUnit>();
+                var seenAncestors = new HashSet<String>();
                 primaryTargets.stream()
                         .filter(CodeUnit::isClass)
                         .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
-                        .filter(seenAncestors::add)
+                        .filter(anc -> seenAncestors.add(anc.fqName()))
                         .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
             }
 
@@ -1762,6 +1762,7 @@ public class ContextFragments {
          * - Regenerate skeleton strings via SkeletonProvider
          * - Format via SkeletonFragmentFormatter in by-package mode
          */
+        @Blocking
         public static String combinedText(List<SummaryFragment> fragments) {
             if (fragments.isEmpty()) {
                 return "";
