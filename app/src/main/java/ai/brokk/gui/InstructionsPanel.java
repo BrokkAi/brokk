@@ -100,7 +100,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
 
                     Brokk action modes:
-                    - Lutz: Lutz is one of the best context engineers around. After a all-day meetup in Amsterdam, we baked his workflow into Brokk.
+                    - Lutz: Lutz is one of the best context engineers around. After an all-day meetup in Amsterdam, we baked his workflow into Brokk.
                       Lutz Mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
                       It is a great way to kick off work with strong context and a clear plan.
                     - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
