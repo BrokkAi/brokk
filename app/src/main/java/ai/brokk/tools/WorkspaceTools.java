@@ -429,7 +429,6 @@ public class WorkspaceTools {
             - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
             - Incremental additions: when adding a task to an existing list, copy all existing incomplete tasks verbatim (preserving their exact wording and order) and insert the new task at the appropriate position based on dependencies.
 
-
             Rubric for slicing:
             - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes - split by subsystem or by 'behavior change' vs 'refactor'.
             - TOO SMALL if it lacks a distinct, reviewable outcome (or test) - merge into its nearest parent goal.
