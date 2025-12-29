@@ -703,7 +703,7 @@ public class DtoMapper {
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
-                    return new ContextFragments.ProjectPathFragment(file, mgr, snapshot);
+                    return ContextFragments.ProjectPathFragment.withId(file, ffd.id(), mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment",
                         "ai.brokk.context.ContextFragment$ExternalPathFragment" -> {
@@ -714,7 +714,7 @@ public class DtoMapper {
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
-                    return new ContextFragments.ExternalPathFragment(file, mgr, snapshot);
+                    return ContextFragments.ExternalPathFragment.withId(file, ffd.id(), mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ImageFileFragment",
                         "ai.brokk.context.ContextFragment$ImageFileFragment" -> {
@@ -731,7 +731,7 @@ public class DtoMapper {
                     } else {
                         file = new ExternalFile(Path.of(absPath).toAbsolutePath());
                     }
-                    return new ContextFragments.ImageFileFragment(file, mgr);
+                    return ContextFragments.ImageFileFragment.withId(file, ffd.id(), mgr);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$GitFileFragment",
                         "ai.brokk.context.ContextFragment$GitFileFragment" -> {
@@ -746,7 +746,7 @@ public class DtoMapper {
                         throw new IllegalArgumentException("Frozen GitFileFragment missing contentId");
                     }
                     var content = reader.readContent(contentId);
-                    return new ContextFragments.GitFileFragment(file, revision, content);
+                    return ContextFragments.GitFileFragment.withId(file, revision, content, ffd.id());
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$SkeletonFragment",
                         "ai.brokk.context.ContextFragment$SkeletonFragment" -> {
@@ -762,7 +762,7 @@ public class DtoMapper {
                                 "Missing 'targetIdentifier' or 'summaryType' for SummaryFragment");
                     }
                     var summaryType = ContextFragment.SummaryType.valueOf(summaryTypeStr);
-                    return new ContextFragments.SummaryFragment(mgr, targetIdentifier, summaryType);
+                    return new ContextFragments.SummaryFragment(ffd.id(), mgr, targetIdentifier, summaryType);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$UsageFragment",
                         "ai.brokk.context.ContextFragment$UsageFragment" -> {
@@ -773,7 +773,7 @@ public class DtoMapper {
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
-                    return new ContextFragments.UsageFragment(mgr, targetIdentifier, true, snapshot);
+                    return new ContextFragments.UsageFragment(ffd.id(), mgr, targetIdentifier, true, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CallGraphFragment",
                         "ai.brokk.context.ContextFragment$CallGraphFragment" -> {
@@ -786,7 +786,7 @@ public class DtoMapper {
                     }
                     int depth = Integer.parseInt(depthStr);
                     boolean isCalleeGraph = Boolean.parseBoolean(isCalleeGraphStr);
-                    return new ContextFragments.CallGraphFragment(mgr, methodName, depth, isCalleeGraph);
+                    return new ContextFragments.CallGraphFragment(ffd.id(), mgr, methodName, depth, isCalleeGraph);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$CodeFragment",
                         "ai.brokk.context.ContextFragment$CodeFragment" -> {
@@ -797,7 +797,7 @@ public class DtoMapper {
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
-                    return new ContextFragments.CodeFragment(mgr, fqName, snapshot);
+                    return new ContextFragments.CodeFragment(ffd.id(), mgr, fqName, snapshot);
                 }
                 default -> throw new RuntimeException("Unsupported FrozenFragment originalClassName=" + original);
             }

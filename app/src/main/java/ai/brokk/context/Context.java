@@ -458,7 +458,7 @@ public class Context {
 
     public Context removeFragmentsByIds(Collection<String> ids) {
         if (ids.isEmpty()) return this;
-        var toDrop = allFragments().filter(f -> ids.contains(f.id())).collect(Collectors.toList());
+        var toDrop = fragments.stream().filter(f -> ids.contains(f.id())).collect(Collectors.toList());
         return removeFragments(toDrop);
     }
 
@@ -1120,7 +1120,7 @@ public class Context {
     @Blocking
     public String getBuildError() {
         return getBuildFragment()
-                .map(ContextFragments.AbstractStaticFragment::text)
+                .map(ContextFragment::text)
                 .map(cv -> cv.renderNowOr(""))
                 .orElse("");
     }
@@ -1159,14 +1159,12 @@ public class Context {
     }
 
     /**
-     * Returns the project guide fragment if content is available, computing it on demand.
+     * Returns the project guide fragment if content is available, computing it (asynchronously) on demand.
      */
     public Optional<ContextFragments.StringFragment> getProjectGuideFragment() {
         if (projectGuideFragment == null) {
-            String guide = ProjectGuideResolver.resolve(this, contextManager.getProject());
-            if (guide.isBlank()) {
-                return Optional.empty();
-            }
+            var guide = CompletableFuture.supplyAsync(
+                    () -> ProjectGuideResolver.resolve(this, contextManager.getProject()));
             projectGuideFragment = new ContextFragments.StringFragment(
                     contextManager,
                     guide,

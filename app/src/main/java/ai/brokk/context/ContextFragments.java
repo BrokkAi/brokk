@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
@@ -752,33 +753,102 @@ public class ContextFragments {
         }
     }
 
-    public static class StringFragment extends AbstractStaticFragment {
+    public static class StringFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
 
-        public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
+        public StringFragment(
+                IContextManager contextManager,
+                String text,
+                String description,
+                String syntaxStyle,
+                Set<ProjectFile> files) {
             this(
-                    FragmentUtils.calculateContentHash(
-                            FragmentType.STRING, description, text, syntaxStyle, StringFragment.class.getName()),
+                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
                     contextManager,
                     text,
                     description,
                     syntaxStyle,
-                    extractFilesFromDiff(text, contextManager));
+                    files);
+        }
+
+        public StringFragment(
+                String id,
+                IContextManager contextManager,
+                String text,
+                String description,
+                String syntaxStyle,
+                Set<ProjectFile> files) {
+            super(
+                    id,
+                    contextManager,
+                    FragmentSnapshot.textSnapshot(
+                            description, description, text, syntaxStyle, Set.of(), Set.copyOf(files)),
+                    null);
+        }
+
+        public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
+            this(
+                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
+                    contextManager,
+                    CompletableFuture.completedFuture(text),
+                    description,
+                    syntaxStyle);
         }
 
         public StringFragment(
                 String id, IContextManager contextManager, String text, String description, String syntaxStyle) {
+            this(id, contextManager, CompletableFuture.completedFuture(text), description, syntaxStyle);
+        }
+
+        public StringFragment(
+                IContextManager contextManager, Future<String> textFuture, String description, String syntaxStyle) {
+            this(
+                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
+                    contextManager,
+                    textFuture,
+                    description,
+                    syntaxStyle);
+        }
+
+        public StringFragment(
+                String id,
+                IContextManager contextManager,
+                Future<String> textFuture,
+                String description,
+                String syntaxStyle) {
             super(
                     id,
                     contextManager,
-                    new FragmentSnapshot(
-                            description,
-                            description,
-                            text,
-                            syntaxStyle,
-                            Set.of(),
-                            extractFilesFromDiff(text, contextManager),
-                            (List<Byte>) null,
-                            true));
+                    null,
+                    () -> computeSnapshotFor(textFuture, description, syntaxStyle, contextManager));
+        }
+
+        public static StringFragment withId(
+                String existingId,
+                IContextManager contextManager,
+                String text,
+                String description,
+                String syntaxStyle,
+                Set<ProjectFile> files) {
+            validateNumericId(existingId);
+            return new StringFragment(existingId, contextManager, text, description, syntaxStyle, files);
+        }
+
+        public static StringFragment withId(
+                String existingId,
+                IContextManager contextManager,
+                String text,
+                String description,
+                String syntaxStyle) {
+            validateNumericId(existingId);
+            return new StringFragment(existingId, contextManager, text, description, syntaxStyle);
+        }
+
+        private static FragmentSnapshot computeSnapshotFor(
+                Future<String> textFuture, String description, String syntaxStyle, IContextManager contextManager)
+                throws Exception {
+            String text = textFuture.get();
+            Set<ProjectFile> files = extractFilesFromDiff(text, contextManager);
+            return FragmentSnapshot.textSnapshot(description, description, text, syntaxStyle, Set.of(), files);
         }
 
         /**
@@ -850,75 +920,50 @@ public class ContextFragments {
             return path;
         }
 
-        public StringFragment(
-                IContextManager contextManager,
-                String text,
-                String description,
-                String syntaxStyle,
-                Set<ProjectFile> files) {
-            this(
-                    FragmentUtils.calculateContentHash(
-                            FragmentType.STRING, description, text, syntaxStyle, StringFragment.class.getName()),
-                    contextManager,
-                    text,
-                    description,
-                    syntaxStyle,
-                    files);
-        }
-
-        public StringFragment(
-                String id,
-                IContextManager contextManager,
-                String text,
-                String description,
-                String syntaxStyle,
-                Set<ProjectFile> files) {
-            super(
-                    id,
-                    contextManager,
-                    new FragmentSnapshot(
-                            description,
-                            description,
-                            text,
-                            syntaxStyle,
-                            Set.of(),
-                            Set.copyOf(files),
-                            (List<Byte>) null,
-                            true));
-        }
-
         @Override
         public FragmentType getType() {
             return FragmentType.STRING;
         }
 
         public Optional<SpecialTextType> specialType() {
-            return SpecialTextType.fromDescription(snapshot.description());
+            return snapshotCv.tryGet().flatMap(s -> SpecialTextType.fromDescription(s.description()));
         }
 
         public String previewSyntaxStyle() {
+            var snapshot = snapshotCv.tryGet().orElse(null);
+            if (snapshot == null) return SyntaxConstants.SYNTAX_STYLE_NONE;
             return specialType().map(SpecialTextType::previewSyntaxStyle).orElse(snapshot.syntaxStyle());
         }
 
         public String previewText() {
+            var snapshot = snapshotCv.tryGet().orElse(null);
+            if (snapshot == null) return "";
             return specialType().map(st -> st.renderPreview(snapshot.text())).orElse(snapshot.text());
         }
 
         @Override
         public String toString() {
-            return "StringFragment('%s')".formatted(snapshot.description());
+            return "StringFragment('%s')".formatted(description().renderNowOr("(pending)"));
         }
 
         @Override
         public boolean hasSameSource(ContextFragment other) {
             if (this == other) return true;
             if (!(other instanceof StringFragment that)) return false;
-            var thisType = SpecialTextType.fromDescription(this.snapshot.description());
-            var thatType = SpecialTextType.fromDescription(that.snapshot.description());
+            var thisSnapshot = this.snapshotCv.tryGet().orElse(null);
+            var thatSnapshot = that.snapshotCv.tryGet().orElse(null);
+            if (thisSnapshot == null || thatSnapshot == null) return false;
+            var thisType = SpecialTextType.fromDescription(thisSnapshot.description());
+            var thatType = SpecialTextType.fromDescription(thatSnapshot.description());
             if (thisType.isPresent() && thisType.equals(thatType)) {
                 return true;
             }
-            return Objects.equals(this.snapshot, that.snapshot);
+            return Objects.equals(thisSnapshot, thatSnapshot);
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return this;
         }
     }
 
