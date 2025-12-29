@@ -9,6 +9,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
@@ -158,7 +159,7 @@ public class ImportPageRankerTest {
                 "test/F1.java", "test/G1.java", "test/H1.java", "test/I1.java", "test/J1.java"
             };
             for (String path : seedPaths) {
-                fragments.add(new ContextFragment.ProjectPathFragment(filesByRelPath.get(path), cm));
+                fragments.add(new ContextFragments.ProjectPathFragment(filesByRelPath.get(path), cm));
             }
             ctx = ctx.addFragments(fragments);
 

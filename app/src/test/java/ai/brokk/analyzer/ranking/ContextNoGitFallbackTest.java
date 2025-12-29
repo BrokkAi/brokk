@@ -9,7 +9,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
@@ -125,7 +125,7 @@ public class ContextNoGitFallbackTest {
             };
 
             Context ctx = new Context(cm);
-            ContextFragment.ProjectPathFragment seedFragment = new ContextFragment.ProjectPathFragment(a, cm);
+            ContextFragments.ProjectPathFragment seedFragment = new ContextFragments.ProjectPathFragment(a, cm);
             ctx = ctx.addFragments(seedFragment);
 
             List<ProjectFile> results = ctx.getMostRelevantFiles(5);
@@ -259,7 +259,7 @@ public class ContextNoGitFallbackTest {
                 }
             };
 
-            Context ctx = new Context(cm).addFragments(new ContextFragment.ProjectPathFragment(a, cm));
+            Context ctx = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(a, cm));
 
             // We want topK = 3.
             // 1. Git Distance will find D (co-committed with A).
