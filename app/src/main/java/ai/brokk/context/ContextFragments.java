@@ -1712,19 +1712,14 @@ public class ContextFragments {
 
             if (skeletonProviderOpt.isPresent()) {
                 var skeletonProvider = skeletonProviderOpt.get();
-                var seenFqns =
-                        primaryTargets.stream().map(CodeUnit::fqName).collect(Collectors.toCollection(HashSet::new));
-
-                // First pass: add primary targets
                 for (CodeUnit cu : primaryTargets) {
                     skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
                 }
-
-                // Second pass: add ancestors not already seen in primary targets
+                var seenAncestors = new HashSet<CodeUnit>();
                 primaryTargets.stream()
                         .filter(CodeUnit::isClass)
                         .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
-                        .filter(anc -> seenFqns.add(anc.fqName()))
+                        .filter(seenAncestors::add)
                         .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
             }
 

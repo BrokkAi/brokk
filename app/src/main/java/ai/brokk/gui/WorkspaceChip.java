@@ -1358,7 +1358,7 @@ public class WorkspaceChip extends JPanel {
                     .stream()
                     .max(Map.Entry.comparingByValue())
                     .map(Map.Entry::getKey)
-                    .orElse(SyntaxConstants.SYNTAX_STYLE_JAVA);
+                    .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
 
             // Aggregate and dedupe in background to avoid blocking EDT on .join()
             List<ContextFragments.SummaryFragment> fragmentsToProcess = summaryFragments.stream()
