@@ -11,6 +11,7 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
 import ai.brokk.project.IProject;
+import ai.brokk.util.ExecutorServiceUtil;
 import ai.brokk.util.FileManagerUtil;
 import ai.brokk.util.PathNormalizer;
 import java.awt.*;
@@ -37,6 +38,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -53,6 +55,7 @@ import org.jetbrains.annotations.Nullable;
 public class ProjectTree extends JTree implements TrackedFileChangeListener {
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
+    private static final ExecutorService IO_EXECUTOR = ExecutorServiceUtil.newFixedThreadExecutor(4, "ProjectTree-IO-");
 
     private final IProject project;
     private final ContextManager contextManager;
@@ -195,7 +198,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     if (treeNode.isDirectory()) {
                         // Collect directory contents async to avoid EDT I/O
                         final int menuX = e.getX(), menuY = e.getY();
-                        CompletableFuture.supplyAsync(() -> collectProjectFilesUnderDirectory(f))
+                        CompletableFuture.supplyAsync(() -> collectProjectFilesUnderDirectory(f), IO_EXECUTOR)
                                 .thenAccept(files -> SwingUtilities.invokeLater(
                                         () -> prepareAndShowContextMenu(menuX, menuY, files, true, f)));
                         return;
@@ -608,23 +611,25 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         final File expectedDirectory = directory;
         var result = new CompletableFuture<Void>();
 
-        // Perform expensive filesystem operations off the EDT.
-        CompletableFuture.supplyAsync(() -> {
-                    File[] children = expectedDirectory.listFiles();
-                    if (children == null) {
-                        return List.<File>of();
-                    }
+        // Perform expensive filesystem operations off the EDT using dedicated I/O executor.
+        CompletableFuture.supplyAsync(
+                        () -> {
+                            File[] children = expectedDirectory.listFiles();
+                            if (children == null) {
+                                return List.<File>of();
+                            }
 
-                    Arrays.sort(children, (f1, f2) -> {
-                        boolean f1IsDir = f1.isDirectory();
-                        boolean f2IsDir = f2.isDirectory();
-                        if (f1IsDir && !f2IsDir) return -1;
-                        if (!f1IsDir && f2IsDir) return 1;
-                        return f1.getName().compareToIgnoreCase(f2.getName());
-                    });
+                            Arrays.sort(children, (f1, f2) -> {
+                                boolean f1IsDir = f1.isDirectory();
+                                boolean f2IsDir = f2.isDirectory();
+                                if (f1IsDir && !f2IsDir) return -1;
+                                if (!f1IsDir && f2IsDir) return 1;
+                                return f1.getName().compareToIgnoreCase(f2.getName());
+                            });
 
-                    return Arrays.asList(children);
-                })
+                            return Arrays.asList(children);
+                        },
+                        IO_EXECUTOR)
                 .thenAccept(childrenList -> {
                     // Pre-create nodes and warm caches OFF EDT (thenAccept runs on ForkJoinPool)
                     // The isGitignored and isPathExcluded methods now use explicit isDirectory
@@ -878,39 +883,43 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         Path projectRoot = project.getRoot();
 
         // Preload all directory contents in parallel off the EDT
-        CompletableFuture.supplyAsync(() -> {
-                    // Build list of directories along the path that need loading
-                    List<File> dirsToLoad = new ArrayList<>();
-                    dirsToLoad.add(projectRoot.toFile()); // root
-                    for (int i = 0; i < relativePath.getNameCount() - 1; i++) {
-                        Path dirPath = projectRoot.resolve(relativePath.subpath(0, i + 1));
-                        if (Files.isDirectory(dirPath)) {
-                            dirsToLoad.add(dirPath.toFile());
-                        }
-                    }
-
-                    // Read all directory contents in parallel
-                    Map<File, List<File>> dirContents = new ConcurrentHashMap<>();
-                    var futures = dirsToLoad.stream()
-                            .map(dir -> CompletableFuture.runAsync(() -> {
-                                File[] children = dir.listFiles();
-                                if (children != null) {
-                                    Arrays.sort(children, (f1, f2) -> {
-                                        boolean f1IsDir = f1.isDirectory();
-                                        boolean f2IsDir = f2.isDirectory();
-                                        if (f1IsDir && !f2IsDir) return -1;
-                                        if (!f1IsDir && f2IsDir) return 1;
-                                        return f1.getName().compareToIgnoreCase(f2.getName());
-                                    });
-                                    dirContents.put(dir, Arrays.asList(children));
-                                } else {
-                                    dirContents.put(dir, List.of());
+        CompletableFuture.supplyAsync(
+                        () -> {
+                            // Build list of directories along the path that need loading
+                            List<File> dirsToLoad = new ArrayList<>();
+                            dirsToLoad.add(projectRoot.toFile()); // root
+                            for (int i = 0; i < relativePath.getNameCount() - 1; i++) {
+                                Path dirPath = projectRoot.resolve(relativePath.subpath(0, i + 1));
+                                if (Files.isDirectory(dirPath)) {
+                                    dirsToLoad.add(dirPath.toFile());
                                 }
-                            }))
-                            .toArray(CompletableFuture[]::new);
-                    CompletableFuture.allOf(futures).join();
-                    return dirContents;
-                })
+                            }
+
+                            // Read all directory contents in parallel
+                            Map<File, List<File>> dirContents = new ConcurrentHashMap<>();
+                            var futures = dirsToLoad.stream()
+                                    .map(dir -> CompletableFuture.runAsync(
+                                            () -> {
+                                                File[] children = dir.listFiles();
+                                                if (children != null) {
+                                                    Arrays.sort(children, (f1, f2) -> {
+                                                        boolean f1IsDir = f1.isDirectory();
+                                                        boolean f2IsDir = f2.isDirectory();
+                                                        if (f1IsDir && !f2IsDir) return -1;
+                                                        if (!f1IsDir && f2IsDir) return 1;
+                                                        return f1.getName().compareToIgnoreCase(f2.getName());
+                                                    });
+                                                    dirContents.put(dir, Arrays.asList(children));
+                                                } else {
+                                                    dirContents.put(dir, List.of());
+                                                }
+                                            },
+                                            IO_EXECUTOR))
+                                    .toArray(CompletableFuture[]::new);
+                            CompletableFuture.allOf(futures).join();
+                            return dirContents;
+                        },
+                        IO_EXECUTOR)
                 .thenAccept(dirContents -> SwingUtilities.invokeLater(() -> {
                     // Apply preloaded contents to tree nodes and find target
                     var root = (DefaultMutableTreeNode) getModel().getRoot();
