@@ -20,7 +20,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
@@ -128,20 +127,36 @@ public class ImportPageRankerTest {
                     .map(CodeUnit::source)
                     .distinct()
                     .collect(Collectors.toMap(
-                            f -> project.getRoot().relativize(f.absPath()).toString().replace('\\', '/'),
+                            f -> project.getRoot()
+                                    .relativize(f.absPath())
+                                    .toString()
+                                    .replace('\\', '/'),
                             f -> f));
 
             IContextManager cm = new IContextManager() {
-                @Override public IAnalyzer getAnalyzer() { return analyzer; }
-                @Override public IProject getProject() { return project; }
-                @Override public IGitRepo getRepo() { return project.getRepo(); }
+                @Override
+                public IAnalyzer getAnalyzer() {
+                    return analyzer;
+                }
+
+                @Override
+                public IProject getProject() {
+                    return project;
+                }
+
+                @Override
+                public IGitRepo getRepo() {
+                    return project.getRepo();
+                }
             };
 
             // Create context with 10 seed fragments (A1..J1)
             Context ctx = new Context(cm);
             List<ContextFragment> fragments = new ArrayList<>();
-            String[] seedPaths = {"test/A1.java", "test/B1.java", "test/C1.java", "test/D1.java", "test/E1.java",
-                                  "test/F1.java", "test/G1.java", "test/H1.java", "test/I1.java", "test/J1.java"};
+            String[] seedPaths = {
+                "test/A1.java", "test/B1.java", "test/C1.java", "test/D1.java", "test/E1.java",
+                "test/F1.java", "test/G1.java", "test/H1.java", "test/I1.java", "test/J1.java"
+            };
             for (String path : seedPaths) {
                 fragments.add(new ContextFragment.ProjectPathFragment(filesByRelPath.get(path), cm));
             }

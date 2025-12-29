@@ -306,8 +306,7 @@ public class ContextNoGitFallbackTest {
 
     @Test
     public void testWithGitOptionTracksFiles() throws Exception {
-        try (var project = InlineTestProjectCreator.code(
-                        "public class A {}", "A.java")
+        try (var project = InlineTestProjectCreator.code("public class A {}", "A.java")
                 .addFileContents("public class B {}", "B.java")
                 .withGit()
                 .build()) {

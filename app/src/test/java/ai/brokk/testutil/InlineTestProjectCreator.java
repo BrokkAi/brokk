@@ -81,7 +81,10 @@ public class InlineTestProjectCreator {
                     try (Git git = Git.open(newTemporaryDirectory.toFile())) {
                         if (!gitBuilder.commits.isEmpty()) {
                             for (var commit : gitBuilder.commits) {
-                                git.add().addFilepattern(commit.fileA()).addFilepattern(commit.fileB()).call();
+                                git.add()
+                                        .addFilepattern(commit.fileA())
+                                        .addFilepattern(commit.fileB())
+                                        .call();
                                 git.commit()
                                         .setAuthor("Brokk Test", "test@brokk.ai")
                                         .setMessage("Test commit: " + commit.fileA() + ", " + commit.fileB())
