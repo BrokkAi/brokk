@@ -27,7 +27,6 @@ import ai.brokk.util.Messages;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
 import com.github.difflib.unifieddiff.UnifiedDiffReader;
-import com.google.common.base.Splitter;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
 import java.io.ByteArrayInputStream;
@@ -1806,9 +1805,9 @@ public class ContextFragments {
             }
 
             return new SkeletonFragmentFormatter()
-                    .format(new SkeletonFragmentFormatter.Request(null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
+                    .format(new SkeletonFragmentFormatter.Request(
+                            null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
         }
-
 
         private static Set<CodeUnit> resolvePrimaryTargets(
                 String targetIdentifier, SummaryType summaryType, IAnalyzer analyzer, IContextManager contextManager) {
