@@ -1645,6 +1645,7 @@ public class ContextFragments {
         private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
             if (skeletons.isEmpty()) return "";
 
+            // Group by package, but deduplicate by fqName within each package
             var skeletonsByPackage = skeletons.entrySet().stream()
                     .filter(e -> !e.getKey().isAnonymous())
                     .collect(Collectors.groupingBy(
@@ -1652,7 +1653,10 @@ public class ContextFragments {
                                     ? "(default package)"
                                     : e.getKey().packageName(),
                             Collectors.toMap(
-                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
+                                    e -> e.getKey().fqName(), // Key by fqName for deduplication
+                                    Map.Entry::getValue,
+                                    (v1, v2) -> v1, // Keep first on collision
+                                    LinkedHashMap::new)));
 
             if (skeletonsByPackage.isEmpty()) return "";
 
