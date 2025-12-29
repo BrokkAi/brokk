@@ -149,7 +149,7 @@ public class AttachContextDialog extends BaseThemedDialog {
         int maxWidth = 0;
         int maxHeight = 0;
         for (var btn : allTabs) {
-            btn.setMargin(new java.awt.Insets(4, 4, 4, 4));
+            btn.setMargin(new Insets(4, 4, 4, 4));
             var size = btn.getPreferredSize();
             maxWidth = Math.max(maxWidth, size.width);
             maxHeight = Math.max(maxHeight, size.height);
