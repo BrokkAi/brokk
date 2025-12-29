@@ -823,10 +823,6 @@ public class SearchAgent {
             return;
         }
 
-        // Record the turn
-        sessionMessages.add(new UserMessage("Review the current workspace. If relevant, prune irrelevant fragments."));
-        sessionMessages.add(result.aiMessage());
-
         // Execute tool requests (one shot; we're not responding back with results)
         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
         for (var req : ai.toolExecutionRequests()) {
