@@ -6,8 +6,6 @@ import java.util.List;
 import javax.swing.*;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * Central helper for managing ComputedValue subscriptions that are associated with a Swing component.

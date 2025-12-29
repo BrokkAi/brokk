@@ -55,7 +55,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -171,10 +170,7 @@ public class ContextFragments {
         /**
          * Factory method for valid text fragments with no image content.
          */
-        public static ContentSnapshot textSnapshot(
-                String text,
-                Set<CodeUnit> sources,
-                Set<ProjectFile> files) {
+        public static ContentSnapshot textSnapshot(String text, Set<CodeUnit> sources, Set<ProjectFile> files) {
             return new ContentSnapshot(text, sources, files, (List<Byte>) null, true);
         }
 
@@ -204,11 +200,14 @@ public class ContextFragments {
                 String syntaxStyle,
                 @Nullable ContentSnapshot initialSnapshot,
                 @Nullable java.util.concurrent.Callable<ContentSnapshot> computeTask) {
-            this(id, contextManager,
+            this(
+                    id,
+                    contextManager,
                     ComputedValue.completed("desc-" + id, description),
                     ComputedValue.completed("short-" + id, shortDescription),
                     ComputedValue.completed("syntax-" + id, syntaxStyle),
-                    initialSnapshot, computeTask);
+                    initialSnapshot,
+                    computeTask);
         }
 
         /**
@@ -421,7 +420,8 @@ public class ContextFragments {
             try {
                 sources = contextManager.getAnalyzerUninterrupted().getDeclarations(file);
             } catch (Throwable t) {
-                logger.error("Failed to analyze declarations for file {}, sources will be empty", file.getFileName(), t);
+                logger.error(
+                        "Failed to analyze declarations for file {}, sources will be empty", file.getFileName(), t);
                 sources = Set.of();
             }
             return ContentSnapshot.textSnapshot(text, sources, Set.of(file));
@@ -434,7 +434,8 @@ public class ContextFragments {
             try {
                 sources = contextManager.getAnalyzerUninterrupted().getDeclarations(file);
             } catch (Exception e) {
-                logger.error("Failed to analyze declarations for file {}, sources will be empty", file.getFileName(), e);
+                logger.error(
+                        "Failed to analyze declarations for file {}, sources will be empty", file.getFileName(), e);
             }
 
             return new ContentSnapshot(text, sources, Set.of(file), (byte[]) null, valid);
@@ -1078,7 +1079,8 @@ public class ContextFragments {
                     id,
                     contextManager,
                     new ComputedValue<>("desc-" + id, toCompletableFuture(descriptionFuture)).map(d -> "Paste of " + d),
-                    new ComputedValue<>("short-" + id, toCompletableFuture(descriptionFuture)).map(d -> "Paste of " + d),
+                    new ComputedValue<>("short-" + id, toCompletableFuture(descriptionFuture))
+                            .map(d -> "Paste of " + d),
                     new ComputedValue<>("syntax-" + id, toCompletableFuture(syntaxStyleFuture)),
                     null,
                     () -> computeSnapshotFor(text, contextManager));
@@ -1086,22 +1088,22 @@ public class ContextFragments {
             this.syntaxStyleFuture = syntaxStyleFuture;
         }
 
-        private static ContentSnapshot computeSnapshotFor(
-                String text,
-                IContextManager contextManager) {
+        private static ContentSnapshot computeSnapshotFor(String text, IContextManager contextManager) {
             var files = ContextFragment.extractFilesFromText(text, contextManager);
             return ContentSnapshot.textSnapshot(text, Set.of(), files);
         }
 
         private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
             if (future instanceof CompletableFuture<T> cf) return cf;
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    return future.get();
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            }, FRAGMENT_EXECUTOR);
+            return CompletableFuture.supplyAsync(
+                    () -> {
+                        try {
+                            return future.get();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    },
+                    FRAGMENT_EXECUTOR);
         }
 
         @Override
@@ -1146,23 +1148,28 @@ public class ContextFragments {
 
         public AnonymousImageFragment(
                 String id, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
-            super(id, contextManager,
+            super(
+                    id,
+                    contextManager,
                     new ComputedValue<>("desc-" + id, toCompletableFuture(descriptionFuture)),
                     new ComputedValue<>("short-" + id, toCompletableFuture(descriptionFuture)),
                     ComputedValue.completed(SyntaxConstants.SYNTAX_STYLE_NONE),
-                    null, () -> computeSnapshotFor(image));
+                    null,
+                    () -> computeSnapshotFor(image));
             this.descriptionFuture = descriptionFuture;
         }
 
         private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
             if (future instanceof CompletableFuture<T> cf) return cf;
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    return future.get();
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
-            }, FRAGMENT_EXECUTOR);
+            return CompletableFuture.supplyAsync(
+                    () -> {
+                        try {
+                            return future.get();
+                        } catch (Exception e) {
+                            throw new RuntimeException(e);
+                        }
+                    },
+                    FRAGMENT_EXECUTOR);
         }
 
         @Nullable
@@ -1191,12 +1198,7 @@ public class ContextFragments {
 
         private static ContentSnapshot computeSnapshotFor(Image image) {
             byte[] bytes = imageToBytes(image);
-            return new ContentSnapshot(
-                    "[Image content provided out of band]",
-                    Set.of(),
-                    Set.of(),
-                    bytes,
-                    true);
+            return new ContentSnapshot("[Image content provided out of band]", Set.of(), Set.of(), bytes, true);
         }
 
         @Override
@@ -1469,12 +1471,7 @@ public class ContextFragments {
 
             // Validity based on whether definitions exist
             boolean valid = !analyzer.getDefinitions(targetIdentifier).isEmpty();
-            return new ContentSnapshot(
-                    text,
-                    sources,
-                    files,
-                    (List<Byte>) null,
-                    valid);
+            return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
         }
 
         @Override
@@ -1525,7 +1522,9 @@ public class ContextFragments {
                                     fullyQualifiedName,
                                     snapshotText.getBytes(StandardCharsets.UTF_8),
                                     contextManager.getAnalyzerUninterrupted()),
-                    snapshotText == null ? () -> computeSnapshotFor(fullyQualifiedName, contextManager, eagerUnit) : null);
+                    snapshotText == null
+                            ? () -> computeSnapshotFor(fullyQualifiedName, contextManager, eagerUnit)
+                            : null);
             this.fullyQualifiedName = fullyQualifiedName;
         }
 
@@ -1602,12 +1601,7 @@ public class ContextFragments {
                 }
             }
 
-            return new ContentSnapshot(
-                    text,
-                    Set.of(unit),
-                    Set.of(unit.source()),
-                    (List<Byte>) null,
-                    hasSourceCode);
+            return new ContentSnapshot(text, Set.of(unit), Set.of(unit.source()), (List<Byte>) null, hasSourceCode);
         }
 
         @Override
@@ -1946,7 +1940,8 @@ public class ContextFragments {
                                             ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
                                             : castNonNull(e.log()).messages().stream())
                                     .toList()),
-                            Set.of(), Set.of()));
+                            Set.of(),
+                            Set.of()));
             this.history = List.copyOf(history);
         }
 

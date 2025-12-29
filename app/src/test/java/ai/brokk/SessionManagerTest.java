@@ -58,22 +58,6 @@ public class SessionManagerTest {
         }
     }
 
-    private byte[] imageToBytes(Image image) throws IOException {
-        if (image == null) return null;
-        BufferedImage bufferedImage = (image instanceof BufferedImage)
-                ? (BufferedImage) image
-                : new BufferedImage(image.getWidth(null), image.getHeight(null), BufferedImage.TYPE_INT_ARGB);
-        if (!(image instanceof BufferedImage)) {
-            Graphics2D bGr = bufferedImage.createGraphics();
-            bGr.drawImage(image, 0, 0, null);
-            bGr.dispose();
-        }
-        try (var baos = new ByteArrayOutputStream()) {
-            ImageIO.write(bufferedImage, "PNG", baos);
-            return baos.toByteArray();
-        }
-    }
-
     private void assertEventually(Runnable assertion) throws InterruptedException {
         long timeout = 5000; // 5 seconds
         long interval = 100; // 100 ms

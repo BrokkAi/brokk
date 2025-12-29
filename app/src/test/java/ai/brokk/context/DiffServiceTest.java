@@ -278,14 +278,8 @@ class DiffServiceTest {
                 "New content should fall back to error message on timeout");
     }
 
-    private static ContextFragments.ContentSnapshot snapshot(
-            String text, boolean isValid) {
-        return new ContextFragments.ContentSnapshot(
-                text,
-                Set.of(),
-                Set.of(),
-                (List<Byte>) null,
-                isValid);
+    private static ContextFragments.ContentSnapshot snapshot(String text, boolean isValid) {
+        return new ContextFragments.ContentSnapshot(text, Set.of(), Set.of(), (List<Byte>) null, isValid);
     }
 
     private static ContextFragments.ContentSnapshot snapshot(String text) {
