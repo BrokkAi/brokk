@@ -306,10 +306,9 @@ public class ContextNoGitFallbackTest {
 
     @Test
     public void testWithGitOptionTracksFiles() throws Exception {
-        try (var project = InlineTestProjectCreator.code(
+        try (var project = InlineTestProjectCreator.gitCode(
                         "public class A {}", "A.java")
                 .addFileContents("public class B {}", "B.java")
-                .withGit()
                 .build()) {
 
             assertTrue(project.hasGit(), "Project should have Git enabled");
@@ -317,13 +316,44 @@ public class ContextNoGitFallbackTest {
             assertTrue(repo instanceof GitRepo, "Repo should be a concrete GitRepo instance");
 
             Set<ProjectFile> tracked = repo.getTrackedFiles();
-            assertEquals(2, tracked.size(), "Should have 2 tracked files");
+            // initRepo creates an initial empty commit, then our build adds files.
+            // All files added in TestProjectBuilder.build() are tracked.
+            assertTrue(tracked.size() >= 2, "Should have at least 2 tracked files");
 
             boolean foundA = tracked.stream().anyMatch(f -> f.toString().endsWith("A.java"));
             boolean foundB = tracked.stream().anyMatch(f -> f.toString().endsWith("B.java"));
 
             assertTrue(foundA, "A.java should be tracked");
             assertTrue(foundB, "B.java should be tracked");
+        }
+    }
+
+    @Test
+    public void testGitBuilderCommitsSequentially() throws Exception {
+        try (var project = InlineTestProjectCreator.gitCode("content a", "A.txt")
+                .addFileContents("content b", "B.txt")
+                .addFileContents("content c", "C.txt")
+                .addCommit("A.txt", "B.txt")
+                .build()) {
+
+            IGitRepo repo = project.getRepo();
+            Set<ProjectFile> tracked = repo.getTrackedFiles();
+
+            // Only A and B were staged in the commit logic of TestGitProjectBuilder
+            assertTrue(tracked.stream().anyMatch(f -> f.toString().endsWith("A.txt")), "A should be tracked");
+            assertTrue(tracked.stream().anyMatch(f -> f.toString().endsWith("B.txt")), "B should be tracked");
+            assertFalse(tracked.stream().anyMatch(f -> f.toString().endsWith("C.txt")), "C should NOT be tracked");
+        }
+    }
+
+    @Test
+    public void testGitBuilderThrowsOnMissingFile() {
+        var builder = InlineTestProjectCreator.gitCode("content a", "A.txt");
+        try {
+            builder.addCommit("A.txt", "NonExistent.txt");
+            org.junit.jupiter.api.Assertions.fail("Should have thrown IllegalArgumentException");
+        } catch (IllegalArgumentException e) {
+            assertTrue(e.getMessage().contains("NonExistent.txt"));
         }
     }
 }

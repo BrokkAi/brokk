@@ -29,12 +29,16 @@ public class InlineTestProjectCreator {
         return new TestProjectBuilder().addFileContents(contents, filename);
     }
 
+    public static TestGitProjectBuilder gitCode(String contents, String filename) {
+        return (TestGitProjectBuilder) new TestGitProjectBuilder().addFileContents(contents, filename);
+    }
+
     public static class TestProjectBuilder {
 
-        private final List<FileContents> entries = new ArrayList<>();
-        private boolean useGit = false;
+        protected final List<FileContents> entries = new ArrayList<>();
+        protected boolean useGit = false;
 
-        private TestProjectBuilder() {}
+        protected TestProjectBuilder() {}
 
         public TestProjectBuilder addFileContents(String contents, String filename) {
             entries.add(new FileContents(filename, contents));
@@ -77,34 +81,72 @@ public class InlineTestProjectCreator {
                 selectedLang = new Language.MultiLanguage(detected);
             }
 
-            EphemeralTestProject project;
-            if (selectedLang != null) {
-                project = new EphemeralTestProject(newTemporaryDirectory, selectedLang);
-            } else {
-                // No supported language detected; fall back to default behavior
-                project = new EphemeralTestProject(newTemporaryDirectory);
-            }
-
-            if (useGit) {
+            if (useGit || (this instanceof TestGitProjectBuilder gitBuilder && !gitBuilder.commits.isEmpty())) {
                 try {
                     GitRepoFactory.initRepo(newTemporaryDirectory);
                     try (Git git = Git.open(newTemporaryDirectory.toFile())) {
-                        for (var entry : entries) {
-                            git.add().addFilepattern(entry.relPath).call();
+                        if (this instanceof TestGitProjectBuilder gitBuilder && !gitBuilder.commits.isEmpty()) {
+                            for (var commit : gitBuilder.commits) {
+                                git.add().addFilepattern(commit.fileA()).addFilepattern(commit.fileB()).call();
+                                git.commit()
+                                        .setAuthor("Brokk Test", "test@brokk.ai")
+                                        .setMessage("Test commit: " + commit.fileA() + ", " + commit.fileB())
+                                        .setSign(false)
+                                        .call();
+                            }
+                        } else {
+                            for (var entry : entries) {
+                                git.add().addFilepattern(entry.relPath).call();
+                            }
+                            git.commit()
+                                    .setAuthor("Brokk Test", "test@brokk.ai")
+                                    .setMessage("Initial test commit")
+                                    .setSign(false)
+                                    .call();
                         }
-                        git.commit()
-                                .setAuthor("Brokk Test", "test@brokk.ai")
-                                .setMessage("Initial test commit")
-                                .setSign(false)
-                                .call();
                     }
+                    EphemeralTestGitProject project = selectedLang != null
+                            ? new EphemeralTestGitProject(newTemporaryDirectory, selectedLang, new GitRepo(newTemporaryDirectory))
+                            : new EphemeralTestGitProject(newTemporaryDirectory, new GitRepo(newTemporaryDirectory));
                     project.setHasGit(true);
+                    return project;
                 } catch (GitAPIException e) {
                     throw new IOException("Failed to initialize git repo for test project", e);
                 }
             }
 
-            return project;
+            return selectedLang != null
+                    ? new EphemeralTestProject(newTemporaryDirectory, selectedLang)
+                    : new EphemeralTestProject(newTemporaryDirectory);
+        }
+    }
+
+    public static class TestGitProjectBuilder extends TestProjectBuilder {
+        private record CommitOp(String fileA, String fileB) {}
+        private final List<CommitOp> commits = new ArrayList<>();
+
+        private TestGitProjectBuilder() {
+            super();
+            this.useGit = true;
+        }
+
+        @Override
+        public TestGitProjectBuilder addFileContents(String contents, String filename) {
+            super.addFileContents(contents, filename);
+            return this;
+        }
+
+        public TestGitProjectBuilder addCommit(String filenameA, String filenameB) {
+            validateFileExists(filenameA);
+            validateFileExists(filenameB);
+            commits.add(new CommitOp(filenameA, filenameB));
+            return this;
+        }
+
+        private void validateFileExists(String filename) {
+            if (entries.stream().noneMatch(e -> e.relPath.equals(filename))) {
+                throw new IllegalArgumentException("File not found in project entries: " + filename);
+            }
         }
     }
 
@@ -119,22 +161,36 @@ public class InlineTestProjectCreator {
         }
 
         @Override
-        public boolean hasGit() {
-            // Explicitly return the state from the parent field
-            return super.hasGit();
+        public void close() {
+            FileUtil.deleteRecursively(this.getRoot());
+        }
+    }
+
+    private static class EphemeralTestGitProject extends EphemeralTestProject {
+        private final GitRepo repo;
+
+        public EphemeralTestGitProject(Path root, GitRepo repo) {
+            super(root);
+            this.repo = repo;
+        }
+
+        public EphemeralTestGitProject(Path root, Language language, GitRepo repo) {
+            super(root, language);
+            this.repo = repo;
         }
 
         @Override
         public IGitRepo getRepo() {
-            if (hasGit()) {
-                return new GitRepo(getRoot());
-            }
-            return super.getRepo();
+            return repo;
         }
 
         @Override
         public void close() {
-            FileUtil.deleteRecursively(this.getRoot());
+            try {
+                repo.close();
+            } finally {
+                super.close();
+            }
         }
     }
 
