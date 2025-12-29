@@ -33,6 +33,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import javax.swing.BorderFactory;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.ButtonGroup;
 import javax.swing.JCheckBox;
@@ -141,6 +142,27 @@ public class AttachContextDialog extends BaseThemedDialog {
         tabGroup.add(methodsBtn);
         tabGroup.add(usagesBtn);
 
+        // Configure tab button styling to preserve size on selection
+        var allTabs = List.of(filesBtn, foldersBtn, classesBtn, methodsBtn, usagesBtn);
+
+        // Calculate maximum button size to ensure all buttons have identical dimensions
+        int maxWidth = 0;
+        int maxHeight = 0;
+        for (var btn : allTabs) {
+            btn.setMargin(new java.awt.Insets(4, 4, 4, 4));
+            var size = btn.getPreferredSize();
+            maxWidth = Math.max(maxWidth, size.width);
+            maxHeight = Math.max(maxHeight, size.height);
+        }
+        var fixedSize = new Dimension(maxWidth, maxHeight);
+
+        for (var btn : allTabs) {
+            // Lock button dimensions to prevent any size variation
+            btn.setPreferredSize(fixedSize);
+            btn.setMinimumSize(fixedSize);
+            btn.setMaximumSize(fixedSize);
+        }
+
         // Default selection: Files
         filesBtn.setSelected(true);
 
@@ -153,9 +175,13 @@ public class AttachContextDialog extends BaseThemedDialog {
         usagesBtn.addActionListener(tabListener);
 
         tabBar.add(filesBtn);
+        tabBar.add(Box.createHorizontalStrut(4));
         tabBar.add(foldersBtn);
+        tabBar.add(Box.createHorizontalStrut(4));
         tabBar.add(classesBtn);
+        tabBar.add(Box.createHorizontalStrut(4));
         tabBar.add(methodsBtn);
+        tabBar.add(Box.createHorizontalStrut(4));
         tabBar.add(usagesBtn);
 
         // Input area: search field with overlay "Search" and hint
