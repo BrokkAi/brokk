@@ -74,7 +74,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private final RTextScrollPane scrollPane;
 
     @Nullable
-    private MaterialButton editButton;
+    private MaterialButton attachButton;
 
     @Nullable
     private MaterialButton captureButton;
@@ -150,7 +150,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Initialize buttons that might not be created
         this.saveButton = null;
         this.captureButton = null;
-        this.editButton = null;
+        this.attachButton = null;
 
         // Save button (conditionally added for ProjectFile)
         if (file != null) {
@@ -181,28 +181,24 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Edit button (conditionally added for ProjectFile)
         if (file != null) {
-            var text = (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE)
-                    ? "Edit Current Version"
-                    : "Edit File";
-            editButton = new MaterialButton(text);
-            SwingUtilities.invokeLater(() -> requireNonNull(editButton).setIcon(Icons.EDIT_DOCUMENT));
-            var finalEditButton = editButton; // Final reference for lambda
+            attachButton = new MaterialButton("Attach File");
+            var finalAttachButton = attachButton; // Final reference for lambda
 
             cm.submitBackgroundTask("Determining files in the current context", () -> {
                 var files = cm.getFilesInContext();
 
                 SwingUtilities.invokeLater(() -> {
                     if (files.contains(file)) {
-                        finalEditButton.setEnabled(false);
-                        finalEditButton.setToolTipText("File is in Edit context");
+                        finalAttachButton.setEnabled(false);
+                        finalAttachButton.setToolTipText("File is in Workspace context");
                     } else {
-                        finalEditButton.addActionListener(e -> {
+                        finalAttachButton.addActionListener(e -> {
                             cm.addFiles(List.of(this.file));
-                            finalEditButton.setEnabled(false);
-                            finalEditButton.setToolTipText("File is in Edit context");
+                            finalAttachButton.setEnabled(false);
+                            finalAttachButton.setToolTipText("File is in Workspace context");
                         });
                     }
-                    actionButtonPanel.add(editButton); // Add edit button to the action panel
+                    actionButtonPanel.add(attachButton); // Add edit button to the action panel
                 });
             });
         }
