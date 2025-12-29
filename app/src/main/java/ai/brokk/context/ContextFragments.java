@@ -1645,7 +1645,6 @@ public class ContextFragments {
         private String formatSkeletonsByPackage(Map<CodeUnit, String> skeletons) {
             if (skeletons.isEmpty()) return "";
 
-            // Group by package, but deduplicate by fqName within each package
             var skeletonsByPackage = skeletons.entrySet().stream()
                     .filter(e -> !e.getKey().isAnonymous())
                     .collect(Collectors.groupingBy(
@@ -1653,10 +1652,7 @@ public class ContextFragments {
                                     ? "(default package)"
                                     : e.getKey().packageName(),
                             Collectors.toMap(
-                                    e -> e.getKey().fqName(), // Key by fqName for deduplication
-                                    Map.Entry::getValue,
-                                    (v1, v2) -> v1, // Keep first on collision
-                                    LinkedHashMap::new)));
+                                    Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new)));
 
             if (skeletonsByPackage.isEmpty()) return "";
 
@@ -1761,11 +1757,45 @@ public class ContextFragments {
                     desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, (List<Byte>) null, valid);
         }
 
+        /**
+         * Combines multiple summary fragments into a single text block, deduplicating shared
+         * ancestor skeletons across fragments (e.g., if two subclasses share a superclass).
+         */
         public static String combinedText(List<SummaryFragment> fragments) {
-            return fragments.stream()
+            List<String> texts = fragments.stream()
                     .map(sf -> sf.text().join())
                     .filter(s -> !s.isBlank())
-                    .collect(Collectors.joining("\n\n"));
+                    .toList();
+            return deduplicateCombinedSkeletons(texts);
+        }
+
+        /**
+         * Deduplicates skeleton blocks across multiple summary outputs.
+         * Splits by "package ..." headers and "// Direct ancestors" comments to isolate blocks.
+         */
+        private static String deduplicateCombinedSkeletons(List<String> texts) {
+            if (texts.size() <= 1) {
+                return String.join("\n\n", texts);
+            }
+
+            Set<String> seenBlocks = new LinkedHashSet<>();
+            StringBuilder result = new StringBuilder();
+
+            for (String text : texts) {
+                // Split into sections based on package declarations or ancestor comments
+                // We look for "package " at the start of lines or "// Direct ancestors"
+                String[] sections = text.split("(?m)(?=^package |^// Direct ancestors)");
+                for (String section : sections) {
+                    String trimmed = section.trim();
+                    if (trimmed.isEmpty()) continue;
+                    
+                    if (seenBlocks.add(trimmed)) {
+                        if (!result.isEmpty()) result.append("\n\n");
+                        result.append(trimmed);
+                    }
+                }
+            }
+            return result.toString();
         }
 
         private static Set<CodeUnit> resolvePrimaryTargets(

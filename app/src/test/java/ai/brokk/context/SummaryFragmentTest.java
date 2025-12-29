@@ -336,4 +336,36 @@ public class SummaryFragmentTest {
             assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
         }
     }
+
+    @Test
+    public void combinedTextDeduplicatesSharedAncestors() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+    public class Base {}
+    class ChildA extends Base {}
+    class ChildB extends Base {}
+    """, "Test.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            var sfA = new SummaryFragment(cm, "ChildA", SummaryType.CODEUNIT_SKELETON);
+            var sfB = new SummaryFragment(cm, "ChildB", SummaryType.CODEUNIT_SKELETON);
+
+            String combined = SummaryFragment.combinedText(java.util.List.of(sfA, sfB));
+
+            // Each child should be present
+            assertTrue(combined.contains("class ChildA extends Base"), "Should contain ChildA");
+            assertTrue(combined.contains("class ChildB extends Base"), "Should contain ChildB");
+
+            // The superclass "Base" should appear EXACTLY once in the whole combined output
+            int count = 0;
+            int index = 0;
+            while ((index = combined.indexOf("public class Base", index)) != -1) {
+                count++;
+                index += "public class Base".length();
+            }
+            assertEquals(1, count, "Shared ancestor 'Base' should only appear once in combined output");
+        }
+    }
 }
