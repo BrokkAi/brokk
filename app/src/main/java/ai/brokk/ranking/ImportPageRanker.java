@@ -81,16 +81,6 @@ public final class ImportPageRanker {
             frontier = next;
         }
 
-        // Backfill reverse edges for nodes discovered at the boundary
-        for (ProjectFile node : forward.keySet()) {
-            for (ProjectFile target : importedFilesFor(analyzer, node, cache)) {
-                if (forward.containsKey(target)) {
-                    Objects.requireNonNull(forward.get(node)).add(target);
-                    Objects.requireNonNull(reverse.get(target)).add(node);
-                }
-            }
-        }
-
         return new Graph(forward, reverse);
     }
 
