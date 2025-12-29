@@ -228,26 +228,34 @@ public class FuzzySearchListPanel<T> {
 
         // Non-empty query: spawn background task
         CompletableFuture<Void> future = CompletableFuture.supplyAsync(
-                        () -> performBackgroundSearch(generation, query, itemsSnapshot, highlightBg, highlightFg))
+                        () -> performBackgroundSearch(generation, searchGeneration, query, itemsSnapshot, highlightBg, highlightFg))
                 .thenAcceptAsync(this::applyResults, SwingUtilities::invokeLater);
 
         currentSearch.set(future);
     }
 
     private SearchResult<T> performBackgroundSearch(
-            long generation, String query, List<T> items, Color highlightBg, Color highlightFg) {
-        // Run on background thread
+            long generation,
+            AtomicLong currentGeneration,
+            String query,
+            List<T> items,
+            Color highlightBg,
+            Color highlightFg)
+    {
         var matcher = new FuzzyMatcher(query);
         var matches = new ArrayList<T>();
         var htmlMap = new HashMap<T, String>();
 
-        // Filter matches
         for (T item : items) {
+            // Cooperative cancellation: exit early if this search is stale
+            if (generation != currentGeneration.get()) {
+                return new SearchResult<>(generation, List.of(), Map.of(), null);
+            }
+
             String text = displayMapper.apply(item);
             if (matcher.matches(text)) {
                 matches.add(item);
 
-                // Pre-calculate HTML highlighting
                 var fragments = matcher.getMatchingFragments(text);
                 if (fragments != null && !fragments.isEmpty()) {
                     String html = FuzzyMatcher.toHighlightedHtml(text, fragments, highlightBg, highlightFg);
@@ -256,9 +264,7 @@ public class FuzzySearchListPanel<T> {
             }
         }
 
-        // Sort by score
         matches.sort(Comparator.comparingInt(item -> matcher.score(displayMapper.apply(item))));
-
         return new SearchResult<>(generation, matches, htmlMap, matcher);
     }
 
