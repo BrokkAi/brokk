@@ -147,6 +147,9 @@ public final class FileFilteringService {
         record Extension(String lowerSuffix) implements CompiledPattern {}
 
         record Glob(Pattern regex, boolean matchFullPath) implements CompiledPattern {}
+
+        /** Path prefix matches exact path OR any path starting with prefix/ (for paths with / but no wildcards). */
+        record PathPrefix(String lowerPath) implements CompiledPattern {}
     }
 
     /**
@@ -229,6 +232,13 @@ public final class FileFilteringService {
                     compiled.add(new CompiledPattern.Extension(suffix.toLowerCase(Locale.ROOT)));
                     continue;
                 }
+            }
+
+            // Path without wildcards - treat as prefix match (like SimpleName but for paths)
+            // e.g., "app/src/test/resources" should match the dir and all its contents
+            if (pattern.contains("/") && !pattern.contains("*") && !pattern.contains("?")) {
+                compiled.add(new CompiledPattern.PathPrefix(pattern.toLowerCase(Locale.ROOT)));
+                continue;
             }
 
             // Path glob pattern - convert to regex for platform-independent matching
@@ -459,6 +469,9 @@ public final class FileFilteringService {
                             g.regex()
                                     .matcher(g.matchFullPath() ? lowerFilePath : lowerFileName)
                                     .matches();
+                        case CompiledPattern.PathPrefix pp ->
+                            // Path equals the prefix, or starts with prefix/
+                            lowerFilePath.equals(pp.lowerPath()) || lowerFilePath.startsWith(pp.lowerPath() + "/");
                     };
             if (matched) {
                 return true;
@@ -511,6 +524,9 @@ public final class FileFilteringService {
                             g.regex()
                                     .matcher(g.matchFullPath() ? lowerPath : lowerName)
                                     .matches();
+                        case CompiledPattern.PathPrefix pp ->
+                            // Path equals the prefix, or starts with prefix/
+                            lowerPath.equals(pp.lowerPath()) || lowerPath.startsWith(pp.lowerPath() + "/");
                     };
             if (matched) {
                 return true;
