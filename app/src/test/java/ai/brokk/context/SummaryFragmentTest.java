@@ -1,7 +1,6 @@
 package ai.brokk.context;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
-import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -292,11 +291,9 @@ public class SummaryFragmentTest {
 
     @Test
     public void fileSkeletonDeduplicatesSharedAncestorsInOutput() throws IOException {
-        var builder = InlineTestProjectCreator.code(
-                """
+        var builder = InlineTestProjectCreator.code("""
     public class SharedBase {}
-    """,
-                "Base.java");
+    """, "Base.java");
         try (var testProject = builder.addFileContents(
                         """
     class ChildA extends SharedBase {}
@@ -325,17 +322,16 @@ public class SummaryFragmentTest {
             assertEquals(1, count, "SharedBase skeleton should only appear once in the output text");
 
             // Verify the individual class skeletons are present (without assuming exact formatting)
-            assertTrue(text.contains("class ChildA extends SharedBase"), 
-                    "Should contain ChildA skeleton");
-            assertTrue(text.contains("class ChildB extends SharedBase"), 
-                    "Should contain ChildB skeleton");
-            assertTrue(text.contains("public class SharedBase"), 
-                    "Should contain SharedBase skeleton");
+            assertTrue(text.contains("class ChildA extends SharedBase"), "Should contain ChildA skeleton");
+            assertTrue(text.contains("class ChildB extends SharedBase"), "Should contain ChildB skeleton");
+            assertTrue(text.contains("public class SharedBase"), "Should contain SharedBase skeleton");
 
             // Verify sources() has no duplicates
             var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
-            assertEquals(Set.of("ChildA", "ChildB", "SharedBase"), fqns, 
+            assertEquals(
+                    Set.of("ChildA", "ChildB", "SharedBase"),
+                    fqns,
                     "sources() should include both children and SharedBase");
             assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
         }

@@ -1712,7 +1712,8 @@ public class ContextFragments {
 
             if (skeletonProviderOpt.isPresent()) {
                 var skeletonProvider = skeletonProviderOpt.get();
-                var seenFqns = primaryTargets.stream().map(CodeUnit::fqName).collect(Collectors.toCollection(HashSet::new));
+                var seenFqns =
+                        primaryTargets.stream().map(CodeUnit::fqName).collect(Collectors.toCollection(HashSet::new));
 
                 // First pass: add primary targets
                 for (CodeUnit cu : primaryTargets) {
