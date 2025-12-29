@@ -438,12 +438,10 @@ public class ContextHistory {
      * Performs synchronous snapshotting of the given context to ensure stable, historical restoration.
      */
     private void snapshotContext(Context ctx) {
-        for (var cf : ctx.allFragments().toList()) {
-            try {
-                cf.await(SNAPSHOT_AWAIT_TIMEOUT);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
+        try {
+            ctx.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
         }
     }
 

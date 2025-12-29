@@ -1,15 +1,13 @@
 package ai.brokk.context;
 
 import ai.brokk.util.ComputedValue;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import javax.swing.*;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Central helper for managing ComputedValue subscriptions that are associated with a Swing component.
@@ -24,8 +22,6 @@ import javax.swing.event.AncestorListener;
  * code simple and avoid duplicated bookkeeping logic across UI classes.</p>
  */
 public final class ComputedSubscription {
-    private static final Logger logger = LogManager.getLogger(ComputedSubscription.class);
-
     // ClientProperty keys; use Object instances to avoid collisions and magic strings.
     private static final Object SUBS_KEY = new Object();
     private static final Object LISTENER_KEY = new Object();
@@ -69,17 +65,13 @@ public final class ComputedSubscription {
         // Helper to run UI update, coalesced onto EDT
         Runnable scheduleUpdate = () -> SwingUtilities.invokeLater(uiUpdate);
 
-        try {
-            if (fragment.await(Duration.ofSeconds(0))) {
-                scheduleUpdate.run();
-                return;
-            }
-        } catch (InterruptedException e) {
-            logger.warn(e);
+        if (!(fragment instanceof ContextFragment.ComputedFragment cf)) {
+            scheduleUpdate.run();
+            return;
         }
 
         // Subscribe to completion
-        var sub = fragment.snapshotCv.onComplete((v, ex) -> scheduleUpdate.run());
+        var sub = cf.onComplete(scheduleUpdate);
         register(owner, sub);
     }
 

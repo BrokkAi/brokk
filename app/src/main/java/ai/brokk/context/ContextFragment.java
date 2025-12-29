@@ -10,7 +10,6 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.*;
-
 import java.time.Duration;
 import java.util.*;
 import java.util.List;
@@ -112,8 +111,6 @@ public interface ContextFragment {
     static int getCurrentMaxId() {
         return nextId.get();
     }
-
-    boolean await(Duration timeout) throws InterruptedException;
 
     /**
      * Unique identifier for this fragment. Can be a numeric string for dynamic fragments or a hash string for
@@ -247,12 +244,6 @@ public interface ContextFragment {
     ContextFragment refreshCopy();
 
     /**
-     * Marker for fragments whose identity is dynamic (numeric, session-local).
-     * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
-     */
-    interface DynamicIdentity {}
-
-    /**
      * Marker interface for fragments that provide image content.
      * Implementations must provide a stable content hash for equality checks.
      */
@@ -277,5 +268,15 @@ public interface ContextFragment {
     enum SummaryType {
         CODEUNIT_SKELETON,
         FILE_SKELETONS
+    }
+
+    /**
+     * Marker for fragments whose identity is dynamic (numeric, session-local).
+     * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
+     */
+    interface ComputedFragment extends ContextFragment {
+        boolean await(Duration timeout) throws InterruptedException;
+
+        ComputedValue.Subscription onComplete(Runnable runnable);
     }
 }
