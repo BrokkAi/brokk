@@ -65,7 +65,6 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.fife.ui.rsyntaxtextarea.FileTypeUtil;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -275,11 +274,9 @@ public class ContextFragments {
             return null;
         }
 
-        @Blocking
         @Override
         public boolean isValid() {
-            var snapshot = snapshotCv.tryGet().orElse(null);
-            return snapshot != null && snapshot.valid();
+            return snapshotCv.tryGet().map(FragmentSnapshot::valid).orElse(true);
         }
 
         // Common hasSameSource implementation (identity for dynamic, override for others)

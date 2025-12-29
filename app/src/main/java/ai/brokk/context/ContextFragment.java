@@ -201,13 +201,14 @@ public interface ContextFragment {
 
     /**
      * For live fragments ONLY, isValid reflects current external state (a file fragment whose file is missing is invalid);
-     * historical/frozen fragments have already snapshotted their state and are always valid. However, if
-     * a fragment is unable to snapshot its content before the source is removed out from under it, it will also
-     * end up invalid.
+     * historical/frozen fragments have already snapshotted their state and are always valid.
+     *
+     * In-progress-of-snapshotting fragments are treated as valid to avoid @Blocking, but this means that it's
+     * possible for it to flip from valid to invalid if it is unable to snapshot its content
+     * before the source is removed out from under it.
      *
      * @return true if the fragment is valid, false otherwise
      */
-    @Blocking
     default boolean isValid() {
         return true;
     }
