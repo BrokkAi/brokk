@@ -487,8 +487,11 @@ public class ContextFragments {
         }
     }
 
-    public record GitFileFragment(ProjectFile file, String revision, String content, String id)
-            implements PathFragment {
+    public static final class GitFileFragment extends AbstractStaticFragment implements PathFragment {
+        private final ProjectFile file;
+        private final String revision;
+        private final String content;
+
         public GitFileFragment(ProjectFile file, String revision, String content) {
             this(
                     file,
@@ -500,6 +503,25 @@ public class ContextFragments {
                             content,
                             FileTypeUtil.get().guessContentType(file.absPath().toFile()),
                             GitFileFragment.class.getName()));
+        }
+
+        private static String computeDescription(ProjectFile file, String revision) {
+            var parentDir = file.getParent();
+            var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
+            return parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir);
+        }
+
+        public GitFileFragment(ProjectFile file, String revision, String content, String id) {
+            super(
+                    id,
+                    null,
+                    computeDescription(file, revision),
+                    "%s @%s".formatted(file.getFileName(), revision),
+                    FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                    ContentSnapshot.textSnapshot(content, Set.of(), Set.of(file)));
+            this.file = file;
+            this.revision = revision;
+            this.content = content;
         }
 
         public static GitFileFragment withId(ProjectFile file, String revision, String content, String existingId) {
@@ -519,66 +541,29 @@ public class ContextFragments {
             }
         }
 
+        public String revision() {
+            return revision;
+        }
+
+        public String content() {
+            return content;
+        }
+
+        @Override
+        public ProjectFile file() {
+            return file;
+        }
+
         @Override
         public FragmentType getType() {
             return FragmentType.GIT_FILE;
         }
 
         @Override
-        public @Nullable IContextManager getContextManager() {
-            return null;
-        }
-
-        // Manually implementing CV methods as this is a record and cannot extend AbstractStaticFragment
-        @Override
-        public ComputedValue<String> description() {
-            var parentDir = file.getParent();
-            var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
-            return ComputedValue.completed(
-                    "gff-desc-" + id,
-                    parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir));
-        }
-
-        @Override
-        public ComputedValue<String> shortDescription() {
-            return ComputedValue.completed("gff-short-" + id, "%s @%s".formatted(file.getFileName(), revision));
-        }
-
-        @Override
-        public ComputedValue<String> text() {
-            return ComputedValue.completed("gff-text-" + id, content);
-        }
-
-        @Override
-        public ComputedValue<Set<CodeUnit>> sources() {
-            // Treat historical content as potentially different from current; don't claim sources
-            return ComputedValue.completed(Set.of());
-        }
-
-        @Override
-        public ComputedValue<Set<ProjectFile>> files() {
-            return ComputedValue.completed(Set.of(file));
-        }
-
-        @Override
-        public ComputedValue<String> syntaxStyle() {
-            return ComputedValue.completed(
-                    FileTypeUtil.get().guessContentType(file.absPath().toFile()));
-        }
-
-        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof GitFileFragment that)) return false;
-            return this.file()
-                            .absPath()
-                            .normalize()
-                            .equals(that.file().absPath().normalize())
-                    && this.revision().equals(that.revision());
-        }
-
-        @Override
-        public ContextFragment refreshCopy() {
-            return this;
+            return this.file.absPath().normalize().equals(that.file.absPath().normalize())
+                    && this.revision.equals(that.revision);
         }
     }
 
