@@ -195,6 +195,9 @@ public class ContextNoGitFallbackTest {
 
     @Test
     public void testHybridGitAndImportResults() throws Exception {
+        // We create a project where:
+        // - A imports B, B imports C (Import link chain: A -> B -> C)
+        // - A and D are committed together (Git link: A <-> D)
         try (var project = InlineTestProjectCreator.code(
                         """
                         package test;
@@ -221,8 +224,11 @@ public class ContextNoGitFallbackTest {
                         public class D { }
                         """,
                         "test/D.java")
+                .withGit()
+                .addCommit("test/A.java", "test/D.java")
                 .build()) {
 
+            assertTrue(project.hasGit(), "Project should have Git enabled");
             IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
 
             Map<String, ProjectFile> byName = new HashMap<>();
@@ -235,35 +241,6 @@ public class ContextNoGitFallbackTest {
             ProjectFile b = byName.get("b.java");
             ProjectFile c = byName.get("c.java");
             ProjectFile d = byName.get("d.java");
-
-            // Mock Git results: return only 'D'
-            IGitRepo stubRepo = new IGitRepo() {
-                @Override
-                public Set<ProjectFile> getTrackedFiles() {
-                    return Set.of(a, b, c, d);
-                }
-
-                @Override
-                public Set<ModifiedFile> getModifiedFiles() {
-                    return Set.of();
-                }
-
-                @Override
-                public void add(Collection<ProjectFile> files) {}
-
-                @Override
-                public void add(ProjectFile file) {}
-
-                @Override
-                public void remove(ProjectFile file) {}
-            };
-
-            // We need to bypass the real GitDistance.getRelatedFiles because it's static/hard to mock,
-            // but we can influence the IContextManager to use our stub repo.
-            // Since we want to test the MERGING logic in Context.getMostRelevantFiles,
-            // and GitDistance is called directly, we rely on the fact that A/B/C/D are tracked.
-            // However, to ensure a hybrid result, we ask for topK=3.
-            // If Git returns 1 result (D), it should supplement with 2 from imports (B, C).
 
             IContextManager cm = new IContextManager() {
                 @Override
@@ -278,29 +255,29 @@ public class ContextNoGitFallbackTest {
 
                 @Override
                 public IGitRepo getRepo() {
-                    return stubRepo;
+                    return project.getRepo();
                 }
             };
 
             Context ctx = new Context(cm).addFragments(new ContextFragment.ProjectPathFragment(a, cm));
 
             // We want topK = 3.
-            // 1. Git Distance will run (because hasGit is true and seeds are tracked).
-            // 2. Git Distance will return some results.
-            // 3. If results < 3, ImportPageRanker will supplement.
+            // 1. Git Distance will find D (co-committed with A).
+            // 2. ImportPageRanker will find B (direct import) and C (indirect).
+            // 3. Context should merge these results without duplicates.
             List<ProjectFile> results = ctx.getMostRelevantFiles(3);
 
             // Assertions
-            assertFalse(results.contains(a), "Seed A should be excluded");
-            assertTrue(results.size() >= 2, "Should have at least B and C from imports if Git returns little");
+            assertFalse(results.contains(a), "Seed A should be excluded from results");
+            assertTrue(results.contains(d), "Expected D.java in results (via Git distance)");
+            assertTrue(results.contains(b), "Expected B.java in results (via imports)");
+            assertTrue(results.contains(c), "Expected C.java in results (via imports)");
+
+            assertEquals(3, results.size(), "Should return exactly topK results");
 
             // Ensure no duplicates
             Set<ProjectFile> resultSet = new HashSet<>(results);
             assertEquals(results.size(), resultSet.size(), "Results should not contain duplicates");
-
-            // Check that B and C (linked via imports) are present
-            assertTrue(results.contains(b), "Expected B.java (direct import)");
-            assertTrue(results.contains(c), "Expected C.java (indirect import)");
         }
     }
 
