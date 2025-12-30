@@ -242,13 +242,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             saveButtonDocumentListener = new DocumentListener() {
                 private void onModification() {
                     finalSaveButtonRef.setEnabled(true);
-                    synchronized (PreviewTextPanel.this) {
-                        if (!watcherPausedForThisPanel) {
-                            logger.debug("Pausing watcher due to manual edit in {}", file);
-                            cm.getAnalyzerWrapper().pause();
-                            watcherPausedForThisPanel = true;
-                        }
-                    }
+                    pauseWatcherForThisPanelIfNeeded();
                 }
 
                 @Override
@@ -1180,11 +1174,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         return switch (choice) {
             case JOptionPane.YES_OPTION -> performSave(saveButton);
             case JOptionPane.NO_OPTION -> {
-                if (watcherPausedForThisPanel) {
-                    logger.debug("Resuming watcher after discarding changes in {}", file);
-                    cm.getAnalyzerWrapper().resume();
-                    watcherPausedForThisPanel = false;
-                }
+                resumeWatcherForThisPanelIfNeeded("discarding changes");
                 yield true; // Allow closing, discard changes
             }
             default -> false; // Prevent closing
@@ -1194,11 +1184,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     @Override
     public void removeNotify() {
         // Defensive safety: Ensure watcher is resumed if this panel is removed/disposed while holding a pause
-        if (watcherPausedForThisPanel) {
-            logger.debug("Defensive watcher resume in removeNotify for {}", file);
-            cm.getAnalyzerWrapper().resume();
-            watcherPausedForThisPanel = false;
-        }
+        resumeWatcherForThisPanelIfNeeded("removeNotify cleanup");
         super.removeNotify();
     }
 
@@ -1265,11 +1251,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
                 // If we paused the watcher because of manual edits, resume it now since changes are saved.
                 // This is only reached on successful write.
-                if (watcherPausedForThisPanel) {
-                    logger.debug("Resuming watcher after successful save in {}", file);
-                    cm.getAnalyzerWrapper().resume();
-                    watcherPausedForThisPanel = false;
-                }
+                resumeWatcherForThisPanelIfNeeded("successful save");
 
                 // Notify other preview windows to refresh (but not this one)
                 SwingUtilities.invokeLater(() -> {
@@ -1332,6 +1314,22 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         return "**Quick Edit Request:**\n\n" + "**Goal:** "
                 + goal + "\n\n" + "**Target code:**\n```\n"
                 + target + "\n```";
+    }
+
+    private synchronized void pauseWatcherForThisPanelIfNeeded() {
+        if (!watcherPausedForThisPanel) {
+            logger.debug("Pausing watcher due to manual edit in {}", file);
+            cm.getAnalyzerWrapper().pause();
+            watcherPausedForThisPanel = true;
+        }
+    }
+
+    private synchronized void resumeWatcherForThisPanelIfNeeded(String reason) {
+        if (watcherPausedForThisPanel) {
+            logger.debug("Resuming watcher due to {} in {}", reason, file);
+            cm.getAnalyzerWrapper().resume();
+            watcherPausedForThisPanel = false;
+        }
     }
 
     /**
