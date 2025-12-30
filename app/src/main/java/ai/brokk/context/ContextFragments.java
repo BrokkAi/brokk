@@ -201,7 +201,7 @@ public class ContextFragments {
     }
 
     // Base implementation for fragments with async computation
-    public abstract static class AbstractComputedFragment implements ContextFragment {
+    public abstract static class AbstractComputedFragment implements ContextFragment.ComputedFragment {
         protected final String id;
         protected final IContextManager contextManager;
         final ComputedValue<FragmentSnapshot> snapshotCv;
@@ -220,8 +220,14 @@ public class ContextFragments {
                     : ComputedValue.completed("snap-" + id, initialSnapshot);
         }
 
-        public void await(Duration timeout) throws InterruptedException {
-            snapshotCv.await(timeout);
+        @Override
+        public boolean await(Duration timeout) throws InterruptedException {
+            return snapshotCv.await(timeout).isPresent();
+        }
+
+        @Override
+        public ComputedValue.Subscription onComplete(Runnable runnable) {
+            return snapshotCv.onComplete((v, ex) -> runnable.run());
         }
 
         @Override

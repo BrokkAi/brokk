@@ -50,12 +50,12 @@ public final class ComputedSubscription {
     }
 
     /**
-     * Bind a ComputedFragment's computed values to a Swing component, automatically managing subscriptions
-     * and running UI updates on the EDT. Starts all relevant computed values (text, description, files)
-     * and registers completion handlers that run uiUpdate on the EDT when any of them complete.
+     * Bind a fragment's computed values to a Swing component, automatically managing subscriptions
+     * and running UI updates on the EDT. If the fragment is asynchronous (ComputedFragment),
+     * registers completion handlers that run uiUpdate on the EDT when the computation completes.
      * Subscriptions are automatically disposed when the owner component is removed from its parent.
      *
-     * @param fragment the ComputedFragment whose values will be bound
+     * @param fragment the ContextFragment whose values will be bound
      * @param owner the Swing component that owns these subscriptions
      * @param uiUpdate a runnable to execute on the EDT when any computed value completes
      */
@@ -63,14 +63,16 @@ public final class ComputedSubscription {
         // Helper to run UI update, coalesced onto EDT
         Runnable scheduleUpdate = () -> SwingUtilities.invokeLater(uiUpdate);
 
-        if (!(fragment instanceof ContextFragments.AbstractComputedFragment acf)) {
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            // Subscribe to completion for asynchronous fragments
+            var sub = cf.onComplete(scheduleUpdate);
+            if (sub != null) {
+                register(owner, sub);
+            }
+        } else {
+            // For synchronous fragments, run the update immediately (on EDT)
             scheduleUpdate.run();
-            return;
         }
-
-        // Subscribe to completion
-        var sub = acf.snapshotCv.onComplete((v, ex) -> scheduleUpdate.run());
-        register(owner, sub);
     }
 
     /**
