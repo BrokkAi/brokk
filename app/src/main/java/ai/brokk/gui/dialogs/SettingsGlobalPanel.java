@@ -230,10 +230,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // GitHub / Git Signing Tab
         var githubAndSigningPanel = createGitHubAndSigningPanel();
         globalSubTabbedPane.addTab(
-                SettingsDialog.GITHUB_SETTINGS_TAB_NAME,
-                null,
-                githubAndSigningPanel,
-                "Git and signing settings");
+                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, githubAndSigningPanel, "Git and signing settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
@@ -381,7 +378,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         mainPanel.add(Box.createVerticalStrut(15));
 
         // Section 2: Git Signing
-        var gitHeader = new JLabel("Git / Signing");
+        var gitHeader = new JLabel("Signing");
         gitHeader.setFont(gitHeader.getFont().deriveFont(Font.BOLD));
         gitHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
         mainPanel.add(gitHeader);

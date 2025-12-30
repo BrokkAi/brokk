@@ -7,9 +7,9 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.nio.file.Path;
-import org.junit.jupiter.api.AfterEach;
 import org.eclipse.jgit.api.CommitCommand;
 import org.eclipse.jgit.api.Git;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
