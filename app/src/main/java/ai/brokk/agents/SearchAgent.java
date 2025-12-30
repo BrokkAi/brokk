@@ -483,7 +483,8 @@ public class SearchAgent {
         names.add("getClassSkeletons");
         names.add("getClassSources");
         names.add("getMethodSources");
-        names.add("getUsages");
+        // FIXME re-enable when usages works reliably
+        //        names.add("getUsages");
 
         // Text-based search
         names.add("searchSubstrings");
@@ -499,7 +500,8 @@ public class SearchAgent {
         names.add("addClassSummariesToWorkspace");
         names.add("addMethodsToWorkspace");
         names.add("addFileSummariesToWorkspace");
-        names.add("addSymbolUsagesToWorkspace");
+        // FIXME re-enable when usages works reliably
+        //        names.add("addSymbolUsagesToWorkspace");
         names.add("appendNote");
         if (hasDroppableFragments()) {
             names.add("dropWorkspaceFragments");
