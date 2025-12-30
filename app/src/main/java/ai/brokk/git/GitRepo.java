@@ -17,6 +17,8 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import com.google.common.base.Splitter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.*;
@@ -738,7 +740,7 @@ public class GitRepo implements Closeable, IGitRepo {
         String currentKeyId = null;
         List<GpgKeyCandidate> candidates = new ArrayList<>();
 
-        for (String line : output.split("\\R")) {
+        for (String line : Splitter.on(Pattern.compile("\\R")).split(output)) {
             if (line.isEmpty()) {
                 continue;
             }
