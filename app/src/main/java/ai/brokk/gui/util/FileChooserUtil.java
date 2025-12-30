@@ -21,9 +21,8 @@ public final class FileChooserUtil {
      * @param initialDir the initial directory (may be null for default)
      * @return the selected directory, or null if cancelled
      */
-    public static @Nullable File showDirectoryChooserWithNewFolder(@Nullable Frame parent,
-                                                                    String title,
-                                                                    @Nullable File initialDir) {
+    public static @Nullable File showDirectoryChooserWithNewFolder(
+            @Nullable Frame parent, String title, @Nullable File initialDir) {
         var chooser = new JFileChooser();
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         chooser.setMultiSelectionEnabled(false);
@@ -55,23 +54,21 @@ public final class FileChooserUtil {
     }
 
     private static JButton createNewFolderButton(JFileChooser chooser) {
-        var btn = new JButton("New Folder");
+        var btn = new JButton(Icons.NEW_FOLDER);
+        btn.setToolTipText("New Folder");
+        // Size will be set in findButtonPanelAndAdd to match existing buttons
         btn.addActionListener(e -> {
             var currentDir = chooser.getCurrentDirectory();
             if (currentDir != null) {
-                var name = JOptionPane.showInputDialog(chooser,
-                                                       "Enter folder name:",
-                                                       "New Folder",
-                                                       JOptionPane.PLAIN_MESSAGE);
+                var name = JOptionPane.showInputDialog(
+                        chooser, "Enter folder name:", "New Folder", JOptionPane.PLAIN_MESSAGE);
                 if (name != null && !name.isBlank()) {
                     var newFolder = new File(currentDir, name.trim());
                     if (newFolder.mkdir()) {
                         chooser.setCurrentDirectory(newFolder);
                     } else {
-                        JOptionPane.showMessageDialog(chooser,
-                                                      "Could not create folder",
-                                                      "Error",
-                                                      JOptionPane.ERROR_MESSAGE);
+                        JOptionPane.showMessageDialog(
+                                chooser, "Could not create folder", "Error", JOptionPane.ERROR_MESSAGE);
                     }
                 }
             }
@@ -84,19 +81,18 @@ public final class FileChooserUtil {
         findButtonPanelAndAdd(chooser, button, cancelText);
     }
 
-    private static boolean findButtonPanelAndAdd(Container container, JButton button, String cancelText) {
+    private static boolean findButtonPanelAndAdd(Container container, JButton button, @Nullable String cancelText) {
         for (var comp : container.getComponents()) {
             if (comp instanceof JPanel panel) {
                 for (var child : panel.getComponents()) {
                     if (child instanceof JButton btn) {
                         if (cancelText != null && cancelText.equals(btn.getText())) {
-                            var existingSize = btn.getPreferredSize();
-                            var ourSize = button.getPreferredSize();
-                            button.setPreferredSize(new Dimension(
-                                    Math.max(existingSize.width, ourSize.width),
-                                    existingSize.height));
-                            button.setMinimumSize(button.getPreferredSize());
-                            button.setMaximumSize(button.getPreferredSize());
+                            // Make button square with height matching existing buttons
+                            int height = btn.getPreferredSize().height;
+                            var dim = new Dimension(height, height);
+                            button.setPreferredSize(dim);
+                            button.setMinimumSize(dim);
+                            button.setMaximumSize(dim);
                             panel.add(button, 0);
                             return true;
                         }

@@ -8,6 +8,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.git.GitHubErrorUtil;
+import ai.brokk.gui.util.FileChooserUtil;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
@@ -468,12 +469,12 @@ public class OpenProjectDialog extends BaseThemedDialog {
         });
 
         chooseButton.addActionListener(e -> {
-            var chooser = new JFileChooser();
-            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            chooser.setDialogTitle("Select Directory to Clone Into");
-            chooser.setCurrentDirectory(new File(GlobalUiSettings.getLastCloneDirectory()));
-            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-                dirField.setText(chooser.getSelectedFile().getAbsolutePath());
+            var selected = FileChooserUtil.showDirectoryChooserWithNewFolder(
+                    getOwner() instanceof Frame f ? f : null,
+                    "Select Directory to Clone Into",
+                    new File(GlobalUiSettings.getLastCloneDirectory()));
+            if (selected != null) {
+                dirField.setText(selected.getAbsolutePath());
             }
         });
 
@@ -568,12 +569,12 @@ public class OpenProjectDialog extends BaseThemedDialog {
         chooseDirButton.setToolTipText("Choose directory");
 
         chooseDirButton.addActionListener(e -> {
-            var chooser = new JFileChooser();
-            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            chooser.setDialogTitle("Select Directory to Clone Into");
-            chooser.setCurrentDirectory(new File(GlobalUiSettings.getLastCloneDirectory()));
-            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-                dirField.setText(chooser.getSelectedFile().getAbsolutePath());
+            var selected = FileChooserUtil.showDirectoryChooserWithNewFolder(
+                    getOwner() instanceof Frame f ? f : null,
+                    "Select Directory to Clone Into",
+                    new File(GlobalUiSettings.getLastCloneDirectory()));
+            if (selected != null) {
+                dirField.setText(selected.getAbsolutePath());
             }
         });
 
