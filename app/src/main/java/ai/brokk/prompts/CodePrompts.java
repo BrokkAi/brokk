@@ -1,5 +1,6 @@
 package ai.brokk.prompts;
 
+import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.AbstractService;
@@ -7,94 +8,34 @@ import ai.brokk.EditBlock;
 import ai.brokk.IContextManager;
 import ai.brokk.SyntaxAwareConfig;
 import ai.brokk.TaskEntry;
-import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ViewingPolicy;
-import ai.brokk.util.ImageUtil;
-import ai.brokk.util.StyleGuideResolver;
+import ai.brokk.context.SpecialTextType;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.*;
-import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
-import org.jetbrains.annotations.Nullable;
 
 /** Generates prompts for the main coding agent loop, including instructions for SEARCH/REPLACE blocks. */
-public abstract class CodePrompts {
+public class CodePrompts {
     private static final Logger logger = LogManager.getLogger(CodePrompts.class);
-    public static final CodePrompts instance = new CodePrompts() {};
+    public static final CodePrompts instance = new CodePrompts();
     private static final Pattern BRK_MARKER_PATTERN =
             Pattern.compile("^BRK_(CLASS|FUNCTION)\\s+(.+)$", Pattern.MULTILINE);
-
-    public static final String LAZY_REMINDER =
-            """
-                    You are diligent and tireless!
-                    You NEVER leave comments describing code without implementing it!
-                    You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
-                    """;
-
-    public static final String OVEREAGER_REMINDER =
-            """
-                    Avoid changing code or comments that are not directly related to the request.
-
-                    Do not comment on your modifications, only on the resulting code in isolation.
-                    You must never output any comments about the progress or type of changes of your refactoring or generation.
-                    For example, you must NOT add comments like: 'Added dependency' or 'Changed to new style' or worst of all 'Keeping existing implementation'.
-                    """;
-
-    public static final String ARCHITECT_REMINDER =
-            """
-                    Pay careful attention to the scope of the user's request. Attempt to do everything required
-                    to fulfil the user's direct requests, but avoid surprising him with unexpected actions.
-                    For example, if the user asks you a question, you should do your best to answer his question first,
-                    before immediately jumping into taking further action.
-                    """;
-
-    public static final String MARKDOWN_REMINDER =
-            """
-                    <persistence>
-                    ## Markdown Formatting
-                    When not writing SEARCH/REPLACE blocks,
-                    format your response using GFM Markdown to **improve the readability** of your responses with:
-                    - **bold**
-                    - _italics_
-                    - `inline code` (for file, directory, function, class names and other symbols)
-                    - ```code fences``` for code and pseudocode
-                    - list
-                    - prefer GFM tables over bulleted lists
-                    - header tags (start from ##).
-                    </persistence>
-                    """;
-
-    /** Formats the most recent build error for the LLM retry prompt. */
-    @Blocking
-    public static String buildFeedbackPrompt(Context context) {
-        var cf = context.getBuildFragment().orElseThrow();
-        return """
-                The build failed with the error visible in the Workspace. Please refer to
-                fragment id %s, "%s".
-
-                Please analyze the error message, review the conversation history for previous attempts, and provide SEARCH/REPLACE blocks to fix all the errors and warnings.
-
-                IMPORTANT: If you determine that the build errors are not improving or are going in circles after reviewing the history,
-                do your best to explain the problem but DO NOT provide any edits.
-                Otherwise, provide the edits as usual.
-                """
-                .formatted(cf.id(), cf.description().join());
-    }
 
     @Blocking
     public static Set<InstructionsFlags> instructionsFlags(Context ctx) {
@@ -149,18 +90,7 @@ public abstract class CodePrompts {
         return flags;
     }
 
-    public String codeReminder(AbstractService service, StreamingChatModel model) {
-        var baseReminder = service.isLazy(model) ? LAZY_REMINDER : OVEREAGER_REMINDER;
-        return baseReminder + "\n" + MARKDOWN_REMINDER;
-    }
-
-    public String architectReminder() {
-        return ARCHITECT_REMINDER + "\n" + MARKDOWN_REMINDER;
-    }
-
-    public String askReminder() {
-        return MARKDOWN_REMINDER;
-    }
+    private static final String ELIDED_BLOCK_PLACEHOLDER = "[elided SEARCH/REPLACE block]";
 
     /**
      * Redacts SEARCH/REPLACE blocks from an AiMessage. If the message contains S/R blocks, they are replaced with
@@ -168,37 +98,44 @@ public abstract class CodePrompts {
      * Optional.empty() is returned.
      *
      * @param aiMessage The AiMessage to process.
-     * @param parser The EditBlockParser to use for parsing.
      * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
      */
-    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, EditBlockParser parser) {
-        // Pass an empty set for trackedFiles as it's not needed for redaction.
-        var parsedResult = parser.parse(aiMessage.text(), Collections.emptySet());
-        // Check if there are actual S/R block objects, not just text parts
+    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage) {
+        return redactAiMessage(aiMessage, true);
+    }
+
+    /**
+     * Redacts SEARCH/REPLACE blocks from an AiMessage.
+     *
+     * @param aiMessage The AiMessage to process.
+     * @param leaveMarker If true, S/R blocks are replaced with "[elided SEARCH/REPLACE block]".
+     *                  If false, they are removed entirely.
+     * @return An Optional containing the redacted AiMessage, or Optional.empty() if no message should be added.
+     */
+    public static Optional<AiMessage> redactAiMessage(AiMessage aiMessage, boolean leaveMarker) {
+        var parsedResult = EditBlockParser.instance.parse(aiMessage.text(), Collections.emptySet());
         boolean hasSrBlocks = parsedResult.blocks().stream().anyMatch(b -> b.block() != null);
 
         if (!hasSrBlocks) {
-            // No S/R blocks, return message as is (if not blank)
             return aiMessage.text().isBlank() ? Optional.empty() : Optional.of(aiMessage);
-        } else {
-            // Contains S/R blocks, needs redaction
-            var blocks = parsedResult.blocks();
-            var sb = new StringBuilder();
-            for (int i = 0; i < blocks.size(); i++) {
-                var ob = blocks.get(i);
-                if (ob.block() == null) { // Plain text part
-                    sb.append(ob.text());
-                } else { // An S/R block
-                    sb.append("[elided SEARCH/REPLACE block]");
-                    // If the next output block is also an S/R block, add a newline
-                    if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
-                        sb.append('\n');
-                    }
+        }
+
+        var blocks = parsedResult.blocks();
+        var sb = new StringBuilder();
+        for (int i = 0; i < blocks.size(); i++) {
+            var ob = blocks.get(i);
+            if (ob.block() == null) {
+                sb.append(ob.text());
+            } else if (leaveMarker) {
+                sb.append(ELIDED_BLOCK_PLACEHOLDER);
+                if (i + 1 < blocks.size() && blocks.get(i + 1).block() != null) {
+                    sb.append('\n');
                 }
             }
-            String redactedText = sb.toString();
-            return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
         }
+
+        String redactedText = sb.toString();
+        return redactedText.isBlank() ? Optional.empty() : Optional.of(new AiMessage(redactedText));
     }
 
     public final List<ChatMessage> collectCodeMessages(
@@ -207,187 +144,51 @@ public abstract class CodePrompts {
             List<ChatMessage> prologue,
             List<ChatMessage> taskMessages,
             UserMessage request,
-            Set<ProjectFile> changedFiles,
-            ViewingPolicy viewingPolicy)
-            throws InterruptedException {
+            Set<SpecialTextType> suppressedTypes,
+            String goal) {
         var cm = ctx.getContextManager();
         var messages = new ArrayList<ChatMessage>();
-        var reminder = codeReminder(cm.getService(), model);
+        AbstractService service = cm.getService();
+        var reminder = service.isLazy(model) ? SystemPrompts.LAZY_REMINDER : SystemPrompts.OVEREAGER_REMINDER;
+        var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, suppressedTypes);
 
-        messages.add(systemMessage(cm, ctx, reminder));
-        // FIXME we're supposed to leave the unchanged files in their original position
-        if (changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceContentsMessages(ctx, true, viewingPolicy));
-        } else {
-            messages.addAll(getWorkspaceReadOnlyMessages(ctx, true, viewingPolicy));
-        }
-        messages.addAll(prologue);
-
-        messages.addAll(getHistoryMessages(ctx));
-        messages.addAll(taskMessages);
-        if (!changedFiles.isEmpty()) {
-            messages.addAll(getWorkspaceEditableMessages(ctx));
-        }
-        messages.add(request);
-
-        return messages;
-    }
-
-    public final List<ChatMessage> getSingleFileAskMessages(
-            IContextManager cm, ProjectFile file, List<ChatMessage> readOnlyMessages, String question) {
-        var messages = new ArrayList<ChatMessage>();
-
-        var systemPrompt =
+        var sys = new SystemMessage(
                 """
-                        <instructions>
-                        %s
-                        </instructions>
-                        <style_guide>
-                        %s
-                        </style_guide>
-                        """
-                        .stripIndent()
-                        .formatted(systemIntro(""), cm.getProject().getStyleGuide())
-                        .trim();
-        messages.add(new SystemMessage(systemPrompt));
-
-        messages.addAll(readOnlyMessages);
-
-        String fileContent =
-                """
-                        <file path="%s">
-                        %s
-                        </file>
-                        """
-                        .stripIndent()
-                        .formatted(file.toString(), file.read().orElseThrow());
-        messages.add(new UserMessage(fileContent));
-        messages.add(new AiMessage("Thank you for the file."));
-
-        messages.add(askRequest(question));
-
-        return messages;
-    }
-
-    /**
-     * Collects chat messages for an "ask" request, using the ASK viewing policy.
-     * <p>
-     * This method no longer takes a {@code model} parameter. Instead, it sets the viewing policy
-     * to {@code ViewingPolicy(TaskResult.Type.ASK)}, which determines what workspace contents are shown.
-     *
-     * @param cm    The context manager for the current project/session.
-     * @param input The user's question or request.
-     * @return A list of chat messages representing the system prompt, workspace contents, history, and the user's request.
-     * @throws InterruptedException if interrupted while collecting messages.
-     */
-    public final List<ChatMessage> collectAskMessages(IContextManager cm, String input) throws InterruptedException {
-        var messages = new ArrayList<ChatMessage>();
-
-        var viewingPolicy = new ViewingPolicy(TaskResult.Type.ASK);
-        messages.add(systemMessage(cm, askReminder()));
-        messages.addAll(getWorkspaceContentsMessages(cm.liveContext(), false, viewingPolicy));
-        messages.addAll(getHistoryMessages(cm.liveContext()));
-        messages.add(askRequest(input));
-
-        return messages;
-    }
-
-    public static String formatWorkspaceToc(Context ctx) {
-        var editableContents = ctx.getEditableToc();
-        var readOnlyContents = ctx.getReadOnlyToc();
-        var workspaceBuilder = new StringBuilder();
-        if (!editableContents.isBlank()) {
-            workspaceBuilder.append(
-                    """
-                            <editable-toc>
-                            The following fragments MAY BE EDITED:
-                            %s
-                            </editable-toc>"""
-                            .formatted(editableContents));
-        }
-        if (!readOnlyContents.isBlank()) {
-            workspaceBuilder.append(
-                    """
-                            <readonly-toc>
-                            The following fragments MAY NOT BE EDITED:
-                            %s
-                            </readonly-toc>"""
-                            .formatted(readOnlyContents));
-        }
-        return workspaceBuilder.toString();
-    }
-
-    @Blocking
-    protected SystemMessage systemMessage(IContextManager cm, Context ctx, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(ctx);
-
-        // Collect project-backed files from current context (nearest-first resolution uses parent dirs).
-        var projectFiles =
-                ctx.fileFragments().flatMap(cf -> cf.files().join().stream()).toList();
-
-        // Resolve composite style guide from AGENTS.md files nearest to current context files.
-        var styleGuide = StyleGuideResolver.resolve(projectFiles, cm.getProject());
-
-        var text =
-                """
-                        <instructions>
-                        %s
-                        </instructions>
-                        <workspace-toc>
-                        %s
-                        </workspace-toc>
-                        <style_guide>
-                        %s
-                        </style_guide>
-                        """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
-                        .trim();
-
-        return new SystemMessage(text);
-    }
-
-    @Blocking
-    protected SystemMessage systemMessage(IContextManager cm, String reminder) {
-        var workspaceSummary = formatWorkspaceToc(cm.liveContext());
-
-        // Resolve composite style guide from AGENTS.md files nearest to files in the top context.
-        var projectFiles = cm.liveContext()
-                .fileFragments()
-                .flatMap(cf -> cf.files().join().stream())
-                .collect(Collectors.toList());
-
-        var styleGuide = StyleGuideResolver.resolve(projectFiles, cm.getProject());
-
-        var text =
-                """
-                        <instructions>
-                        %s
-                        </instructions>
-                        <workspace-toc>
-                        %s
-                        </workspace-toc>
-                        <style_guide>
-                        %s
-                        </style_guide>
-                        """
-                        .formatted(systemIntro(reminder), workspaceSummary, styleGuide)
-                        .trim();
-
-        return new SystemMessage(text);
-    }
-
-    public String systemIntro(String reminder) {
-        return """
+                <instructions>
                 Act as an expert software developer.
                 Always use best practices when coding.
                 Respect and use existing conventions, libraries, etc. that are already present in the code base.
 
                 %s
+                </instructions>
+                <goal>
+                %s
+                </goal>
                 """
-                .formatted(reminder);
+                        .formatted(reminder, goal));
+        messages.add(sys);
+        messages.addAll(getHistoryMessages(ctx));
+        messages.addAll(prologue);
+        messages.addAll(codeAgentWorkspace.workspace());
+        messages.addAll(taskMessages);
+
+        // Append TOC reminder to the request
+        var tocReminder =
+                """
+                \n
+                Reminder: here is a list of the full contents of the Workspace that you can refer to above:
+                %s
+                """
+                        .formatted(WorkspacePrompts.formatToc(ctx, suppressedTypes));
+        var augmentedRequest = new UserMessage(Messages.getText(request) + tocReminder);
+        messages.add(augmentedRequest);
+
+        return messages;
     }
 
-    public UserMessage codeRequest(Context ctx, String input, String reminder) {
+    public UserMessage codeRequest(Context ctx, String input, StreamingChatModel model) {
+        AbstractService service = ctx.getContextManager().getService();
+        var reminder = service.isLazy(model) ? SystemPrompts.LAZY_REMINDER : SystemPrompts.OVEREAGER_REMINDER;
         var instructions =
                 """
                         <instructions>
@@ -428,93 +229,82 @@ public abstract class CodePrompts {
         return new UserMessage(instructions + instructions(input, instructionsFlags(ctx), reminder));
     }
 
-    public UserMessage askRequest(String input) {
-        var text =
+    /**
+     * Result of building retry messages for apply failures.
+     * Contains both the tagged AI message (to replace the last AI message in history)
+     * and the user message with failure details.
+     */
+    public record ApplyRetryMessages(AiMessage taggedAiMessage, UserMessage retryRequest) {}
+
+    /**
+     * Consolidates the construction of retry messages when SEARCH/REPLACE blocks fail to apply.
+     *
+     * @param originalAiText The raw text of the AI's previous response to be tagged.
+     * @param blockResults The outcome of applying the blocks.
+     * @param buildError The current build error, if any.
+     * @return An ApplyRetryMessages containing the tagged AiMessage and retry UserMessage.
+     */
+    public static ApplyRetryMessages buildApplyRetryMessages(
+            String originalAiText, List<EditBlock.ApplyResult> blockResults, String buildError, int startingIndex) {
+        var failures = blockResults.stream().filter(r -> !r.succeeded()).toList();
+        assert !failures.isEmpty();
+
+        // Remove any existing BRK_BLOCK markers before re-tagging
+        var cleanedText = originalAiText.replaceAll("(?m)^\\s*\\[BRK_BLOCK_\\d+\\]\\s*\\n?", "");
+
+        // Build the tagged AI message
+        var taggedText =
                 """
-                        <instructions>
-                        Answer this question about the supplied code thoroughly and accurately.
+        [HARNESS NOTE: some edits in this message failed to apply. Your SEARCH/REPLACE blocks have been tagged
+        with BRK_BLOCK_$N markers that will be referenced in the subsequent feedback.]
+        %s
+        """
+                        .formatted(EditBlockParser.instance.tagBlocks(cleanedText, startingIndex));
+        var taggedAiMessage = new AiMessage(taggedText);
 
-                        Provide insights, explanations, and analysis; do not implement changes.
-                        While you can suggest high-level approaches and architectural improvements, remember that:
-                        - You should focus on understanding and clarifying the code
-                        - The user will make other requests when he wants to actually implement changes
-                        - You are being asked here for conceptual understanding and problem diagnosis
+        // Build the user retry message
+        var sb = new StringBuilder();
+        sb.append("<instructions>\n");
+        sb.append("# SEARCH/REPLACE application results\n\n");
 
-                        Be concise but complete in your explanations. If you need more information to answer a question,
-                        don't hesitate to ask for clarification. If you notice references to code in the Workspace that
-                        you need to see to answer accurately, do your best to take educated guesses but clarify that
-                        it IS an educated guess and ask the user to add the relevant code.
+        var successIndices = java.util.stream.IntStream.range(0, blockResults.size())
+                .filter(i -> blockResults.get(i).succeeded())
+                .mapToObj(i -> "BRK_BLOCK_" + (startingIndex + i + 1))
+                .toList();
+        sb.append("Successful blocks have been merged into the Workspace. You do not need to repeat them. These are: ")
+                .append(successIndices.isEmpty() ? "None" : String.join(", ", successIndices))
+                .append("\n\n");
 
-                        Format your answer with Markdown for readability. It's particularly important to signal
-                        changes in subject with appropriate headings.
-                        </instructions>
-
-                        <question>
-                        %s
-                        </question>
-                        """
-                        .formatted(input);
-        return new UserMessage(text);
-    }
-
-    /** Generates a message based on parse/apply errors from failed edit blocks */
-    public static String getApplyFailureMessage(List<EditBlock.FailedBlock> failedBlocks, int succeededCount) {
-        if (failedBlocks.isEmpty()) {
-            return "";
-        }
-
-        // Group failed blocks by filename
-        var failuresByFile = failedBlocks.stream()
-                .filter(fb -> fb.block().rawFileName() != null) // Only include blocks with filenames
-                .collect(Collectors.groupingBy(fb -> fb.block().rawFileName()));
-
-        int totalFailCount = failedBlocks.size();
-        boolean singularFail = (totalFailCount == 1);
-        var pluralizeFail = singularFail ? "" : "s";
-
-        // Instructions for the LLM
-        String instructions =
+        sb.append(
                 """
-                        <instructions>
-                        # %d SEARCH/REPLACE block%s failed to match in %d files!
+                The other blocks could not be applied. The details follow. Carefully examine the current contents of the corresponding parts of the Workspace, and issue corrected SEARCH/REPLACE blocks if the intended changes are still necessary.
+                """);
 
-                        Take a look at the CURRENT state of the relevant file%s provided above in the editable Workspace.
-                        If the failed edits listed in the `<failed_blocks>` tags are still needed, please correct them based on the current content.
-                        Remember that SEARCH/REPLACE ignores leading and trailing whitespace, so look for material, non-whitespace mismatches.
-                        If the SEARCH text looks correct, double-check the filename too.
+        sb.append("</instructions>\n\n");
 
-                        Provide corrected SEARCH/REPLACE blocks for the failed edits only.
-                        </instructions>
-                        """
-                        .formatted(totalFailCount, pluralizeFail, failuresByFile.size(), pluralizeFail);
+        // Track original block indices (1-based) for each failure
+        record IndexedFailure(EditBlock.ApplyResult result, int blockIndex) {}
+        var indexedFailures = java.util.stream.IntStream.range(0, blockResults.size())
+                .filter(i -> !blockResults.get(i).succeeded())
+                .mapToObj(i -> new IndexedFailure(blockResults.get(i), startingIndex + i + 1))
+                .toList();
+
+        var failuresByFile = indexedFailures.stream()
+                .filter(f -> f.result().block().rawFileName() != null)
+                .collect(Collectors.groupingBy(
+                        f -> requireNonNull(f.result().block().rawFileName()),
+                        Collectors.collectingAndThen(Collectors.toList(), list -> list.stream()
+                                .sorted(java.util.Comparator.comparingInt(IndexedFailure::blockIndex))
+                                .toList())));
 
         String fileDetails = failuresByFile.entrySet().stream()
                 .map(entry -> {
                     var filename = entry.getKey();
                     var fileFailures = entry.getValue();
 
-                    String failedBlocksXml = fileFailures.stream()
-                            .map(f -> {
-                                var enriched = enrichSemanticCommentary(f);
-                                var commentaryText = enriched.isBlank()
-                                        ? ""
-                                        : """
-                                        <commentary>
-                                        %s
-                                        </commentary>
-                                        """
-                                                .formatted(enriched);
-                                return """
-                                        <failed_block reason="%s">
-                                        <block>
-                                        %s
-                                        %s
-                                        </block>
-                                        </failed_block>
-                                        """
-                                        .formatted(f.reason(), f.block().repr(), commentaryText);
-                            })
-                            .collect(Collectors.joining("\n"));
+                    String failedBlocksList = fileFailures.stream()
+                            .map(f -> formatBlockFailure(f.result(), f.blockIndex()))
+                            .collect(Collectors.joining("\n\n"));
 
                     return """
                             <target_file name="%s">
@@ -523,33 +313,37 @@ public abstract class CodePrompts {
                             </failed_blocks>
                             </target_file>
                             """
-                            .formatted(filename, failedBlocksXml)
-                            .stripIndent();
+                            .formatted(filename, failedBlocksList);
                 })
                 .collect(Collectors.joining("\n\n"));
 
-        // Add info about successful blocks, if any
-        String successNote = "";
-        if (succeededCount > 0) {
-            boolean singularSuccess = (succeededCount == 1);
-            var pluralizeSuccess = singularSuccess ? "" : "s";
-            successNote =
+        sb.append(fileDetails);
+
+        if (!buildError.isBlank() && successIndices.isEmpty()) {
+            sb.append(
                     """
-                            <note>
-                            The other %d SEARCH/REPLACE block%s applied successfully. Do not re-send them. Just fix the failing blocks detailed above.
-                            </note>
-                            """
-                            .formatted(succeededCount, pluralizeSuccess);
+            <reminder>
+              The build is currently failing; the details are in the conversation history.
+              If no edits are made, the task will fail. Still, the guidance from earlier
+              applies: better to fail fast than guess if you do not have the correct files
+              or APIs in the Workspace to solve the problem accurately.
+            </reminder>
+            """);
         }
 
-        // Construct the full message for the LLM
-        return """
-                %s
+        return new ApplyRetryMessages(
+                taggedAiMessage, new UserMessage(sb.toString().trim()));
+    }
 
-                %s
-                %s
-                """
-                .formatted(instructions, fileDetails, successNote);
+    private static String formatBlockFailure(EditBlock.ApplyResult f, int blockIndex) {
+        var enriched = enrichSemanticCommentary(f);
+        var blockTag = "BRK_BLOCK_%d".formatted(blockIndex);
+
+        if (enriched.isBlank()) {
+            return "%s: %s".formatted(blockTag, f.reason());
+        } else {
+            return "%s: %s\n- %s".formatted(blockTag, f.reason(), enriched.replace("\n", "\n- "));
+        }
     }
 
     /**
@@ -557,8 +351,8 @@ public abstract class CodePrompts {
      * Preserves existing analyzer commentary (which may already include "Did you mean ..." suggestions),
      * and appends actionable guidance depending on failure reason and marker type.
      */
-    private static String enrichSemanticCommentary(EditBlock.FailedBlock f) {
-        var base = f.commentary().trim();
+    private static String enrichSemanticCommentary(EditBlock.ApplyResult f) {
+        var base = f.commentary() == null ? "" : f.commentary().trim();
 
         // Try to detect semantic markers in the original SEARCH block
         var before = f.block().beforeText().strip();
@@ -572,7 +366,7 @@ public abstract class CodePrompts {
 
         var hints = new ArrayList<String>();
 
-        switch (f.reason()) {
+        switch (requireNonNull(f.reason())) {
             case NO_MATCH -> {
                 if ("CLASS".equals(kind)) {
                     hints.add("- Verify the fully qualified class name (package.ClassName).");
@@ -594,11 +388,8 @@ public abstract class CodePrompts {
                     hints.add(
                             "- Alternatively, modify only one method at a time by targeting it with a unique line-based SEARCH.");
                 }
-                // For BRK_CLASS ambiguity we don't add extra guidance (not a typical case).
             }
-            default -> {
-                // No extra guidance for other reasons
-            }
+            default -> {}
         }
 
         if (hints.isEmpty()) {
@@ -613,315 +404,9 @@ public abstract class CodePrompts {
         return (base + (base.endsWith("\n") ? "" : "\n") + guidance).trim();
     }
 
-    /**
-     * Returns messages containing only the read-only workspace content (files, virtual fragments, etc.). Does not
-     * include editable content or related classes.
-     *
-     * @param ctx The context to process.
-     * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
-     * @param vp The viewing policy to apply for content visibility; defaults to NONE if not specified.
-     * @return A collection of ChatMessages (empty if no content).
-     */
-    @Blocking
-    public final Collection<ChatMessage> getWorkspaceReadOnlyMessages(
-            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
-        return getWorkspaceReadOnlyMessagesInternal(ctx, combineSummaries, vp);
-    }
-
-    /**
-     * Internal implementation of getWorkspaceReadOnlyMessages that applies the viewing policy.
-     */
-    private Collection<ChatMessage> getWorkspaceReadOnlyMessagesInternal(
-            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
-        // --- Partition Read-Only Fragments ---
-        var readOnlyFragments = ctx.getReadonlyFragments().toList();
-        var summaryFragments = combineSummaries
-                ? readOnlyFragments.stream()
-                        .filter(ContextFragments.SummaryFragment.class::isInstance)
-                        .map(ContextFragments.SummaryFragment.class::cast)
-                        .toList()
-                : List.<ContextFragments.SummaryFragment>of();
-        var otherFragments = combineSummaries
-                ? readOnlyFragments.stream()
-                        .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
-                        .toList()
-                : readOnlyFragments;
-
-        // --- Format non-summary fragments using the policy ---
-        var rendered = formatWithPolicy(otherFragments, vp);
-        var combinedText = new StringBuilder(rendered.text);
-
-        // --- Append summary fragments if present ---
-        if (!summaryFragments.isEmpty()) {
-            var summaryText = ContextFragments.SummaryFragment.combinedText(summaryFragments);
-            var combinedBlock =
-                    """
-                            <api_summaries fragmentid="api_summaries">
-                            %s
-                            </api_summaries>
-                            """
-                            .formatted(summaryText);
-            if (!rendered.text.isEmpty()) {
-                combinedText.append("\n\n");
-            }
-            combinedText.append(combinedBlock).append("\n\n");
-        }
-
-        // --- Return early if nothing to show ---
-        if (combinedText.isEmpty() && rendered.images.isEmpty()) {
-            return List.of();
-        }
-
-        // --- Compose final workspace_readonly message ---
-        String readOnlyText =
-                """
-                        <workspace_readonly>
-                        Here are the READ ONLY files and code fragments in your Workspace.
-                        Do not edit this code! Images will be included separately if present.
-
-                        %s
-                        </workspace_readonly>
-                        """
-                        .formatted(combinedText.toString().trim());
-
-        var allContents = new ArrayList<Content>();
-        allContents.add(new TextContent(readOnlyText));
-        allContents.addAll(rendered.images);
-
-        var readOnlyUserMessage = UserMessage.from(allContents);
-        return List.of(readOnlyUserMessage, new AiMessage("Thank you for the read-only context."));
-    }
-
-    /**
-     * Returns messages containing only the editable workspace content. Does not include read-only content or related
-     * classes.
-     */
-    @Blocking
-    public final Collection<ChatMessage> getWorkspaceEditableMessages(Context ctx) {
-        // --- Process Editable Fragments ---
-        var editableTextFragments = new StringBuilder();
-        ctx.getEditableFragments().forEach(fragment -> {
-            String formatted = fragment.format().join(); // format() on live fragment
-            if (!formatted.isBlank()) {
-                editableTextFragments.append(formatted).append("\n\n");
-            }
-        });
-
-        if (editableTextFragments.isEmpty()) {
-            return List.of();
-        }
-
-        String editableText =
-                """
-                        <workspace_editable>
-                        Here are the EDITABLE files and code fragments in your Workspace.
-                        This is *the only context in the Workspace to which you should make changes*.
-
-                        *Trust this message as the true contents of these files!*
-                        Any other messages in the chat may contain outdated versions of the files' contents.
-
-                        %s
-                        </workspace_editable>
-                        """
-                        .formatted(editableTextFragments.toString().trim());
-
-        var editableUserMessage = new UserMessage(editableText);
-        return List.of(editableUserMessage, new AiMessage("Thank you for the editable context."));
-    }
-
-    /**
-     * Constructs the ChatMessage(s) representing the current workspace context (read-only and editable
-     * files/fragments). Handles both text and image fragments, creating a multimodal UserMessage if necessary.
-     *
-     * @param ctx The context to process.
-     * @param combineSummaries If true, coalesce multiple SummaryFragments into a single combined block.
-     * @param vp The viewing policy to apply for content visibility; uses default if null.
-     * @return A collection containing one UserMessage (potentially multimodal) and one AiMessage acknowledgment, or
-     *     empty if no content.
-     */
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(
-            Context ctx, boolean combineSummaries, ViewingPolicy vp) {
-        var readOnlyMessages = getWorkspaceReadOnlyMessages(ctx, combineSummaries, vp);
-        var editableMessages = getWorkspaceEditableMessages(ctx);
-
-        return getWorkspaceContentsMessages(readOnlyMessages, editableMessages);
-    }
-
-    /**
-     * Convenience overload for getWorkspaceContentsMessages with a viewing policy.
-     *
-     * @param ctx The context to process.
-     * @param vp The viewing policy to apply for content visibility.
-     * @return A collection containing workspace messages with applied viewing policy.
-     */
-    public final Collection<ChatMessage> getWorkspaceContentsMessages(Context ctx, ViewingPolicy vp) {
-        return getWorkspaceContentsMessages(ctx, false, vp);
-    }
-
-    /**
-     * Internal helper to render a list of fragments in the given order.
-     * Converts text fragments to formatted strings and image fragments to ImageContent objects.
-     * Returns both the combined text and the list of images.
-     */
-    private static final class RenderedContent {
-        final String text;
-        final List<ImageContent> images;
-
-        RenderedContent(String text, List<ImageContent> images) {
-            this.text = text;
-            this.images = images;
-        }
-    }
-
-    /**
-     * Formats fragments according to a viewing policy, rendering text and collecting images.
-     * Applies ViewingPolicy to StringFragments when provided (vp != null).
-     */
-    @Blocking
-    private RenderedContent formatWithPolicy(List<ContextFragment> fragments, @Nullable ViewingPolicy vp) {
-        var textBuilder = new StringBuilder();
-        var imageList = new ArrayList<ImageContent>();
-
-        for (var fragment : fragments) {
-            if (fragment.isText()) {
-                String formatted;
-                if (vp != null && fragment instanceof ContextFragments.StringFragment sf) {
-                    var visibleText = sf.textForAgent(vp);
-                    formatted =
-                            """
-                                    <fragment description="%s" fragmentid="%s">
-                                    %s
-                                    </fragment>
-                                    """
-                                    .formatted(sf.description().join(), sf.id(), visibleText);
-                } else {
-                    formatted = fragment.format().join();
-                }
-                if (!formatted.isBlank()) {
-                    textBuilder.append(formatted).append("\n\n");
-                }
-            } else if (fragment.getType() == ContextFragment.FragmentType.IMAGE_FILE
-                    || fragment.getType() == ContextFragment.FragmentType.PASTE_IMAGE) {
-                try {
-                    var imageBytesCv = Objects.requireNonNull(fragment.imageBytes(), "Image bytes were null");
-                    var l4jImage = ImageUtil.toL4JImage(ImageUtil.bytesToImage(imageBytesCv.join()));
-                    imageList.add(ImageContent.from(l4jImage));
-                    textBuilder.append(fragment.format().join()).append("\n\n");
-                } catch (IOException | UncheckedIOException e) {
-                    var description = fragment.description().join();
-                    logger.error("Failed to process image fragment {} for LLM message", description, e);
-                    textBuilder.append(
-                            String.format("[Error processing image: %s - %s]\n\n", description, e.getMessage()));
-                }
-            } else {
-                String formatted = fragment.format().join();
-                if (!formatted.isBlank()) {
-                    textBuilder.append(formatted).append("\n\n");
-                }
-            }
-        }
-
-        return new RenderedContent(textBuilder.toString().trim(), imageList);
-    }
-
-    private List<ChatMessage> getWorkspaceContentsMessages(
-            Collection<ChatMessage> readOnlyMessages, Collection<ChatMessage> editableMessages) {
-        // If both are empty and no related classes requested, return empty
-        if (readOnlyMessages.isEmpty() && editableMessages.isEmpty()) {
-            return List.of();
-        }
-
-        var allContents = new ArrayList<Content>();
-        var combinedText = new StringBuilder();
-
-        // Extract text and image content from read-only messages
-        if (!readOnlyMessages.isEmpty()) {
-            var readOnlyUserMessage = readOnlyMessages.stream()
-                    .filter(UserMessage.class::isInstance)
-                    .map(UserMessage.class::cast)
-                    .findFirst();
-            if (readOnlyUserMessage.isPresent()) {
-                var contents = readOnlyUserMessage.get().contents();
-                for (var content : contents) {
-                    if (content instanceof TextContent textContent) {
-                        combinedText.append(textContent.text()).append("\n\n");
-                    } else if (content instanceof ImageContent imageContent) {
-                        allContents.add(imageContent);
-                    }
-                }
-            }
-        }
-
-        // Extract text from editable messages
-        if (!editableMessages.isEmpty()) {
-            var editableUserMessage = editableMessages.stream()
-                    .filter(UserMessage.class::isInstance)
-                    .map(UserMessage.class::cast)
-                    .findFirst();
-            if (editableUserMessage.isPresent()) {
-                var contents = editableUserMessage.get().contents();
-                for (var content : contents) {
-                    if (content instanceof TextContent textContent) {
-                        combinedText.append(textContent.text()).append("\n\n");
-                    }
-                }
-            }
-        }
-
-        // Wrap everything in workspace tags
-        var workspaceText =
-                """
-                        <workspace>
-                        %s
-                        </workspace>
-                        """
-                        .formatted(combinedText.toString().trim());
-
-        // Add the workspace text as the first content
-        allContents.addFirst(new TextContent(workspaceText));
-
-        // Create the main UserMessage
-        var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
-    }
-
-    /**
-     * Same as getWorkspaceMessagesInAddedOrder(Context) but applies a ViewingPolicy:
-     * - Redacts special StringFragments (e.g., Task List) when policy denies visibility.
-     * - Preserves insertion order and multimodal content.
-     */
-    @Blocking
-    public final Collection<ChatMessage> getWorkspaceMessagesInAddedOrder(Context ctx, ViewingPolicy vp) {
-        var allFragments = ctx.allFragments().toList();
-        if (allFragments.isEmpty()) {
-            return List.of();
-        }
-
-        var rendered = formatWithPolicy(allFragments, vp);
-        if (rendered.text.isEmpty() && rendered.images.isEmpty()) {
-            return List.of();
-        }
-
-        var allContents = new ArrayList<Content>();
-        var workspaceText =
-                """
-                        <workspace>
-                        %s
-                        </workspace>
-                        """
-                        .formatted(rendered.text);
-
-        allContents.add(new TextContent(workspaceText));
-        allContents.addAll(rendered.images);
-
-        var workspaceUserMessage = UserMessage.from(allContents);
-        return List.of(workspaceUserMessage, new AiMessage("Thank you for providing these Workspace contents."));
-    }
-
     public List<ChatMessage> getHistoryMessages(Context ctx) {
         var taskHistory = ctx.getTaskHistory();
         var messages = new ArrayList<ChatMessage>();
-        EditBlockParser parser = EditBlockParser.instance;
 
         // Merge compressed messages into a single taskhistory message
         var compressed = taskHistory.stream()
@@ -944,7 +429,7 @@ public abstract class CodePrompts {
             List<ChatMessage> processedMessages = new ArrayList<>();
             for (var chatMessage : relevantEntryMessages) {
                 if (chatMessage instanceof AiMessage aiMessage) {
-                    redactAiMessage(aiMessage, parser).ifPresent(processedMessages::add);
+                    redactAiMessage(aiMessage).ifPresent(processedMessages::add);
                 } else {
                     // Not an AiMessage (e.g., UserMessage, CustomMessage), add as is
                     processedMessages.add(chatMessage);
@@ -1047,72 +532,72 @@ public abstract class CodePrompts {
 
         String hints = String.join("\n", hintLines);
 
-        var examples = buildExamples(flags);
+        var examples = EditBlockExamples.buildExamples(flags);
         var searchTypePriority = buildSearchTypePriority(flags);
 
         return """
-                <rules>
-                # EXTENDED *SEARCH/REPLACE block* Rules:
+        <rules>
+        # EXTENDED *SEARCH/REPLACE block* Rules:
 
-                %s%sEvery *SEARCH/REPLACE block* must use this format:
-                1. The opening fence: ```
-                2. The *FULL* file path alone on a line, verbatim. No comment tokens, no bold asterisks, no quotes, no escaping of characters, etc.
-                3. The start of search block: <<<<<<< SEARCH
-                %s
-                5. The dividing line: =======
-                6. The lines to replace into the source code
-                7. The end of the replace block: >>>>>>> REPLACE
-                8. The closing fence: ```
+        %s%sEvery *SEARCH/REPLACE block* must use this format:
+        1. The opening fence: ```
+        2. The *FULL* file path alone on a line, verbatim. No comment tokens, no bold asterisks, no quotes, no escaping of characters, etc.
+        3. The start of search block: <<<<<<< SEARCH
+        %s
+        5. The dividing line: =======
+        6. The lines to replace into the source code
+        7. The end of the replace block: >>>>>>> REPLACE
+        8. The closing fence: ```
 
-                ALWAYS use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
+        ALWAYS use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
 
-                ALWAYS base SEARCH/REPLACE blocks on the editable code in the Workspace. Excerpts of code or pseudocode
-                may be given in your goal, but this is NOT a source of truth of the current files' contents.
+        ALWAYS base SEARCH/REPLACE blocks on the editable code in the Workspace. Excerpts of code or pseudocode
+        may be given in your goal, but this is NOT a source of truth of the current files' contents.
 
-                ## Examples (format only; illustrative, not real code)
-                Follow these patterns exactly when you emit edits.
-                %s
+        ## Examples (format only; illustrative, not real code)
+        Follow these patterns exactly when you emit edits.
+        %s
 
-                *SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH payload matches multiple occurrences in the content.
-                For line-based edits, this means you must include enough lines to uniquely match each set of lines that need to change,
-                and avoid using syntax-aware edits for overloaded functions.
+        *SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH payload matches multiple occurrences in the content.
+        For line-based edits, this means you must include enough lines to uniquely match each set of lines that need to change,
+        and avoid using syntax-aware edits for overloaded functions.
 
-                Keep *SEARCH/REPLACE* blocks concise.
-                Break large changes into a series of smaller blocks that each change a small portion.
+        Keep *SEARCH/REPLACE* blocks concise.
+        Break large changes into a series of smaller blocks that each change a small portion.
 
-                Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
-                If you want to move code within a filename, use 2 blocks: one to delete from the old location,
-                and one to insert in the new location.
+        Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
+        If you want to move code within a filename, use 2 blocks: one to delete from the old location,
+        and one to insert in the new location.
 
-                Pay attention to which filenames the user wants you to edit, especially if they are asking
-                you to create a new filename.
+        Pay attention to which filenames the user wants you to edit, especially if they are asking
+        you to create a new filename.
 
-                If the user just says something like "ok" or "go ahead" or "do that", they probably want you
-                to make SEARCH/REPLACE blocks for the code changes you just proposed.
-                The user will say when they've applied your edits.
-                If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
+        If the user just says something like "ok" or "go ahead" or "do that", they probably want you
+        to make SEARCH/REPLACE blocks for the code changes you just proposed.
+        The user will say when they've applied your edits.
+        If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
 
-                NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
-                use vanilla ascii single and double quotes.
+        NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
+        use vanilla ascii single and double quotes.
 
-                When generating *SEARCH/REPLACE* blocks, choose the most precise SEARCH type that fits your change:
-                %s
-                **IMPORTANT**: The `BRK_` tokens are NEVER part of the file content, they are entity locators used only in SEARCH.
-                When writing REPLACE blocks, do **not** repeat the `BRK_` line.
-                The REPLACE block must ALWAYS contain ONLY the valid code (annotations, signature, body) that will overwrite the target.
+        When generating *SEARCH/REPLACE* blocks, choose the most precise SEARCH type that fits your change:
+        %s
+        **IMPORTANT**: The `BRK_` tokens are NEVER part of the file content, they are entity locators used only in SEARCH.
+        When writing REPLACE blocks, do **not** repeat the `BRK_` line.
+        The REPLACE block must ALWAYS contain ONLY the valid code (annotations, signature, body) that will overwrite the target.
 
-                # General
-                Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
+        #General
+        Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
 
-                Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
+        Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
 
-                %s
-                </rules>
+        %s
+        </rules>
 
-                <goal>
-                %s
-                </goal>
-                """
+        <goal>
+        %s
+        </goal>
+        """
                 .formatted(intro, searchTypePriority, searchContents, examples, hints, reminder, input);
     }
 
@@ -1144,298 +629,15 @@ public abstract class CodePrompts {
                 + " | `BRK_ENTIRE_FILE` | Creating a new file or intentionally rewriting most of an existing file |");
 
         return """
-                ## SEARCH Type Priority
+        ## SEARCH Type Priority
 
-                Use the first row whose description matches the change you need:
+        Use the first row whose description matches the change you need:
 
-                | Priority | Type | When to use |
-                |----------|------|-------------|
-                %s
+        | Priority | Type | When to use |
+        |----------|------|-------------|
+        %s
 
-                """
+        """
                 .formatted(String.join("\n", rows));
-    }
-
-    /**
-     * Builds example SEARCH/REPLACE blocks that demonstrate correct formatting.
-     *
-     * <p>The examples use a single Java source file (src/main/java/com/acme/Foo.java) and show:
-     * - A "Before" workspace excerpt (when MERGE_AGENT_MARKERS is enabled, this includes an actual conflict block)
-     * - Line-based SEARCH edits (including adding new code)
-     * - Optional syntax-aware edits (BRK_FUNCTION and BRK_CLASS) when enabled
-     * - A full-file replacement using BRK_ENTIRE_FILE
-     * - Optional conflict-range fix using BRK_CONFLICT_1 when MERGE_AGENT_MARKERS is enabled
-     *
-     * <p>The examples are illustrative only and intended to show the exact wire format, not working diffs against a
-     * real repository.
-     */
-    private static String buildExamples(Set<InstructionsFlags> flags) {
-        var parts = new ArrayList<String>();
-
-        // ---------- BEFORE: current workspace excerpt ----------
-        // If MERGE_AGENT_MARKERS is enabled, show an actual conflict block in the file.
-        var before = flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)
-                ? """
-                ### Before: Current Workspace excerpt (with conflict markers present)
-
-                <workspace_example>
-                  <file path="src/main/java/com/acme/Foo.java" fragmentid="1">
-                  package com.acme;
-
-                  import java.util.List;
-                  import java.util.Objects;
-
-                  public class Foo {
-                      public int compute(int a, int b) {
-                          // naive implementation
-                          return a + b;
-                      }
-
-                      /** A friendly greeting. */
-                      public String greet(String name) {
-                          return "Hello, " + name + "!";
-                      }
-
-                      // The Merge Agent has wrapped a Git-style conflict inside custom markers.
-                      BRK_CONFLICT_BEGIN_1
-                      <<<<<<< HEAD
-                      private static int fib(int n) {
-                          if (n <= 1) return n;
-                          return fib(n - 1) + fib(n - 2);
-                      }
-                      =======
-                      private static int fib(int n) {
-                          if (n < 2) return n;
-                          int a = 0, b = 1;
-                          for (int i = 2; i <= n; i++) {
-                              int tmp = a + b;
-                              a = b;
-                              b = tmp;
-                          }
-                          return b;
-                      }
-                      >>>>>>> feature/iterative-fib
-                      BRK_CONFLICT_END_1
-                  }
-                  </file>
-                </workspace_example>
-                """
-                : """
-                ### Before: Current Workspace excerpt
-
-                <workspace_example>
-                  <file path="src/main/java/com/acme/Foo.java" fragmentid="1">
-                  package com.acme;
-
-                  import java.util.List;
-                  import java.util.Objects;
-
-                  public class Foo {
-                      public int compute(int a, int b) {
-                          // naive implementation
-                          return a + b;
-                      }
-
-                      /** A friendly greeting. */
-                      public String greet(String name) {
-                          return "Hello, " + name + "!";
-                      }
-
-                      private static int fib(int n) {
-                          if (n <= 1) return n;
-                          return fib(n - 1) + fib(n - 2);
-                      }
-                  }
-                  </file>
-                </workspace_example>
-                """;
-
-        parts.add(before);
-
-        int ex = 1;
-
-        // ---------- Example 1: Line-based SEARCH (modify existing code) ----------
-        parts.add(
-                """
-                        ### Example %d — Line-based SEARCH (modify a fragment outside of a method)
-
-                        ```
-                        src/main/java/com/acme/Foo.java
-                        <<<<<<< SEARCH
-                        import java.util.List;
-                        import java.util.Objects;
-                        =======
-                        import java.util.List;
-                        >>>>>>> REPLACE
-                        ```
-                        """
-                        .formatted(ex++));
-
-        // ---------- Example 2: Line-based SEARCH to add new code ----------
-        parts.add(
-                """
-                        ### Example %d — Line-based SEARCH to add a new inner class
-
-                        Use this pattern when adding new classes, methods, or fields to an existing file, by
-                        targeting the location where the new code should appear.
-
-                        ```
-                        src/main/java/com/acme/Foo.java
-                        <<<<<<< SEARCH
-                                if (n <= 1) return n;
-                                return fib(n - 1) + fib(n - 2);
-                            }
-                        }
-                        =======
-                                if (n <= 1) return n;
-                                return fib(n - 1) + fib(n - 2);
-                            }
-
-                            /** A simple value holder. */
-                            public static class Result {
-                                public final int value;
-
-                                public Result(int value) {
-                                    this.value = value;
-                                }
-                            }
-                        }
-                        >>>>>>> REPLACE
-                        ```
-                        """
-                        .formatted(ex++));
-
-        // ---------- Syntax-aware examples (only if enabled) ----------
-        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
-            // BRK_FUNCTION: replace a single method by fully qualified name
-            parts.add(
-                    """
-                            ### Example %d — Syntax-aware SEARCH for a function (BRK_FUNCTION)
-
-                            This replaces the method's signature and body, including the header comment block (e.g., JavaDoc).
-
-                            ```
-                            src/main/java/com/acme/Foo.java
-                            <<<<<<< SEARCH
-                            BRK_FUNCTION com.acme.Foo.greet
-                            =======
-                            /**
-                             * Returns a greeting for the given name.
-                             * @param name the name to greet.
-                             * @return the greeting string.
-                             */
-                            public String greet(String name) {
-                                return "Hi, " + name;
-                            }
-                            >>>>>>> REPLACE
-                            ```
-                            """
-                            .formatted(ex++));
-
-            // BRK_CLASS: replace the entire class body by fully qualified name
-            // Note: For BRK_CLASS, provide the class block (not package/imports) as the replacement.
-            parts.add(
-                    """
-                            ### Example %d — Syntax-aware SEARCH for an entire class (BRK_CLASS)
-
-                            ```
-                            src/main/java/com/acme/Foo.java
-                            <<<<<<< SEARCH
-                            BRK_CLASS com.acme.Foo
-                            =======
-                            public class Foo {
-                                public int compute(int a, int b) {
-                                    return Math.addExact(a, b);
-                                }
-
-                                public String greet(String name) {
-                                    return "Hello, " + name + "!";
-                                }
-
-                                private static int fib(int n) {
-                                    if (n < 2) return n;
-                                    int a = 0, b = 1;
-                                    for (int i = 2; i <= n; i++) {
-                                        int tmp = a + b;
-                                        a = b;
-                                        b = tmp;
-                                    }
-                                    return b;
-                                }
-                            }
-                            >>>>>>> REPLACE
-                            ```
-                            """
-                            .formatted(ex++));
-        }
-
-        // ---------- Example: Full-file replacement using BRK_ENTIRE_FILE ----------
-        parts.add(
-                """
-                        ### Example %d — Full-file replacement (BRK_ENTIRE_FILE)
-
-                        ```
-                        src/main/java/com/acme/Foo.java
-                        <<<<<<< SEARCH
-                        BRK_ENTIRE_FILE
-                        =======
-                        package com.acme;
-
-                        public class Foo {
-                            public int compute(int a, int b) {
-                                return Math.addExact(a, b);
-                            }
-
-                            public String greet(String name) {
-                                return "Hello, " + name + "!";
-                            }
-
-                            private static int fib(int n) {
-                                if (n < 2) return n;
-                                int a = 0, b = 1;
-                                for (int i = 2; i <= n; i++) {
-                                    int next = Math.addExact(a, b);
-                                    a = b;
-                                    b = next;
-                                }
-                                return b;
-                            }
-                        }
-                        >>>>>>> REPLACE
-                        ```
-                        """
-                        .formatted(ex++));
-
-        // ---------- Conflict-range fix (only if enabled) ----------
-        if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
-            parts.add(
-                    """
-                            ### Example %d — Conflict range fix (BRK_CONFLICT markers)
-
-                            The SEARCH is a **single line** that targets the entire conflict region, regardless of its contents.
-                            Replace that region with the resolved implementation.
-
-                            ```
-                            src/main/java/com/acme/Foo.java
-                            <<<<<<< SEARCH
-                            BRK_CONFLICT_1
-                            =======
-                            private static int fib(int n) {
-                                if (n < 2) return n;
-                                int a = 0, b = 1;
-                                for (int i = 2; i <= n; i++) {
-                                    int tmp = Math.addExact(a, b);
-                                    a = b;
-                                    b = tmp;
-                                }
-                                return b;
-                            }
-                            >>>>>>> REPLACE
-                            ```
-                            """
-                            .formatted(ex++));
-        }
-
-        return String.join("\n\n", parts).strip();
     }
 }

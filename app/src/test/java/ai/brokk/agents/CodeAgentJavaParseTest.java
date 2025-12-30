@@ -9,7 +9,6 @@ import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -30,16 +29,17 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                new LinkedHashSet<>(), // pending blocks
                 0, // parse failures
                 0, // apply failures
                 0, // build failures
                 1, // blocksAppliedWithoutBuild
+                0, // totalBlocksParsed
                 "", // lastBuildError
                 new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
                 new HashMap<>(), // originalFileContents
-                new HashMap<>() // javaLintDiagnostics
-                );
+                new HashMap<>(), // javaLintDiagnostics
+                false,
+                false);
         var step = codeAgent.parseJavaPhase(cs, es, null);
         return new JavaParseResult(javaFile, step);
     }
@@ -182,7 +182,7 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                new LinkedHashSet<>(), 0, 0, 0, 1, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>());
+                0, 0, 0, 1, 0, "", new HashSet<>(Set.of(f1, f2)), new HashMap<>(), new HashMap<>(), false, false);
 
         var result = codeAgent.parseJavaPhase(cs, es, null);
         var diags = result.es().javaLintDiagnostics();
@@ -445,16 +445,17 @@ public class CodeAgentJavaParseTest extends CodeAgentTest {
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
         var es = new CodeAgent.EditState(
-                new LinkedHashSet<>(), // pending blocks
                 0, // parse failures
                 0, // apply failures
                 0, // build failures
                 0, // blocksAppliedWithoutBuild => skip parse phase
+                0, // totalBlocksParsed
                 "", // lastBuildError
                 new HashSet<>(Set.of(javaFile)), // changedFiles includes the Java file
                 new HashMap<>(), // originalFileContents
-                new HashMap<>() // javaLintDiagnostics
-                );
+                new HashMap<>(), // javaLintDiagnostics
+                false,
+                false);
         var step = codeAgent.parseJavaPhase(cs, es, null);
 
         assertTrue(

@@ -139,7 +139,7 @@ public class Llm {
     final IContextManager contextManager;
     private static final int DEFAULT_MAX_ATTEMPTS = 8;
     private final int MAX_ATTEMPTS;
-    private final StreamingChatModel model;
+    private StreamingChatModel model;
     private final boolean allowPartialResponses;
     private final boolean forceReasoningEcho;
     private final boolean tagRetain;
@@ -1718,6 +1718,10 @@ public class Llm {
 
     public StreamingChatModel getModel() {
         return this.model;
+    }
+
+    public void setModel(StreamingChatModel model) {
+        this.model = model;
     }
 
     @Override

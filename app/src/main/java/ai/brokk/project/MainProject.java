@@ -344,12 +344,17 @@ public final class MainProject extends AbstractProject {
             try {
                 var details = objectMapper.readValue(json, BuildAgent.BuildDetails.class);
 
-                // Canonicalize excluded directories relative to the master root for config, preserving insertion order
-                var canonicalExcludes = new LinkedHashSet<String>();
-                for (String r : details.excludedDirectories()) {
-                    String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
-                    if (!c.isBlank()) {
-                        canonicalExcludes.add(c);
+                // Canonicalize exclusion patterns that look like paths
+                var canonicalExclusions = new LinkedHashSet<String>();
+                for (String pattern : details.exclusionPatterns()) {
+                    // Only canonicalize patterns that look like directory paths (contain / or \)
+                    if (pattern.contains("/") || pattern.contains("\\")) {
+                        String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                        if (!c.isBlank()) {
+                            canonicalExclusions.add(c);
+                        }
+                    } else {
+                        canonicalExclusions.add(pattern);
                     }
                 }
 
@@ -375,7 +380,7 @@ public final class MainProject extends AbstractProject {
                         details.buildLintCommand(),
                         details.testAllCommand(),
                         details.testSomeCommand(),
-                        canonicalExcludes,
+                        canonicalExclusions,
                         canonicalEnv);
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
@@ -392,12 +397,17 @@ public final class MainProject extends AbstractProject {
     @Override
     public void saveBuildDetails(BuildAgent.BuildDetails details) {
         // Build canonical details for stable on-disk representation
-        // 1) Canonicalize excluded directories relative to masterRootPathForConfig, preserving insertion order
-        var canonicalExcludes = new LinkedHashSet<String>();
-        for (String r : details.excludedDirectories()) {
-            String c = PathNormalizer.canonicalizeForProject(r, getMasterRootPathForConfig());
-            if (!c.isBlank()) {
-                canonicalExcludes.add(c);
+        // 1) Canonicalize exclusion patterns that look like paths
+        var canonicalExclusions = new LinkedHashSet<String>();
+        for (String pattern : details.exclusionPatterns()) {
+            // Only canonicalize patterns that look like directory paths (contain / or \)
+            if (pattern.contains("/") || pattern.contains("\\")) {
+                String c = PathNormalizer.canonicalizeForProject(pattern, getMasterRootPathForConfig());
+                if (!c.isBlank()) {
+                    canonicalExclusions.add(c);
+                }
+            } else {
+                canonicalExclusions.add(pattern);
             }
         }
 
@@ -421,7 +431,7 @@ public final class MainProject extends AbstractProject {
                 details.buildLintCommand(),
                 details.testAllCommand(),
                 details.testSomeCommand(),
-                canonicalExcludes,
+                canonicalExclusions,
                 canonicalEnv);
 
         if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
@@ -1299,10 +1309,6 @@ public final class MainProject extends AbstractProject {
     // Allowed values persisted: "legacy", "native". If unset/blank/unrecognized, treated as "default".
     private static final String WATCH_SERVICE_IMPL_KEY = "watchServiceImpl";
 
-    // Keys for history auto-compression settings
-    private static final String HISTORY_AUTO_COMPRESS_KEY = "historyAutoCompress";
-    private static final String HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY = "historyAutoCompressThresholdPercent";
-
     /**
      * Returns the persisted watch service implementation preference.
      *
@@ -1344,44 +1350,6 @@ public final class MainProject extends AbstractProject {
         }
         saveGlobalProperties(props);
         logger.debug("Set watch service implementation preference to {}", normalized);
-    }
-
-    /**
-     * Returns whether automatic history compression is enabled.
-     * Enabled by default to help manage conversation context size.
-     *
-     * @return true if history auto-compression is enabled, false otherwise
-     */
-    public static boolean getHistoryAutoCompress() {
-        var props = loadGlobalProperties();
-        return Boolean.parseBoolean(props.getProperty(HISTORY_AUTO_COMPRESS_KEY, "true"));
-    }
-
-    /**
-     * Returns the threshold percentage for auto-compressing conversation history.
-     * When the token count of history exceeds this percentage of the model's max input tokens,
-     * automatic compression is triggered.
-     *
-     * @return threshold as a percentage (e.g., 70 means 70%), clamped to [10, 95]
-     */
-    public static int getHistoryAutoCompressThresholdPercent() {
-        var props = loadGlobalProperties();
-        String value = props.getProperty(HISTORY_AUTO_COMPRESS_THRESHOLD_PERCENT_KEY);
-        int defaultValue = 70;
-        if (value == null || value.isBlank()) {
-            return defaultValue;
-        }
-        try {
-            int pct = Integer.parseInt(value.trim());
-            // Clamp to reasonable bounds [10, 95]
-            if (pct < 10) pct = 10;
-            if (pct > 95) pct = 95;
-            return pct;
-        } catch (NumberFormatException e) {
-            logger.debug(
-                    "Invalid history auto-compress threshold percentage: {}, using default {}", value, defaultValue);
-            return defaultValue;
-        }
     }
 
     // UI Scale global preference
@@ -2244,7 +2212,7 @@ public final class MainProject extends AbstractProject {
         allChromes.addAll(worktreeChromes);
 
         for (var chrome : allChromes) {
-            SwingUtilities.invokeLater(() -> chrome.getHistoryOutputPanel().updateSessionComboBox());
+            SwingUtilities.invokeLater(() -> chrome.getRightPanel().updateSessionComboBox());
         }
     }
 }

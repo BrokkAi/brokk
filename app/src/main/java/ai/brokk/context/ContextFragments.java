@@ -60,6 +60,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -139,12 +140,6 @@ public class ContextFragments {
     public sealed interface PathFragment extends ContextFragment
             permits ProjectPathFragment, GitFileFragment, ExternalPathFragment, ImageFileFragment {
         BrokkFile file();
-
-        @Override
-        default boolean hasSameSource(ContextFragment other) {
-            if (!(other instanceof PathFragment op)) return false;
-            return this.file().absPath().normalize().equals(op.file().absPath().normalize());
-        }
     }
 
     public interface OutputFragment {
@@ -281,25 +276,9 @@ public class ContextFragments {
             return null;
         }
 
-        @Blocking
         @Override
         public boolean isValid() {
-            var snapshot = snapshotCv.tryGet().orElse(null);
-            return snapshot != null && snapshot.valid();
-        }
-
-        @Override
-        public ComputedValue<String> format() {
-            return derived("format", this::formatTemplate);
-        }
-
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <fragment description="%s" fragmentid="%s">
-                    %s
-                    </fragment>
-                    """
-                    .formatted(s.description(), id(), s.text());
+            return snapshotCv.tryGet().map(FragmentSnapshot::valid).orElse(true);
         }
 
         // Common hasSameSource implementation (identity for dynamic, override for others)
@@ -367,20 +346,6 @@ public class ContextFragments {
         @Override
         public ComputedValue<Set<ProjectFile>> files() {
             return ComputedValue.completed("files-" + id, snapshot.files());
-        }
-
-        @Override
-        public ComputedValue<String> format() {
-            return ComputedValue.completed("format-" + id, formatTemplate(snapshot));
-        }
-
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <fragment description="%s" fragmentid="%s">
-                    %s
-                    </fragment>
-                    """
-                    .formatted(s.description(), id(), s.text());
         }
 
         @Override
@@ -482,24 +447,9 @@ public class ContextFragments {
         }
 
         @Override
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <file path="%s" fragmentid="%s">
-                    %s
-                    </file>
-                    """
-                    .formatted(file.toString(), id(), s.text());
-        }
-
-        @Override
         public ContextFragment refreshCopy() {
             return new ProjectPathFragment(
                     file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
-        }
-
-        @Override
-        public boolean hasSameSource(ContextFragment other) {
-            return PathFragment.super.hasSameSource(other);
         }
 
         @Override
@@ -588,17 +538,6 @@ public class ContextFragments {
         }
 
         @Override
-        public ComputedValue<String> format() {
-            return ComputedValue.completed(
-                    """
-                            <file path="%s" revision="%s">
-                            %s
-                            </file>
-                            """
-                            .formatted(file.toString(), revision, content));
-        }
-
-        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof GitFileFragment that)) return false;
             return this.file()
@@ -614,7 +553,8 @@ public class ContextFragments {
         }
     }
 
-    public static final class ExternalPathFragment extends AbstractComputedFragment implements PathFragment {
+    public static final class ExternalPathFragment extends AbstractComputedFragment
+            implements PathFragment, ContextFragment.DynamicIdentity {
         private final ExternalFile file;
 
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
@@ -671,13 +611,8 @@ public class ContextFragments {
         }
 
         @Override
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <file path="%s" fragmentid="%s">
-                    %s
-                    </file>
-                    """
-                    .formatted(file.toString(), id(), s.text());
+        public String repr() {
+            return "ExternalFile('%s')".formatted(file.toString());
         }
 
         @Override
@@ -685,15 +620,10 @@ public class ContextFragments {
             return new ExternalPathFragment(
                     file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
         }
-
-        @Override
-        public boolean hasSameSource(ContextFragment other) {
-            return PathFragment.super.hasSameSource(other);
-        }
     }
 
     public static final class ImageFileFragment extends AbstractComputedFragment
-            implements PathFragment, ContextFragment.ImageFragment {
+            implements PathFragment, ContextFragment.ImageFragment, ContextFragment.DynamicIdentity {
         private final BrokkFile file;
 
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
@@ -805,13 +735,8 @@ public class ContextFragments {
         }
 
         @Override
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <file path="%s" fragmentid="%s">
-                    [Image content provided out of band]
-                    </file>
-                    """
-                    .formatted(file.toString(), id());
+        public String repr() {
+            return "ImageFile('%s')".formatted(file.toString());
         }
 
         @Override
@@ -821,18 +746,10 @@ public class ContextFragments {
         }
 
         @Override
-        public boolean hasSameSource(ContextFragment other) {
-            return PathFragment.super.hasSameSource(other);
-        }
-
-        @Override
         public String toString() {
             return "ImageFileFragment('%s')".formatted(file);
         }
     }
-
-    // StringFragmentType and getStringFragmentType helper
-    public record StringFragmentType(String description, String syntaxStyle) {}
 
     public static class StringFragment extends AbstractStaticFragment {
 
@@ -983,23 +900,7 @@ public class ContextFragments {
         }
 
         public String previewText() {
-            return specialType()
-                    .map(st -> st.previewRenderer().apply(snapshot.text()))
-                    .orElse(snapshot.text());
-        }
-
-        public String textForAgent(ViewingPolicy viewPolicy) {
-            var st = specialType();
-            if (st.isEmpty()) return snapshot.text();
-            if (!st.get().canViewContent().test(viewPolicy)) {
-                return "[%s content hidden for %s]"
-                        .formatted(snapshot.description(), viewPolicy.taskType().name());
-            }
-            return snapshot.text();
-        }
-
-        public boolean droppable() {
-            return specialType().map(SpecialTextType::droppable).orElse(true);
+            return specialType().map(st -> st.renderPreview(snapshot.text())).orElse(snapshot.text());
         }
 
         @Override
@@ -1011,11 +912,12 @@ public class ContextFragments {
         public boolean hasSameSource(ContextFragment other) {
             if (this == other) return true;
             if (!(other instanceof StringFragment that)) return false;
-            StringFragmentType thisType = ContextFragment.getStringFragmentType(this.snapshot.description());
-            StringFragmentType thatType = ContextFragment.getStringFragmentType(that.snapshot.description());
-            if (thisType != null && thatType != null) return Objects.equals(thisType, thatType);
-            return this.snapshot.description().equals(that.snapshot.description())
-                    && this.snapshot.syntaxStyle().equals(that.snapshot.syntaxStyle());
+            var thisType = SpecialTextType.fromDescription(this.snapshot.description());
+            var thatType = SpecialTextType.fromDescription(that.snapshot.description());
+            if (thisType.isPresent() && thisType.equals(thatType)) {
+                return true;
+            }
+            return Objects.equals(this.snapshot, that.snapshot);
         }
     }
 
@@ -1849,11 +1751,65 @@ public class ContextFragments {
                     desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, (List<Byte>) null, valid);
         }
 
+        public record CodeUnitSkeleton(CodeUnit codeUnit, String skeleton) {}
+
+        @Blocking
+        private Map<String, CodeUnitSkeleton> skeletonsByFqName() {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
+            if (skeletonProviderOpt.isEmpty()) {
+                return Map.of();
+            }
+            SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
+
+            Map<String, CodeUnitSkeleton> out = new LinkedHashMap<>();
+            for (CodeUnit cu : sources().join()) {
+                if (cu.isAnonymous()) {
+                    continue;
+                }
+                skeletonProvider
+                        .getSkeleton(cu)
+                        .filter(s -> !s.isBlank())
+                        .ifPresent(skeleton -> out.putIfAbsent(cu.fqName(), new CodeUnitSkeleton(cu, skeleton)));
+            }
+            return out;
+        }
+
+        /**
+         * Combines multiple summary fragments into a single text block.
+         *
+         * <p>Semantic aggregation:
+         * - Union CodeUnits across fragments via sources()
+         * - Deduplicate by CodeUnit.fqName() (stable first-seen)
+         * - Exclude anonymous units
+         * - Use each fragment's own analyzer via SkeletonProvider to obtain skeleton text
+         * - Format via SkeletonFragmentFormatter in by-package mode
+         */
+        @Blocking
         public static String combinedText(List<SummaryFragment> fragments) {
-            return fragments.stream()
-                    .map(sf -> sf.text().join())
-                    .filter(s -> !s.isBlank())
-                    .collect(Collectors.joining("\n\n"));
+            if (fragments.isEmpty()) {
+                return "";
+            }
+
+            if (SwingUtilities.isEventDispatchThread()) {
+                logger.error("combinedText is a blocking function and should not be called on the EDT!");
+            }
+
+            Map<String, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
+            for (SummaryFragment fragment : fragments) {
+                fragment.skeletonsByFqName().forEach(deduped::putIfAbsent);
+            }
+
+            if (deduped.isEmpty()) {
+                return "";
+            }
+
+            Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
+            deduped.values().forEach(cus -> skeletonsMap.put(cus.codeUnit(), cus.skeleton()));
+
+            return new SkeletonFragmentFormatter()
+                    .format(new SkeletonFragmentFormatter.Request(
+                            null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
         }
 
         private static Set<CodeUnit> resolvePrimaryTargets(
@@ -1923,16 +1879,6 @@ public class ContextFragments {
         @Override
         public String toString() {
             return "ConversationFragment(" + history.size() + " tasks)";
-        }
-
-        @Override
-        protected String formatTemplate(FragmentSnapshot s) {
-            return """
-                    <taskhistory fragmentid="%s">
-                    %s
-                    </taskhistory>
-                    """
-                    .formatted(id(), s.text());
         }
     }
 

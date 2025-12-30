@@ -23,18 +23,21 @@ public final class QuickEditPrompts {
     public List<ChatMessage> collectMessages(
             String fileContents, List<ContextFragments.SummaryFragment> relatedCode, String styleGuide) {
         var messages = new ArrayList<ChatMessage>();
-        // A system message containing the workspace/style guide info and instructions:
-        messages.add(systemMessage(quickEditIntro(), styleGuide));
-        // Example quick-edit usage (optional but mirrors how DefaultPrompts includes examples):
+        messages.add(systemMessage(quickEditIntro()));
         messages.addAll(exampleMessages());
-        messages.addAll(contentMessages(fileContents, relatedCode));
+        messages.addAll(contentMessages(fileContents, relatedCode, styleGuide));
 
         return messages;
     }
 
-    private List<ChatMessage> contentMessages(String fileContents, List<ContextFragments.SummaryFragment> relatedCode) {
+    private List<ChatMessage> contentMessages(
+            String fileContents, List<ContextFragments.SummaryFragment> relatedCode, String styleGuide) {
         var um = new UserMessage(
                 """
+        <project_guide>
+        %s
+        </project_guide>
+
         Here is a summary of related code that you may need to reference:
         %s
 
@@ -45,7 +48,7 @@ public final class QuickEditPrompts {
         ```
         </source>
         """
-                        .formatted(formatRelatedCode(relatedCode), fileContents));
+                        .formatted(styleGuide, formatRelatedCode(relatedCode), fileContents));
 
         return List.of(
                 um, new AiMessage("I will update the target code in the source file to implement your instructions."));
@@ -72,18 +75,13 @@ public final class QuickEditPrompts {
                 .formatted(target, instructions);
     }
 
-    /** Formats an intro with a short system-level prompt plus workspace/style guide details. */
-    private SystemMessage systemMessage(String instructions, String styleGuide) {
-        var text =
-                """
+    private SystemMessage systemMessage(String instructions) {
+        var text = """
           <instructions>
           %s
           </instructions>
-          <style_guide>
-          %s
-          </style_guide>
           """
-                        .formatted(instructions, styleGuide);
+                .formatted(instructions);
         return new SystemMessage(text);
     }
 
@@ -99,14 +97,6 @@ public final class QuickEditPrompts {
                 """;
     }
 
-    public String fullReplaceIntro() {
-        return """
-                Act as an expert software developer.
-                You will receive a source file and other relevant context;
-                you must output the REPLACEMENT CODE for the ENTIRE FILE, fenced in triple backticks.
-                Always apply any relevant best practices or style guidelines to the snippet.
-                """;
-    }
     /** Example conversation that demonstrates how the quick edit should be returned. */
     public List<ChatMessage> exampleMessages() {
         var userTxt = formatInstructions(
@@ -121,7 +111,7 @@ public final class QuickEditPrompts {
                 "Replace the recursion with a simple loop");
         var aiTxt =
                 """
-        Sure! Here is the revised target code, using recursion:
+        Here is the revised target code, without recursion:
         ```
         public int factorial(int n) {
             int result = 1;

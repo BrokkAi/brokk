@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -135,19 +134,14 @@ public interface ContextFragment {
     ComputedValue<String> text();
 
     /**
-     * content formatted for LLM
-     */
-    ComputedValue<String> format();
-
-    /**
      * fragment toc entry, usually id + description
      */
-    default String formatToc() {
+    default String formatToc(boolean isPinned) {
         // Non-blocking best-effort rendering
+        String idOrPinned = isPinned ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(id());
         return """
-                <fragment-toc description="%s" fragmentid="%s" />
-                """
-                .formatted(description().renderNowOr(""), id());
+                <fragment-toc description="%s" %s />"""
+                .formatted(description().renderNowOr(""), idOrPinned);
     }
 
     default boolean isText() {
@@ -207,13 +201,14 @@ public interface ContextFragment {
 
     /**
      * For live fragments ONLY, isValid reflects current external state (a file fragment whose file is missing is invalid);
-     * historical/frozen fragments have already snapshotted their state and are always valid. However, if
-     * a fragment is unable to snapshot its content before the source is removed out from under it, it will also
-     * end up invalid.
+     * historical/frozen fragments have already snapshotted their state and are always valid.
+     *
+     * In-progress-of-snapshotting fragments are treated as valid to avoid @Blocking, but this means that it's
+     * possible for it to flip from valid to invalid if it is unable to snapshot its content
+     * before the source is removed out from under it.
      *
      * @return true if the fragment is valid, false otherwise
      */
-    @Blocking
     default boolean isValid() {
         return true;
     }
@@ -268,21 +263,6 @@ public interface ContextFragment {
         }
         throw new IllegalArgumentException(
                 "Unsupported BrokkFile subtype: " + bf.getClass().getName());
-    }
-
-    ContextFragments.StringFragmentType BUILD_RESULTS =
-            new ContextFragments.StringFragmentType("Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
-    ContextFragments.StringFragmentType SEARCH_NOTES =
-            new ContextFragments.StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-    ContextFragments.StringFragmentType DISCARDED_CONTEXT =
-            new ContextFragments.StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
-
-    static @Nullable ContextFragments.StringFragmentType getStringFragmentType(String description) {
-        if (description.isBlank()) return null;
-        if (BUILD_RESULTS.description().equals(description)) return BUILD_RESULTS;
-        if (SEARCH_NOTES.description().equals(description)) return SEARCH_NOTES;
-        if (DISCARDED_CONTEXT.description().equals(description)) return DISCARDED_CONTEXT;
-        return null;
     }
 
     enum SummaryType {

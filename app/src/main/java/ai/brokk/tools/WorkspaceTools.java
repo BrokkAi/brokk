@@ -70,7 +70,7 @@ public class WorkspaceTools {
      * Used by {@link #dropWorkspaceFragments(List)} to structure the input.
      */
     public record FragmentRemoval(
-            @Description("The numeric ID exactly as listed in <workspace-toc>") String fragmentId,
+            @Description("The alphanumeric ID exactly as listed in <workspace_toc>") String fragmentId,
             @Description("Why this fragment is being discarded") String explanation) {}
 
     /** Updates the working Context for this WorkspaceTools instance. */
@@ -199,7 +199,8 @@ public class WorkspaceTools {
             value =
                     "Remove specified fragments (files, text snippets, task history, analysis results) from the Workspace and record explanations in DISCARDED_CONTEXT as a JSON map. Do not drop file fragments that you still need to read, or need to edit as part of your current task, unless the edits are localized to a single function.")
     public String dropWorkspaceFragments(
-            @P("List of fragments to remove from the Workspace. Must not be empty.") List<FragmentRemoval> fragments) {
+            @P("List of fragments to remove from the Workspace. Must not be empty. Pinned fragments are ineligible.")
+                    List<FragmentRemoval> fragments) {
         if (fragments.isEmpty()) {
             return "Fragments list cannot be empty.";
         }
@@ -223,9 +224,9 @@ public class WorkspaceTools {
         var unknownIds =
                 idsToDropSet.stream().filter(id -> !byId.containsKey(id)).toList();
 
-        // Partition found into droppable vs protected based on SpecialTextType policy
+        // Partition found into droppable vs protected based on pinning policy
         var partitioned =
-                foundFragments.stream().collect(Collectors.partitioningBy(WorkspaceTools::isDroppableFragment));
+                foundFragments.stream().collect(Collectors.partitioningBy(fragment -> !context.isPinned(fragment)));
         var toDrop = NullnessUtil.castNonNull(partitioned.get(true));
         var protectedFragments = NullnessUtil.castNonNull(partitioned.get(false));
 
@@ -250,7 +251,7 @@ public class WorkspaceTools {
         // Apply removal and upsert DISCARDED_CONTEXT in the local context
         var droppedIds = toDrop.stream().map(ContextFragment::id).collect(Collectors.toSet());
         var next =
-                context.removeFragmentsByIds(droppedIds).putSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
+                context.removeFragmentsByIds(droppedIds).withSpecial(SpecialTextType.DISCARDED_CONTEXT, discardedJson);
         context = next;
 
         logger.debug(
@@ -394,8 +395,12 @@ public class WorkspaceTools {
         var existed =
                 context.getSpecial(SpecialTextType.SEARCH_NOTES.description()).isPresent();
 
-        context = context.updateSpecial(
-                SpecialTextType.SEARCH_NOTES, prev -> prev.isBlank() ? markdown : prev + "\n\n" + markdown);
+        var current = context.getSpecial(SpecialTextType.SEARCH_NOTES.description())
+                .map(ContextFragment::text)
+                .map(ComputedValue::join)
+                .orElse("");
+        var updated = current.isBlank() ? markdown : current + "\n\n" + markdown;
+        context = context.withSpecial(SpecialTextType.SEARCH_NOTES, updated);
 
         logger.debug(
                 "appendNote: {} Task Notes fragment ({} chars).",
@@ -423,7 +428,6 @@ public class WorkspaceTools {
             - Output: starts with a strong verb, names concrete artifact(s) (class/method/file, config, test). Use Markdown formatting for readability, especially `inline code` (for file, directory, function, class names and other symbols).
             - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
             - Incremental additions: when adding a task to an existing list, copy all existing incomplete tasks verbatim (preserving their exact wording and order) and insert the new task at the appropriate position based on dependencies.
-
 
             Rubric for slicing:
             - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes - split by subsystem or by 'behavior change' vs 'refactor'.
@@ -500,13 +504,5 @@ public class WorkspaceTools {
 
     private IAnalyzer getAnalyzer() {
         return context.getContextManager().getAnalyzerUninterrupted();
-    }
-
-    // Helper: determine if a fragment can be dropped per SpecialTextType policy.
-    private static boolean isDroppableFragment(ContextFragment fragment) {
-        if (fragment instanceof ContextFragments.StringFragment sf) {
-            return sf.droppable();
-        }
-        return true;
     }
 }

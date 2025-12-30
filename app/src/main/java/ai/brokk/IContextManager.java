@@ -12,6 +12,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
@@ -34,6 +35,10 @@ import org.jetbrains.annotations.Blocking;
 /** Interface for context manager functionality */
 public interface IContextManager {
     Logger logger = LogManager.getLogger(IContextManager.class);
+
+    default boolean undoContext() {
+        throw new UnsupportedOperationException();
+    }
 
     /** Callback interface for analyzer update events. */
     interface AnalyzerCallback {
@@ -61,8 +66,8 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default Collection<? extends ChatMessage> getHistoryMessages() {
-        return List.of();
+    default Collection<ChatMessage> getHistoryMessages() {
+        return CodePrompts.instance.getHistoryMessages(liveContext());
     }
 
     /**

@@ -35,7 +35,7 @@ import ai.brokk.gui.wand.WandAction;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
-import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
@@ -100,7 +100,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
 
                     Brokk action modes:
-                    - Lutz: Lutz is one of the best context engineers around. After a all-day meetup in Amsterdam, we baked his workflow into Brokk.
+                    - Lutz: Lutz is one of the best context engineers around. After an all-day meetup in Amsterdam, we baked his workflow into Brokk.
                       Lutz Mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
                       It is a great way to kick off work with strong context and a clear plan.
                     - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
@@ -705,7 +705,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             }
         });
 
-        // Ctrl/Cmd + V  →  if clipboard has an image, route to WorkspacePanel paste;
+        // Ctrl/Cmd + V  →  if clipboard has an image, route to ContextActions paste;
         // otherwise, use the default JTextArea paste behaviour.
         var pasteKeyStroke = KeyStroke.getKeyStroke(
                 KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
@@ -725,9 +725,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     try {
                         if (flavor.equals(DataFlavor.imageFlavor)
                                 || flavor.getMimeType().startsWith("image/")) {
-                            // Re-use existing WorkspacePanel logic
-                            chrome.getContextPanel()
-                                    .performContextActionAsync(WorkspacePanel.ContextAction.PASTE, List.of());
+                            // Re-use existing ContextActions logic
+                            chrome.getContextActionsHandler()
+                                    .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of());
                             imageHandled = true;
                             break;
                         }
@@ -942,7 +942,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         SwingUtilities.invokeLater(() -> attachButton.setIcon(Icons.ATTACH_FILE));
         attachButton.setFocusable(false);
         attachButton.setOpaque(false);
-        attachButton.addActionListener(e -> chrome.getContextPanel().attachContextViaDialog());
+        attachButton.addActionListener(e -> chrome.getContextActionsHandler().attachContextViaDialog());
 
         // Set dynamic tooltip based on configured keybindings
         SwingUtilities.invokeLater(() -> {
@@ -1095,18 +1095,18 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                 JPopupMenu emptySpaceMenu = new JPopupMenu();
 
                 JMenuItem dropAll = new JMenuItem("Drop All");
-                dropAll.addActionListener(ev -> chrome.getContextPanel()
-                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.DROP, List.of()));
+                dropAll.addActionListener(ev -> chrome.getContextActionsHandler()
+                        .performContextActionAsync(ContextActionsHandler.ContextAction.DROP, List.of()));
                 emptySpaceMenu.add(dropAll);
 
                 JMenuItem copyAll = new JMenuItem("Copy All");
-                copyAll.addActionListener(ev -> chrome.getContextPanel()
-                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.COPY, List.of()));
+                copyAll.addActionListener(ev -> chrome.getContextActionsHandler()
+                        .performContextActionAsync(ContextActionsHandler.ContextAction.COPY, List.of()));
                 emptySpaceMenu.add(copyAll);
 
                 JMenuItem paste = new JMenuItem("Paste text, images, urls");
-                paste.addActionListener(ev -> chrome.getContextPanel()
-                        .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.PASTE, List.of()));
+                paste.addActionListener(ev -> chrome.getContextActionsHandler()
+                        .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of()));
                 emptySpaceMenu.add(paste);
 
                 chrome.getThemeManager().registerPopupMenu(emptySpaceMenu);
@@ -1140,7 +1140,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
                     var fullText = new StringBuilder();
                     if (ctx != null && !ctx.isEmpty()) {
-                        // Build full text of current context, similar to WorkspacePanel
+                        // Build full text of current context, similar to ContextActions
                         var allFragments = ctx.getAllFragmentsInDisplayOrder();
                         for (var frag : allFragments) {
                             if (frag.isText() || frag.getType().isOutput()) {
@@ -1248,7 +1248,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             boolean isTested) {}
 
     /**
-     * Calculate cost estimate mirroring WorkspacePanel for only the model currently selected in InstructionsPanel.
+     * Calculate cost estimate mirroring ContextActions for only the model currently selected in InstructionsPanel.
      */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, AbstractService service) {
         var pricing = service.getModelPricing(config.name());
@@ -1688,17 +1688,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
         List<ChatMessage> messages;
-        try {
-            messages = CodePrompts.instance.collectAskMessages(cm, question);
-        } catch (InterruptedException e) {
-            return new TaskResult(
-                    cm,
-                    "Ask: " + question,
-                    cm.getIo().getLlmRawMessages(),
-                    cm.liveContext(),
-                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                    meta);
-        }
+        Context ctx = cm.liveContext();
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
 
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
         return executeAskCommand(llm, messages, cm, question, meta);
@@ -1851,20 +1842,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     var beforeTasks = context.getTaskListDataOrEmpty();
                     boolean hadIncomplete = hasIncomplete(beforeTasks);
 
+                    // SearchAgent now handles scanning internally via execute()
                     SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
-                    try {
-                        context = agent.scanInitialContext();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        return new TaskResult(
-                                cm,
-                                "Search: " + query,
-                                cm.getIo().getLlmRawMessages(),
-                                cm.liveContext(),
-                                new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                                new TaskResult.TaskMeta(
-                                        TaskResult.Type.SEARCH, Service.ModelConfig.from(modelToUse, cm.getService())));
-                    }
 
                     var result = agent.execute();
                     // Apply results to context
@@ -1872,7 +1851,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     var agentTasks = context.getTaskListDataOrEmpty();
 
                     // Gating: If we had existing incomplete tasks and the agent produced new ones, ask how to reconcile
-                    if (hadIncomplete && !agentTasks.tasks().isEmpty()) {
+                    if (hadIncomplete
+                            && agentTasks.tasks().size() > beforeTasks.tasks().size()) {
                         final int[] choiceHolder = new int[1];
                         try {
                             SwingUtilities.invokeAndWait(() -> {
@@ -1909,10 +1889,9 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     return result.withContext(context);
                 })
                 .thenAccept(result -> {
-                    // Auto-run only in Lutz EZ if successful and there are incomplete tasks available
-                    // we can use live context, because Lutz Mode already pushed
-                    boolean isLutzEz = ACTION_LUTZ.equals(action) && !GlobalUiSettings.isAdvancedMode();
-                    if (isLutzEz && hasIncomplete(contextManager.getTaskList())) {
+                    // Auto-run if successful and there are incomplete tasks available
+                    // (we can use live context, because Lutz Mode already pushed)
+                    if (ACTION_LUTZ.equals(action) && hasIncomplete(contextManager.getTaskList())) {
                         SwingUtilities.invokeLater(
                                 () -> chrome.getTaskListPanel().runArchitectOnAll());
                     }

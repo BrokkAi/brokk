@@ -12,7 +12,6 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -191,7 +190,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     private final IProject project;
     private final Language language;
-    protected final Set<Path> normalizedExcludedPaths;
 
     /**
      * Stores information about a definition found by a query match, including associated modifier keywords and
@@ -324,15 +322,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         this.language = language;
         // Register listener early so it receives progress during construction
         progressListener = listener;
-        this.normalizedExcludedPaths = project.getExcludedDirectories().stream()
-                .map(Path::of)
-                .map(p -> p.isAbsolute()
-                        ? p.normalize()
-                        : project.getRoot().resolve(p).toAbsolutePath().normalize())
-                .collect(Collectors.toUnmodifiableSet());
-        if (!this.normalizedExcludedPaths.isEmpty()) {
-            log.debug("Normalized excluded paths: {}", this.normalizedExcludedPaths);
-        }
 
         // Initialize query using a ThreadLocal for thread safety
         // The supplier will use the appropriate getQueryResource() from the subclass
@@ -547,13 +536,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         this.language = language;
         this.progressListener = listener;
 
-        this.normalizedExcludedPaths = project.getExcludedDirectories().stream()
-                .map(Path::of)
-                .map(p -> p.isAbsolute()
-                        ? p.normalize()
-                        : project.getRoot().resolve(p).toAbsolutePath().normalize())
-                .collect(Collectors.toUnmodifiableSet());
-
         this.query = ThreadLocal.withInitial(() -> {
             String rawQueryString = loadResource(getQueryResource());
             return new TSQuery(getTSLanguage(), rawQueryString);
@@ -742,7 +724,32 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
+    public Set<CodeUnit> searchDefinitions(String pattern, boolean autoQuote) {
+        // Validate pattern
+        if (pattern.isEmpty()) {
+            throw new IllegalArgumentException("Search pattern may not be empty");
+        }
+
+        // Prepare case-insensitive regex pattern with non-greedy quantifiers
+        // Extract substring filter for pre-filtering optimization (TreeSitter-specific)
+        @Nullable String substringFilter = null;
+        if (autoQuote) {
+            if (!pattern.contains(".*")) {
+                substringFilter = pattern.toLowerCase(Locale.ROOT);
+            }
+            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*?" + Pattern.quote(pattern) + ".*?");
+        }
+
+        Pattern compiledPattern = Pattern.compile(pattern);
+        return searchDefinitionsInternal(compiledPattern, substringFilter);
+    }
+
+    @Override
     public Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
+        return searchDefinitionsInternal(compiledPattern, null);
+    }
+
+    private Set<CodeUnit> searchDefinitionsInternal(Pattern compiledPattern, @Nullable String substringFilter) {
         var anonPredicate = new Predicate<CodeUnit>() {
             @Override
             public boolean test(CodeUnit codeUnit) {
@@ -750,8 +757,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         };
 
+        var matcher = compiledPattern.matcher("");
         return this.state.codeUnitState.keySet().stream()
-                .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                .filter(cu -> substringFilter == null
+                        || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
+                .filter(cu -> matcher.reset(cu.fqName()).find())
                 .filter(anonPredicate)
                 .collect(Collectors.toSet());
     }
@@ -3413,15 +3423,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         long detectStartMs = System.currentTimeMillis();
 
         // files currently on disk that this analyser is interested in
+        // (getAllFiles() already applies exclusion pattern filtering)
         Set<ProjectFile> currentFiles = project.getAllFiles().stream()
                 .filter(pf -> {
-                    Path abs = pf.absPath().toAbsolutePath().normalize();
-                    if (normalizedExcludedPaths.stream().anyMatch(abs::startsWith)) {
-                        return false;
-                    }
-                    String p = abs.toString();
-                    boolean matches = language.getExtensions().stream().anyMatch(p::endsWith);
-                    return matches;
+                    var p = pf.absPath().toAbsolutePath().normalize().toString();
+                    return language.getExtensions().stream().anyMatch(p::endsWith);
                 })
                 .collect(Collectors.toSet());
 

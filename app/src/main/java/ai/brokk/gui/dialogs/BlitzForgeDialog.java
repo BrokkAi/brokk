@@ -4,6 +4,7 @@ import static ai.brokk.gui.Constants.*;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.Service;
+import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.ArchitectAgent;
 import ai.brokk.agents.BlitzForge;
@@ -13,8 +14,9 @@ import ai.brokk.agents.RelevanceClassifier;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.InstructionsPanel;
@@ -25,6 +27,8 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.ScaledIcon;
 import ai.brokk.project.MainProject;
 import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
 import com.github.mustachejava.DefaultMustacheFactory;
@@ -987,9 +991,10 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 long workspaceTokens = 0;
                 long workspaceAdd = 0;
                 if (includeWorkspace) {
+                    Context ctx = cm.liveContext();
                     workspaceTokens =
-                            Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceContentsMessages(
-                                    cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                            Messages.getApproximateMessageTokens(WorkspacePrompts.getMessagesGroupedByMutability(
+                                    ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
                     workspaceAdd = workspaceTokens * n;
                 }
 
@@ -1108,9 +1113,9 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             boolean hadError = false;
             try {
                 // Token counting and message construction happen in this background thread.
-                workspaceTokens =
-                        Messages.getApproximateMessageTokens(CodePrompts.instance.getWorkspaceContentsMessages(
-                                cm.liveContext(), new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                Context ctx = cm.liveContext();
+                workspaceTokens = Messages.getApproximateMessageTokens(WorkspacePrompts.getMessagesGroupedByMutability(
+                        ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
                 historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
@@ -1426,8 +1431,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     }
                     var ctx = cm.liveContext();
                     var list = new ArrayList<ChatMessage>();
-                    list.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
-                            ctx, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                    list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
+                            ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
                     list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
                     var text = "";
                     for (var m : list) {
@@ -1594,11 +1599,13 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             var dialogIo = progressDialog.getConsoleIO(file);
             String errorMessage = null;
 
+            TaskResult tr = null;
+            var initialContext = cm.liveContext();
             List<ChatMessage> readOnlyMessages = new ArrayList<>();
             try {
                 if (fIncludeWorkspace) {
-                    readOnlyMessages.addAll(CodePrompts.instance.getWorkspaceContentsMessages(
-                            context, new ViewingPolicy(TaskResult.Type.BLITZFORGE)));
+                    readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
+                            context, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
                     readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
                 }
                 if (fRelatedK != null) {
@@ -1654,6 +1661,22 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     }
                     readOnlyMessages.add(new UserMessage(commandOutputText));
                 }
+
+                // Run the task
+                if (engineAction == Action.ASK) {
+                    var ctx = new Context(cm)
+                            .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages)))
+                            .addFragments(cm.toPathFragments(List.of(file)));
+                    var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions);
+                    var llm = cm.getLlm(model, "Ask", true);
+                    var meta = new TaskResult.TaskMeta(
+                            TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
+                    llm.setOutput(dialogIo);
+                    tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
+                } else {
+                    var agent = new CodeAgent(cm, model, dialogIo);
+                    tr = agent.execute(file, instructions, readOnlyMessages);
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 errorMessage = "Interrupted during message preparation.";
@@ -1666,21 +1689,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 return new BlitzForge.FileResult(file, false, errorMessage, "");
             }
 
-            // Run the task
-            var initialContext = cm.liveContext();
-            TaskResult tr;
-            if (engineAction == Action.ASK) {
-                var messages = CodePrompts.instance.getSingleFileAskMessages(cm, file, readOnlyMessages, instructions);
-                var llm = cm.getLlm(model, "Ask", true);
-                var meta =
-                        new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
-                llm.setOutput(dialogIo);
-                tr = InstructionsPanel.executeAskCommand(llm, messages, cm, instructions, meta);
-            } else {
-                var agent = new CodeAgent(cm, model, dialogIo);
-                tr = agent.execute(file, instructions, readOnlyMessages);
-            }
-
+            requireNonNull(tr);
             if (tr.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
                 Thread.currentThread().interrupt();
                 errorMessage = "Processing interrupted.";

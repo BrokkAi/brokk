@@ -95,15 +95,17 @@ public final class DiffService {
     }
 
     @Blocking
-    private static boolean isNewFileInGit(ContextFragment fragment, IGitRepo repo) {
-        if (!(fragment instanceof ContextFragments.PathFragment)) {
-            return false;
-        }
-        Set<ProjectFile> files = fragment.files().join();
-        if (files.isEmpty()) {
-            return false;
-        }
-        return !repo.getTrackedFiles().contains(files.iterator().next());
+    private static boolean isNewInGit(ContextFragment fragment, IGitRepo repo) {
+        return fragment.files().join().stream().anyMatch(file -> {
+            try {
+                // If getFileContent returns an empty string for HEAD, the file is not yet committed.
+                return repo.getFileContent("HEAD", file).isEmpty();
+            } catch (Exception e) {
+                // If an error occurs (e.g. GitAPIException), we treat it as not committed to HEAD.
+                logger.debug("Failed to get content from HEAD for file {}: {}", file, e.getMessage());
+                return true;
+            }
+        });
     }
 
     /**
@@ -149,19 +151,17 @@ public final class DiffService {
                 .findFirst()
                 .orElse(null);
 
-        // If this fragment is new-only and is a PathFragment that is tracked by Git, suppress the diff.
+        // other==null will result in showing all of this as "new";
+        // suppress for non-text fragments and fragments whose files exist in Git
         if (otherFragment == null) {
             if (!thisFragment.isText()) {
                 // Non-text new fragments are not diffed here.
                 return CompletableFuture.completedFuture(null);
             }
 
-            if (thisFragment instanceof ContextFragments.PathFragment) {
-                var repo = curr.getContextManager().getRepo();
-                if (!isNewFileInGit(thisFragment, repo)) {
-                    // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
-                    return CompletableFuture.completedFuture(null);
-                }
+            var repo = curr.getContextManager().getRepo();
+            if (!isNewInGit(thisFragment, repo)) {
+                return CompletableFuture.completedFuture(null);
             }
         }
 
