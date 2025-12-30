@@ -64,7 +64,7 @@ class GitRepoSigningTest {
                 repo.commitFiles(java.util.List.of(), "Test Message");
 
                 String cmd = capturedCommand.get();
-                assertNotNull(cmd);
+                assertNotNull(cmd, "Command should have been captured");
                 assertTrue(cmd.contains("--gpg-sign=TESTKEYID"), "Should contain --gpg-sign=TESTKEYID");
                 assertTrue(cmd.contains("Test Message"), "Should contain message");
             }
@@ -101,10 +101,14 @@ class GitRepoSigningTest {
             try (GitRepo repo = new GitRepo(tempDir)) {
                 var file1 = new ProjectFile(tempDir, Path.of("file1.txt"));
                 var file2 = new ProjectFile(tempDir, Path.of("file2.txt"));
+                // Create files on disk so 'git add' doesn't fail if actually executed
+                java.nio.file.Files.writeString(file1.absPath(), "content1");
+                java.nio.file.Files.writeString(file2.absPath(), "content2");
+
                 repo.commitFiles(java.util.List.of(file1, file2), "Multi-file commit");
 
                 String cmd = capturedCommand.get();
-                assertNotNull(cmd);
+                assertNotNull(cmd, "Command should have been captured");
                 // Correct syntax: git commit ... --only -- file1 file2
                 assertTrue(
                         cmd.contains("--only -- file1.txt file2.txt"),
@@ -145,7 +149,7 @@ class GitRepoSigningTest {
                 repo.commitFiles(java.util.List.of(), "Default Key Test");
 
                 String cmd = capturedCommand.get();
-                assertNotNull(cmd);
+                assertNotNull(cmd, "Command should have been captured");
                 assertTrue(cmd.contains("-S"), "Should contain -S flag");
                 assertTrue(!cmd.contains("--gpg-sign"), "Should not contain --gpg-sign flag when key is empty");
             }

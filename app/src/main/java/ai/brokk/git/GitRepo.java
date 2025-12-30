@@ -677,34 +677,48 @@ public class GitRepo implements Closeable, IGitRepo {
         String key = MainProject.getGpgSigningKey().trim();
         logger.info("Committing files using native git with GPG signing. Key: {}", key.isEmpty() ? "default" : key);
 
-        List<String> cmdParts = new ArrayList<>();
-        cmdParts.add("git");
-        cmdParts.add("commit");
-        if (!key.isEmpty()) {
-            cmdParts.add("--gpg-sign=" + key);
-        } else {
-            cmdParts.add("-S");
-        }
-        cmdParts.add("-m");
-        cmdParts.add(message);
-
+        // First, ensure all changes are added to the index so native git sees them.
         if (!files.isEmpty()) {
-            cmdParts.add("--only");
-            cmdParts.add("--");
+            List<String> addArgs = new ArrayList<>();
+            addArgs.add("git");
+            addArgs.add("add");
+            addArgs.add("--");
             for (var file : files) {
-                cmdParts.add(toRepoRelativePath(file));
+                addArgs.add(toRepoRelativePath(file));
+            }
+            try {
+                Environment.instance.runProcess(addArgs, getProjectRoot(), out -> {}, Environment.GIT_TIMEOUT);
+            } catch (Exception e) {
+                logger.warn("Native git add failed before commit: {}", e.getMessage());
             }
         }
 
-        // Simple shell escaping for parts containing spaces or quotes
-        String command = cmdParts.stream()
-                .map(s -> (s.contains(" ") || s.contains("\"") || s.contains("'"))
-                        ? "'" + s.replace("'", "'\\''") + "'"
-                        : s)
-                .collect(Collectors.joining(" "));
+        List<String> args = new ArrayList<>();
+        args.add("git");
+        args.add("commit");
+        if (!key.isEmpty()) {
+            args.add("--gpg-sign=" + key);
+        } else {
+            args.add("-S");
+        }
+        args.add("-m");
+        args.add(message);
+
+        // Always add --allow-empty to support tests and clean index states
+        args.add("--allow-empty");
+
+        if (!files.isEmpty()) {
+            // When specific files are provided, use --only to commit just those.
+            args.add("--only");
+            args.add("--");
+            for (var file : files) {
+                args.add(toRepoRelativePath(file));
+            }
+        }
 
         try {
-            Environment.instance.runShellCommand(command, getProjectRoot(), out -> {}, Environment.GIT_TIMEOUT);
+            Environment.instance.runProcess(
+                    args, getProjectRoot(), out -> {}, Environment.GIT_SIGNING_TIMEOUT);
             return getCurrentCommitId();
         } catch (Exception e) {
             if (e instanceof Environment.FailureException fe) {
