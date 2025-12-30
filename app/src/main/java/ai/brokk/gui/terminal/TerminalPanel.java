@@ -325,7 +325,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         return panel;
     }
 
-    private void submitCapturedContent(String content) {
+    private void submitCapturedContent(@Nullable String content) {
         if (content == null || content.isBlank()) {
             console.systemNotify(
                     "No terminal content available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
