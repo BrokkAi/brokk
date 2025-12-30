@@ -151,36 +151,11 @@ public class MenuBar {
     private static void handleNewProject(Chrome chrome) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        var chooser = new JFileChooser();
-        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        chooser.setMultiSelectionEnabled(false);
-        chooser.setDialogTitle("New Project");
+        var initialDir = new File(GlobalUiSettings.getLastCloneDirectory());
+        var selectedDir = FileChooserUtil.showDirectoryChooserWithNewFolder(
+                chrome.getFrame(), "New Project", initialDir);
 
-        // Add "New Folder" button since FlatLaf doesn't show it by default
-        var newFolderBtn = new JButton("New Folder");
-        newFolderBtn.addActionListener(e -> {
-            var currentDir = chooser.getCurrentDirectory();
-            if (currentDir != null) {
-                var newFolderName = JOptionPane.showInputDialog(chooser, "Enter folder name:", "New Folder", JOptionPane.PLAIN_MESSAGE);
-                if (newFolderName != null && !newFolderName.isBlank()) {
-                    var newFolder = new File(currentDir, newFolderName.trim());
-                    if (newFolder.mkdir()) {
-                        chooser.setCurrentDirectory(newFolder);
-                    } else {
-                        JOptionPane.showMessageDialog(chooser, "Could not create folder", "Error", JOptionPane.ERROR_MESSAGE);
-                    }
-                }
-            }
-        });
-
-        int result = showFileChooserWithNewFolder(chrome.getFrame(), chooser, newFolderBtn);
-        if (result != JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-
-        File selectedDir = chooser.getSelectedFile();
         if (selectedDir == null) {
-            chrome.toolError("No directory selected.", "New Project");
             return;
         }
 
