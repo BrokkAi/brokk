@@ -150,7 +150,7 @@ public class BrokkJediTermPanel extends TerminalPanel {
         return sb.toString();
     }
 
-    static String computeSelectionText(BufferAccessor buffer, @Nullable Point start, @Nullable Point end) {
+    static @Nullable String computeSelectionText(BufferAccessor buffer, @Nullable Point start, @Nullable Point end) {
         if (start == null || end == null) {
             return null;
         }
