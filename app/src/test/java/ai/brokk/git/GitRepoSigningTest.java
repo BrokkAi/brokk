@@ -32,49 +32,35 @@ class GitRepoSigningTest {
     }
 
     @Test
-    void testCommitCommandConfigurationWhenSigningEnabled() throws Exception {
-        Git.init().setDirectory(tempDir.toFile()).call();
+    void testCommitFilesUsesNativeGitWhenSigningEnabled() throws Exception {
+        try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            git.add().addFilepattern(".").call();
+            git.commit().setSign(false).setMessage("Initial").call();
+        }
 
         MainProject.setGpgCommitSigningEnabled(true);
         MainProject.setGpgSigningKey("TESTKEYID");
 
-        try (GitRepo repo = new GitRepo(tempDir)) {
-            CommitCommand cmd = repo.commitCommand();
-            assertNotNull(cmd);
-            assertTrue(repo.isGpgSigned());
-
-            // Verify the config was updated in memory
-            String configKey = repo.getGit().getRepository().getConfig().getString("user", null, "signingkey");
-            assertEquals("TESTKEYID", configKey);
-        }
-    }
-
-    @Test
-    void testCommitCommandResolvesLongKeyIdToFingerprintViaGpg() throws Exception {
-        Git.init().setDirectory(tempDir.toFile()).call();
-
-        MainProject.setGpgCommitSigningEnabled(true);
-        MainProject.setGpgSigningKey("C6AFE785167A7D3C");
-
         var oldFactory = Environment.shellCommandRunnerFactory;
+        java.util.concurrent.atomic.AtomicReference<String> capturedCommand =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
         try {
             Environment.shellCommandRunnerFactory = (cmd, projectRoot) -> (outputConsumer, timeout) -> {
-                if (cmd.contains("gpg") && cmd.contains("--list-secret-keys")) {
-                    return """
-                            sec:u:4096:1:C6AFE785167A7D3C:1735560000:0:::::::scESC:::+:::23::0:
-                            fpr:::::::::20076F891F0E8065D08EE22FC6AFE785167A7D3C:
-                            uid:u::::1735560000::AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA::Test User <test@example.com>::::::::::0:
-                            """;
+                if (cmd.contains("git commit")) {
+                    capturedCommand.set(cmd);
                 }
                 return "";
             };
 
             try (GitRepo repo = new GitRepo(tempDir)) {
-                CommitCommand cmd = repo.commitCommand();
+                repo.commitFiles(java.util.List.of(), "Test Message");
+                
+                String cmd = capturedCommand.get();
                 assertNotNull(cmd);
-
-                String configKey = repo.getGit().getRepository().getConfig().getString("user", null, "signingkey");
-                assertEquals("20076F891F0E8065D08EE22FC6AFE785167A7D3C", configKey);
+                assertTrue(cmd.contains("-S"), "Should contain -S flag");
+                assertTrue(cmd.contains("-u") && cmd.contains("TESTKEYID"), "Should contain -u flag with key");
+                assertTrue(cmd.contains("Test Message"), "Should contain message");
             }
         } finally {
             Environment.shellCommandRunnerFactory = oldFactory;
@@ -82,16 +68,37 @@ class GitRepoSigningTest {
     }
 
     @Test
-    void testCommitCommandConfigurationWithDefaultKey() throws Exception {
-        Git.init().setDirectory(tempDir.toFile()).call();
+    void testCommitFilesUsesDefaultKeyWhenEmpty() throws Exception {
+        try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            git.add().addFilepattern(".").call();
+            git.commit().setSign(false).setMessage("Initial").call();
+        }
 
         MainProject.setGpgCommitSigningEnabled(true);
-        MainProject.setGpgSigningKey(""); // Empty means default
+        MainProject.setGpgSigningKey(""); // Default
 
-        try (GitRepo repo = new GitRepo(tempDir)) {
-            CommitCommand cmd = repo.commitCommand();
-            assertNotNull(cmd);
-            assertTrue(repo.isGpgSigned());
+        var oldFactory = Environment.shellCommandRunnerFactory;
+        java.util.concurrent.atomic.AtomicReference<String> capturedCommand =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        try {
+            Environment.shellCommandRunnerFactory = (cmd, projectRoot) -> (outputConsumer, timeout) -> {
+                if (cmd.contains("git commit")) {
+                    capturedCommand.set(cmd);
+                }
+                return "";
+            };
+
+            try (GitRepo repo = new GitRepo(tempDir)) {
+                repo.commitFiles(java.util.List.of(), "Default Key Test");
+                
+                String cmd = capturedCommand.get();
+                assertNotNull(cmd);
+                assertTrue(cmd.contains("-S"), "Should contain -S flag");
+                assertTrue(!cmd.contains("-u"), "Should not contain -u flag when key is empty");
+            }
+        } finally {
+            Environment.shellCommandRunnerFactory = oldFactory;
         }
     }
 
