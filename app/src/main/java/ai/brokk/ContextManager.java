@@ -92,8 +92,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             + "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)"
             + "|"
             + "(?i:\\.(?:spec|test)\\.[^/\\\\.]+$)"
-            + "|"
-            + ".*(?:^|[/\\\\])__tests__(?:[/\\\\].*)"
             + ")"
             + ".*");
 
