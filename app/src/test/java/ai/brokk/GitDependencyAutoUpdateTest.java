@@ -9,7 +9,6 @@ import ai.brokk.git.GitTestCleanupUtil;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.DependencyUpdater;
-import ai.brokk.util.FileUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
@@ -18,8 +17,7 @@ import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.DisabledOnOs;
-import org.junit.jupiter.api.condition.OS;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Tests for GitHub-style dependency auto-update mechanics.
@@ -27,19 +25,20 @@ import org.junit.jupiter.api.condition.OS;
  * <p>These tests exercise {@link DependencyUpdater#updateGitDependencyOnDisk(ai.brokk.IProject, ProjectFile,
  * DependencyUpdater.DependencyMetadata)} using a local Git repository as the remote.
  */
-@DisabledOnOs(value = OS.WINDOWS, disabledReason = "JGit has known issues with memory-mapped pack files on Windows")
 class GitDependencyAutoUpdateTest {
 
-    private Path tempRoot;
-    private Path remoteRepoDir;
+    @TempDir
+    Path tempRoot;
+
+    @TempDir
+    Path remoteRepoDir;
+
     private Git remoteGit;
 
     @BeforeEach
     void setUp() throws Exception {
-        tempRoot = Files.createTempDirectory("brokk-git-dep-update-");
         Files.createDirectories(tempRoot.resolve(AbstractProject.BROKK_DIR).resolve(AbstractProject.DEPENDENCIES_DIR));
 
-        remoteRepoDir = Files.createTempDirectory("brokk-git-remote-");
         remoteGit = Git.init().setDirectory(remoteRepoDir.toFile()).call();
 
         // Initial commit in the remote repository
@@ -54,16 +53,9 @@ class GitDependencyAutoUpdateTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        if (remoteGit != null) {
-            remoteGit.close();
-        }
-        if (remoteRepoDir != null && Files.exists(remoteRepoDir)) {
-            FileUtil.deleteRecursively(remoteRepoDir);
-        }
-        if (tempRoot != null && Files.exists(tempRoot)) {
-            FileUtil.deleteRecursively(tempRoot);
-        }
+    void tearDown() {
+        // Use GitTestCleanupUtil for robust cleanup; @TempDir handles directory deletion
+        GitTestCleanupUtil.cleanupGitResources(null, remoteGit);
     }
 
     @Test
@@ -77,14 +69,19 @@ class GitDependencyAutoUpdateTest {
         String branch = remoteGit.getRepository().getBranch();
 
         // Seed the dependency directory with an initial clone, mirroring ImportDependencyDialog behavior.
-        try (var ignored = ai.brokk.git.GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch)) {
+        try (var clonedRepo = ai.brokk.git.GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch)) {
             // Close GitRepo to release file handles
         }
 
         // Remove .git metadata as ImportDependencyDialog.performGitImport() does.
+        // On Windows, deletion may fail due to lingering file handles; this is non-fatal for the test.
         Path gitDir = depDir.resolve(".git");
         if (Files.exists(gitDir)) {
-            GitTestCleanupUtil.forceDeleteDirectory(gitDir);
+            try {
+                GitTestCleanupUtil.forceDeleteDirectory(gitDir);
+            } catch (Exception e) {
+                System.err.println("Could not delete .git directory (continuing): " + e.getMessage());
+            }
         }
 
         // Record dependency metadata pointing at our local "remote" and branch.
