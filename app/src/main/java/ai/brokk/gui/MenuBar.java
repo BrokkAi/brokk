@@ -21,6 +21,7 @@ import ai.brokk.gui.git.GitLogTab;
 import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.FileChooserUtil;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.project.MainProject;
@@ -180,68 +181,6 @@ public class MenuBar {
                         "New Project"));
             }
         });
-    }
-
-    private static int showFileChooserWithNewFolder(Frame parent, JFileChooser chooser, JButton newFolderBtn) {
-        // Add New Folder button to the file chooser's button panel
-        addButtonToChooserButtonPanel(chooser, newFolderBtn);
-
-        // Track result
-        final int[] result = {JFileChooser.CANCEL_OPTION};
-        chooser.addActionListener(e -> {
-            if (JFileChooser.APPROVE_SELECTION.equals(e.getActionCommand())) {
-                result[0] = JFileChooser.APPROVE_OPTION;
-            }
-        });
-
-        // Create custom dialog
-        var dialog = new JDialog(parent, chooser.getDialogTitle(), true);
-        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        dialog.setContentPane(chooser);
-
-        chooser.addActionListener(e -> dialog.dispose());
-
-        dialog.pack();
-        dialog.setLocationRelativeTo(parent);
-        dialog.setVisible(true);
-
-        return result[0];
-    }
-
-    private static void addButtonToChooserButtonPanel(JFileChooser chooser, JButton button) {
-        var cancelText = UIManager.getString("FileChooser.cancelButtonText");
-        findButtonPanelAndAdd(chooser, button, cancelText);
-    }
-
-    private static boolean findButtonPanelAndAdd(Container container, JButton button, String cancelText) {
-        for (var comp : container.getComponents()) {
-            if (comp instanceof JPanel panel) {
-                for (var child : panel.getComponents()) {
-                    if (child instanceof JButton btn) {
-                        if (cancelText != null && cancelText.equals(btn.getText())) {
-                            // Match button height to existing button, but keep width for our text
-                            var existingSize = btn.getPreferredSize();
-                            var ourSize = button.getPreferredSize();
-                            button.setPreferredSize(new Dimension(
-                                    Math.max(existingSize.width, ourSize.width),
-                                    existingSize.height));
-                            button.setMinimumSize(button.getPreferredSize());
-                            button.setMaximumSize(button.getPreferredSize());
-                            panel.add(button, 0);
-                            return true;
-                        }
-                    }
-                }
-                if (findButtonPanelAndAdd(panel, button, cancelText)) {
-                    return true;
-                }
-            } else if (comp instanceof Container child) {
-                if (findButtonPanelAndAdd(child, button, cancelText)) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     /**
