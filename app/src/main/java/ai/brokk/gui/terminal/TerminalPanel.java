@@ -273,13 +273,9 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 final var finalDisplay = displayPanel;
                 final var p1 = selStart;
                 final var p2 = selEnd;
-                future = c.getContextManager().submitBackgroundTask("Capturing terminal selection", () -> {
-                    var text = finalDisplay.getSelectionText(p1, p2);
-                    if (text == null) {
-                        return null;
-                    }
-                    return text.lines().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
-                });
+                future = c.getContextManager()
+                        .submitBackgroundTask(
+                                "Capturing terminal selection", () -> finalDisplay.getSelectionText(p1, p2));
             } else {
                 if (displayPanel == null) {
                     console.systemNotify(
@@ -316,7 +312,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         if (console instanceof Chrome c) {
             c.getContextManager().submitContextTask(() -> {
                 try {
-                    c.getContextManager().addPastedTextFragment(content);
+                    c.getContextManager().addPastedTextFragment(trimTrailingFromLines(content));
                     SwingUtilities.invokeLater(() -> {
                         console.showNotification(
                                 IConsoleIO.NotificationRole.INFO, "Terminal content captured to workspace");
@@ -495,6 +491,10 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             w.getTerminalPanel().setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
             w.repaint();
         }
+    }
+
+    private static String trimTrailingFromLines(String text) {
+        return text.lines().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
     }
 
     public void dispose() {

@@ -142,7 +142,7 @@ public class BrokkJediTermPanel extends TerminalPanel {
 
         var sb = new StringBuilder();
         for (int i = 0; i < lines.size(); i++) {
-            sb.append(lines.get(i).replaceAll("\\s+$", ""));
+            sb.append(lines.get(i));
             if (i < lines.size() - 1) {
                 sb.append('\n');
             }

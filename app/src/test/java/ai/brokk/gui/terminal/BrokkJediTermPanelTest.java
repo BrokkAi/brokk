@@ -39,8 +39,8 @@ class BrokkJediTermPanelTest {
 
         String result = BrokkJediTermPanel.computeFullBufferText(buffer);
 
-        // Trailing whitespace is trimmed in implementation
-        assertEquals("History\nActive 1\nActive 2", result);
+        // Trailing whitespace is preserved
+        assertEquals("History\nActive 1  \nActive 2", result);
     }
 
     @Test
