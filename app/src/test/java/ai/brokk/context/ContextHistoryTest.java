@@ -562,17 +562,14 @@ public class ContextHistoryTest {
         private final CountDownLatch latch;
 
         public SlowFragment(IContextManager cm, String id, CountDownLatch latch) {
-            super(id, cm, null, () -> {
+            super(id, cm, "Slow Fragment", "Slow", "text", null, () -> {
                 try {
                     latch.await();
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
-                return new ContextFragments.FragmentSnapshot(
-                        "Slow Fragment",
-                        "Slow",
+                return new ContextFragments.ContentSnapshot(
                         "Computed Content",
-                        "text",
                         Set.of(),
                         Set.of(),
                         (List<Byte>) null,
