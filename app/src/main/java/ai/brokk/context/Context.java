@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Encapsulates all state that will be sent to the model (prompts, filename context, conversation history).
@@ -456,6 +457,7 @@ public class Context {
         return Streams.concat(guide.stream(), fragments.stream());
     }
 
+    @VisibleForTesting
     Stream<ContextFragment> rawFragments() {
         return fragments.stream();
     }

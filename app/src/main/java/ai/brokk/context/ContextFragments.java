@@ -178,7 +178,7 @@ public class ContextFragments {
         }
     }
 
-    // Base implementation for fragments with async computation
+    @VisibleForTesting
     abstract static class AbstractComputedFragment implements ComputedFragment {
         protected final String id;
         protected final IContextManager contextManager;
