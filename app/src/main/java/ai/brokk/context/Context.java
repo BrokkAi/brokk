@@ -658,6 +658,60 @@ public class Context {
         return SUMMARIZING;
     }
 
+    /**
+     * Generates a descriptive string for the action that produced this context by comparing it to
+     * a previous state.
+     *
+     * @param previous the baseline context to compare against
+     * @return a human-readable description of the change
+     */
+    @Blocking
+    public String getDescription(@Nullable Context previous) {
+        if (previous == null || previous.isEmpty()) {
+            return WELCOME_ACTION;
+        }
+
+        if (this.equals(previous)) {
+            return "";
+        }
+
+        // 1. Prioritize Task History changes
+        if (this.taskHistory.size() > previous.taskHistory.size()) {
+            TaskEntry latest = this.taskHistory.getLast();
+            String summary = latest.summary();
+            if (summary != null && !summary.isBlank()) {
+                return summary;
+            }
+            var log = latest.log();
+            if (log != null) {
+                return log.shortDescription().join();
+            }
+        }
+
+        // 2. Fragment delta logic
+        var currentFragments = Set.copyOf(this.fragments);
+        var previousFragments = Set.copyOf(previous.fragments);
+
+        var added = this.fragments.stream()
+                .filter(f -> !previousFragments.contains(f))
+                .toList();
+
+        if (!added.isEmpty()) {
+            return buildAddFragmentsAction(added);
+        }
+
+        var removed = previous.fragments.stream()
+                .filter(f -> !currentFragments.contains(f))
+                .toList();
+
+        if (!removed.isEmpty()) {
+            return buildRemoveFragmentsAction(removed);
+        }
+
+        // Fallback for identical or non-describable states
+        return getAction();
+    }
+
     public IContextManager getContextManager() {
         return contextManager;
     }
