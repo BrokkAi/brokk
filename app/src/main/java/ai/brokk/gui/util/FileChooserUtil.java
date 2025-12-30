@@ -15,17 +15,24 @@ public final class FileChooserUtil {
     /**
      * Shows a directory chooser dialog with a "New Folder" button.
      *
-     * @param parent the parent frame (may be null)
+     * @param parent the parent component (may be null)
      * @param title the dialog title
      * @param initialDir the initial directory (may be null for default)
      * @return the selected directory, or null if cancelled
      */
     public static @Nullable File showDirectoryChooserWithNewFolder(
-            @Nullable Frame parent, String title, @Nullable File initialDir) {
-        var chooser = new JFileChooser();
+            @Nullable Component parent, String title, @Nullable File initialDir) {
+        var chooser = new JFileChooser() {
+            // Expose protected createDialog for proper LAF integration
+            @Override
+            public JDialog createDialog(Component p) {
+                return super.createDialog(p);
+            }
+        };
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         chooser.setMultiSelectionEnabled(false);
         chooser.setDialogTitle(title);
+        chooser.setApproveButtonText("Open");
         if (initialDir != null) {
             chooser.setCurrentDirectory(initialDir);
         }
@@ -33,23 +40,11 @@ public final class FileChooserUtil {
         var newFolderBtn = createNewFolderButton(chooser);
         addButtonToChooserButtonPanel(chooser, newFolderBtn);
 
-        final int[] result = {JFileChooser.CANCEL_OPTION};
-        chooser.addActionListener(e -> {
-            if (JFileChooser.APPROVE_SELECTION.equals(e.getActionCommand())) {
-                result[0] = JFileChooser.APPROVE_OPTION;
-            }
-        });
-
-        var dialog = new JDialog(parent, title, true);
-        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
-        dialog.setContentPane(chooser);
-        chooser.addActionListener(e -> dialog.dispose());
-
-        dialog.pack();
-        dialog.setLocationRelativeTo(parent);
+        var dialog = chooser.createDialog(parent);
+        dialog.setTitle(title);
         dialog.setVisible(true);
 
-        return result[0] == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
+        return chooser.getSelectedFile();
     }
 
     private static JButton createNewFolderButton(JFileChooser chooser) {
