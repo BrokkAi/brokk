@@ -85,13 +85,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Regex to identify test files. Matches the word "test"/"tests" (case-insensitive)
     // when it appears as its own path segment or at a camel-case boundary, as well as
     // common JS/TS conventions: *.spec.<ext>, *.test.<ext>, and files under __tests__/.
-    static final Pattern TEST_FILE_PATTERN = Pattern.compile("(?s).*"
+    static final Pattern TEST_FILE_PATTERN = Pattern.compile(".*"
             + "(?:"
             + "(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z])|(?<=[A-Z]))"
             + "(?i:tests?)"
             + "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)"
             + "|"
-            + "(?i:.*\\.(?:spec|test)\\.[^/\\\\.]+$)"
+            + "(?i:\\.(?:spec|test)\\.[^/\\\\.]+$)"
             + "|"
             + ".*(?:^|[/\\\\])__tests__(?:[/\\\\].*)"
             + ")"

@@ -64,7 +64,9 @@ class ContextManagerTest {
                 "foo.test.ts",
                 "foo.test.js",
                 "src/__tests__/utils.ts",
-                "__tests__/helper.js");
+                "__tests__/helper.js",
+                "__tests__/Component.test.js",
+                "packages/core/__tests__/util.ts");
 
         var pattern = ContextManager.TEST_FILE_PATTERN;
         var mismatches = new ArrayList<String>();
