@@ -14,7 +14,6 @@ import com.jediterm.terminal.TerminalColor;
 import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.TtyConnector;
 import com.jediterm.terminal.ui.TerminalActionPresentation;
-import java.awt.Point;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
@@ -25,6 +24,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Insets;
+import java.awt.Point;
 import java.awt.Toolkit;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -251,9 +251,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             if (!(console instanceof Chrome c)) {
                 // Should not happen in normal usage, but safe guard
                 console.systemNotify(
-                        "Cannot capture: ContextManager unavailable",
-                        "Terminal Capture",
-                        JOptionPane.WARNING_MESSAGE);
+                        "Cannot capture: ContextManager unavailable", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
@@ -276,24 +274,18 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 final var finalDisplay = displayPanel;
                 final var p1 = selStart;
                 final var p2 = selEnd;
-                future = c.getContextManager().submitBackgroundTask(
-                        "Capturing terminal selection",
-                        () -> {
-                            var text = finalDisplay.getSelectionText(p1, p2);
-                            if (text == null) {
-                                return null;
-                            }
-                            return text.lines()
-                                    .map(s -> s.replaceAll("\\s+$", ""))
-                                    .collect(Collectors.joining("\n"));
-                        });
+                future = c.getContextManager().submitBackgroundTask("Capturing terminal selection", () -> {
+                    var text = finalDisplay.getSelectionText(p1, p2);
+                    if (text == null) {
+                        return null;
+                    }
+                    return text.lines().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
+                });
             } else {
                 var buffer = w.getTerminalTextBuffer();
                 if (buffer == null) {
                     console.systemNotify(
-                            "No terminal buffer available to capture",
-                            "Terminal Capture",
-                            JOptionPane.WARNING_MESSAGE);
+                            "No terminal buffer available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
                     return;
                 }
 
@@ -336,9 +328,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
     private void submitCapturedContent(String content) {
         if (content == null || content.isBlank()) {
             console.systemNotify(
-                    "No terminal content available to capture",
-                    "Terminal Capture",
-                    JOptionPane.WARNING_MESSAGE);
+                    "No terminal content available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
             return;
         }
 
