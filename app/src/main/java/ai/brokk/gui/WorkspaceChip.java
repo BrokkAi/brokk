@@ -13,7 +13,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
-import ai.brokk.util.StyleGuideResolver;
+import ai.brokk.util.ProjectGuideResolver;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
 import java.awt.Color;
@@ -1503,7 +1503,7 @@ public class WorkspaceChip extends JPanel {
             contextManager
                     .submitBackgroundTask("Compute AGENTS.md", () -> {
                         try {
-                            return StyleGuideResolver.resolve(candidateFiles, contextManager.getProject());
+                            return ProjectGuideResolver.resolve(candidateFiles, contextManager.getProject());
                         } catch (Throwable t) {
                             logger.warn("Failed to resolve style guide; using fallback", t);
                             return contextManager.getProject().getStyleGuide();

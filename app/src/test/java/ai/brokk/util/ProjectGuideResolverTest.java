@@ -11,7 +11,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-public class StyleGuideResolverTest {
+public class ProjectGuideResolverTest {
 
     /**
      * Lightweight smoke test validating that the aggregated style guide contains multiple AGENTS.md
@@ -51,7 +51,7 @@ public class StyleGuideResolverTest {
         var projectFileB = new ProjectFile(master, master.relativize(fileB));
         // Mock-like implementation of IProject
         IProject mockProject = createMockProject("PROJECT-FALLBACK");
-        String guide = StyleGuideResolver.resolve(List.of(projectFileA, projectFileB), mockProject);
+        String guide = ProjectGuideResolver.resolve(List.of(projectFileA, projectFileB), mockProject);
 
         String headerA = "### AGENTS.md at a";
         String headerB = "### AGENTS.md at b";
@@ -89,7 +89,7 @@ public class StyleGuideResolverTest {
 
         var projectFileA = new ProjectFile(master, master.relativize(fileA));
         var projectFileB = new ProjectFile(master, master.relativize(fileB));
-        var resolver = new StyleGuideResolver(List.of(projectFileA, projectFileB));
+        var resolver = new ProjectGuideResolver(List.of(projectFileA, projectFileB));
 
         assertTrue(resolver.getPotentialDirectories().isEmpty(), "Expected no AGENTS.md files to be found");
         assertEquals("", resolver.resolveCompositeGuide(), "Expected empty composite guide when none found");
@@ -108,7 +108,7 @@ public class StyleGuideResolverTest {
         Files.writeString(fileX, "// x");
 
         var projectFileX = new ProjectFile(master, master.relativize(fileX));
-        var resolver = new StyleGuideResolver(List.of(projectFileX));
+        var resolver = new ProjectGuideResolver(List.of(projectFileX));
 
         var ordered = resolver.getPotentialDirectories();
         assertEquals(1, ordered.size(), "Only root AGENTS.md should be present");
@@ -133,7 +133,7 @@ public class StyleGuideResolverTest {
         Files.writeString(fileInNested, "// kt");
 
         var projectFileInNested = new ProjectFile(master, master.relativize(fileInNested));
-        var resolver = new StyleGuideResolver(List.of(projectFileInNested));
+        var resolver = new ProjectGuideResolver(List.of(projectFileInNested));
 
         var ordered = resolver.getPotentialDirectories();
         assertEquals(1, ordered.size(), "Only nested AGENTS.md should be present");
@@ -178,7 +178,7 @@ public class StyleGuideResolverTest {
         var projectFileA1 = new ProjectFile(master, master.relativize(fileA1));
         var projectFileA2 = new ProjectFile(master, master.relativize(fileA2));
         var projectFileB1 = new ProjectFile(master, master.relativize(fileB1));
-        var resolver = new StyleGuideResolver(List.of(projectFileA1, projectFileA2, projectFileB1));
+        var resolver = new ProjectGuideResolver(List.of(projectFileA1, projectFileA2, projectFileB1));
 
         var ordered = resolver.getPotentialDirectories();
         // Expected nearest-first as implemented: root, then A, then B
@@ -223,7 +223,7 @@ public class StyleGuideResolverTest {
         // Mock-like implementation of IProject
         IProject mockProject = createMockProject("PROJECT-FALLBACK");
 
-        String result = StyleGuideResolver.resolve(List.of(projectFile), mockProject);
+        String result = ProjectGuideResolver.resolve(List.of(projectFile), mockProject);
         assertEquals("PROJECT-FALLBACK", result, "Should fall back to project style guide when no AGENTS.md found");
     }
 

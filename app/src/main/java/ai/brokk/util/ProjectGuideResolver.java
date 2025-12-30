@@ -16,8 +16,8 @@ import org.jetbrains.annotations.VisibleForTesting;
  * Resolves a composite style guide by aggregating AGENTS.md files from a set of
  * input ProjectFile instances.
  */
-public final class StyleGuideResolver {
-    private static final Logger logger = LogManager.getLogger(StyleGuideResolver.class);
+public final class ProjectGuideResolver {
+    private static final Logger logger = LogManager.getLogger(ProjectGuideResolver.class);
 
     // Safety caps to prevent huge prompts; nearest-first files are preferred.
     // TODO: Make these caps token-aware rather than character-count based.
@@ -31,7 +31,7 @@ public final class StyleGuideResolver {
      *
      * @param files a list of ProjectFile instances to influence which AGENTS.md files are selected
      */
-    public StyleGuideResolver(Collection<ProjectFile> files) {
+    public ProjectGuideResolver(Collection<ProjectFile> files) {
         this.inputs = files;
     }
 
@@ -199,7 +199,7 @@ public final class StyleGuideResolver {
      * @return aggregated style guide content
      */
     private static String resolve(List<ProjectFile> files) {
-        return new StyleGuideResolver(files).resolveCompositeGuide();
+        return new ProjectGuideResolver(files).resolveCompositeGuide();
     }
 
     /**
