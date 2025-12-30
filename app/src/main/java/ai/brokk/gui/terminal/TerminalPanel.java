@@ -34,7 +34,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -289,8 +288,8 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 }
 
                 final var finalDisplay = displayPanel;
-                future = c.getContextManager().submitBackgroundTask("Capturing terminal buffer",
-                        finalDisplay::getFullBufferText);
+                future = c.getContextManager()
+                        .submitBackgroundTask("Capturing terminal buffer", finalDisplay::getFullBufferText);
             }
 
             future.thenAcceptAsync(this::submitCapturedContent, SwingUtilities::invokeLater)

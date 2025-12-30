@@ -27,12 +27,35 @@ public class BrokkJediTermPanel extends TerminalPanel {
     @NotNull
     public String getFullBufferText() {
         return computeFullBufferText(new BufferAccessor() {
-            @Override public void lock() { terminalTextBuffer.lock(); }
-            @Override public void unlock() { terminalTextBuffer.unlock(); }
-            @Override public int getHistoryLinesCount() { return terminalTextBuffer.getHistoryLinesCount(); }
-            @Override public int getHeight() { return terminalTextBuffer.getHeight(); }
-            @Override public String getLineText(int y) { return terminalTextBuffer.getLine(y).getText(); }
-            @Override public boolean isLineWrapped(int y) { return terminalTextBuffer.getLine(y).isWrapped(); }
+            @Override
+            public void lock() {
+                terminalTextBuffer.lock();
+            }
+
+            @Override
+            public void unlock() {
+                terminalTextBuffer.unlock();
+            }
+
+            @Override
+            public int getHistoryLinesCount() {
+                return terminalTextBuffer.getHistoryLinesCount();
+            }
+
+            @Override
+            public int getHeight() {
+                return terminalTextBuffer.getHeight();
+            }
+
+            @Override
+            public String getLineText(int y) {
+                return terminalTextBuffer.getLine(y).getText();
+            }
+
+            @Override
+            public boolean isLineWrapped(int y) {
+                return terminalTextBuffer.getLine(y).isWrapped();
+            }
         });
     }
 
@@ -49,22 +72,53 @@ public class BrokkJediTermPanel extends TerminalPanel {
 
     @Nullable
     public String getSelectionText(@Nullable Point start, @Nullable Point end) {
-        return computeSelectionText(new BufferAccessor() {
-            @Override public void lock() { terminalTextBuffer.lock(); }
-            @Override public void unlock() { terminalTextBuffer.unlock(); }
-            @Override public int getHistoryLinesCount() { return terminalTextBuffer.getHistoryLinesCount(); }
-            @Override public int getHeight() { return terminalTextBuffer.getHeight(); }
-            @Override public String getLineText(int y) { return terminalTextBuffer.getLine(y).getText(); }
-            @Override public boolean isLineWrapped(int y) { return terminalTextBuffer.getLine(y).isWrapped(); }
-        }, start, end);
+        return computeSelectionText(
+                new BufferAccessor() {
+                    @Override
+                    public void lock() {
+                        terminalTextBuffer.lock();
+                    }
+
+                    @Override
+                    public void unlock() {
+                        terminalTextBuffer.unlock();
+                    }
+
+                    @Override
+                    public int getHistoryLinesCount() {
+                        return terminalTextBuffer.getHistoryLinesCount();
+                    }
+
+                    @Override
+                    public int getHeight() {
+                        return terminalTextBuffer.getHeight();
+                    }
+
+                    @Override
+                    public String getLineText(int y) {
+                        return terminalTextBuffer.getLine(y).getText();
+                    }
+
+                    @Override
+                    public boolean isLineWrapped(int y) {
+                        return terminalTextBuffer.getLine(y).isWrapped();
+                    }
+                },
+                start,
+                end);
     }
 
     interface BufferAccessor {
         void lock();
+
         void unlock();
+
         int getHistoryLinesCount();
+
         int getHeight();
+
         String getLineText(int y);
+
         boolean isLineWrapped(int y);
     }
 

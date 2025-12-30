@@ -1,13 +1,13 @@
 package ai.brokk.gui.terminal;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
 import java.awt.Point;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 class BrokkJediTermPanelTest {
 
@@ -159,12 +159,10 @@ class BrokkJediTermPanelTest {
         }
 
         @Override
-        public void lock() {
-        }
+        public void lock() {}
 
         @Override
-        public void unlock() {
-        }
+        public void unlock() {}
 
         @Override
         public int getHistoryLinesCount() {
