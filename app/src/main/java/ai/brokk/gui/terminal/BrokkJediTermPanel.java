@@ -26,31 +26,14 @@ public class BrokkJediTermPanel extends TerminalPanel {
 
     @NotNull
     public String getFullBufferText() {
-        var lines = new java.util.ArrayList<String>();
-        terminalTextBuffer.lock();
-        try {
-            int historyCount = terminalTextBuffer.getHistoryLinesCount();
-            int height = terminalTextBuffer.getHeight();
-
-            for (int i = 0; i < historyCount; i++) {
-                lines.add(terminalTextBuffer.getLine(i - historyCount).getText());
-            }
-
-            for (int i = 0; i < height; i++) {
-                lines.add(terminalTextBuffer.getLine(i).getText());
-            }
-        } finally {
-            terminalTextBuffer.unlock();
-        }
-
-        var sb = new StringBuilder();
-        for (int i = 0; i < lines.size(); i++) {
-            sb.append(lines.get(i).replaceAll("\\s+$", ""));
-            if (i < lines.size() - 1) {
-                sb.append('\n');
-            }
-        }
-        return sb.toString();
+        return computeFullBufferText(new BufferAccessor() {
+            @Override public void lock() { terminalTextBuffer.lock(); }
+            @Override public void unlock() { terminalTextBuffer.unlock(); }
+            @Override public int getHistoryLinesCount() { return terminalTextBuffer.getHistoryLinesCount(); }
+            @Override public int getHeight() { return terminalTextBuffer.getHeight(); }
+            @Override public String getLineText(int y) { return terminalTextBuffer.getLine(y).getText(); }
+            @Override public boolean isLineWrapped(int y) { return terminalTextBuffer.getLine(y).isWrapped(); }
+        });
     }
 
     @Nullable
@@ -66,6 +49,54 @@ public class BrokkJediTermPanel extends TerminalPanel {
 
     @Nullable
     public String getSelectionText(@Nullable Point start, @Nullable Point end) {
+        return computeSelectionText(new BufferAccessor() {
+            @Override public void lock() { terminalTextBuffer.lock(); }
+            @Override public void unlock() { terminalTextBuffer.unlock(); }
+            @Override public int getHistoryLinesCount() { return terminalTextBuffer.getHistoryLinesCount(); }
+            @Override public int getHeight() { return terminalTextBuffer.getHeight(); }
+            @Override public String getLineText(int y) { return terminalTextBuffer.getLine(y).getText(); }
+            @Override public boolean isLineWrapped(int y) { return terminalTextBuffer.getLine(y).isWrapped(); }
+        }, start, end);
+    }
+
+    interface BufferAccessor {
+        void lock();
+        void unlock();
+        int getHistoryLinesCount();
+        int getHeight();
+        String getLineText(int y);
+        boolean isLineWrapped(int y);
+    }
+
+    static String computeFullBufferText(BufferAccessor buffer) {
+        var lines = new java.util.ArrayList<String>();
+        buffer.lock();
+        try {
+            int historyCount = buffer.getHistoryLinesCount();
+            int height = buffer.getHeight();
+
+            for (int i = 0; i < historyCount; i++) {
+                lines.add(buffer.getLineText(i - historyCount));
+            }
+
+            for (int i = 0; i < height; i++) {
+                lines.add(buffer.getLineText(i));
+            }
+        } finally {
+            buffer.unlock();
+        }
+
+        var sb = new StringBuilder();
+        for (int i = 0; i < lines.size(); i++) {
+            sb.append(lines.get(i).replaceAll("\\s+$", ""));
+            if (i < lines.size() - 1) {
+                sb.append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
+    static String computeSelectionText(BufferAccessor buffer, @Nullable Point start, @Nullable Point end) {
         if (start == null || end == null) {
             return null;
         }
@@ -81,10 +112,10 @@ public class BrokkJediTermPanel extends TerminalPanel {
         }
 
         var sb = new StringBuilder();
-        terminalTextBuffer.lock();
+        buffer.lock();
         try {
-            int historyCount = terminalTextBuffer.getHistoryLinesCount();
-            int height = terminalTextBuffer.getHeight();
+            int historyCount = buffer.getHistoryLinesCount();
+            int height = buffer.getHeight();
             int minIndex = -historyCount;
             int maxIndex = height - 1;
 
@@ -92,8 +123,7 @@ public class BrokkJediTermPanel extends TerminalPanel {
             int yEnd = Math.max(minIndex, Math.min(p2.y, maxIndex));
 
             for (int y = yStart; y <= yEnd; y++) {
-                var line = terminalTextBuffer.getLine(y);
-                String text = line.getText();
+                String text = buffer.getLineText(y);
                 int maxX = text.length();
 
                 int x1 = (y == p1.y) ? p1.x : 0;
@@ -108,12 +138,12 @@ public class BrokkJediTermPanel extends TerminalPanel {
                     sb.append(chunk);
                 }
 
-                if (y < p2.y && !line.isWrapped()) {
+                if (y < p2.y && !buffer.isLineWrapped(y)) {
                     sb.append('\n');
                 }
             }
         } finally {
-            terminalTextBuffer.unlock();
+            buffer.unlock();
         }
 
         return sb.toString();
