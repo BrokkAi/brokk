@@ -79,17 +79,16 @@ public class Environment {
 
     // Default factory creates the real runner. Tests can replace this.
     public static final BiFunction<String, Path, ShellCommandRunner> DEFAULT_SHELL_COMMAND_RUNNER_FACTORY =
-            (cmd, projectRoot) -> (outputConsumer, timeout) ->
-                    runShellCommandInternal(
-                            new String[] {isWindows() ? "powershell.exe" : "/bin/sh", isWindows() ? "-Command" : "-c", cmd},
-                            cmd,
-                            projectRoot,
-                            false,
-                            timeout,
-                            outputConsumer,
-                            null,
-                            Map.of(),
-                            null);
+            (cmd, projectRoot) -> (outputConsumer, timeout) -> runShellCommandInternal(
+                    new String[] {isWindows() ? "powershell.exe" : "/bin/sh", isWindows() ? "-Command" : "-c", cmd},
+                    cmd,
+                    projectRoot,
+                    false,
+                    timeout,
+                    outputConsumer,
+                    null,
+                    Map.of(),
+                    null);
 
     public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
             DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
@@ -173,8 +172,7 @@ public class Environment {
     /**
      * Runs a command specified as an argument list (argv), bypassing shell interpretation and quoting issues.
      */
-    public String runProcess(
-            java.util.List<String> args, Path root, Consumer<String> outputConsumer, Duration timeout)
+    public String runProcess(java.util.List<String> args, Path root, Consumer<String> outputConsumer, Duration timeout)
             throws SubprocessException, InterruptedException {
         String commandDesc = String.join(" ", args);
         // If mocked, use the factory
@@ -288,8 +286,9 @@ public class Environment {
                     logger.info("using custom executor '{}' with sandbox", executorConfig.getDisplayName());
                 } else {
                     // Fallback to system default with sandbox
-                    shellCommand =
-                            new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", commandDesc};
+                    shellCommand = new String[] {
+                        "sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", commandDesc
+                    };
 
                     if (executorConfig != null) {
                         logger.info(

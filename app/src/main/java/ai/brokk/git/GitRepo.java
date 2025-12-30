@@ -717,8 +717,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         try {
-            Environment.instance.runProcess(
-                    args, getProjectRoot(), out -> {}, Environment.GIT_SIGNING_TIMEOUT);
+            Environment.instance.runProcess(args, getProjectRoot(), out -> {}, Environment.GIT_SIGNING_TIMEOUT);
             return getCurrentCommitId();
         } catch (Exception e) {
             if (e instanceof Environment.FailureException fe) {
