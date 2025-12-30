@@ -2418,17 +2418,21 @@ public class GitRepo implements Closeable, IGitRepo {
 
         logger.debug("Performing merge conflict simulation in temporary worktree: {}", tempWorktreePath);
 
-        // fixme: Temporarily disable signing in the in-memory config until we support signing
+        // Temporarily disable signing in the config during simulation to avoid GPG prompts/errors.
+        // We check the entry specifically in the LOCAL config to avoid leaking global settings into local config.
         final var config = git.getRepository().getConfig();
-        final boolean oldSignConfig = config.getBoolean("commit", null, "gpgsign", false);
-        try {
-            config.setBoolean("commit", null, "gpgsign", false);
-            config.save();
-        } catch (IOException e) {
-            logger.warn("Exception encountered while attempting to temporarily disable GPG signing.", e);
-        }
+        final String oldSignConfig = config.getString("commit", null, "gpgsign");
+        // Use the two-argument getNames(section, recursive=false) to check local repo config only
+        final boolean wasSetLocally = config.getNames("commit", false).contains("gpgsign");
 
         try {
+            config.setBoolean("commit", null, "gpgsign", false);
+            try {
+                config.save();
+            } catch (IOException e) {
+                logger.warn("Exception encountered while attempting to temporarily disable GPG signing.", e);
+            }
+
             // Add a detached worktree on the target branch
             var addCommand = String.format(
                     "git worktree add --detach %s %s", tempWorktreePath.toAbsolutePath(), targetBranchId.getName());
@@ -2465,6 +2469,19 @@ public class GitRepo implements Closeable, IGitRepo {
         } catch (Environment.SubprocessException | InterruptedException e) {
             throw new GitRepoException("Failed to execute command for temporary worktree", e);
         } finally {
+            // Re-enable old signing setting BEFORE removing worktree to ensure state is restored
+            // even if worktree removal fails.
+            try {
+                if (wasSetLocally && oldSignConfig != null) {
+                    config.setString("commit", null, "gpgsign", oldSignConfig);
+                } else {
+                    config.unset("commit", null, "gpgsign");
+                }
+                config.save();
+            } catch (IOException e) {
+                logger.warn("Exception encountered while attempting to restore GPG signing configuration.", e);
+            }
+
             // Forcefully remove the temporary worktree and its directory
             try {
                 var removeCommand = String.format("git worktree remove --force %s", tempWorktreePath.toAbsolutePath());
@@ -2472,13 +2489,6 @@ public class GitRepo implements Closeable, IGitRepo {
                         removeCommand, getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
             } catch (Exception e) {
                 logger.error("Failed to clean up temporary worktree at {}", tempWorktreePath, e);
-            }
-            // Re-enable old signing setting
-            try {
-                config.setBoolean("commit", null, "gpgsign", oldSignConfig);
-                config.save();
-            } catch (IOException e) {
-                logger.warn("Exception encountered while attempting to set GPG signing to previous value.", e);
             }
         }
     }
