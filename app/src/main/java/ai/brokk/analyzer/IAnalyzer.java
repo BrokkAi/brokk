@@ -247,13 +247,12 @@ public interface IAnalyzer {
             throw new IllegalArgumentException("Search pattern may not be empty");
         }
 
-        // Prepare case-insensitive regex pattern
+        // Prepare case-insensitive regex pattern with non-greedy quantifiers
         if (autoQuote) {
-            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*");
+            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*?" + Pattern.quote(pattern) + ".*?");
         }
 
         Pattern compiledPattern = Pattern.compile(pattern);
-        // Reuse a single Matcher across all declarations to avoid allocation overhead
         return searchDefinitions(compiledPattern);
     }
 
@@ -277,18 +276,18 @@ public interface IAnalyzer {
         }
 
         // Base: current behavior (case-insensitive substring via searchDefinitions)
-        var baseResults = searchDefinitions(".*" + query + ".*");
+        var baseResults = searchDefinitions(".*?" + query + ".*?");
 
-        // Fuzzy: if short query, over-approximate by inserting ".*" between characters
+        // Fuzzy: if short query, over-approximate by inserting ".*?" between characters
         Set<CodeUnit> fuzzyResults = Set.of();
         if (query.length() < 5) {
             StringBuilder sb = new StringBuilder("(?i)");
-            sb.append(".*");
+            sb.append(".*?");
             for (int i = 0; i < query.length(); i++) {
                 sb.append(Pattern.quote(String.valueOf(query.charAt(i))));
-                if (i < query.length() - 1) sb.append(".*");
+                if (i < query.length() - 1) sb.append(".*?");
             }
-            sb.append(".*");
+            sb.append(".*?");
             fuzzyResults = searchDefinitions(sb.toString());
         }
 

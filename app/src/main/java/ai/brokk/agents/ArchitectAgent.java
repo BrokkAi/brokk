@@ -6,15 +6,16 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.AbstractService.ModelConfig;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
-import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -30,6 +31,7 @@ import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
@@ -44,6 +46,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -65,7 +68,7 @@ public class ArchitectAgent {
     // Result of executing a single search request: both the tool execution result and the SearchAgent result
     private record SearchTaskResult(ToolExecutionResult toolResult, TaskResult taskResult) {}
 
-    private final ContextManager cm;
+    private final IContextManager cm;
     private final StreamingChatModel planningModel;
     private final StreamingChatModel codeModel;
     private final String goal;
@@ -94,7 +97,7 @@ public class ArchitectAgent {
      * @param goal      The initial user instruction or goal for the agent.
      */
     public ArchitectAgent(
-            ContextManager contextManager,
+            IContextManager contextManager,
             StreamingChatModel planningModel,
             StreamingChatModel codeModel,
             String goal,
@@ -167,13 +170,16 @@ public class ArchitectAgent {
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
         context = scope.append(result);
-        // Detect whether this CodeAgent run made any changes
-        boolean didChange = !context.getChangedFiles(initialContext).isEmpty();
+        var changedFiles = context.getChangedFiles(initialContext);
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
             var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
+            var fileList =
+                    changedFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
+            resultString += " Changed files: " + (fileList.isEmpty() ? "None" : fileList);
+
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild && didChange;
+            codeAgentJustSucceeded = !deferBuild && !changedFiles.isEmpty();
             return resultString;
         }
 
@@ -194,7 +200,7 @@ public class ArchitectAgent {
         logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
         // Offer undo if the CodeAgent failed and left changes behind
-        if (didChange) {
+        if (!changedFiles.isEmpty()) {
             this.offerUndoToolNext = true;
         }
 
@@ -951,9 +957,19 @@ public class ArchitectAgent {
             int workspaceTokenSize, int maxInputTokens, List<ChatMessage> precomputedWorkspaceMessages)
             throws InterruptedException {
         var messages = new ArrayList<ChatMessage>();
-        // System message defines the agent's role and general instructions
-        var reminder = CodePrompts.instance.architectReminder();
-        messages.add(ArchitectPrompts.instance.systemMessage(reminder, goal));
+
+        var sys = new SystemMessage(
+                """
+                <instructions>
+                %s
+                </instructions>
+                <goal>
+                %s
+                </goal>
+                """
+                        .formatted(ArchitectPrompts.instance.systemInstructions(), goal)
+                        .trim());
+        messages.add(sys);
 
         // Workspace contents are added directly
         messages.addAll(precomputedWorkspaceMessages);
@@ -962,7 +978,7 @@ public class ArchitectAgent {
         messages.addAll(cm.getHistoryMessages());
 
         // This agent's own conversational history for the current goal, with the instructionsMarker
-        // simplified away to avoid sending confusing instruction text (would contain obsolete workspace-toc)
+        // simplified away to avoid sending confusing instruction text (would contain obsolete workspace_toc)
         var marker = ArchitectPrompts.instructionsMarker();
         messages.addAll(architectMessages.stream()
                 .map(msg -> {
