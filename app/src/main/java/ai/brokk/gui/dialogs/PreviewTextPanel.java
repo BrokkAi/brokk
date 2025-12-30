@@ -5,7 +5,6 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ContextManager;
 import ai.brokk.EditBlock;
 import ai.brokk.IConsoleIO;
-import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.analyzer.CodeUnit;
