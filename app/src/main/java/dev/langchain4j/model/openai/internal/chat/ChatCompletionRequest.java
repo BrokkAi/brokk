@@ -93,6 +93,9 @@ public final class ChatCompletionRequest {
     private final String serviceTier;
 
     @JsonProperty
+    private final String previousResponseId;
+
+    @JsonProperty
     @Deprecated
     private final List<Function> functions;
 
@@ -124,6 +127,7 @@ public final class ChatCompletionRequest {
         this.metadata = builder.metadata;
         this.reasoningEffort = builder.reasoningEffort;
         this.serviceTier = builder.serviceTier;
+        this.previousResponseId = builder.previousResponseId;
         this.functions = builder.functions;
         this.functionCall = builder.functionCall;
     }
@@ -220,6 +224,10 @@ public final class ChatCompletionRequest {
         return serviceTier;
     }
 
+    public String previousResponseId() {
+        return previousResponseId;
+    }
+
     @Deprecated
     public List<Function> functions() {
         return functions;
@@ -260,6 +268,7 @@ public final class ChatCompletionRequest {
                 && Objects.equals(metadata, another.metadata)
                 && Objects.equals(reasoningEffort, another.reasoningEffort)
                 && Objects.equals(serviceTier, another.serviceTier)
+                && Objects.equals(previousResponseId, another.previousResponseId)
                 && Objects.equals(functions, another.functions)
                 && Objects.equals(functionCall, another.functionCall);
     }
@@ -290,6 +299,7 @@ public final class ChatCompletionRequest {
         h += (h << 5) + Objects.hashCode(metadata);
         h += (h << 5) + Objects.hashCode(reasoningEffort);
         h += (h << 5) + Objects.hashCode(serviceTier);
+        h += (h << 5) + Objects.hashCode(previousResponseId);
         h += (h << 5) + Objects.hashCode(functions);
         h += (h << 5) + Objects.hashCode(functionCall);
         return h;
@@ -321,6 +331,7 @@ public final class ChatCompletionRequest {
                 + ", metadata=" + metadata
                 + ", reasoningEffort=" + reasoningEffort
                 + ", serviceTier=" + serviceTier
+                + ", previousResponseId=" + previousResponseId
                 + ", functions=" + functions
                 + ", functionCall=" + functionCall
                 + "}";
@@ -358,6 +369,7 @@ public final class ChatCompletionRequest {
         private Map<String, String> metadata;
         private String reasoningEffort;
         private String serviceTier;
+        private String previousResponseId;
 
         @Deprecated
         private List<Function> functions;
@@ -389,6 +401,7 @@ public final class ChatCompletionRequest {
             metadata(instance.metadata);
             reasoningEffort(instance.reasoningEffort);
             serviceTier(instance.serviceTier);
+            previousResponseId(instance.previousResponseId());
             functions(instance.functions);
             functionCall(instance.functionCall);
             return this;
@@ -581,6 +594,11 @@ public final class ChatCompletionRequest {
 
         public Builder serviceTier(String serviceTier) {
             this.serviceTier = serviceTier;
+            return this;
+        }
+
+        public Builder previousResponseId(String previousResponseId) {
+            this.previousResponseId = previousResponseId;
             return this;
         }
 

@@ -26,6 +26,9 @@ public final class Delta {
     @JsonProperty("reasoning_content")
     private final String reasoningContent;
 
+    @JsonProperty("thought_signature")
+    private final String thoughtSignature;
+
     @JsonProperty
     private final List<ToolCall> toolCalls;
 
@@ -37,6 +40,7 @@ public final class Delta {
         this.role = builder.role;
         this.content = builder.content;
         this.reasoningContent = builder.reasoningContent;
+        this.thoughtSignature = builder.thoughtSignature;
         this.toolCalls = builder.toolCalls;
         this.functionCall = builder.functionCall;
     }
@@ -51,6 +55,10 @@ public final class Delta {
 
     public String reasoningContent() {
         return reasoningContent;
+    }
+
+    public String thoughtSignature() {
+        return thoughtSignature;
     }
 
     public List<ToolCall> toolCalls() {
@@ -72,6 +80,7 @@ public final class Delta {
         return Objects.equals(role, another.role)
                 && Objects.equals(content, another.content)
                 && Objects.equals(reasoningContent, another.reasoningContent)
+                && Objects.equals(thoughtSignature, another.thoughtSignature)
                 && Objects.equals(toolCalls, another.toolCalls)
                 && Objects.equals(functionCall, another.functionCall);
     }
@@ -82,6 +91,7 @@ public final class Delta {
         h += (h << 5) + Objects.hashCode(role);
         h += (h << 5) + Objects.hashCode(content);
         h += (h << 5) + Objects.hashCode(reasoningContent);
+        h += (h << 5) + Objects.hashCode(thoughtSignature);
         h += (h << 5) + Objects.hashCode(toolCalls);
         h += (h << 5) + Objects.hashCode(functionCall);
         return h;
@@ -93,6 +103,7 @@ public final class Delta {
                 + "role=" + role
                 + ", content=" + content
                 + ", reasoningContent=" + reasoningContent
+                + ", thoughtSignature=" + thoughtSignature
                 + ", toolCalls=" + toolCalls
                 + ", functionCall=" + functionCall
                 + "}";
@@ -110,6 +121,7 @@ public final class Delta {
         private String role;
         private String content;
         private String reasoningContent;
+        private String thoughtSignature;
         private List<ToolCall> toolCalls;
 
         @Deprecated
@@ -127,6 +139,11 @@ public final class Delta {
 
         public Builder reasoningContent(String reasoningContent) {
             this.reasoningContent = reasoningContent;
+            return this;
+        }
+
+        public Builder thoughtSignature(String thoughtSignature) {
+            this.thoughtSignature = thoughtSignature;
             return this;
         }
 
