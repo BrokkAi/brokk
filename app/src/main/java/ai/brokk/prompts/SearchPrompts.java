@@ -142,8 +142,8 @@ public class SearchPrompts {
                 - dropWorkspaceFragments(fragments: {fragmentId, explanation}[]): batch ALL drops in a single call.
 
                 Default behavior:
-                - If a fragment is large, noisy, or mixed → write a short summary in the drop explanation → DROP it.
-                  Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.
+                - If a fragment is large, noisy, or of mixed relevance → write a detailed summary of anything relevant to the search goal in the drop explanation and DROP it.
+                  (Large/noisy/mixed = long, multi-file, logs/traces/issues, big diffs, UI/test noise, unfocused content.)
 
                 Keep rule:
                 - KEEP only if it is short, focused, directly relevant, AND keeping it is clearer than summarizing (i.e. to much information loss on summary).
@@ -151,7 +151,7 @@ public class SearchPrompts {
                 fragment.explanation (string) format:
                 - Summary: information needed to solve the goal (e.g. descriptions, file paths, class names, method names, code snippets, stack traces)
                 - Reason: one short sentence why dropped.
-                - No implementation instructions.
+                - DO NOT include instructions for implementing a solution for the search goal.
 
                 Response rule:
                 - Tool call only; return exactly ONE tool call (performedInitialReview OR a single batched dropWorkspaceFragments).

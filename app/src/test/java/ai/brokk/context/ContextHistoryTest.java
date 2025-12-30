@@ -388,14 +388,14 @@ public class ContextHistoryTest {
      * We use a mock usage fragment as it will satisfy control flow such as `ContextFragment.isEditable` while
      * avoiding dependencies and computation from analyzers/usage finders.
      */
-    private static final class MockUsageFragment extends ContextFragments.AbstractStaticFragment
-            implements ContextFragment.DynamicIdentity {
+    private static final class MockUsageFragment extends ContextFragments.AbstractStaticFragment {
         public MockUsageFragment(IContextManager cm, String id, String text) {
             super(
                     id,
-                    cm,
-                    new ContextFragments.FragmentSnapshot(
-                            "Mock Usage", "Usage", text, "text", Set.of(), Set.of(), (List<Byte>) null, true));
+                    "Mock Usage",
+                    "Usage",
+                    "text",
+                    ContextFragments.ContentSnapshot.textSnapshot(text, Set.of(), Set.of()));
         }
 
         @Override

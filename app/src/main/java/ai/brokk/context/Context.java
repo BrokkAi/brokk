@@ -1374,7 +1374,7 @@ public class Context {
     public void awaitContextsAreComputed(Duration timeout) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         for (var fragment : this.allFragments().toList()) {
-            if (fragment instanceof ContextFragments.AbstractComputedFragment cf) {
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
                 long remainingMillis = deadline - System.currentTimeMillis();
                 if (remainingMillis <= 0) {
                     break; // Timeout exhausted

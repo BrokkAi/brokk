@@ -7,6 +7,7 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.ComputedValue;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -209,17 +210,23 @@ class DiffServiceTest {
 
     @Test
     void text_diff_falls_back_when_new_text_not_computed() {
-        class SlowFragment extends ContextFragments.AbstractComputedFragment
-                implements ContextFragment.DynamicIdentity {
+        class SlowFragment extends ContextFragments.AbstractComputedFragment {
             private final ContextFragment.FragmentType type;
 
             SlowFragment(
                     String id,
                     IContextManager cm,
-                    @Nullable ContextFragments.FragmentSnapshot snapshot,
-                    @Nullable Callable<ContextFragments.FragmentSnapshot> task,
+                    @Nullable ContextFragments.ContentSnapshot snapshot,
+                    @Nullable Callable<ContextFragments.ContentSnapshot> task,
                     ContextFragment.FragmentType type) {
-                super(id, cm, snapshot, task);
+                super(
+                        id,
+                        cm,
+                        ComputedValue.completed("Slow Fragment"),
+                        ComputedValue.completed("Slow"),
+                        ComputedValue.completed(SyntaxConstants.SYNTAX_STYLE_NONE),
+                        snapshot,
+                        task);
                 this.type = type;
             }
 
@@ -279,22 +286,13 @@ class DiffServiceTest {
                 "New content should fall back to error message on timeout");
     }
 
-    private static ContextFragments.FragmentSnapshot snapshot(
+    private static ContextFragments.ContentSnapshot snapshot(
             String description, String shortDescription, String text, boolean isValid) {
-        return new ContextFragments.FragmentSnapshot(
-                description,
-                shortDescription,
-                text,
-                SyntaxConstants.SYNTAX_STYLE_NONE,
-                Set.of(),
-                Set.of(),
-                (List<Byte>) null,
-                isValid);
+        return new ContextFragments.ContentSnapshot(text, Set.of(), Set.of(), (List<Byte>) null, isValid);
     }
 
-    private static ContextFragments.FragmentSnapshot snapshot(
-            String description, String shortDescription, String text) {
-        return snapshot(description, shortDescription, text, true);
+    private static ContextFragments.ContentSnapshot snapshot(String description, String shortDescription, String text) {
+        return ContextFragments.ContentSnapshot.textSnapshot(text, Set.of(), Set.of());
     }
 
     private static void writeImage(ProjectFile file, Color color) throws Exception {

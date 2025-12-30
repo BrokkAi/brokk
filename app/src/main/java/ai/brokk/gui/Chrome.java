@@ -693,15 +693,18 @@ public class Chrome
         }
 
         // Open Settings (configurable; default Cmd/Ctrl+,)
-        KeyStroke openSettingsKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.openSettings", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
-        bindKey(rootPane, openSettingsKeyStroke, "openSettings");
-        rootPane.getActionMap().put("openSettings", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> MenuBar.openSettingsDialog(Chrome.this));
-            }
-        });
+        // On macOS, Desktop.setPreferencesHandler() in MenuBar handles Cmd+, natively
+        if (!SystemInfo.isMacOS) {
+            KeyStroke openSettingsKeyStroke = GlobalUiSettings.getKeybinding(
+                    "global.openSettings", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
+            bindKey(rootPane, openSettingsKeyStroke, "openSettings");
+            rootPane.getActionMap().put("openSettings", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    SwingUtilities.invokeLater(() -> MenuBar.openSettingsDialog(Chrome.this));
+                }
+            });
+        }
 
         // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
         KeyStroke closeWindowKeyStroke = GlobalUiSettings.getKeybinding(
