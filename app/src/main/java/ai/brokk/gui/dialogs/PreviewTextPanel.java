@@ -179,7 +179,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             actionButtonPanel.add(captureButton); // Add capture button
         }
 
-        // Edit button (conditionally added for ProjectFile)
+        // Attach button (conditionally added for ProjectFile)
         if (file != null) {
             var text = (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE)
                     ? "Attach Current Version"
