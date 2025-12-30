@@ -610,27 +610,19 @@ public class CodeAgent {
             // Parse Java for lint diagnostics (issue #2131)
             if (Languages.JAVA.getExtensions().contains(file.extension())) {
                 var responseText = Messages.getText(result.aiMessage());
-                var snippet =
-                        EditBlock.extractCodeFromTripleBackticks(responseText).trim();
+                var snippet = EditBlock.extractCodeFromTripleBackticks(responseText).trim();
 
-                // Validation 1: Verify extraction succeeded
                 if (snippet.isEmpty()) {
                     io.toolError(
                             "Could not extract code block from LLM response. Ensure the response includes code fenced with triple backticks.",
                             "Quick Edit Diagnostics");
-                    // Continue with successful Quick Edit, just skip diagnostics
-                } else if (snippet.equals(oldText)) {
-                    // Validation 2: Skip diagnostics if no change
-                    logger.debug("Quick Edit: LLM returned unchanged code, skipping diagnostics");
-                } else {
-                    // Validation 3: Verify replacement occurs
+                } else if (!snippet.equals(oldText)) {
                     var updatedContent =
                             fileContents.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
 
                     if (updatedContent.equals(fileContents)) {
                         logger.warn("Quick Edit diagnostics: could not find target text in file (may have changed)");
                     } else {
-                        // Now safe to compute diagnostics
                         var diags = parseJavaForDiagnostics(file, updatedContent);
                         if (!diags.isEmpty()) {
                             var diagnosticMessages = new StringBuilder();
