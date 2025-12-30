@@ -408,28 +408,27 @@ public class CodeAgent {
                     if (es.consecutiveBuildFailures() >= MAX_BUILD_FAILURES) {
                         reportComplete("Java syntax errors persist after %d attempts; aborting."
                                 .formatted(MAX_BUILD_FAILURES));
-                        stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR,
-                                "Java syntax issues persist.");
+                        stopDetails = new TaskResult.StopDetails(
+                                TaskResult.StopReason.BUILD_ERROR, "Java syntax issues persist.");
                         break;
                     }
 
-                    var diagnosticMessages = new StringBuilder();
-                    diagnosticMessages.append("Java syntax issues detected:\n\n");
-                    for (var entry : es.javaLintDiagnostics().entrySet()) {
-                        var pf = entry.getKey();
-                        var diags = entry.getValue();
-                        diagnosticMessages.append(
-                                String.format("**%s**: %d issue(s)\n", pf.getFileName(), diags.size()));
-                        for (var diag : diags) {
-                            diagnosticMessages.append("  - ").append(diag.description()).append("\n");
-                        }
-                        diagnosticMessages.append("\n");
-                    }
+                    var diagnosticMessages = es.javaLintDiagnostics().entrySet().stream()
+                            .map(entry -> {
+                                var pf = entry.getKey();
+                                var diags = entry.getValue();
+                                var diagLines = diags.stream()
+                                        .map(diag -> "  - " + diag.description())
+                                        .collect(Collectors.joining("\n"));
+                                return "**%s**: %d issue(s)\n%s".formatted(pf.getFileName(), diags.size(), diagLines);
+                            })
+                            .collect(Collectors.joining("\n\n", "Java syntax issues detected:\n\n", "\n"));
                     report(diagnosticMessages.toString());
 
-                    UserMessage nextRequestForLintFailure = new UserMessage(
-                            "The following Java syntax issues were detected. Please fix them:\n\n" + diagnosticMessages);
-                    cs = new ConversationState(cs.taskMessages(), nextRequestForLintFailure, cs.taskMessages().size());
+                    UserMessage nextRequestForLintFailure =
+                            new UserMessage("The following Java syntax issues were detected. Please fix them:\n\n"
+                                    + diagnosticMessages);
+                    cs = cs.withNextRequest(nextRequestForLintFailure);
                     es = es.afterBuildFailure(diagnosticMessages.toString());
                     continue;
                 }
@@ -628,37 +627,37 @@ public class CodeAgent {
             }
 
             // Validate Java syntax if applicable
-            if (Languages.JAVA.getExtensions().contains(file.extension())) {
-                var updatedContent = fileContents.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
-                if (updatedContent.equals(fileContents)) {
-                    logger.warn("Quick Edit: target text not found in file (may have changed)");
-                    break;
-                }
-
-                var diags = parseJavaForDiagnostics(file, updatedContent);
-                if (diags.isEmpty()) {
-                    break; // Valid Java
-                }
-
-                var diagnosticMessages = new StringBuilder();
-                diagnosticMessages.append("\nJava syntax issues detected:\n\n");
-                for (var diag : diags) {
-                    diagnosticMessages.append("  - ").append(diag.description()).append("\n");
-                }
-                io.llmOutput(diagnosticMessages.toString(), ChatMessageType.CUSTOM);
-
-                if (attempts < MAX_QUICK_FIX_ATTEMPTS) {
-                    messages.add(result.aiMessage());
-                    messages.add(new UserMessage("The following Java syntax issues were detected in your response. Please fix them and provide the full corrected code block:\n\n" + diagnosticMessages));
-                    report("Quick Edit: Syntax errors detected, retrying...");
-                    continue;
-                } else {
-                    report("Quick Edit: Maximum fix attempts reached.");
-                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "Syntax errors persist");
-                }
-            } else {
-                break; // Not Java, stop here
+            if (!Languages.JAVA.getExtensions().contains(file.extension())) {
+                break; // Not Java, accept the result
             }
+
+            var updatedContent = fileContents.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
+            if (updatedContent.equals(fileContents)) {
+                logger.warn("Quick Edit: target text not found in file (may have changed)");
+                break;
+            }
+
+            var diags = parseJavaForDiagnostics(file, updatedContent);
+            if (diags.isEmpty()) {
+                break; // Valid Java
+            }
+
+            var diagnosticMessages = diags.stream()
+                    .map(diag -> "  - " + diag.description())
+                    .collect(Collectors.joining("\n", "\nJava syntax issues detected:\n\n", "\n"));
+            io.llmOutput(diagnosticMessages, ChatMessageType.CUSTOM);
+
+            if (attempts >= MAX_QUICK_FIX_ATTEMPTS) {
+                report("Quick Edit: Maximum fix attempts reached.");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "Syntax errors persist");
+                break;
+            }
+
+            messages.add(result.aiMessage());
+            messages.add(new UserMessage(
+                    "The following Java syntax issues were detected in your response. Please fix them and provide the full corrected code block:\n\n"
+                            + diagnosticMessages));
+            report("Quick Edit: Syntax errors detected, retrying...");
         }
 
         var quickMeta = new TaskResult.TaskMeta(
