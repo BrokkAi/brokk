@@ -689,9 +689,9 @@ public class GitRepo implements Closeable, IGitRepo {
         cmdParts.add(message);
 
         if (!files.isEmpty()) {
+            cmdParts.add("--only");
+            cmdParts.add("--");
             for (var file : files) {
-                cmdParts.add("--only");
-                cmdParts.add("--");
                 cmdParts.add(toRepoRelativePath(file));
             }
         }

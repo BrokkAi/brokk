@@ -3,6 +3,7 @@ package ai.brokk.git;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.nio.file.Path;
@@ -60,6 +61,47 @@ class GitRepoSigningTest {
                 assertTrue(cmd.contains("-S"), "Should contain -S flag");
                 assertTrue(cmd.contains("-u") && cmd.contains("TESTKEYID"), "Should contain -u flag with key");
                 assertTrue(cmd.contains("Test Message"), "Should contain message");
+            }
+        } finally {
+            Environment.shellCommandRunnerFactory = oldFactory;
+        }
+    }
+
+    @Test
+    void testCommitFilesNativeSyntaxWithMultipleFiles() throws Exception {
+        try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
+            git.commit().setSign(false).setAllowEmpty(true).setMessage("Initial").call();
+        }
+
+        MainProject.setGpgCommitSigningEnabled(true);
+        MainProject.setGpgSigningKey("KEY");
+
+        var oldFactory = Environment.shellCommandRunnerFactory;
+        java.util.concurrent.atomic.AtomicReference<String> capturedCommand =
+                new java.util.concurrent.atomic.AtomicReference<>();
+
+        try {
+            Environment.shellCommandRunnerFactory = (cmd, projectRoot) -> (outputConsumer, timeout) -> {
+                if (cmd.contains("git commit")) {
+                    capturedCommand.set(cmd);
+                }
+                return "";
+            };
+
+            try (GitRepo repo = new GitRepo(tempDir)) {
+                var file1 = new ProjectFile(tempDir, Path.of("file1.txt"));
+                var file2 = new ProjectFile(tempDir, Path.of("file2.txt"));
+                repo.commitFiles(java.util.List.of(file1, file2), "Multi-file commit");
+
+                String cmd = capturedCommand.get();
+                assertNotNull(cmd);
+                // Correct syntax: git commit ... --only -- file1 file2
+                assertTrue(cmd.contains("--only -- file1.txt file2.txt"),
+                        "Command should contain files after a single --only --. Found: " + cmd);
+
+                // Verify --only doesn't appear multiple times
+                int onlyCount = (cmd.length() - cmd.replace("--only", "").length()) / "--only".length();
+                assertTrue(onlyCount == 1, "Expected '--only' to appear once, but found " + onlyCount);
             }
         } finally {
             Environment.shellCommandRunnerFactory = oldFactory;
