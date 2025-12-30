@@ -440,7 +440,7 @@ public class ContextHistory {
     private void snapshotContext(Context ctx) {
         for (var fragment : ctx.allFragments().toList()) {
             try {
-                if (fragment instanceof ContextFragments.AbstractComputedFragment cf) {
+                if (fragment instanceof ContextFragment.ComputedFragment cf) {
                     cf.await(SNAPSHOT_AWAIT_TIMEOUT);
                 }
             } catch (Exception e) {

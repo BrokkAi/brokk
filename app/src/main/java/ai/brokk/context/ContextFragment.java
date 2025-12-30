@@ -10,6 +10,7 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.*;
+import java.time.Duration;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -242,6 +243,22 @@ public interface ContextFragment {
      * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
      */
     interface DynamicIdentity {}
+
+    /**
+     * Interface for fragments that involve asynchronous computation.
+     */
+    interface ComputedFragment extends ContextFragment {
+        /**
+         * Blocks until the fragment's computation is complete or the timeout expires.
+         */
+        boolean await(Duration timeout) throws InterruptedException;
+
+        /**
+         * Registers a callback to be executed when the fragment's computation completes.
+         */
+        @Nullable
+        ComputedValue.Subscription onComplete(Runnable runnable);
+    }
 
     /**
      * Marker interface for fragments that provide image content.

@@ -6,7 +6,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragments.AbstractComputedFragment;
+import ai.brokk.context.ContextFragment.ComputedFragment;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.AiMessage;
@@ -51,7 +51,7 @@ class FragmentEqualityTest {
 
     private ai.brokk.IContextManager contextManager;
 
-    private final List<AbstractComputedFragment> trackedFragments = new ArrayList<>();
+    private final List<ComputedFragment> trackedFragments = new ArrayList<>();
 
     @BeforeEach
     void setup() {
@@ -59,7 +59,7 @@ class FragmentEqualityTest {
         ContextFragments.setMinimumId(1);
     }
 
-    private <T extends AbstractComputedFragment> T track(T fragment) {
+    private <T extends ComputedFragment> T track(T fragment) {
         trackedFragments.add(fragment);
         return fragment;
     }
@@ -994,7 +994,7 @@ class FragmentEqualityTest {
      */
     @AfterEach
     void awaitTrackedFragments() throws InterruptedException {
-        for (AbstractComputedFragment fragment : trackedFragments) {
+        for (var fragment : trackedFragments) {
             fragment.await(Duration.ofSeconds(5));
         }
         trackedFragments.clear();
