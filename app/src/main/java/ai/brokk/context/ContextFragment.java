@@ -197,13 +197,14 @@ public interface ContextFragment {
 
     /**
      * For live fragments ONLY, isValid reflects current external state (a file fragment whose file is missing is invalid);
-     * historical/frozen fragments have already snapshotted their state and are always valid. However, if
-     * a fragment is unable to snapshot its content before the source is removed out from under it, it will also
-     * end up invalid.
+     * historical/frozen fragments have already snapshotted their state and are always valid.
+     *
+     * In-progress-of-snapshotting fragments are treated as valid to avoid @Blocking, but this means that it's
+     * possible for it to flip from valid to invalid if it is unable to snapshot its content
+     * before the source is removed out from under it.
      *
      * @return true if the fragment is valid, false otherwise
      */
-    @Blocking
     default boolean isValid() {
         return true;
     }
@@ -219,6 +220,21 @@ public interface ContextFragment {
      * Implementations that track external state may override to trigger recomputation.
      */
     ContextFragment refreshCopy();
+
+    /**
+     * Interface for fragments that involve asynchronous computation.
+     */
+    interface ComputedFragment extends ContextFragment {
+        /**
+         * Blocks until the fragment's computation is complete or the timeout expires.
+         */
+        boolean await(Duration timeout) throws InterruptedException;
+
+        /**
+         * Registers a callback to be executed when the fragment's computation completes.
+         */
+        ComputedValue.Subscription onComplete(Runnable runnable);
+    }
 
     /**
      * Marker interface for fragments that provide image content.
@@ -245,15 +261,5 @@ public interface ContextFragment {
     enum SummaryType {
         CODEUNIT_SKELETON,
         FILE_SKELETONS
-    }
-
-    /**
-     * Marker for fragments whose identity is dynamic (numeric, session-local).
-     * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
-     */
-    interface ComputedFragment extends ContextFragment {
-        boolean await(Duration timeout) throws InterruptedException;
-
-        ComputedValue.Subscription onComplete(Runnable runnable);
     }
 }

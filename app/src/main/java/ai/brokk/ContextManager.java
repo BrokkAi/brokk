@@ -29,7 +29,6 @@ import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.GitTools;
@@ -951,6 +950,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    @Override
     public boolean undoContext() {
         return withFileChangeNotificationsPaused(() -> {
             UndoResult result = contextHistory.undo(1, io, project);
@@ -1318,15 +1318,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return joinClassesForOutput(toJoin);
         }
         return "%d files".formatted(files.size());
-    }
-
-    /**
-     * @return A list containing two messages: a UserMessage with the string representation of the task history, and an
-     *     AiMessage acknowledging it. Returns an empty list if there is no history.
-     */
-    @Override
-    public List<ChatMessage> getHistoryMessages() {
-        return CodePrompts.instance.getHistoryMessages(liveContext());
     }
 
     public List<ChatMessage> getHistoryMessagesForCopy() {
@@ -1734,7 +1725,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
         });
     }
-
     /** Submits a background task to the internal background executor (non-user actions). */
     @Override
     public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
@@ -2156,7 +2146,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
-        private boolean closed = false;
+        private final AtomicBoolean closed = new AtomicBoolean(false);
         private final @Nullable UUID groupId;
         private final @Nullable String groupLabel;
 
@@ -2176,7 +2166,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
          * @param result   The TaskResult to append.
          */
         public Context append(TaskResult result) throws InterruptedException {
-            assert !closed : "TaskScope already closed";
+            assert !closed.get() : "TaskScope already closed";
 
             // If interrupted before any LLM output, skip
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
@@ -2221,10 +2211,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return updatedContext;
         }
 
+        /**
+         * Publishes an intermediate Context snapshot to history without finalizing a TaskResult.
+         * This allows capturing checkpoints during long-running tasks.
+         */
+        public void publish(Context context) {
+            assert !closed.get() : "TaskScope already closed";
+            var updated = context.withGroup(groupId, groupLabel);
+            pushContext(currentLiveCtx -> updated);
+            io.prepareOutputForNextStream(updated.getTaskHistory()); // is this necessary?
+        }
+
         @Override
         public void close() {
-            if (closed) return;
-            closed = true;
+            if (!closed.compareAndSet(false, true)) return;
             SwingUtilities.invokeLater(() -> {
                 // deferred cleanup
                 taskScopeInProgress.set(false);
