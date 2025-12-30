@@ -1648,6 +1648,22 @@ public class ContextFragments {
         private final String targetIdentifier;
         private final SummaryType summaryType;
 
+        private static String computeDescription(String targetIdentifier) {
+            return "Summary of %s".formatted(targetIdentifier);
+        }
+
+        private static String computeShortDescription(
+                String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
+            if (summaryType == SummaryType.FILE_SKELETONS) {
+                return "Summary of " + contextManager.toFile(targetIdentifier).getFileName();
+            }
+            var definitions = contextManager.getAnalyzerUninterrupted().getDefinitions(targetIdentifier);
+            if (!definitions.isEmpty()) {
+                return "Summary of " + definitions.getFirst().shortName();
+            }
+            return "Summary of " + targetIdentifier;
+        }
+
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
             this(
                     String.valueOf(ContextFragment.nextId.getAndIncrement()),
@@ -1661,9 +1677,13 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
-                    "Summary of %s".formatted(targetIdentifier),
-                    "Summary of %s".formatted(targetIdentifier),
-                    SyntaxConstants.SYNTAX_STYLE_JAVA,
+                    ComputedValue.completed("desc-" + id, computeDescription(targetIdentifier)),
+                    new ComputedValue<>(
+                            "short-" + id,
+                            getFragmentExecutor()
+                                    .submit(() ->
+                                            computeShortDescription(targetIdentifier, summaryType, contextManager))),
+                    ComputedValue.completed("syntax-" + id, SyntaxConstants.SYNTAX_STYLE_JAVA),
                     null,
                     () -> computeSnapshotFor(targetIdentifier, summaryType, contextManager));
             this.targetIdentifier = targetIdentifier;
