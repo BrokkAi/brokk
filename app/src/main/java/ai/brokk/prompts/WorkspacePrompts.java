@@ -94,13 +94,12 @@ public final class WorkspacePrompts {
      * @param suppressedTypes types of special text to omit from the TOC
      */
     public static String formatToc(Context ctx, Set<SpecialTextType> suppressedTypes) {
-        var buildFragment = ctx.getBuildFragment();
-        var guideFragment = ctx.getProjectGuideFragment();
-        boolean hideBuild = suppressedTypes.contains(SpecialTextType.BUILD_RESULTS);
+        var allSuppressed = new HashSet<>(suppressedTypes);
+        allSuppressed.add(SpecialTextType.BUILD_RESULTS);
+        allSuppressed.add(SpecialTextType.PROJECT_GUIDE);
 
         var readOnlyContents = ctx.getReadonlyFragments()
-                .filter(cf -> buildFragment.isEmpty() || cf != buildFragment.get())
-                .filter(cf -> guideFragment.isEmpty() || cf != guideFragment.get())
+                .filter(cf -> !isSpecialTypeSuppressed(cf, allSuppressed))
                 .map(cf -> cf.formatToc(ctx.isPinned(cf)))
                 .collect(Collectors.joining("\n"));
         var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
@@ -132,7 +131,8 @@ public final class WorkspacePrompts {
                             .formatted(editableContents));
         }
 
-        if (!hideBuild && buildFragment.isPresent()) {
+        boolean hideBuild = suppressedTypes.contains(SpecialTextType.BUILD_RESULTS);
+        if (!hideBuild && ctx.getBuildFragment().isPresent()) {
             parts.add("  <workspace_build_status>(failing)</workspace_build_status>");
         }
 
@@ -420,6 +420,13 @@ public final class WorkspacePrompts {
         return new RenderedContent(textBuilder.toString().trim(), renderedOther.images);
     }
 
+    private static boolean isSpecialTypeSuppressed(ContextFragment cf, Set<SpecialTextType> suppressed) {
+        if (cf instanceof ContextFragments.StringFragment sf) {
+            return sf.specialType().map(suppressed::contains).orElse(false);
+        }
+        return false;
+    }
+
     private static RenderedContent formatWithPolicy(
             Context ctx, List<ContextFragment> fragments, Set<SpecialTextType> suppressedTypes) {
         var allSuppressed = new HashSet<>(suppressedTypes);
@@ -430,11 +437,8 @@ public final class WorkspacePrompts {
 
         for (var cf : fragments) {
             if (cf.isText()) {
-                if (cf instanceof ContextFragments.StringFragment sf) {
-                    if (sf.specialType().isPresent()
-                            && allSuppressed.contains(sf.specialType().get())) {
-                        continue;
-                    }
+                if (isSpecialTypeSuppressed(cf, allSuppressed)) {
+                    continue;
                 }
                 String idOrPinned = ctx.isPinned(cf) ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(cf.id());
                 String formatted;
