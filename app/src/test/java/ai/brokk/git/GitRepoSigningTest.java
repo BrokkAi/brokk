@@ -1,6 +1,5 @@
 package ai.brokk.git;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -55,7 +54,7 @@ class GitRepoSigningTest {
 
             try (GitRepo repo = new GitRepo(tempDir)) {
                 repo.commitFiles(java.util.List.of(), "Test Message");
-                
+
                 String cmd = capturedCommand.get();
                 assertNotNull(cmd);
                 assertTrue(cmd.contains("-S"), "Should contain -S flag");
@@ -91,7 +90,7 @@ class GitRepoSigningTest {
 
             try (GitRepo repo = new GitRepo(tempDir)) {
                 repo.commitFiles(java.util.List.of(), "Default Key Test");
-                
+
                 String cmd = capturedCommand.get();
                 assertNotNull(cmd);
                 assertTrue(cmd.contains("-S"), "Should contain -S flag");

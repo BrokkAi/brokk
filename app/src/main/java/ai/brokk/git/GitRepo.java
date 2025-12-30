@@ -17,8 +17,6 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import com.google.common.base.Splitter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.*;
@@ -29,7 +27,6 @@ import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
-import org.eclipse.jgit.gpg.bc.internal.BouncyCastleGpgSignerFactory;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.*;
@@ -711,7 +708,8 @@ public class GitRepo implements Closeable, IGitRepo {
             return getCurrentCommitId();
         } catch (Exception e) {
             if (e instanceof Environment.FailureException fe) {
-                throw new GitOperationException("Native GPG commit failed (exit " + fe.getExitCode() + "): " + fe.getOutput(), fe);
+                throw new GitOperationException(
+                        "Native GPG commit failed (exit " + fe.getExitCode() + "): " + fe.getOutput(), fe);
             }
             throw new GitOperationException("Native GPG commit failed: " + e.getMessage(), e);
         }
