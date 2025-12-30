@@ -37,7 +37,7 @@ public final class GlobalSecrets {
             try (var reader = Files.newBufferedReader(path)) {
                 props.load(reader);
             } catch (IOException e) {
-                logger.error("Failed to load global secrets from {}: {}", path, e.getMessage());
+                logger.error("Failed to load global secrets from {}", path, e);
             }
         }
         cachedProps = (Properties) props.clone();
@@ -49,19 +49,14 @@ public final class GlobalSecrets {
         try {
             Files.createDirectories(path.getParent());
 
-            // Ensure restrictive permissions if the file doesn't exist yet
-            if (!Files.exists(path)) {
-                ensureRestrictivePermissions(path);
-            }
-
             AtomicWrites.atomicSaveProperties(path, props, "Brokk Global Secrets - Read Protected");
 
-            // Re-apply permissions after atomic move to ensure they are correct on POSIX
+            // Ensure restrictive permissions after the file has been written/moved into place
             ensureRestrictivePermissions(path);
 
             cachedProps = (Properties) props.clone();
         } catch (IOException e) {
-            logger.error("Failed to save global secrets to {}: {}", path, e.getMessage());
+            logger.error("Failed to save global secrets to {}", path, e);
         }
     }
 
@@ -71,7 +66,7 @@ public final class GlobalSecrets {
                 Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rw-------");
                 Files.setPosixFilePermissions(path, perms);
             } catch (IOException e) {
-                logger.warn("Failed to set POSIX permissions on {}: {}", path, e.getMessage());
+                logger.warn("Failed to set POSIX permissions on {}", path, e);
             }
         }
     }
