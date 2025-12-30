@@ -53,7 +53,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -247,11 +246,6 @@ public class ContextFragments {
             return id;
         }
 
-        @Override
-        public IContextManager getContextManager() {
-            return contextManager;
-        }
-
         protected <T> ComputedValue<T> derived(String key, Function<ContentSnapshot, T> extractor) {
             @SuppressWarnings("unchecked")
             ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(key, k -> snapshotCv.map(extractor));
@@ -314,21 +308,14 @@ public class ContextFragments {
     // Base implementation for fragments with static/known content
     abstract static class AbstractStaticFragment implements ContextFragment {
         protected final String id;
-        protected final IContextManager contextManager;
         protected final String description;
         protected final String shortDescription;
         protected final String syntaxStyle;
         protected final ContentSnapshot snapshot;
 
         protected AbstractStaticFragment(
-                String id,
-                IContextManager contextManager,
-                String description,
-                String shortDescription,
-                String syntaxStyle,
-                ContentSnapshot snapshot) {
+                String id, String description, String shortDescription, String syntaxStyle, ContentSnapshot snapshot) {
             this.id = id;
-            this.contextManager = contextManager;
             this.description = description;
             this.shortDescription = shortDescription;
             this.syntaxStyle = syntaxStyle;
@@ -338,11 +325,6 @@ public class ContextFragments {
         @Override
         public String id() {
             return id;
-        }
-
-        @Override
-        public IContextManager getContextManager() {
-            return contextManager;
         }
 
         @Override
@@ -389,7 +371,8 @@ public class ContextFragments {
 
         @Override
         public boolean equals(Object obj) {
-            return obj instanceof AbstractStaticFragment && id().equals(((AbstractStaticFragment) obj).id());
+            return obj instanceof AbstractStaticFragment abstractStaticFragment
+                    && id().equals(abstractStaticFragment.id());
         }
 
         @Override
@@ -525,7 +508,6 @@ public class ContextFragments {
         public GitFileFragment(ProjectFile file, String revision, String content, String id) {
             super(
                     id,
-                    null,
                     computeDescription(file, revision),
                     "%s @%s".formatted(file.getFileName(), revision),
                     FileTypeUtil.get().guessContentType(file.absPath().toFile()),
@@ -600,7 +582,7 @@ public class ContextFragments {
             return new ExternalPathFragment(file, existingId, contextManager, snapshotText);
         }
 
-        private static ContentSnapshot decodeFrozen(ExternalFile file, byte[] bytes) {
+        private static ContentSnapshot decodeFrozen(byte[] bytes) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             return ContentSnapshot.textSnapshot(text, Set.of(), Set.of());
         }
@@ -618,7 +600,7 @@ public class ContextFragments {
                     file.toString(),
                     file.toString(),
                     FileTypeUtil.get().guessContentType(file.absPath().toFile()),
-                    snapshotText == null ? null : decodeFrozen(file, snapshotText.getBytes(StandardCharsets.UTF_8)),
+                    snapshotText == null ? null : decodeFrozen(snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file) : null);
             this.file = file;
         }
@@ -784,7 +766,6 @@ public class ContextFragments {
         // does not extend AbstractComputedFragment since we want to be able to return a precomputed text
         // without blocking for `files` computation
         private final String id;
-        private final IContextManager contextManager;
         private final String description;
         private final String syntaxStyle;
         private final ComputedValue<String> textCv;
@@ -839,7 +820,10 @@ public class ContextFragments {
         }
 
         public StringFragment(
-                IContextManager contextManager, CompletableFuture<String> textFuture, String description, String syntaxStyle) {
+                IContextManager contextManager,
+                CompletableFuture<String> textFuture,
+                String description,
+                String syntaxStyle) {
             this(
                     String.valueOf(ContextFragment.nextId.getAndIncrement()),
                     contextManager,
@@ -854,13 +838,7 @@ public class ContextFragments {
                 CompletableFuture<String> textFuture,
                 String description,
                 String syntaxStyle) {
-            this(
-                    id,
-                    contextManager,
-                    new ComputedValue<>("text-" + id, textFuture),
-                    description,
-                    syntaxStyle,
-                    null);
+            this(id, contextManager, new ComputedValue<>("text-" + id, textFuture), description, syntaxStyle, null);
         }
 
         private StringFragment(
@@ -871,7 +849,6 @@ public class ContextFragments {
                 String syntaxStyle,
                 @Nullable ComputedValue<Set<ProjectFile>> filesCv) {
             this.id = id;
-            this.contextManager = contextManager;
             this.description = description;
             this.syntaxStyle = syntaxStyle;
             this.textCv = textCv;
@@ -958,11 +935,6 @@ public class ContextFragments {
         }
 
         @Override
-        public IContextManager getContextManager() {
-            return contextManager;
-        }
-
-        @Override
         public ComputedValue<String> description() {
             return ComputedValue.completed("desc-" + id, description);
         }
@@ -1045,9 +1017,6 @@ public class ContextFragments {
     }
 
     public static class PasteTextFragment extends AbstractComputedFragment {
-        private final CompletableFuture<String> descriptionFuture;
-        private final CompletableFuture<String> syntaxStyleFuture;
-
         public PasteTextFragment(
                 IContextManager contextManager,
                 String text,
@@ -1075,14 +1044,11 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
-                    new ComputedValue<>("desc-" + id, descriptionFuture).map(d -> "Paste of " + d),
-                    new ComputedValue<>("short-" + id, descriptionFuture)
-                            .map(d -> "Paste of " + d),
+                    new ComputedValue<>("desc-" + id, descriptionFuture.exceptionally(ex -> "Pasted content")).map(d -> "Paste of " + d),
+                    new ComputedValue<>("short-" + id, descriptionFuture.exceptionally(ex -> "Pasted content")).map(d -> "Paste of " + d),
                     new ComputedValue<>("syntax-" + id, syntaxStyleFuture),
                     null,
                     () -> computeSnapshotFor(text, contextManager));
-            this.descriptionFuture = descriptionFuture;
-            this.syntaxStyleFuture = syntaxStyleFuture;
         }
 
         private static ContentSnapshot computeSnapshotFor(String text, IContextManager contextManager) {
@@ -1099,21 +1065,14 @@ public class ContextFragments {
         public ContextFragment refreshCopy() {
             return this;
         }
-
-        public CompletableFuture<String> getDescriptionFuture() {
-            return descriptionFuture;
-        }
-
-        public CompletableFuture<String> getSyntaxStyleFuture() {
-            return syntaxStyleFuture;
-        }
     }
 
     public static class AnonymousImageFragment extends AbstractComputedFragment
             implements ContextFragment.ImageFragment {
         final CompletableFuture<String> descriptionFuture;
 
-        public AnonymousImageFragment(IContextManager contextManager, Image image, CompletableFuture<String> descriptionFuture) {
+        public AnonymousImageFragment(
+                IContextManager contextManager, Image image, CompletableFuture<String> descriptionFuture) {
             this(
                     FragmentUtils.calculateContentHash(
                             FragmentType.PASTE_IMAGE,
@@ -1215,7 +1174,6 @@ public class ContextFragments {
                 String code) {
             super(
                     id,
-                    contextManager,
                     "stacktrace of " + exception,
                     "stacktrace of " + exception,
                     sources.isEmpty()
@@ -1300,8 +1258,7 @@ public class ContextFragments {
                     SyntaxConstants.SYNTAX_STYLE_NONE, // Will be updated if we find files/units
                     snapshotText == null
                             ? null
-                            : decodeFrozen(
-                                    contextManager, targetIdentifier, snapshotText.getBytes(StandardCharsets.UTF_8)),
+                            : decodeFrozen(contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null
                             ? () -> computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager)
                             : null);
@@ -1309,8 +1266,7 @@ public class ContextFragments {
             this.includeTestFiles = includeTestFiles;
         }
 
-        private static ContentSnapshot decodeFrozen(
-                IContextManager contextManager, String targetIdentifier, byte[] bytes) {
+        private static ContentSnapshot decodeFrozen(IContextManager contextManager, byte[] bytes) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             String text = new String(bytes, StandardCharsets.UTF_8);
 
@@ -1901,7 +1857,6 @@ public class ContextFragments {
         public HistoryFragment(String id, IContextManager contextManager, List<TaskEntry> history) {
             super(
                     id,
-                    contextManager,
                     "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                     "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
                     SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
@@ -1967,7 +1922,6 @@ public class ContextFragments {
                 boolean escapeHtml) {
             super(
                     id,
-                    contextManager,
                     description,
                     description,
                     SyntaxConstants.SYNTAX_STYLE_MARKDOWN,

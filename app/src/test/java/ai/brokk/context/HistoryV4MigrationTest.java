@@ -117,7 +117,8 @@ class HistoryV4MigrationTest {
         if ("v3-complex-content.zip".equals(zipFileName)) {
             assertEquals(2, history.getHistory().size());
             var ctx1 = history.getHistory().get(0);
-            assertEquals(2, ctx1.rawFragments().count(), ctx1.rawFragments().toList().toString());
+            assertEquals(
+                    2, ctx1.rawFragments().count(), ctx1.rawFragments().toList().toString());
             var ff = findFragment(ctx1, ContextFragments.ProjectPathFragment.class, f -> true);
             assertNotNull(ff);
             assertTrue(ff.description().join().contains("File1.java"));
@@ -184,7 +185,9 @@ class HistoryV4MigrationTest {
             assertEquals(1, history.getHistory().size());
             var ctx = history.liveContext();
             assertEquals(1, ctx.rawFragments().count());
-            var sf = findFragment(ctx, ContextFragments.StringFragment.class, f -> f.description().join().equals("some description"));
+            var sf = findFragment(ctx, ContextFragments.StringFragment.class, f -> f.description()
+                    .join()
+                    .equals("some description"));
             assertNotNull(sf);
             assertEquals("some text", sf.text().join());
         } else if ("v3-projectpath-fragment.zip".equals(zipFileName)) {

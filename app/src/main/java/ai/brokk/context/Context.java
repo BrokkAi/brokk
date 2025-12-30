@@ -460,7 +460,6 @@ public class Context {
         return fragments.stream();
     }
 
-
     public Context removeFragmentsByIds(Collection<String> ids) {
         if (ids.isEmpty()) return this;
         var toDrop = fragments.stream().filter(f -> ids.contains(f.id())).collect(Collectors.toList());
@@ -1165,8 +1164,8 @@ public class Context {
      * Returns the project guide fragment if content is available, computing it (asynchronously) on demand.
      */
     public Optional<ContextFragments.StringFragment> getProjectGuideFragment() {
-        if (this == EMPTY) {
-            // special case this for test code
+        if (this.equals(EMPTY)) {
+            // special case EMPTY for test code
             return Optional.empty();
         }
 

@@ -391,7 +391,6 @@ public class ContextHistoryTest {
         public MockUsageFragment(IContextManager cm, String id, String text) {
             super(
                     id,
-                    cm,
                     "Mock Usage",
                     "Usage",
                     "text",

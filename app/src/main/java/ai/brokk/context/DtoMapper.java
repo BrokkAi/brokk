@@ -30,8 +30,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -498,13 +496,13 @@ public class DtoMapper {
             }
             case ContextFragments.PasteTextFragment ptf -> {
                 // Fine to block on
-                String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
+                String description = ptf.description().join();
                 String contentId = writer.writeContent(ptf.text().join(), null);
-                String syntaxStyle = getFutureSyntaxStyle(ptf.getSyntaxStyleFuture());
+                String syntaxStyle = ptf.syntaxStyle().join();
                 yield new PasteTextFragmentDto(ptf.id(), contentId, description, syntaxStyle);
             }
             case ContextFragments.AnonymousImageFragment aif -> {
-                String description = getFutureDescription(aif.descriptionFuture, "Paste of ");
+                String description = aif.description().join();
                 yield new PasteImageFragmentDto(aif.id(), description);
             }
             case ContextFragments.StacktraceFragment stf -> {
@@ -540,26 +538,6 @@ public class DtoMapper {
                 yield null;
             }
         };
-    }
-
-    private static String getFutureDescription(Future<String> future, String prefix) {
-        String description;
-        try {
-            String fullDescription = future.get(10, TimeUnit.SECONDS);
-            description =
-                    fullDescription.startsWith(prefix) ? fullDescription.substring(prefix.length()) : fullDescription;
-        } catch (Exception e) {
-            description = "(Error getting paste description: " + e.getMessage() + ")";
-        }
-        return description;
-    }
-
-    private static String getFutureSyntaxStyle(Future<String> future) {
-        try {
-            return future.get(10, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN; // Fallback
-        }
     }
 
     private static TaskEntryDto toTaskEntryDto(TaskEntry entry, ContentWriter writer) {
