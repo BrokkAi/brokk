@@ -266,11 +266,6 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
      * Shows settings dialog.
      */
     public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
-        // Handle backward compatibility for "GitHub" tab name
-        if ("GitHub".equalsIgnoreCase(targetTabName)) {
-            targetTabName = GITHUB_SETTINGS_TAB_NAME;
-        }
-
         var dialog = new SettingsDialog(chrome.getFrame(), chrome);
 
         // Load settings after dialog construction but before showing

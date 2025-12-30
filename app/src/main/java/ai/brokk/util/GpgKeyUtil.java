@@ -43,7 +43,8 @@ public final class GpgKeyUtil {
                     .start();
 
             List<String> lines;
-            try (var reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            try (var reader =
+                    new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                 lines = reader.lines().toList();
             }
 
