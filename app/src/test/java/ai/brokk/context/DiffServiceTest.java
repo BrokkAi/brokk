@@ -216,8 +216,8 @@ class DiffServiceTest {
             SlowFragment(
                     String id,
                     IContextManager cm,
-                    @Nullable ContextFragments.FragmentSnapshot snapshot,
-                    @Nullable Callable<ContextFragments.FragmentSnapshot> task,
+                    @Nullable ContextFragments.ContentSnapshot snapshot,
+                    @Nullable Callable<ContextFragments.ContentSnapshot> task,
                     ContextFragment.FragmentType type) {
                 super(id, cm, snapshot, task);
                 this.type = type;
@@ -279,9 +279,9 @@ class DiffServiceTest {
                 "New content should fall back to error message on timeout");
     }
 
-    private static ContextFragments.FragmentSnapshot snapshot(
+    private static ContextFragments.ContentSnapshot snapshot(
             String description, String shortDescription, String text, boolean isValid) {
-        return new ContextFragments.FragmentSnapshot(
+        return new ContextFragments.ContentSnapshot(
                 description,
                 shortDescription,
                 text,
@@ -292,7 +292,7 @@ class DiffServiceTest {
                 isValid);
     }
 
-    private static ContextFragments.FragmentSnapshot snapshot(
+    private static ContextFragments.ContentSnapshot snapshot(
             String description, String shortDescription, String text) {
         return snapshot(description, shortDescription, text, true);
     }
