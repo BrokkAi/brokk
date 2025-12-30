@@ -54,7 +54,15 @@ public class BrokkJediTermPanel extends TerminalPanel {
         var sb = new StringBuilder();
         terminalTextBuffer.lock();
         try {
-            for (int y = p1.y; y <= p2.y; y++) {
+            int historyCount = terminalTextBuffer.getHistoryLinesCount();
+            int height = terminalTextBuffer.getHeight();
+            int minIndex = -historyCount;
+            int maxIndex = height - 1;
+
+            int yStart = Math.max(minIndex, Math.min(p1.y, maxIndex));
+            int yEnd = Math.max(minIndex, Math.min(p2.y, maxIndex));
+
+            for (int y = yStart; y <= yEnd; y++) {
                 var line = terminalTextBuffer.getLine(y);
                 String text = line.getText();
                 int maxX = text.length();
