@@ -334,13 +334,12 @@ public class DtoMapper {
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles(), snapshot);
             }
             case PasteTextFragmentDto pasteTextDto ->
-                new ContextFragments.PasteTextFragment(
+                ContextFragments.PasteTextFragment.withResolvedDescription(
                         pasteTextDto.id(),
                         mgr,
                         reader.readContent(pasteTextDto.contentId()),
-                        CompletableFuture.completedFuture(pasteTextDto.description()),
-                        CompletableFuture.completedFuture(
-                                requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN)));
+                        pasteTextDto.description(),
+                        requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
             case PasteImageFragmentDto pasteImageDto -> {
                 try {
                     byte[] imageBytes = imageBytesMap != null ? imageBytesMap.get(pasteImageDto.id()) : null;

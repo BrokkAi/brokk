@@ -2207,6 +2207,6 @@ public class ContextSerializationTest {
                 mockContextManager, file.toString(), failingDescFuture, failingSyntaxFuture);
 
         assertEquals(Set.of(file), fragment.files().join());
-        assertEquals("Pasted content", fragment.description().join());
+        assertEquals("Paste of text content", fragment.description().join());
     }
 }

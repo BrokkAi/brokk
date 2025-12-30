@@ -1044,9 +1044,39 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
-                    new ComputedValue<>("desc-" + id, descriptionFuture.exceptionally(ex -> "Pasted content")).map(d -> "Paste of " + d),
-                    new ComputedValue<>("short-" + id, descriptionFuture.exceptionally(ex -> "Pasted content")).map(d -> "Paste of " + d),
+                    new ComputedValue<>("desc-" + id, descriptionFuture.exceptionally(ex -> "text content"))
+                            .map(d -> "Paste of " + d),
+                    new ComputedValue<>("short-" + id, descriptionFuture.exceptionally(ex -> "text content"))
+                            .map(d -> "Paste of " + d),
                     new ComputedValue<>("syntax-" + id, syntaxStyleFuture),
+                    null,
+                    () -> computeSnapshotFor(text, contextManager));
+        }
+
+        /**
+         * Constructor for deserialization: accepts already-computed description without applying "Paste of " prefix.
+         */
+        public static PasteTextFragment withResolvedDescription(
+                String id,
+                IContextManager contextManager,
+                String text,
+                String resolvedDescription,
+                String syntaxStyle) {
+            return new PasteTextFragment(id, contextManager, text, resolvedDescription, syntaxStyle);
+        }
+
+        private PasteTextFragment(
+                String id,
+                IContextManager contextManager,
+                String text,
+                String resolvedDescription,
+                String syntaxStyle) {
+            super(
+                    id,
+                    contextManager,
+                    ComputedValue.completed("desc-" + id, resolvedDescription),
+                    ComputedValue.completed("short-" + id, resolvedDescription),
+                    ComputedValue.completed("syntax-" + id, syntaxStyle),
                     null,
                     () -> computeSnapshotFor(text, contextManager));
         }
