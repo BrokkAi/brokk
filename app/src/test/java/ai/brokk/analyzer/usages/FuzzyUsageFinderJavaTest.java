@@ -1,12 +1,13 @@
 package ai.brokk.analyzer.usages;
 
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
-import ai.brokk.testutil.TestService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -67,19 +68,9 @@ public class FuzzyUsageFinderJavaTest {
         };
     }
 
-    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
-        return hits.stream()
-                .map(hit -> hit.file().absPath().getFileName().toString())
-                .collect(Collectors.toSet());
-    }
-
-    private static FuzzyUsageFinder newFinder(IProject project) {
-        return new FuzzyUsageFinder(project, analyzer, new TestService(project), null); // No LLM for these tests
-    }
-
     @Test
     public void getUsesMethodExistingTest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "A.method2";
         var either = finder.findUsages(symbol).toEither();
 
@@ -97,7 +88,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesNestedClassConstructorTest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "A$AInner$AInnerInner";
         var either = finder.findUsages(symbol).toEither();
 
@@ -113,7 +104,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesMethodNonexistentTest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "A.noSuchMethod:java.lang.String()";
         var result = finder.findUsages(symbol);
 
@@ -122,7 +113,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesFieldExistingTest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "D.field1";
         var either = finder.findUsages(symbol).toEither();
 
@@ -139,7 +130,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesFieldNonexistentTest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "D.notAField";
         var result = finder.findUsages(symbol);
 
@@ -148,7 +139,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesFieldFromUseETest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "UseE.e";
         var either = finder.findUsages(symbol).toEither();
 
@@ -164,7 +155,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesClassBasicTest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "A";
         var either = finder.findUsages(symbol).toEither();
 
@@ -184,7 +175,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesClassNonexistentTest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "NoSuchClass";
         var result = finder.findUsages(symbol);
 
@@ -193,7 +184,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesNestedClassTest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "A$AInner";
         var either = finder.findUsages(symbol).toEither();
 
@@ -209,7 +200,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesClassWithStaticMembersTest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "E";
         var either = finder.findUsages(symbol).toEither();
 
@@ -225,7 +216,7 @@ public class FuzzyUsageFinderJavaTest {
 
     @Test
     public void getUsesClassInheritanceTest() {
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();
 
@@ -244,7 +235,7 @@ public class FuzzyUsageFinderJavaTest {
     @Test
     public void getUsesFunctionNoPrefixMatchTest() {
         // Ensure that searching for A$AInner does NOT prefix-match A$AInner$AInnerInner
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "A$AInner";
         var either = finder.findUsages(symbol).toEither();
 
@@ -272,7 +263,7 @@ public class FuzzyUsageFinderJavaTest {
     public void getUsesFunctionVsFieldAmbiguityTest() {
         // Test that searching for a method foo() correctly identifies usages within the right enclosing methods
         // and does NOT match field usages like E.foo.
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "ServiceImpl.foo";
         var either = finder.findUsages(symbol).toEither();
 
@@ -289,7 +280,7 @@ public class FuzzyUsageFinderJavaTest {
     @Test
     public void getUsesMethodReferenceTest() {
         // Test that method references (e.g., this::transform) are correctly identified
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "MethodReferenceUsage.transform";
         var either = finder.findUsages(symbol).toEither();
 
@@ -306,7 +297,7 @@ public class FuzzyUsageFinderJavaTest {
     @Test
     public void getUsesOverloadedMethodsAggregationTest() {
         // Test that findUsages aggregates usages from all overloaded methods
-        var finder = newFinder(testProject);
+        var finder = newFinder(testProject, analyzer);
         var symbol = "Overloads.process";
         var either = finder.findUsages(symbol).toEither();
 
@@ -322,5 +313,41 @@ public class FuzzyUsageFinderJavaTest {
 
         // Should have at least one hit from OverloadsUser
         assertFalse(hits.isEmpty(), "Expected at least one hit for process() calls");
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        // Test that all class usage patterns are detected:
+        // - Constructor calls (new BaseClass())
+        // - Inheritance (extends BaseClass)
+        // - Variable declarations (BaseClass field)
+        // - Parameters (BaseClass param)
+        // - Return types (BaseClass method())
+        // - Generics (List<BaseClass>)
+        // - Casts ((BaseClass) obj)
+        // - Static access (BaseClass.staticMethod())
+        var finder = newFinder(testProject, analyzer);
+        var symbol = "BaseClass";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages();
+        var files = fileNamesFromHits(hits);
+
+        // ClassUsagePatterns.java should contain all pattern types
+        assertTrue(
+                files.contains("ClassUsagePatterns.java"),
+                "Expected comprehensive usage patterns in ClassUsagePatterns.java; actual: " + files);
+
+        // Verify we found multiple usages (at least 5 different pattern types)
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("ClassUsagePatterns.java"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 5,
+                "Expected at least 5 different usage patterns, found: " + classUsageHits.size());
     }
 }

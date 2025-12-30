@@ -69,6 +69,18 @@ public class JavaLanguage implements Language {
                     "\\b$ident\\s*\\(", // method calls: foo(...)
                     "::\\s*$ident\\b" // method references: ::foo or this::foo
                     );
+        } else if (type == CodeUnitType.CLASS) {
+            return Set.of(
+                    "\\bnew\\s+$ident(?:<.+?>)?\\s*\\(", // constructor calls with optional generics
+                    "\\bextends\\s+$ident(?:<.+?>)?", // inheritance with optional generics
+                    "\\bimplements\\s+$ident(?:<.+?>)?", // interface implementation with optional generics
+                    "\\b$ident\\s*\\.", // static access
+                    "\\b$ident(?:<.+?>)?\\s+\\w+\\s*[;=]", // variable declaration with optional generics
+                    "\\b$ident(?:<.+?>)?\\s+\\w+\\s*\\)", // parameter with optional generics
+                    "<\\s*$ident\\s*>", // as generic type argument
+                    "\\(\\s*$ident(?:<.+?>)?\\s*\\)", // cast with optional generics
+                    "\\bimport\\s+.*\\.$ident\\b" // import
+                    );
         }
         return Language.super.getSearchPatterns(type);
     }
