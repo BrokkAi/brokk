@@ -42,6 +42,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
+import javax.swing.event.TreeExpansionListener;
 import javax.swing.event.TreeWillExpandListener;
 import javax.swing.tree.*;
 import org.apache.logging.log4j.LogManager;
@@ -66,6 +67,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
     @Nullable
     private Timer refreshDebounceTimer;
+
+    @Nullable
+    private Timer expansionSaveTimer;
 
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
@@ -98,8 +102,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
         setCellRenderer(new ProjectTreeCellRenderer());
 
-        // Load root children immediately
-        SwingUtilities.invokeLater(() -> loadChildrenForNode(treeRoot));
+        // Load root children immediately, then restore any persisted expansion state
+        SwingUtilities.invokeLater(() -> loadChildrenForNodeAsync(treeRoot)
+                .thenRun(() -> SwingUtilities.invokeLater(this::restoreExpansionState)));
     }
 
     private void setupTreeBehavior() {
@@ -114,6 +119,19 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             @Override
             public void treeWillCollapse(TreeExpansionEvent event) throws ExpandVetoException {
                 // No action needed
+            }
+        });
+
+        // Listen for expansion/collapse events to persist state
+        addTreeExpansionListener(new TreeExpansionListener() {
+            @Override
+            public void treeExpanded(TreeExpansionEvent event) {
+                scheduleExpansionSave();
+            }
+
+            @Override
+            public void treeCollapsed(TreeExpansionEvent event) {
+                scheduleExpansionSave();
             }
         });
 
@@ -752,6 +770,38 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         for (int i = 0; i < node.getChildCount(); i++) {
             if (node.getChildAt(i) instanceof DefaultMutableTreeNode childDmtn) {
                 collectExpandedDirectoryPathsRecursive(childDmtn, expandedPaths);
+            }
+        }
+    }
+
+    private void scheduleExpansionSave() {
+        if (expansionSaveTimer != null) {
+            expansionSaveTimer.stop();
+        }
+        expansionSaveTimer = new Timer(500, e -> saveExpansionState());
+        expansionSaveTimer.setRepeats(false);
+        expansionSaveTimer.start();
+    }
+
+    private void saveExpansionState() {
+        var root = (DefaultMutableTreeNode) getModel().getRoot();
+        if (root == null) {
+            return;
+        }
+        var paths = new ArrayList<Path>();
+        collectExpandedDirectoryPathsRecursive(root, paths);
+        project.setExpandedTreePaths(paths);
+    }
+
+    private void restoreExpansionState() {
+        var paths = project.getExpandedTreePaths();
+        if (paths.isEmpty()) {
+            return;
+        }
+        var root = (DefaultMutableTreeNode) getModel().getRoot();
+        for (var relativePath : paths) {
+            if (relativePath.getNameCount() > 0) {
+                findAndExpandNodeAsync(root, relativePath, 0);
             }
         }
     }

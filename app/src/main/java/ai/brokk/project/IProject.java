@@ -348,6 +348,14 @@ public interface IProject extends AutoCloseable {
     /** Sets a UI filter property for persistence across sessions. */
     default void setUiFilterProperty(String key, @Nullable String value) {}
 
+    /** Gets the list of expanded directory paths in the project tree (relative to project root). */
+    default List<Path> getExpandedTreePaths() {
+        return List.of();
+    }
+
+    /** Sets the list of expanded directory paths in the project tree (relative to project root). */
+    default void setExpandedTreePaths(List<Path> paths) {}
+
     default boolean getArchitectRunInWorktree() {
         throw new UnsupportedOperationException();
     }

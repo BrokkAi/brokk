@@ -536,6 +536,42 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         saveWorkspaceProperties();
     }
 
+    // --- Project Tree expansion persistence ---
+
+    private static final String PROP_TREE_EXPANDED = "ui.projectTree.expandedPaths";
+
+    @Override
+    public List<Path> getExpandedTreePaths() {
+        var json = workspaceProps.getProperty(PROP_TREE_EXPANDED);
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<String> pathStrings = objectMapper.readValue(
+                    json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            return pathStrings.stream()
+                    .map(Path::of)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            logger.warn("Error parsing expanded tree paths: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    @Override
+    public void setExpandedTreePaths(List<Path> paths) {
+        try {
+            var pathStrings = paths.stream()
+                    .map(Path::toString)
+                    .collect(Collectors.toList());
+            var json = objectMapper.writeValueAsString(pathStrings);
+            workspaceProps.setProperty(PROP_TREE_EXPANDED, json);
+            saveWorkspaceProperties();
+        } catch (Exception e) {
+            logger.error("Error saving expanded tree paths: {}", e.getMessage());
+        }
+    }
+
     // --- Terminal drawer per-project persistence ---
 
     public @Nullable Boolean getTerminalDrawerOpen() {
