@@ -54,8 +54,7 @@ public final class HistoryGrouping {
             String label,
             List<Context> children,
             boolean shouldShowHeader,
-            boolean isLastGroup) {
-    }
+            boolean isLastGroup) {}
 
     /**
      * Compute the display label for a group descriptor based on its current children.
@@ -93,8 +92,7 @@ public final class HistoryGrouping {
     }
 
     public static final class GroupingBuilder {
-        private GroupingBuilder() {
-        }
+        private GroupingBuilder() {}
 
         /**
          * Discover logical group descriptors from the provided contexts.
@@ -206,7 +204,6 @@ public final class HistoryGrouping {
                 }
             }
         }
-
     }
 
     /**
