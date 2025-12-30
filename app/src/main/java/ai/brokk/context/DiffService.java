@@ -96,7 +96,16 @@ public final class DiffService {
 
     @Blocking
     private static boolean isNewInGit(ContextFragment fragment, IGitRepo repo) {
-        return !repo.getTrackedFiles().containsAll(fragment.files().join());
+        return fragment.files().join().stream().anyMatch(file -> {
+            try {
+                // If getFileContent returns an empty string for HEAD, the file is not yet committed.
+                return repo.getFileContent("HEAD", file).isEmpty();
+            } catch (Exception e) {
+                // If an error occurs (e.g. GitAPIException), we treat it as not committed to HEAD.
+                logger.debug("Failed to get content from HEAD for file {}: {}", file, e.getMessage());
+                return true;
+            }
+        });
     }
 
     /**

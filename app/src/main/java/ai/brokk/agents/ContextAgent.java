@@ -17,6 +17,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.AdaptiveExecutor;
 import ai.brokk.util.Messages;
@@ -273,8 +274,6 @@ public class ContextAgent {
                 .toList();
         logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
 
-        // GPT-5 Nano is currently the best combination of smart + low price. (Smarter than Flash 2.0 or Flash 2.5
-        // lite.)  We don't care as much about speed here, so 5 Nano gets the nod.
         var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
 
         // Create Llm instances - only analyzed group streams to UI
@@ -653,8 +652,9 @@ public class ContextAgent {
         }
         userPrompt.append(filenamePrompt);
 
+        var sys = new SystemMessage(SearchPrompts.instance.searchAgentIdentity());
         List<ChatMessage> messages = Stream.concat(
-                        Stream.of(SearchAgent.getSystemMessage()),
+                        Stream.of(sys),
                         Stream.concat(
                                 workspaceRepresentation.stream(), Stream.of(new UserMessage(userPrompt.toString()))))
                 .toList();

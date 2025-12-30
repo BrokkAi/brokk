@@ -35,7 +35,7 @@ import ai.brokk.gui.wand.WandAction;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
-import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
@@ -94,30 +94,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_LUTZ = "Lutz Mode";
     public static final String ACTION_PLAN = "Plan";
 
-    private static final String PLACEHOLDER_TEXT_ADVANCED =
+    private static final String PLACEHOLDER_TEXT =
             """
-                    Switching modes:
-                    - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
-
-                    Brokk action modes:
-                    - Lutz: Lutz is one of the best context engineers around. After a all-day meetup in Amsterdam, we baked his workflow into Brokk.
-                      Lutz Mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
-                      It is a great way to kick off work with strong context and a clear plan.
-                    - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
-                    - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
-
-                    Type your prompt here. (Shift+Enter for a new line)
-                    """
-                    .stripIndent();
-
-    private static final String PLACEHOLDER_TEXT_EZ =
-            """
-                    Brokk action modes:
-                    - Lutz: Performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
-                      It is a great way to kick off work with strong context and a clear plan.
-                    - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
-                    - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
-
                     Type your prompt here. (Shift+Enter for a new line)
                     """
                     .stripIndent();
@@ -665,7 +643,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setRows(3); // Initial rows
         area.setMinimumSize(new Dimension(100, 80));
         area.setEnabled(false); // Start disabled
-        area.setText(getCurrentPlaceholder()); // Keep placeholder, will be cleared on activation
+        area.setText(PLACEHOLDER_TEXT); // Keep placeholder, will be cleared on activation
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
 
         // Add focus listener to restore placeholder when focus is lost with empty text
@@ -1345,14 +1323,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    // Returns true if the given text matches any placeholder variant.
     private boolean isPlaceholderText(String text) {
-        return PLACEHOLDER_TEXT_ADVANCED.equals(text) || PLACEHOLDER_TEXT_EZ.equals(text);
-    }
-
-    // Returns the appropriate placeholder based on current advanced mode setting.
-    private String getCurrentPlaceholder() {
-        return GlobalUiSettings.isAdvancedMode() ? PLACEHOLDER_TEXT_ADVANCED : PLACEHOLDER_TEXT_EZ;
+        return PLACEHOLDER_TEXT.equals(text);
     }
 
     public void refreshBranchUi(String branchName) {
@@ -1688,17 +1660,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
         List<ChatMessage> messages;
-        try {
-            messages = CodePrompts.instance.collectAskMessages(cm.liveContext(), question);
-        } catch (InterruptedException e) {
-            return new TaskResult(
-                    cm,
-                    "Ask: " + question,
-                    cm.getIo().getLlmRawMessages(),
-                    cm.liveContext(),
-                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                    meta);
-        }
+        Context ctx = cm.liveContext();
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
 
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
         return executeAskCommand(llm, messages, cm, question, meta);
@@ -1860,7 +1823,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     var agentTasks = context.getTaskListDataOrEmpty();
 
                     // Gating: If we had existing incomplete tasks and the agent produced new ones, ask how to reconcile
-                    if (hadIncomplete && !agentTasks.tasks().isEmpty()) {
+                    if (hadIncomplete
+                            && agentTasks.tasks().size() > beforeTasks.tasks().size()) {
                         final int[] choiceHolder = new int[1];
                         try {
                             SwingUtilities.invokeAndWait(() -> {
@@ -2318,7 +2282,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         String currentText = instructionsArea.getText();
         // Only restore placeholder if text is empty or whitespace-only
         if (currentText == null || currentText.trim().isEmpty()) {
-            instructionsArea.setText(getCurrentPlaceholder());
+            instructionsArea.setText(PLACEHOLDER_TEXT);
             instructionsArea.setEnabled(false);
             commandInputOverlay.showOverlay();
             // Disable undo listener while placeholder is showing
@@ -2545,7 +2509,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Switch placeholder only if currently showing a placeholder
             String currentText = instructionsArea.getText();
             if (isPlaceholderText(currentText)) {
-                instructionsArea.setText(getCurrentPlaceholder());
+                instructionsArea.setText(PLACEHOLDER_TEXT);
             }
 
             // Toggle ModelSelector visibility based on Advanced Mode

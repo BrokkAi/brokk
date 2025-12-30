@@ -1,5 +1,7 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -17,8 +19,12 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class TypescriptAnalyzerTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(TypescriptAnalyzerTest.class);
 
     private static TestProject project;
     private static TypescriptAnalyzer analyzer;
@@ -3291,5 +3297,30 @@ public class TypescriptAnalyzerTest {
                     multiplySignatures.stream().anyMatch(s -> s.contains("string") && s.contains("number")),
                     "Should have (string, number) signature for multiply");
         }
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        var finder = newFinder(project, analyzer);
+        var symbol = "BaseClass";
+        var either = finder.findUsages(symbol).toEither();
+
+        if (either.hasErrorMessage()) {
+            fail("Got failure for " + symbol + " -> " + either.getErrorMessage());
+        }
+
+        var hits = either.getUsages();
+        var files = fileNamesFromHits(hits);
+
+        assertTrue(
+                files.contains("ClassUsagePatterns.ts"),
+                "Expected comprehensive usage patterns in ClassUsagePatterns.ts; actual: " + files);
+
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("ClassUsagePatterns.ts"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 5,
+                "Expected at least 5 different usage patterns, found: " + classUsageHits.size());
     }
 }

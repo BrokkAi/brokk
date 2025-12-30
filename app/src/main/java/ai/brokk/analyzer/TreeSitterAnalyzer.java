@@ -724,7 +724,32 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     @Override
+    public Set<CodeUnit> searchDefinitions(String pattern, boolean autoQuote) {
+        // Validate pattern
+        if (pattern.isEmpty()) {
+            throw new IllegalArgumentException("Search pattern may not be empty");
+        }
+
+        // Prepare case-insensitive regex pattern with non-greedy quantifiers
+        // Extract substring filter for pre-filtering optimization (TreeSitter-specific)
+        @Nullable String substringFilter = null;
+        if (autoQuote) {
+            if (!pattern.contains(".*")) {
+                substringFilter = pattern.toLowerCase(Locale.ROOT);
+            }
+            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*?" + Pattern.quote(pattern) + ".*?");
+        }
+
+        Pattern compiledPattern = Pattern.compile(pattern);
+        return searchDefinitionsInternal(compiledPattern, substringFilter);
+    }
+
+    @Override
     public Set<CodeUnit> searchDefinitions(Pattern compiledPattern) {
+        return searchDefinitionsInternal(compiledPattern, null);
+    }
+
+    private Set<CodeUnit> searchDefinitionsInternal(Pattern compiledPattern, @Nullable String substringFilter) {
         var anonPredicate = new Predicate<CodeUnit>() {
             @Override
             public boolean test(CodeUnit codeUnit) {
@@ -732,8 +757,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             }
         };
 
+        var matcher = compiledPattern.matcher("");
         return this.state.codeUnitState.keySet().stream()
-                .filter(cu -> compiledPattern.matcher(cu.fqName()).find())
+                .filter(cu -> substringFilter == null
+                        || cu.fqName().toLowerCase(Locale.ROOT).contains(substringFilter))
+                .filter(cu -> matcher.reset(cu.fqName()).find())
                 .filter(anonPredicate)
                 .collect(Collectors.toSet());
     }
