@@ -94,30 +94,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     public static final String ACTION_LUTZ = "Lutz Mode";
     public static final String ACTION_PLAN = "Plan";
 
-    private static final String PLACEHOLDER_TEXT_ADVANCED =
+    private static final String PLACEHOLDER_TEXT =
             """
-                    Switching modes:
-                    - Click the arrow on the big blue button to choose between Lutz, Code, and Ask, then click on the button to run the selected mode.
-
-                    Brokk action modes:
-                    - Lutz: Lutz is one of the best context engineers around. After an all-day meetup in Amsterdam, we baked his workflow into Brokk.
-                      Lutz Mode performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
-                      It is a great way to kick off work with strong context and a clear plan.
-                    - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
-                    - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
-
-                    Type your prompt here. (Shift+Enter for a new line)
-                    """
-                    .stripIndent();
-
-    private static final String PLACEHOLDER_TEXT_EZ =
-            """
-                    Brokk action modes:
-                    - Lutz: Performs an "agentic" search across your entire project, gathers the right context, and generates a plan by creating a list of tasks before coding.
-                      It is a great way to kick off work with strong context and a clear plan.
-                    - Code: Applies changes directly to the files currently in your Workspace context based on your instructions.
-                    - Ask: Gives general-purpose answers or guidance grounded in the files that are in your Workspace.
-
                     Type your prompt here. (Shift+Enter for a new line)
                     """
                     .stripIndent();
@@ -665,7 +643,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         area.setRows(3); // Initial rows
         area.setMinimumSize(new Dimension(100, 80));
         area.setEnabled(false); // Start disabled
-        area.setText(getCurrentPlaceholder()); // Keep placeholder, will be cleared on activation
+        area.setText(PLACEHOLDER_TEXT); // Keep placeholder, will be cleared on activation
         area.getDocument().addUndoableEditListener(commandInputUndoManager);
 
         // Add focus listener to restore placeholder when focus is lost with empty text
@@ -1345,14 +1323,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
-    // Returns true if the given text matches any placeholder variant.
     private boolean isPlaceholderText(String text) {
-        return PLACEHOLDER_TEXT_ADVANCED.equals(text) || PLACEHOLDER_TEXT_EZ.equals(text);
-    }
-
-    // Returns the appropriate placeholder based on current advanced mode setting.
-    private String getCurrentPlaceholder() {
-        return GlobalUiSettings.isAdvancedMode() ? PLACEHOLDER_TEXT_ADVANCED : PLACEHOLDER_TEXT_EZ;
+        return PLACEHOLDER_TEXT.equals(text);
     }
 
     public void refreshBranchUi(String branchName) {
@@ -2310,7 +2282,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         String currentText = instructionsArea.getText();
         // Only restore placeholder if text is empty or whitespace-only
         if (currentText == null || currentText.trim().isEmpty()) {
-            instructionsArea.setText(getCurrentPlaceholder());
+            instructionsArea.setText(PLACEHOLDER_TEXT);
             instructionsArea.setEnabled(false);
             commandInputOverlay.showOverlay();
             // Disable undo listener while placeholder is showing
@@ -2537,7 +2509,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             // Switch placeholder only if currently showing a placeholder
             String currentText = instructionsArea.getText();
             if (isPlaceholderText(currentText)) {
-                instructionsArea.setText(getCurrentPlaceholder());
+                instructionsArea.setText(PLACEHOLDER_TEXT);
             }
 
             // Toggle ModelSelector visibility based on Advanced Mode
