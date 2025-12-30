@@ -165,8 +165,7 @@ public class MenuBar {
                 if (newFolderName != null && !newFolderName.isBlank()) {
                     var newFolder = new File(currentDir, newFolderName.trim());
                     if (newFolder.mkdir()) {
-                        chooser.rescanCurrentDirectory();
-                        chooser.setSelectedFile(newFolder);
+                        chooser.setCurrentDirectory(newFolder);
                     } else {
                         JOptionPane.showMessageDialog(chooser, "Could not create folder", "Error", JOptionPane.ERROR_MESSAGE);
                     }
