@@ -12,6 +12,7 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ProjectGuideResolver;
 import java.awt.AlphaComposite;
@@ -99,6 +100,7 @@ public class WorkspaceChip extends JPanel {
 
     protected final JLabelWithAccessible label;
     protected final JLabelWithAccessible readOnlyIcon;
+    protected final JLabelWithAccessible pinnedIcon;
     protected final MaterialButton closeButton;
     protected final JPanel separator;
 
@@ -130,6 +132,9 @@ public class WorkspaceChip extends JPanel {
         this.readOnlyIcon = new JLabelWithAccessible();
         this.readOnlyIcon.setBorder(new EmptyBorder(0, 0, 0, 2));
 
+        this.pinnedIcon = new JLabelWithAccessible();
+        this.pinnedIcon.setBorder(new EmptyBorder(0, 0, 0, 2));
+
         this.label = new JLabelWithAccessible();
         this.closeButton = new MaterialButton("");
         this.separator = new JPanel();
@@ -145,6 +150,9 @@ public class WorkspaceChip extends JPanel {
 
         readOnlyIcon.setVisible(false);
         readOnlyIcon.setIcon(null);
+
+        pinnedIcon.setVisible(false);
+        pinnedIcon.setIcon(null);
 
         ContextFragment fragment = getPrimaryFragment();
         String safeShortDescription = fragment.shortDescription().renderNowOr("Loading...");
@@ -175,6 +183,7 @@ public class WorkspaceChip extends JPanel {
         separator.setMinimumSize(new Dimension(1, 10));
         separator.setMaximumSize(new Dimension(1, Integer.MAX_VALUE));
 
+        add(pinnedIcon);
         add(readOnlyIcon);
         add(label);
         add(separator);
@@ -451,9 +460,9 @@ public class WorkspaceChip extends JPanel {
 
     public void updateReadOnlyIcon() {
         ContextFragment fragment = getPrimaryFragment();
-        boolean show = fragment.getType().isEditable() && isFragmentReadOnly(fragment);
+        boolean showRo = fragment.getType().isEditable() && isFragmentReadOnly(fragment);
 
-        if (show) {
+        if (showRo) {
             Icon icon = fitIconToChip(Icons.EDIT_OFF, label);
             readOnlyIcon.setIcon(icon);
             readOnlyIcon.setVisible(true);
@@ -463,6 +472,19 @@ public class WorkspaceChip extends JPanel {
         }
         readOnlyIcon.revalidate();
         readOnlyIcon.repaint();
+
+        var ctx = contextManager.selectedContext();
+        boolean showPinned = ctx != null && ctx.isPinned(fragment);
+        if (showPinned) {
+            Icon icon = fitIconToChip(Icons.ATTACH_FILE, label);
+            pinnedIcon.setIcon(icon);
+            pinnedIcon.setVisible(true);
+        } else {
+            pinnedIcon.setVisible(false);
+            pinnedIcon.setIcon(null);
+        }
+        pinnedIcon.revalidate();
+        pinnedIcon.repaint();
     }
 
     // Internal helpers
@@ -681,19 +703,35 @@ public class WorkspaceChip extends JPanel {
         ContextFragment fragment = getPrimaryFragment();
         JPopupMenu menu = new JPopupMenu();
 
-        // Read-only toggle for editable fragments
-        if (fragment.getType().isEditable()) {
+        if (GlobalUiSettings.isAdvancedMode()) {
+            // Pin/Unpin toggle
             boolean onLatest = isOnLatestContext();
-            String labelText = isFragmentReadOnly(fragment) ? "Unset Read-Only" : "Set Read-Only";
-            JMenuItem toggleRo = new JMenuItem(labelText);
-            toggleRo.setEnabled(onLatest && !isPanelReadOnly());
-            toggleRo.addActionListener(e -> {
+            var ctx = contextManager.selectedContext();
+            boolean isPinned = ctx != null && ctx.isPinned(fragment);
+            JMenuItem togglePin = new JMenuItem(isPinned ? "Unpin" : "Pin", Icons.ATTACH_FILE);
+            togglePin.setEnabled(onLatest && !isPanelReadOnly());
+            togglePin.addActionListener(e -> {
                 if (!ensureMutatingAllowed()) {
                     return;
                 }
-                contextManager.pushContext(curr -> curr.setReadonly(fragment, !curr.isMarkedReadonly(fragment)));
+                contextManager.pushContext(curr -> curr.withPinned(fragment, !curr.isPinned(fragment)));
             });
-            menu.add(toggleRo);
+            menu.add(togglePin);
+
+            // Read-only toggle for editable fragments
+            if (fragment.getType().isEditable()) {
+                String labelText = isFragmentReadOnly(fragment) ? "Unset Read-Only" : "Set Read-Only";
+                JMenuItem toggleRo = new JMenuItem(labelText, Icons.EDIT_OFF);
+                toggleRo.setEnabled(onLatest && !isPanelReadOnly());
+                toggleRo.addActionListener(e -> {
+                    if (!ensureMutatingAllowed()) {
+                        return;
+                    }
+                    contextManager.pushContext(curr -> curr.setReadonly(fragment, !curr.isMarkedReadonly(fragment)));
+                });
+                menu.add(toggleRo);
+            }
+
             menu.addSeparator();
         }
 
