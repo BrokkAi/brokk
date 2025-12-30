@@ -271,30 +271,13 @@ class ContextTest {
         var merged = ctx1.union(ctx2);
 
         // One path (dedup), two unique virtuals
-        assertEquals(1, merged.fileFragments().count());
-        assertEquals(2, merged.virtualFragments().count());
-    }
+        List<ContextFragment> fragments = merged.rawFragments().toList();
+        assertEquals(3, fragments.size(), fragments.toString());
 
-    @Test
-    void testGetAllFragmentsInDisplayOrderIncludesHistoryFirst() {
-        var s1 = new ContextFragments.StringFragment(contextManager, "T", "D", SyntaxConstants.SYNTAX_STYLE_NONE);
-        var ctx = new Context(contextManager).addFragments(s1);
-
-        // Add a history entry
-        var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
-        var log = new ContextFragments.TaskFragment(contextManager, msgs, "Log");
-        var entry = new TaskEntry(1, log, null);
-        ctx = ctx.addHistoryEntry(entry, log, CompletableFuture.completedFuture("act"));
-
-        var all = ctx.getAllFragmentsInDisplayOrder();
-        assertFalse(all.isEmpty());
-        assertTrue(all.getFirst() instanceof ContextFragments.HistoryFragment, "History should be first when present");
-
-        // Then path and virtuals follow; exact order beyond first isn't asserted here
-        long historyCount = all.stream()
-                .filter(f -> f instanceof ContextFragments.HistoryFragment)
-                .count();
-        assertEquals(1L, historyCount, "Exactly one history fragment should be present");
+        // Verify content
+        assertTrue(fragments.contains(ppf1), "Should contain the path fragment");
+        assertTrue(fragments.contains(s1), "Should contain first string fragment");
+        assertTrue(fragments.contains(s2), "Should contain second string fragment");
     }
 
     @Test

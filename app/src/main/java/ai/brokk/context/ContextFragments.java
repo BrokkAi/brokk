@@ -386,6 +386,16 @@ public class ContextFragments {
         public ContextFragment refreshCopy() {
             return this;
         }
+
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof AbstractStaticFragment && id().equals(((AbstractStaticFragment) obj).id());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hashCode(id());
+        }
     }
 
     public static final class ProjectPathFragment extends AbstractComputedFragment implements PathFragment {
@@ -787,7 +797,8 @@ public class ContextFragments {
                 String syntaxStyle,
                 Set<ProjectFile> files) {
             this(
-                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.STRING, description, text, syntaxStyle, StringFragment.class.getName()),
                     contextManager,
                     ComputedValue.completed(text),
                     description,
@@ -813,7 +824,8 @@ public class ContextFragments {
 
         public StringFragment(IContextManager contextManager, String text, String description, String syntaxStyle) {
             this(
-                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
+                    FragmentUtils.calculateContentHash(
+                            FragmentType.STRING, description, text, syntaxStyle, StringFragment.class.getName()),
                     contextManager,
                     ComputedValue.completed(text),
                     description,
@@ -827,7 +839,7 @@ public class ContextFragments {
         }
 
         public StringFragment(
-                IContextManager contextManager, Future<String> textFuture, String description, String syntaxStyle) {
+                IContextManager contextManager, CompletableFuture<String> textFuture, String description, String syntaxStyle) {
             this(
                     String.valueOf(ContextFragment.nextId.getAndIncrement()),
                     contextManager,
@@ -839,13 +851,13 @@ public class ContextFragments {
         public StringFragment(
                 String id,
                 IContextManager contextManager,
-                Future<String> textFuture,
+                CompletableFuture<String> textFuture,
                 String description,
                 String syntaxStyle) {
             this(
                     id,
                     contextManager,
-                    new ComputedValue<>("text-" + id, toCompletableFuture(textFuture)),
+                    new ComputedValue<>("text-" + id, textFuture),
                     description,
                     syntaxStyle,
                     null);
@@ -864,21 +876,6 @@ public class ContextFragments {
             this.syntaxStyle = syntaxStyle;
             this.textCv = textCv;
             this.filesCv = filesCv != null ? filesCv : textCv.map(text -> extractFilesFromDiff(text, contextManager));
-        }
-
-        private static CompletableFuture<String> toCompletableFuture(Future<String> future) {
-            if (future instanceof CompletableFuture<String> cf) {
-                return cf;
-            }
-            return CompletableFuture.supplyAsync(
-                    () -> {
-                        try {
-                            return future.get();
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                    },
-                    FRAGMENT_EXECUTOR);
         }
 
         /**
@@ -1048,14 +1045,14 @@ public class ContextFragments {
     }
 
     public static class PasteTextFragment extends AbstractComputedFragment {
-        private final Future<String> descriptionFuture;
-        private final Future<String> syntaxStyleFuture;
+        private final CompletableFuture<String> descriptionFuture;
+        private final CompletableFuture<String> syntaxStyleFuture;
 
         public PasteTextFragment(
                 IContextManager contextManager,
                 String text,
-                Future<String> descriptionFuture,
-                Future<String> syntaxStyleFuture) {
+                CompletableFuture<String> descriptionFuture,
+                CompletableFuture<String> syntaxStyleFuture) {
             this(
                     FragmentUtils.calculateContentHash(
                             FragmentType.PASTE_TEXT,
@@ -1073,15 +1070,15 @@ public class ContextFragments {
                 String id,
                 IContextManager contextManager,
                 String text,
-                Future<String> descriptionFuture,
-                Future<String> syntaxStyleFuture) {
+                CompletableFuture<String> descriptionFuture,
+                CompletableFuture<String> syntaxStyleFuture) {
             super(
                     id,
                     contextManager,
-                    new ComputedValue<>("desc-" + id, toCompletableFuture(descriptionFuture)).map(d -> "Paste of " + d),
-                    new ComputedValue<>("short-" + id, toCompletableFuture(descriptionFuture))
+                    new ComputedValue<>("desc-" + id, descriptionFuture).map(d -> "Paste of " + d),
+                    new ComputedValue<>("short-" + id, descriptionFuture)
                             .map(d -> "Paste of " + d),
-                    new ComputedValue<>("syntax-" + id, toCompletableFuture(syntaxStyleFuture)),
+                    new ComputedValue<>("syntax-" + id, syntaxStyleFuture),
                     null,
                     () -> computeSnapshotFor(text, contextManager));
             this.descriptionFuture = descriptionFuture;
@@ -1091,19 +1088,6 @@ public class ContextFragments {
         private static ContentSnapshot computeSnapshotFor(String text, IContextManager contextManager) {
             var files = ContextFragment.extractFilesFromText(text, contextManager);
             return ContentSnapshot.textSnapshot(text, Set.of(), files);
-        }
-
-        private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-            if (future instanceof CompletableFuture<T> cf) return cf;
-            return CompletableFuture.supplyAsync(
-                    () -> {
-                        try {
-                            return future.get();
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                    },
-                    FRAGMENT_EXECUTOR);
         }
 
         @Override
@@ -1116,20 +1100,20 @@ public class ContextFragments {
             return this;
         }
 
-        public Future<String> getDescriptionFuture() {
+        public CompletableFuture<String> getDescriptionFuture() {
             return descriptionFuture;
         }
 
-        public Future<String> getSyntaxStyleFuture() {
+        public CompletableFuture<String> getSyntaxStyleFuture() {
             return syntaxStyleFuture;
         }
     }
 
     public static class AnonymousImageFragment extends AbstractComputedFragment
             implements ContextFragment.ImageFragment {
-        final Future<String> descriptionFuture;
+        final CompletableFuture<String> descriptionFuture;
 
-        public AnonymousImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
+        public AnonymousImageFragment(IContextManager contextManager, Image image, CompletableFuture<String> descriptionFuture) {
             this(
                     FragmentUtils.calculateContentHash(
                             FragmentType.PASTE_IMAGE,
@@ -1147,29 +1131,16 @@ public class ContextFragments {
         }
 
         public AnonymousImageFragment(
-                String id, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
+                String id, IContextManager contextManager, Image image, CompletableFuture<String> descriptionFuture) {
             super(
                     id,
                     contextManager,
-                    new ComputedValue<>("desc-" + id, toCompletableFuture(descriptionFuture)),
-                    new ComputedValue<>("short-" + id, toCompletableFuture(descriptionFuture)),
+                    new ComputedValue<>("desc-" + id, descriptionFuture),
+                    new ComputedValue<>("short-" + id, descriptionFuture),
                     ComputedValue.completed(SyntaxConstants.SYNTAX_STYLE_NONE),
                     null,
                     () -> computeSnapshotFor(image));
             this.descriptionFuture = descriptionFuture;
-        }
-
-        private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-            if (future instanceof CompletableFuture<T> cf) return cf;
-            return CompletableFuture.supplyAsync(
-                    () -> {
-                        try {
-                            return future.get();
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                    },
-                    FRAGMENT_EXECUTOR);
         }
 
         @Nullable

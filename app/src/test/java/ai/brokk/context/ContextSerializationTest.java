@@ -199,10 +199,10 @@ public class ContextSerializationTest {
 
     private void assertContextsEqual(Context expected, Context actual) throws IOException, InterruptedException {
         // Compare all fragments sorted by ID
-        var expectedFragments = expected.allFragments()
+        var expectedFragments = expected.rawFragments()
                 .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
-        var actualFragments = actual.allFragments()
+        var actualFragments = actual.rawFragments()
                 .sorted(Comparator.comparing(ContextFragment::id))
                 .toList();
 

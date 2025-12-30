@@ -942,7 +942,7 @@ public class Context {
             return other;
         }
 
-        return this.addFragments(other.allFragments().toList());
+        return this.addFragments(other.rawFragments().toList());
     }
 
     /**
