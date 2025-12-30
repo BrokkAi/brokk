@@ -388,7 +388,7 @@ public class ContextHistoryTest {
      * avoiding dependencies and computation from analyzers/usage finders.
      */
     private static final class MockUsageFragment extends ContextFragments.AbstractStaticFragment
-            implements ContextFragment.DynamicIdentity {
+             {
         public MockUsageFragment(IContextManager cm, String id, String text) {
             super(
                     id,

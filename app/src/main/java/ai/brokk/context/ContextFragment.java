@@ -239,12 +239,6 @@ public interface ContextFragment {
     ContextFragment refreshCopy();
 
     /**
-     * Marker for fragments whose identity is dynamic (numeric, session-local).
-     * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
-     */
-    interface DynamicIdentity {}
-
-    /**
      * Interface for fragments that involve asynchronous computation.
      */
     interface ComputedFragment extends ContextFragment {

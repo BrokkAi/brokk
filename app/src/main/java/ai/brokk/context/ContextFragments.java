@@ -53,7 +53,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -292,13 +291,8 @@ public class ContextFragments {
         public boolean hasSameSource(ContextFragment other) {
             if (this == other) return true;
             if (this.getClass() != other.getClass()) return false;
-            // Dynamic fragments use ID or repr
-            if (this instanceof DynamicIdentity) {
-                return (this.repr().equals(other.repr()) && !this.repr().isEmpty())
+            return (this.repr().equals(other.repr()) && !this.repr().isEmpty())
                         || this.id().equals(other.id());
-            }
-            // Content hashed fragments (if any computed ones are)
-            return this.id().equals(other.id());
         }
     }
 
@@ -368,7 +362,7 @@ public class ContextFragments {
     }
 
     public static final class ProjectPathFragment extends AbstractComputedFragment
-            implements PathFragment, ContextFragment.DynamicIdentity {
+            implements PathFragment {
         private final ProjectFile file;
 
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
@@ -560,7 +554,7 @@ public class ContextFragments {
     }
 
     public static final class ExternalPathFragment extends AbstractComputedFragment
-            implements PathFragment, ContextFragment.DynamicIdentity {
+            implements PathFragment {
         private final ExternalFile file;
 
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
@@ -629,7 +623,7 @@ public class ContextFragments {
     }
 
     public static final class ImageFileFragment extends AbstractComputedFragment
-            implements PathFragment, ContextFragment.ImageFragment, ContextFragment.DynamicIdentity {
+            implements PathFragment, ContextFragment.ImageFragment {
         private final BrokkFile file;
 
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
@@ -1152,7 +1146,7 @@ public class ContextFragments {
         }
     }
 
-    public static class UsageFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class UsageFragment extends AbstractComputedFragment {
         private final String targetIdentifier;
         private final boolean includeTestFiles;
 
@@ -1371,7 +1365,7 @@ public class ContextFragments {
         }
     }
 
-    public static class CodeFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class CodeFragment extends AbstractComputedFragment {
         private final String fullyQualifiedName;
 
         public CodeFragment(IContextManager contextManager, String fullyQualifiedName) {
@@ -1503,7 +1497,7 @@ public class ContextFragments {
         }
     }
 
-    public static class CallGraphFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class CallGraphFragment extends AbstractComputedFragment {
         private final String methodName;
         private final int depth;
         private final boolean isCalleeGraph;
@@ -1669,7 +1663,7 @@ public class ContextFragments {
         }
     }
 
-    public static class SummaryFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class SummaryFragment extends AbstractComputedFragment {
         private final String targetIdentifier;
         private final SummaryType summaryType;
 

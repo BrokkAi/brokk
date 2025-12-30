@@ -210,7 +210,7 @@ class DiffServiceTest {
     @Test
     void text_diff_falls_back_when_new_text_not_computed() {
         class SlowFragment extends ContextFragments.AbstractComputedFragment
-                implements ContextFragment.DynamicIdentity {
+                 {
             private final ContextFragment.FragmentType type;
 
             SlowFragment(
