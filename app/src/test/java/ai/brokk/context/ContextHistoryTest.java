@@ -569,11 +569,7 @@ public class ContextHistoryTest {
                     throw new RuntimeException(e);
                 }
                 return new ContextFragments.ContentSnapshot(
-                        "Computed Content",
-                        Set.of(),
-                        Set.of(),
-                        (List<Byte>) null,
-                        true);
+                        "Computed Content", Set.of(), Set.of(), (List<Byte>) null, true);
             });
             this.latch = latch;
         }
