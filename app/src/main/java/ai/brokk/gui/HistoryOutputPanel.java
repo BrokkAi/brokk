@@ -623,7 +623,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public void updateHistoryTable(@Nullable Context contextToSelect) {
         logger.debug(
                 "Updating context history table with context {}",
-                contextToSelect != null ? contextToSelect.getAction() : "null");
+                contextToSelect != null ? contextToSelect.id() : "null");
 
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
@@ -654,8 +654,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     // Render singleton (no header)
                     assert children.size() == 1 : "Descriptor without header must be singleton";
                     var ctx = children.getFirst();
+                    Context prev = contextManager.getContextHistory().previousOf(ctx);
                     Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                    var actionVal = new ActionText(ctx.getAction(), 0);
+                    var actionVal = new ActionText(ctx.getDescription(prev), 0);
                     historyModel.addRow(new Object[] {icon, actionVal, ctx});
                     if (ctx.equals(contextToSelect)) {
                         rowToSelect = currentRow;
@@ -669,16 +670,21 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 boolean expandedDefault = descriptor.isLastGroup();
                 boolean expanded = groupExpandedState.computeIfAbsent(uuidKey, k -> expandedDefault);
 
+                // Boundary detection for visual grouping: check if this group contains a state reset
                 boolean containsClearHistory = children.stream()
-                        .anyMatch(c -> ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
+                        .anyMatch(c -> {
+                            var prev = contextManager.getContextHistory().previousOf(c);
+                            return prev != null && !prev.getTaskHistory().isEmpty() && c.getTaskHistory().isEmpty();
+                        });
 
                 var groupRow = new GroupRow(uuidKey, expanded, containsClearHistory);
                 historyModel.addRow(new Object[] {new TriangleIcon(expanded), descriptor.label(), groupRow});
                 currentRow++;
 
                 if (expanded) {
-                    for (var child : children) {
-                        var childAction = new ActionText(child.getAction(), 1);
+                    for (Context child : children) {
+                        Context prev = contextManager.getContextHistory().previousOf(child);
+                        var childAction = new ActionText(child.getDescription(prev), 1);
                         Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
                         historyModel.addRow(new Object[] {childIcon, childAction, child});
                         if (child.equals(contextToSelect)) {
@@ -2235,7 +2241,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     .setRootTitle("Diff: " + ctx.getAction())
                     .setInitialFileIndex(0);
 
-            String tabTitle = "Diff: " + ctx.getAction();
+            var prevOfCtx = contextManager.getContextHistory().previousOf(ctx);
+            String tabTitle = "Diff: " + ctx.getDescription(prevOfCtx);
             if (diffs.size() == 1) {
                 var files = diffs.getFirst().fragment().files().join();
                 if (!files.isEmpty()) {
@@ -2511,10 +2518,28 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private boolean isGroupingBoundary(Context ctx) {
         // Grouping boundaries are independent of diff presence.
-        // Boundary when this is an AI result WITHOUT a groupId, or an explicit "dropped all context" separator.
+        // Boundary when this is an AI result WITHOUT a groupId, or a state reset (empty fragments or history cleared).
         // Note: AI results that carry a groupId are NOT boundaries and may merge into a single GROUP_BY_ID run.
-        return (ctx.isAiResult() && ctx.getGroupId() == null)
-                || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
+        if (ctx.isAiResult() && ctx.getGroupId() == null) {
+            return true;
+        }
+
+        Context prev = contextManager.getContextHistory().previousOf(ctx);
+        if (prev == null) {
+            return false;
+        }
+
+        // Dropped all context: fragments became empty
+        if (prev.allFragments().findAny().isPresent() && ctx.allFragments().findAny().isEmpty()) {
+            return true;
+        }
+
+        // Cleared task history: history became empty
+        if (!prev.getTaskHistory().isEmpty() && ctx.getTaskHistory().isEmpty()) {
+            return true;
+        }
+
+        return false;
     }
 
     private void toggleGroupRow(int row) {

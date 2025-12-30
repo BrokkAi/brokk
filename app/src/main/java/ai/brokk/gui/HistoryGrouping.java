@@ -171,21 +171,18 @@ public final class HistoryGrouping {
         }
 
         private static String computeHeaderLabelFor(List<Context> children) {
+            String firstWord = safeFirstWord(children.getFirst());
             int size = children.size();
-            if (size == 2) {
-                var a0 = safeFirstWord(children.get(0).getAction());
-                var a1 = safeFirstWord(children.get(1).getAction());
-                return a0 + " + " + a1;
-            }
-            return size + " actions";
+            return firstWord + " (" + size + ")";
         }
 
-        private static String safeFirstWord(String text) {
-            if (text.isBlank()) {
-                return "";
+        private static String safeFirstWord(Context ctx) {
+            String action = ctx.getAction();
+            if (action == null || action.isBlank() || Context.SUMMARIZING.equals(action)) {
+                return "Action";
             }
-            int idx = text.indexOf(' ');
-            return (idx < 0) ? text : text.substring(0, idx);
+            int space = action.indexOf(' ');
+            return (space == -1) ? action : action.substring(0, space);
         }
     }
 
