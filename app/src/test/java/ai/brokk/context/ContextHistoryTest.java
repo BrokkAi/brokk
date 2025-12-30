@@ -393,8 +393,10 @@ public class ContextHistoryTest {
             super(
                     id,
                     cm,
-                    new ContextFragments.FragmentSnapshot(
-                            "Mock Usage", "Usage", text, "text", Set.of(), Set.of(), (List<Byte>) null, true));
+                    "Mock Usage",
+                    "Usage",
+                    "text",
+                    ContextFragments.ContentSnapshot.textSnapshot(text, Set.of(), Set.of()));
         }
 
         @Override
