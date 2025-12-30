@@ -799,6 +799,7 @@ public class CodeAgent {
             }
             var buildPrompt =
                     """
+                    The build failed.
                     Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
                     You should use the conversation history to understand what has been done so far, but
                     only use the Workspace to generate SEARCH/REPLACE blocks.
@@ -810,13 +811,9 @@ public class CodeAgent {
                     <build_output>
                     %s
                     </build_output>
-
-                    <original_goal>
-                    %s
-                    </original_goal>
                     """
-                            .formatted(buildError, cs.originalGoal());
-            UserMessage nextRequest = CodePrompts.instance.codeRequest(context, buildPrompt, model);
+                            .formatted(buildError);
+            UserMessage nextRequest = new UserMessage(buildPrompt.trim());
             // Compact conversation into a concise summary for the build step
             var newCs = cs.forBuildRetry(nextRequest, es);
             var newEs = es.afterBuildFailure(buildError);

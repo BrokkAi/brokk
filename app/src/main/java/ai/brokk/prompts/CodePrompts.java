@@ -152,6 +152,12 @@ public class CodePrompts {
         var reminder = service.isLazy(model) ? SystemPrompts.LAZY_REMINDER : SystemPrompts.OVEREAGER_REMINDER;
         var codeAgentWorkspace = WorkspacePrompts.getMessagesForCodeAgent(ctx, suppressedTypes);
 
+        var flags = instructionsFlags(ctx);
+        var searchTypePriorityTable = buildSearchTypePriorityTable(flags);
+        var searchDefinitions = editInstructions(flags);
+        var searchHints = buildSearchHints(flags);
+        var examples = EditBlockExamples.buildExamples(flags);
+
         var sys = new SystemMessage(
                 """
                 <instructions>
@@ -159,13 +165,119 @@ public class CodePrompts {
                 Always use best practices when coding.
                 Respect and use existing conventions, libraries, etc. that are already present in the code base.
 
+                Think about requests for changes to the supplied code.
+                If a request is ambiguous, %s.
+
+                Once you understand the request you MUST:
+
+                1. Decide if you need to propose *SEARCH/REPLACE* edits for any code whose source is not available.
+                   1a. You can create new files without asking!
+                   1b. If you only need to change individual functions whose code you CAN see,
+                       you may do so without having the entire file in the Workspace.
+                   1c. Ask for additional files if having them would enable a cleaner solution,
+                       even if you could hack around it without them.
+                       For example,
+                       - If a field or method is private and you would need reflection to access it,
+                         ask for the file so you can relax the visibility instead.
+                       - If you could preserve DRY by editing a data structure or a function instead of substantially duplicating
+                         its functionality.
+                   If you need to propose changes to code you can't see,
+                   tell the user their full class or file names and ask them to *add them to the Workspace*;
+                   end your reply and wait for their approval.
+
+                2. Explain the needed changes in a few short sentences.
+
+                3. Give each change as a *SEARCH/REPLACE* block.
+
+                All changes to files must use this *SEARCH/REPLACE* block format.
+
+                If a file is read-only or unavailable, ask the user to add it or make it editable.
+
+                If you are struggling to use a dependency or API correctly, you MUST stop and ask the user for help.
+
+                <rules>
+                # EXTENDED *SEARCH/REPLACE block* Rules:
+
+                The *SEARCH/REPLACE* engine supports multiple SEARCH types. Choose the most precise option that fits your edit.
+                Line-based SEARCH remains the default for most changes.
+
                 %s
-                </instructions>
+
+                Every *SEARCH/REPLACE block* must use this format:
+                1. The opening fence: ```
+                2. The *FULL* file path alone on a line, verbatim. No comment tokens, no bold asterisks, no quotes, no escaping of characters, etc.
+                3. The start of search block: <<<<<<< SEARCH
+                %s
+                5. The dividing line: =======
+                6. The lines to replace into the source code
+                7. The end of the replace block: >>>>>>> REPLACE
+                8. The closing fence: ```
+
+                ALWAYS use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
+
+                ALWAYS base SEARCH/REPLACE blocks on the editable code in the Workspace. Excerpts of code or pseudocode
+                may be given in your goal, but this is NOT a source of truth of the current files' contents.
+
+                ## Examples (format only; illustrative, not real code)
+                Follow these patterns exactly when you emit edits.
+                %s
+
+                *SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH payload matches multiple occurrences in the content.
+                For line-based edits, this means you must include enough lines to uniquely match each set of lines that need to change,
+                and avoid using syntax-aware edits for overloaded functions.
+
+                Keep *SEARCH/REPLACE* blocks concise.
+                Break large changes into a series of smaller blocks that each change a small portion.
+
+                Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
+                If you want to move code within a filename, use 2 blocks: one to delete from the old location,
+                and one to insert in the new location.
+
+                Pay attention to which filenames the user wants you to edit, especially if they are asking
+                you to create a new filename.
+
+                If the user just says something like "ok" or "go ahead" or "do that", they probably want you
+                to make SEARCH/REPLACE blocks for the code changes you just proposed.
+                The user will say when they've applied your edits.
+                If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
+
+                NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
+                use vanilla ascii single and double quotes.
+
+                When generating *SEARCH/REPLACE* blocks, choose the most precise SEARCH type that fits your change:
+                %s
+
+                **IMPORTANT**: The `BRK_` tokens are NEVER part of the file content, they are entity locators used only in SEARCH.
+                When writing REPLACE blocks, do **not** repeat the `BRK_` line.
+                The REPLACE block must ALWAYS contain ONLY the valid code (annotations, signature, body) that will overwrite the target.
+
+                # General
+                Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
+
+                Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
+
+                %s
+
                 <goal>
                 %s
                 </goal>
+
+                You are diligent and tireless!
+                You NEVER leave comments describing code without implementing it!
+                You always COMPLETELY IMPLEMENT the needed code without pausing to ask if you should continue!
+                </rules>
+                </instructions>
                 """
-                        .formatted(reminder, goal));
+                        .formatted(
+                                GraphicsEnvironment.isHeadless()
+                                        ? "decide what the most logical interpretation is"
+                                        : "ask questions",
+                                searchTypePriorityTable,
+                                searchDefinitions,
+                                examples,
+                                searchHints,
+                                reminder,
+                                goal));
         messages.add(sys);
         messages.addAll(getHistoryMessages(ctx));
         messages.addAll(prologue);
@@ -187,46 +299,15 @@ public class CodePrompts {
     }
 
     public UserMessage codeRequest(Context ctx, String input, StreamingChatModel model) {
-        AbstractService service = ctx.getContextManager().getService();
-        var reminder = service.isLazy(model) ? SystemPrompts.LAZY_REMINDER : SystemPrompts.OVEREAGER_REMINDER;
-        var instructions =
+        String guidance =
                 """
-                        <instructions>
-                        Think about this request for changes to the supplied code.
-                        If the request is ambiguous, %s.
+                %s
 
-                        Once you understand the request you MUST:
+                If you need to propose changes to code you can't see, tell me their full class or file names and ask me to add them to the Workspace; end your reply and wait for my approval.
+                """
+                        .formatted(input.trim());
 
-                        1. Decide if you need to propose *SEARCH/REPLACE* edits for any code whose source is not available.
-                           1a. You can create new files without asking!
-                           1b. If you only need to change individual functions whose code you CAN see,
-                               you may do so without having the entire file in the Workspace.
-                           1c. Ask for additional files if having them would enable a cleaner solution,
-                               even if you could hack around it without them.
-                               For example,
-                               - If a field or method is private and you would need reflection to access it,
-                                 ask for the file so you can relax the visibility instead.
-                               - If you could preserve DRY by editing a data structure or a function instead of substantially duplicating
-                                 its functionality.
-                           If you need to propose changes to code you can't see,
-                           tell the user their full class or file names and ask them to *add them to the Workspace*;
-                           end your reply and wait for their approval.
-
-                        3. Explain the needed changes in a few short sentences.
-
-                        4. Give each change as a *SEARCH/REPLACE* block.
-
-                        All changes to files must use this *SEARCH/REPLACE* block format.
-
-                        If a file is read-only or unavailable, ask the user to add it or make it editable.
-
-                        If you are struggling to use a dependency or API correctly, you MUST stop and ask the user for help.
-                        """
-                        .formatted(
-                                GraphicsEnvironment.isHeadless()
-                                        ? "decide what the most logical interpretation is"
-                                        : "ask questions");
-        return new UserMessage(instructions + instructions(input, instructionsFlags(ctx), reminder));
+        return new UserMessage(guidance.trim());
     }
 
     /**
@@ -446,30 +527,17 @@ public class CodePrompts {
         MERGE_AGENT_MARKERS
     }
 
-    protected static String instructions(String input, Set<InstructionsFlags> flags, String reminder) {
+    private static String editInstructions(Set<InstructionsFlags> flags) {
         boolean hasSyntaxAware = flags.contains(InstructionsFlags.SYNTAX_AWARE);
         boolean hasMergeMarkers = flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS);
 
-        var intro = flags.isEmpty()
-                ? """
-                Line-based SEARCH is your primary tool. Other SEARCH types exist for special cases such as whole-class replacement,
-                conflict resolution, or rewriting an entire file.
-
-                """
-                : """
-                The *SEARCH/REPLACE* engine supports multiple SEARCH types. Choose the most precise option that fits your edit.
-                Line-based SEARCH remains the default for most changes.
-
-                """;
-
-        String searchContents =
-                """
-                        4. One of the following SEARCH types:
-                          - Line-based SEARCH: a contiguous chunk of the EXACT lines to search for in the existing source code,
-                        """;
+        var sb = new StringBuilder();
+        sb.append("4. One of the following SEARCH types:\n");
+        sb.append(
+                "  - Line-based SEARCH: a contiguous chunk of the EXACT lines to search for in the existing source code,\n");
 
         if (hasSyntaxAware) {
-            searchContents +=
+            sb.append(
                     """
                       - Syntax-aware SEARCH: a single line consisting of BRK_CLASS or BRK_FUNCTION, followed by the FULLY QUALIFIED class or function name:
                         `BRK_[CLASS|FUNCTION] $fqname`. This applies to any named class-like (struct, record, interface, etc)
@@ -484,149 +552,72 @@ public class CodePrompts {
                         If you need to modify package or import statements, perform a separate line-based SEARCH/REPLACE that
                         targets those lines, or use `BRK_ENTIRE_FILE` for a full-file replacement. Including `package` or `import`
                         lines in a BRK_CLASS REPLACE will cause duplication and can introduce build errors.
-                    """;
+                    """);
         }
         if (hasMergeMarkers) {
-            searchContents +=
+            sb.append(
                     """
-                              - Conflict SEARCH: a single line consisting of the conflict marker ID: `BRK_CONFLICT_$n`
-                                where $n is the conflict number.
-                            """;
+                      - Conflict SEARCH: a single line consisting of the conflict marker ID: `BRK_CONFLICT_$n`
+                        where $n is the conflict number.
+                    """);
         }
-        searchContents +=
-                """
-                          - Full-file SEARCH: a single line `BRK_ENTIRE_FILE` indicating replace-the-entire-file, or create-new-file
-                        """;
-
-        var hintLines = new ArrayList<String>();
-
-        hintLines.add(
-                """
-                        - Line-based SEARCH is the primary option for most edits. Use it for adding, modifying, or removing localized
-                          blocks of code, including new methods or inner classes in existing files. Include the changing lines plus a
-                          few surrounding lines only when needed for uniqueness.
-                        """);
-
-        if (hasMergeMarkers) {
-            hintLines.add(
-                    """
-                            - When you are fixing conflicts wrapped in BRK_CONFLICT markers, use conflict SEARCH (`BRK_CONFLICT_n`)
-                              so that the entire conflict region is replaced in one block.
-                            """);
-        }
-
-        if (hasSyntaxAware) {
-            hintLines.add(
-                    """
-                            - Use syntax-aware SEARCH when you are replacing an entire class or function:
-                              - `BRK_FUNCTION` for a complete, non-overloaded method (signature, annotations, body, and Javadoc).
-                              - `BRK_CLASS` for the full body of a class-like declaration (without the surrounding package/imports).
-                            """);
-        }
-
-        hintLines.add(
-                """
-                        - Use `BRK_ENTIRE_FILE` when you are creating a brand new file, or when you are intentionally rewriting most
-                          of an existing file so that a whole-file replacement is clearer than multiple smaller edits.
-                        """);
-
-        String hints = String.join("\n", hintLines);
-
-        var examples = EditBlockExamples.buildExamples(flags);
-        var searchTypePriority = buildSearchTypePriority(flags);
-
-        return """
-        <rules>
-        # EXTENDED *SEARCH/REPLACE block* Rules:
-
-        %s%sEvery *SEARCH/REPLACE block* must use this format:
-        1. The opening fence: ```
-        2. The *FULL* file path alone on a line, verbatim. No comment tokens, no bold asterisks, no quotes, no escaping of characters, etc.
-        3. The start of search block: <<<<<<< SEARCH
-        %s
-        5. The dividing line: =======
-        6. The lines to replace into the source code
-        7. The end of the replace block: >>>>>>> REPLACE
-        8. The closing fence: ```
-
-        ALWAYS use the *FULL* file path, as shown to you by the user. No other text should appear on the marker lines.
-
-        ALWAYS base SEARCH/REPLACE blocks on the editable code in the Workspace. Excerpts of code or pseudocode
-        may be given in your goal, but this is NOT a source of truth of the current files' contents.
-
-        ## Examples (format only; illustrative, not real code)
-        Follow these patterns exactly when you emit edits.
-        %s
-
-        *SEARCH/REPLACE* blocks will *fail* to apply if the SEARCH payload matches multiple occurrences in the content.
-        For line-based edits, this means you must include enough lines to uniquely match each set of lines that need to change,
-        and avoid using syntax-aware edits for overloaded functions.
-
-        Keep *SEARCH/REPLACE* blocks concise.
-        Break large changes into a series of smaller blocks that each change a small portion.
-
-        Avoid generating overlapping *SEARCH/REPLACE* blocks, combine them into a single edit.
-        If you want to move code within a filename, use 2 blocks: one to delete from the old location,
-        and one to insert in the new location.
-
-        Pay attention to which filenames the user wants you to edit, especially if they are asking
-        you to create a new filename.
-
-        If the user just says something like "ok" or "go ahead" or "do that", they probably want you
-        to make SEARCH/REPLACE blocks for the code changes you just proposed.
-        The user will say when they've applied your edits.
-        If they haven't explicitly confirmed the edits have been applied, they probably want proper SEARCH/REPLACE blocks.
-
-        NEVER use smart quotes in your *SEARCH/REPLACE* blocks, not even in comments.  ALWAYS
-        use vanilla ascii single and double quotes.
-
-        When generating *SEARCH/REPLACE* blocks, choose the most precise SEARCH type that fits your change:
-        %s
-        **IMPORTANT**: The `BRK_` tokens are NEVER part of the file content, they are entity locators used only in SEARCH.
-        When writing REPLACE blocks, do **not** repeat the `BRK_` line.
-        The REPLACE block must ALWAYS contain ONLY the valid code (annotations, signature, body) that will overwrite the target.
-
-        #General
-        Always write elegant, well-encapsulated code that is easy to maintain and use without mistakes.
-
-        Follow the existing code style, and ONLY EVER RETURN CHANGES IN A *SEARCH/REPLACE BLOCK*!
-
-        %s
-        </rules>
-
-        <goal>
-        %s
-        </goal>
-        """
-                .formatted(intro, searchTypePriority, searchContents, examples, hints, reminder, input);
+        sb.append(
+                "  - Full-file SEARCH: a single line `BRK_ENTIRE_FILE` indicating replace-the-entire-file, or create-new-file\n");
+        return sb.toString();
     }
 
-    private static String buildSearchTypePriority(Set<InstructionsFlags> flags) {
+    private static String buildSearchHints(Set<InstructionsFlags> flags) {
+        var hintLines = new ArrayList<String>();
+        hintLines.add(
+                """
+                - Line-based SEARCH is the primary option for most edits. Use it for adding, modifying, or removing localized
+                  blocks of code, including new methods or inner classes in existing files. Include the changing lines plus a
+                  few surrounding lines only when needed for uniqueness.
+                """);
+
+        if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
+            hintLines.add(
+                    """
+                    - When you are fixing conflicts wrapped in BRK_CONFLICT markers, use conflict SEARCH (`BRK_CONFLICT_n`)
+                      so that the entire conflict region is replaced in one block.
+                    """);
+        }
+
+        if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
+            hintLines.add(
+                    """
+                    - Use syntax-aware SEARCH when you are replacing an entire class or function:
+                      - `BRK_FUNCTION` for a complete, non-overloaded method (signature, annotations, body, and Javadoc).
+                      - `BRK_CLASS` for the full body of a class-like declaration (without the surrounding package/imports).
+                    """);
+        }
+
+        hintLines.add(
+                """
+                - Use `BRK_ENTIRE_FILE` when you are creating a brand new file, or when you are intentionally rewriting most
+                  of an existing file so that a whole-file replacement is clearer than multiple smaller edits.
+                """);
+
+        return String.join("\n", hintLines);
+    }
+
+    private static String buildSearchTypePriorityTable(Set<InstructionsFlags> flags) {
         var rows = new ArrayList<String>();
         int priority = 1;
 
-        // Conflicts
         if (flags.contains(InstructionsFlags.MERGE_AGENT_MARKERS)) {
-            rows.add(
-                    "| " + priority++
-                            + " | `BRK_CONFLICT_n` | Resolving regions wrapped in BRK_CONFLICT markers when fixing merge conflicts |");
+            rows.add("| " + priority++ + " | `BRK_CONFLICT_n` | Resolving regions wrapped in BRK_CONFLICT markers |");
         }
 
-        // Line edits
-        rows.add("| " + priority++
-                + " | Line-based | Default choice for localized edits and adding new code to existing files |");
+        rows.add("| " + priority++ + " | Line-based | Default choice for localized edits |");
 
-        // syntax-based (same priority)
         if (flags.contains(InstructionsFlags.SYNTAX_AWARE)) {
-            rows.add("| " + priority
-                    + " | `BRK_FUNCTION` | Replacing a complete, non-overloaded method (signature + body) |");
-            rows.add("| " + priority + " | `BRK_CLASS` | Replacing the entire body of a class-like declaration |");
+            rows.add("| " + priority + " | `BRK_FUNCTION` | Replacing a complete method (signature + body) |");
+            rows.add("| " + priority + " | `BRK_CLASS` | Replacing the entire body of a class |");
             priority++;
         }
 
-        // entire file
-        rows.add("| " + priority
-                + " | `BRK_ENTIRE_FILE` | Creating a new file or intentionally rewriting most of an existing file |");
+        rows.add("| " + priority + " | `BRK_ENTIRE_FILE` | Creating a new file or rewriting most of a file |");
 
         return """
         ## SEARCH Type Priority

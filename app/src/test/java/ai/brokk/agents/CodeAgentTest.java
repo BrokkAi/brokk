@@ -358,12 +358,14 @@ class CodeAgentTest {
         assertTrue(retryStep.es().lastBuildError().contains("Detailed build error output"));
         assertEquals(0, retryStep.es().blocksAppliedWithoutBuild()); // Reset
         String nextReqText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
-        // The retry prompt for build failures includes the error and the goal.
+        // The retry prompt for build failures includes the error details but NOT the original goal.
         assertTrue(
                 nextReqText.contains("Detailed build error output")
                         || retryStep.es().lastBuildError().contains("Detailed build error output"),
                 "Build error missing from prompt or EditState");
-        assertTrue(nextReqText.contains("req"), "Original goal missing from prompt");
+        assertFalse(
+                nextReqText.contains("req"),
+                "Original goal should not be in the retry request; it is preserved in history");
 
         // Second run - build should succeed
         // We must manually create a new state that simulates new edits having been applied,
@@ -1439,5 +1441,87 @@ class CodeAgentTest {
         String sysText = Messages.getText(system);
         assertTrue(sysText.contains("<goal>"), "System message should include a <goal> block");
         assertTrue(sysText.contains("My special goal text"), "Goal text should appear inside the <goal> block");
+    }
+
+    @Test
+    void testSystemMessageContainsSearchReplaceFormatInstructions() {
+        var ctx = newContext();
+        var request = new UserMessage("Test goal");
+        var messages = CodePrompts.instance.collectCodeMessages(
+                cm.getCodeModel(),
+                ctx,
+                List.of(),
+                List.of(),
+                request,
+                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
+                "Test goal");
+
+        // First message should be SystemMessage
+        assertInstanceOf(dev.langchain4j.data.message.SystemMessage.class, messages.get(0));
+        String sysText = Messages.getText(messages.get(0));
+
+        // Verify format instructions are present
+        assertTrue(sysText.contains("SEARCH/REPLACE"), "System message should contain SEARCH/REPLACE instructions");
+        assertTrue(sysText.contains("<<<<<<< SEARCH"), "System message should contain SEARCH marker");
+        assertTrue(sysText.contains("======="), "System message should contain divider");
+        assertTrue(sysText.contains(">>>>>>> REPLACE"), "System message should contain REPLACE marker");
+        assertTrue(sysText.contains("<rules>"), "System message should contain rules section");
+    }
+
+    @Test
+    void testInitialUserRequestContainsOnlyGoalWithoutFormatRules() {
+        var ctx = newContext();
+        var userGoal = "Please fix the bug in MyClass.java";
+
+        // Get the initial request via codeRequest
+        var request = CodePrompts.instance.codeRequest(ctx, userGoal, cm.getCodeModel());
+        String requestText = Messages.getText(request);
+
+        // Should contain the goal
+        assertTrue(requestText.contains(userGoal), "Initial request should contain the user's goal");
+
+        // Should NOT contain SEARCH/REPLACE format instructions
+        assertFalse(requestText.contains("<<<<<<< SEARCH"), "Initial request should not contain SEARCH marker");
+        assertFalse(requestText.contains(">>>>>>> REPLACE"), "Initial request should not contain REPLACE marker");
+        assertFalse(requestText.contains("<rules>"), "Initial request should not contain rules section");
+        assertFalse(
+                requestText.contains("SEARCH/REPLACE block"), "Initial request should not contain format instructions");
+    }
+
+    @Test
+    void testBuildRetryRequestContainsOnlyErrorDetailsAndCorrectionRequest() {
+        // Setup similar to testVerifyPhase_buildFailureAndSuccessCycle
+        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
+        project.setBuildDetails(bd);
+        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
+
+        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
+            outputConsumer.accept("Build error: compilation failed at line 42");
+            throw new Environment.FailureException("Build failed", "Build error: compilation failed at line 42", 1);
+        };
+
+        var originalGoal = "Fix the authentication bug";
+        var cs = createConversationState(List.of(), new UserMessage(originalGoal));
+        var es = createEditState(1);
+
+        var result = codeAgent.verifyPhase(cs, es, null);
+
+        assertInstanceOf(CodeAgent.Step.Retry.class, result);
+        var retryStep = (CodeAgent.Step.Retry) result;
+
+        String nextReqText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
+
+        // Retry request should contain error details
+        assertTrue(
+                nextReqText.contains("build_output") || nextReqText.contains("Build error"),
+                "Retry request should contain build error details");
+        assertTrue(
+                nextReqText.contains("SEARCH/REPLACE") || nextReqText.contains("correct"),
+                "Retry request should ask for corrections");
+
+        // Retry request should NOT contain the original goal (goal is in conversation history, not retry request)
+        assertFalse(
+                nextReqText.contains(originalGoal),
+                "Retry request should not contain the original goal - goal is preserved in conversation history");
     }
 }
