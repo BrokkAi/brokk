@@ -14,6 +14,7 @@ import com.jediterm.terminal.TerminalColor;
 import com.jediterm.terminal.TextStyle;
 import com.jediterm.terminal.TtyConnector;
 import com.jediterm.terminal.ui.TerminalActionPresentation;
+import java.awt.Point;
 import com.jediterm.terminal.ui.settings.DefaultSettingsProvider;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
@@ -247,50 +248,76 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 return;
             }
 
-            String selection = null;
-            if (w.getTerminalDisplay() instanceof BrokkJediTermPanel display) {
-                selection = display.getSelectionText();
-            }
-
-            if (selection != null && !selection.isEmpty()) {
-                submitCapturedContent(selection);
-                return;
-            }
-
-            var buffer = w.getTerminalTextBuffer();
-            if (buffer == null) {
+            if (!(console instanceof Chrome c)) {
+                // Should not happen in normal usage, but safe guard
                 console.systemNotify(
-                        "No terminal buffer available to capture",
+                        "Cannot capture: ContextManager unavailable",
                         "Terminal Capture",
                         JOptionPane.WARNING_MESSAGE);
                 return;
             }
 
-            CompletableFuture.supplyAsync(() -> {
-                var lines = new ArrayList<String>();
-                buffer.lock();
-                try {
-                    int historyCount = buffer.getHistoryLinesCount();
-                    for (int i = 0; i < historyCount; i++) {
-                        var line = buffer.getLine(i - historyCount);
-                        lines.add(line.getText());
-                    }
+            Point selStart = null;
+            Point selEnd = null;
+            BrokkJediTermPanel displayPanel = null;
+            if (w.getTerminalDisplay() instanceof BrokkJediTermPanel display) {
+                var selection = display.getSelection();
+                if (selection != null) {
+                    var s = selection.getStart();
+                    var endPt = selection.getEnd();
+                    selStart = new Point(s.x, s.y);
+                    selEnd = new Point(endPt.x, endPt.y);
+                    displayPanel = display;
+                }
+            }
 
-                    for (int i = 0; i < buffer.getHeight(); i++) {
-                        var line = buffer.getLine(i);
-                        lines.add(line.getText());
-                    }
-                } finally {
-                    buffer.unlock();
+            CompletableFuture<String> future;
+            if (selStart != null && selEnd != null && displayPanel != null) {
+                final var finalDisplay = displayPanel;
+                final var p1 = selStart;
+                final var p2 = selEnd;
+                future = c.getContextManager().submitBackgroundTask(
+                        "Capturing terminal selection",
+                        () -> finalDisplay.getSelectionText(p1, p2));
+            } else {
+                var buffer = w.getTerminalTextBuffer();
+                if (buffer == null) {
+                    console.systemNotify(
+                            "No terminal buffer available to capture",
+                            "Terminal Capture",
+                            JOptionPane.WARNING_MESSAGE);
+                    return;
                 }
 
-                return lines.stream().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
-            }).thenAcceptAsync(this::submitCapturedContent, SwingUtilities::invokeLater).exceptionally(ex -> {
-                logger.error("Error capturing terminal output", ex);
-                SwingUtilities.invokeLater(() -> console.toolError(
-                        "Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture Failed"));
-                return null;
-            });
+                future = c.getContextManager().submitBackgroundTask("Capturing terminal buffer", () -> {
+                    var lines = new ArrayList<String>();
+                    buffer.lock();
+                    try {
+                        int historyCount = buffer.getHistoryLinesCount();
+                        for (int i = 0; i < historyCount; i++) {
+                            var line = buffer.getLine(i - historyCount);
+                            lines.add(line.getText());
+                        }
+
+                        for (int i = 0; i < buffer.getHeight(); i++) {
+                            var line = buffer.getLine(i);
+                            lines.add(line.getText());
+                        }
+                    } finally {
+                        buffer.unlock();
+                    }
+
+                    return lines.stream().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
+                });
+            }
+
+            future.thenAcceptAsync(this::submitCapturedContent, SwingUtilities::invokeLater)
+                    .exceptionally(ex -> {
+                        logger.error("Error capturing terminal output", ex);
+                        SwingUtilities.invokeLater(() -> console.toolError(
+                                "Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture Failed"));
+                        return null;
+                    });
         });
 
         panel.add(tabPanel, BorderLayout.WEST);

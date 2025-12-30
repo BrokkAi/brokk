@@ -1,6 +1,7 @@
 package ai.brokk.gui.terminal;
 
 import com.jediterm.terminal.model.StyleState;
+import java.awt.Point;
 import com.jediterm.terminal.model.TerminalTextBuffer;
 import com.jediterm.terminal.ui.TerminalPanel;
 import com.jediterm.terminal.ui.settings.SettingsProvider;
@@ -29,31 +30,38 @@ public class BrokkJediTermPanel extends TerminalPanel {
         if (selection == null) {
             return null;
         }
+        var s = selection.getStart();
+        var e = selection.getEnd();
+        return getSelectionText(new Point(s.x, s.y), new Point(e.x, e.y));
+    }
 
-        var start = selection.getStart();
-        var end = selection.getEnd();
-
+    @Nullable
+    public String getSelectionText(@Nullable Point start, @Nullable Point end) {
         if (start == null || end == null) {
             return null;
         }
 
-        if (start.y > end.y || (start.y == end.y && start.x > end.x)) {
-            var tmp = start;
-            start = end;
-            end = tmp;
+        var p1 = start;
+        var p2 = end;
+
+        // Normalize coordinates
+        if (p1.y > p2.y || (p1.y == p2.y && p1.x > p2.x)) {
+            var tmp = p1;
+            p1 = p2;
+            p2 = tmp;
         }
 
         var sb = new StringBuilder();
         terminalTextBuffer.lock();
         try {
-            for (int y = start.y; y <= end.y; y++) {
+            for (int y = p1.y; y <= p2.y; y++) {
                 var line = terminalTextBuffer.getLine(y);
                 String text = line.getText();
                 int maxX = text.length();
 
-                int x1 = (y == start.y) ? start.x : 0;
+                int x1 = (y == p1.y) ? p1.x : 0;
                 // Treat end coordinate as inclusive to capture the last character
-                int x2 = (y == end.y) ? end.x + 1 : maxX;
+                int x2 = (y == p2.y) ? p2.x + 1 : maxX;
 
                 x1 = Math.min(Math.max(x1, 0), maxX);
                 x2 = Math.min(Math.max(x2, 0), maxX);
@@ -62,7 +70,7 @@ public class BrokkJediTermPanel extends TerminalPanel {
                     sb.append(text, x1, x2);
                 }
 
-                if (y < end.y && !line.isWrapped()) {
+                if (y < p2.y && !line.isWrapped()) {
                     sb.append('\n');
                 }
             }
