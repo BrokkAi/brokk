@@ -37,6 +37,11 @@ public class BrokkJediTermPanel extends TerminalPanel {
 
     @Nullable
     public String getSelectionText(@Nullable Point start, @Nullable Point end) {
+        return getSelectionText(start, end, false);
+    }
+
+    @Nullable
+    public String getSelectionText(@Nullable Point start, @Nullable Point end, boolean trimTrailingWhitespace) {
         if (start == null || end == null) {
             return null;
         }
@@ -75,7 +80,11 @@ public class BrokkJediTermPanel extends TerminalPanel {
                 x2 = Math.min(Math.max(x2, 0), maxX);
 
                 if (x1 < x2) {
-                    sb.append(text, x1, x2);
+                    String chunk = text.substring(x1, x2);
+                    if (trimTrailingWhitespace) {
+                        chunk = chunk.replaceAll("\\s+$", "");
+                    }
+                    sb.append(chunk);
                 }
 
                 if (y < p2.y && !line.isWrapped()) {

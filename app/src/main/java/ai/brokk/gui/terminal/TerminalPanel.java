@@ -278,7 +278,7 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                 final var p2 = selEnd;
                 future = c.getContextManager().submitBackgroundTask(
                         "Capturing terminal selection",
-                        () -> finalDisplay.getSelectionText(p1, p2));
+                        () -> finalDisplay.getSelectionText(p1, p2, true));
             } else {
                 var buffer = w.getTerminalTextBuffer();
                 if (buffer == null) {
