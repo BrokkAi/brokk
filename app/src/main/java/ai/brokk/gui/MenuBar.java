@@ -156,7 +156,25 @@ public class MenuBar {
         chooser.setMultiSelectionEnabled(false);
         chooser.setDialogTitle("New Project");
 
-        int result = chooser.showSaveDialog(chrome.getFrame());
+        // Add "New Folder" button since FlatLaf doesn't show it by default
+        var newFolderBtn = new JButton("New Folder");
+        newFolderBtn.addActionListener(e -> {
+            var currentDir = chooser.getCurrentDirectory();
+            if (currentDir != null) {
+                var newFolderName = JOptionPane.showInputDialog(chooser, "Enter folder name:", "New Folder", JOptionPane.PLAIN_MESSAGE);
+                if (newFolderName != null && !newFolderName.isBlank()) {
+                    var newFolder = new File(currentDir, newFolderName.trim());
+                    if (newFolder.mkdir()) {
+                        chooser.rescanCurrentDirectory();
+                        chooser.setSelectedFile(newFolder);
+                    } else {
+                        JOptionPane.showMessageDialog(chooser, "Could not create folder", "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            }
+        });
+
+        int result = showFileChooserWithNewFolder(chrome.getFrame(), chooser, newFolderBtn);
         if (result != JFileChooser.APPROVE_OPTION) {
             return;
         }
@@ -188,6 +206,68 @@ public class MenuBar {
                         "New Project"));
             }
         });
+    }
+
+    private static int showFileChooserWithNewFolder(Frame parent, JFileChooser chooser, JButton newFolderBtn) {
+        // Add New Folder button to the file chooser's button panel
+        addButtonToChooserButtonPanel(chooser, newFolderBtn);
+
+        // Track result
+        final int[] result = {JFileChooser.CANCEL_OPTION};
+        chooser.addActionListener(e -> {
+            if (JFileChooser.APPROVE_SELECTION.equals(e.getActionCommand())) {
+                result[0] = JFileChooser.APPROVE_OPTION;
+            }
+        });
+
+        // Create custom dialog
+        var dialog = new JDialog(parent, chooser.getDialogTitle(), true);
+        dialog.setDefaultCloseOperation(JDialog.DISPOSE_ON_CLOSE);
+        dialog.setContentPane(chooser);
+
+        chooser.addActionListener(e -> dialog.dispose());
+
+        dialog.pack();
+        dialog.setLocationRelativeTo(parent);
+        dialog.setVisible(true);
+
+        return result[0];
+    }
+
+    private static void addButtonToChooserButtonPanel(JFileChooser chooser, JButton button) {
+        var cancelText = UIManager.getString("FileChooser.cancelButtonText");
+        findButtonPanelAndAdd(chooser, button, cancelText);
+    }
+
+    private static boolean findButtonPanelAndAdd(Container container, JButton button, String cancelText) {
+        for (var comp : container.getComponents()) {
+            if (comp instanceof JPanel panel) {
+                for (var child : panel.getComponents()) {
+                    if (child instanceof JButton btn) {
+                        if (cancelText != null && cancelText.equals(btn.getText())) {
+                            // Match button height to existing button, but keep width for our text
+                            var existingSize = btn.getPreferredSize();
+                            var ourSize = button.getPreferredSize();
+                            button.setPreferredSize(new Dimension(
+                                    Math.max(existingSize.width, ourSize.width),
+                                    existingSize.height));
+                            button.setMinimumSize(button.getPreferredSize());
+                            button.setMaximumSize(button.getPreferredSize());
+                            panel.add(button, 0);
+                            return true;
+                        }
+                    }
+                }
+                if (findButtonPanelAndAdd(panel, button, cancelText)) {
+                    return true;
+                }
+            } else if (comp instanceof Container child) {
+                if (findButtonPanelAndAdd(child, button, cancelText)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
