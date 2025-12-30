@@ -112,6 +112,8 @@ public final class MainProject extends AbstractProject {
     private static final String CODE_AGENT_TEST_SCOPE_KEY = "codeAgentTestScope";
     private static final String COMMIT_MESSAGE_FORMAT_KEY = "commitMessageFormat";
     private static final String EXCEPTION_REPORTING_ENABLED_KEY = "exceptionReportingEnabled";
+    private static final String GPG_COMMIT_SIGNING_ENABLED_KEY = "gpgCommitSigningEnabled";
+    private static final String GPG_SIGNING_KEY_KEY = "gpgSigningKey";
     private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
     private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
 
@@ -1302,6 +1304,32 @@ public final class MainProject extends AbstractProject {
     public static void setExceptionReportingEnabled(boolean enabled) {
         var props = loadGlobalProperties();
         props.setProperty(EXCEPTION_REPORTING_ENABLED_KEY, String.valueOf(enabled));
+        saveGlobalProperties(props);
+    }
+
+    public static boolean isGpgCommitSigningEnabled() {
+        var props = loadGlobalProperties();
+        return Boolean.parseBoolean(props.getProperty(GPG_COMMIT_SIGNING_ENABLED_KEY, "false"));
+    }
+
+    public static void setGpgCommitSigningEnabled(boolean enabled) {
+        var props = loadGlobalProperties();
+        props.setProperty(GPG_COMMIT_SIGNING_ENABLED_KEY, String.valueOf(enabled));
+        saveGlobalProperties(props);
+    }
+
+    public static String getGpgSigningKey() {
+        var props = loadGlobalProperties();
+        return props.getProperty(GPG_SIGNING_KEY_KEY, "");
+    }
+
+    public static void setGpgSigningKey(String key) {
+        var props = loadGlobalProperties();
+        if (key.isBlank()) {
+            props.remove(GPG_SIGNING_KEY_KEY);
+        } else {
+            props.setProperty(GPG_SIGNING_KEY_KEY, key.trim());
+        }
         saveGlobalProperties(props);
     }
 
