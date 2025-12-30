@@ -413,7 +413,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         gbc.gridy = row;
         panel.add(new JLabel("GPG Signing Key:"), gbc);
 
-        gpgKeyCombo.setEditable(true);
+        gpgKeyCombo.setEditable(false);
         gbc.gridx = 1;
         gbc.weightx = 1.0;
         gbc.fill = GridBagConstraints.HORIZONTAL;
