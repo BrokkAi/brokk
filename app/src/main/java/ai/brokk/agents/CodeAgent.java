@@ -582,8 +582,8 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation and original content.
      */
     public TaskResult runQuickTask(ProjectFile file, String oldText, String instructions) throws InterruptedException {
-        var coder = contextManager.getLlm(model, "QuickEdit: " + instructions);
-        coder.setOutput(io);
+        var llm = contextManager.getLlm(model, "QuickEdit: " + instructions);
+        llm.setOutput(io);
 
         // Use up to 5 related classes as context (format as combined summaries)
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
@@ -592,27 +592,23 @@ public class CodeAgent {
 
         // Build the prompt messages
         var messages = QuickEditPrompts.instance.collectMessages(fileContents, relatedCode, styleGuide);
+        int messageHistoryStart = messages.size();
         var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
         messages.add(new UserMessage(instructionsMsg));
-
-        var pendingHistory = new ArrayList<ChatMessage>();
-        pendingHistory.add(new UserMessage(instructionsMsg));
 
         TaskResult.StopDetails stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         int attempts = 0;
         final int MAX_QUICK_FIX_ATTEMPTS = 3;
 
-        while (attempts < MAX_QUICK_FIX_ATTEMPTS) {
-            attempts++;
-            var result = coder.sendRequest(messages);
-
+        while (true) {
+            var result = llm.sendRequest(messages);
             if (result.error() != null) {
                 stopDetails = TaskResult.StopDetails.fromResponse(result);
                 io.toolError("Quick edit failed: " + stopDetails.explanation());
                 break;
             }
+            messages.add(result.aiMessage());
 
-            pendingHistory.add(result.aiMessage());
             var responseText = Messages.getText(result.aiMessage());
             var snippet = EditBlock.extractCodeFromTripleBackticks(responseText).trim();
 
@@ -623,18 +619,19 @@ public class CodeAgent {
             }
 
             if (snippet.equals(oldText)) {
+                logger.debug("Quick Edit: LLM returned unchanged code, skipping diagnostics");
                 break; // No changes suggested
-            }
-
-            // Validate Java syntax if applicable
-            if (!Languages.JAVA.getExtensions().contains(file.extension())) {
-                break; // Not Java, accept the result
             }
 
             var updatedContent = fileContents.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
             if (updatedContent.equals(fileContents)) {
                 logger.warn("Quick Edit: target text not found in file (may have changed)");
                 break;
+            }
+
+            // Validate Java syntax if applicable
+            if (!Languages.JAVA.getExtensions().contains(file.extension())) {
+                break; // Not Java, accept the result
             }
 
             var diags = parseJavaForDiagnostics(file, updatedContent);
@@ -647,13 +644,12 @@ public class CodeAgent {
                     .collect(Collectors.joining("\n", "\nJava syntax issues detected:\n\n", "\n"));
             io.llmOutput(diagnosticMessages, ChatMessageType.CUSTOM);
 
-            if (attempts >= MAX_QUICK_FIX_ATTEMPTS) {
+            if (attempts++ >= MAX_QUICK_FIX_ATTEMPTS) {
                 report("Quick Edit: Maximum fix attempts reached.");
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "Syntax errors persist");
                 break;
             }
 
-            messages.add(result.aiMessage());
             messages.add(new UserMessage(
                     "The following Java syntax issues were detected in your response. Please fix them and provide the full corrected code block:\n\n"
                             + diagnosticMessages));
@@ -663,7 +659,12 @@ public class CodeAgent {
         var quickMeta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
         return new TaskResult(
-                contextManager, "Quick Edit: " + file.getFileName(), pendingHistory, context, stopDetails, quickMeta);
+                contextManager,
+                "Quick Edit: " + file.getFileName(),
+                messages.subList(messageHistoryStart, messages.size()),
+                context,
+                stopDetails,
+                quickMeta);
     }
 
     /**
