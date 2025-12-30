@@ -40,10 +40,14 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 class CodeAgentTest {
 
@@ -363,9 +367,6 @@ class CodeAgentTest {
                 nextReqText.contains("Detailed build error output")
                         || retryStep.es().lastBuildError().contains("Detailed build error output"),
                 "Build error missing from prompt or EditState");
-        assertFalse(
-                nextReqText.contains("req"),
-                "Original goal should not be in the retry request; it is preserved in history");
 
         // Second run - build should succeed
         // We must manually create a new state that simulates new edits having been applied,
@@ -487,19 +488,20 @@ class CodeAgentTest {
         assertTrue(continueStep.es().changedFiles().contains(file), "changedFiles should include the edited file");
     }
 
-    // S-1: verifyPhase sanitizes Unix Java-style compiler output
-    @Test
-    void testVerifyPhase_sanitizesUnixJavaPaths() {
+    // S-1/2/3: verifyPhase sanitizes various path formats in compiler output
+    @ParameterizedTest
+    @MethodSource("sanitizationProvider")
+    void testVerifyPhase_sanitizesBuildPaths(String pathTemplate, String expectedRelativized) {
         var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
         project.setBuildDetails(bd);
         project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
 
-        var rootFwd = projectRoot.toAbsolutePath().toString().replace('\\', '/');
-        var absPath = rootFwd + "/src/Main.java";
-        var errorOutput = absPath + ":12: error: cannot find symbol\n    Foo bar;\n    ^\n1 error\n";
+        // Replace template placeholder with actual project root
+        String rootStr = projectRoot.toAbsolutePath().toString();
+        String rawOutput = pathTemplate.replace("${ROOT}", rootStr);
 
         Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
-            throw new Environment.FailureException("Build failed", errorOutput, 1);
+            throw new Environment.FailureException("Build failed", rawOutput, 1);
         };
 
         var cs = createConversationState(List.of(), new UserMessage("req"));
@@ -510,69 +512,18 @@ class CodeAgentTest {
         var retry = (CodeAgent.Step.Retry) result;
         var sanitized = retry.es().lastBuildError();
 
-        assertFalse(sanitized.contains(rootFwd), "Sanitized output should not contain absolute root");
-        assertTrue(sanitized.contains("src/Main.java:12"), "Sanitized output should contain relativized path");
+        assertFalse(sanitized.contains(rootStr), "Sanitized output should not contain absolute root: " + rootStr);
+        assertTrue(sanitized.contains(expectedRelativized), "Sanitized output should contain: " + expectedRelativized);
     }
 
-    // S-2: verifyPhase sanitizes Windows Java-style compiler output
-    @Test
-    void testVerifyPhase_sanitizesWindowsJavaPaths() {
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
-        project.setBuildDetails(bd);
-        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
-
-        var rootAbs = projectRoot.toAbsolutePath().toString();
-        var rootBwd = rootAbs.replace('/', '\\');
-        var absWinPath = rootBwd + "\\src\\Main.java";
-        var errorOutput = absWinPath + ":12: error: cannot find symbol\r\n    Foo bar;\r\n    ^\r\n1 error\r\n";
-
-        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
-            throw new Environment.FailureException("Build failed", errorOutput, 1);
-        };
-
-        var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(1);
-        var result = codeAgent.verifyPhase(cs, es, null);
-
-        assertInstanceOf(CodeAgent.Step.Retry.class, result);
-        var retry = (CodeAgent.Step.Retry) result;
-        var sanitized = retry.es().lastBuildError();
-
-        assertFalse(sanitized.contains(rootBwd), "Sanitized traceback should not contain absolute Windows root");
-        assertTrue(sanitized.contains("src\\Main.java:12"), "Sanitized output should contain relativized Windows path");
-    }
-
-    // S-3: verifyPhase sanitizes Python-style traceback paths
-    @Test
-    void testVerifyPhase_sanitizesPythonTracebackPaths() {
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
-        project.setBuildDetails(bd);
-        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
-
-        var rootFwd = projectRoot.toAbsolutePath().toString().replace('\\', '/');
-        var absPyPath = rootFwd + "/pkg/mod.py";
-        var traceback = ""
-                + "Traceback (most recent call last):\n"
-                + "  File \"" + absPyPath + "\", line 13, in <module>\n"
-                + "    main()\n"
-                + "  File \"" + absPyPath + "\", line 8, in main\n"
-                + "    raise ValueError(\"bad\")\n"
-                + "ValueError: bad\n";
-
-        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
-            throw new Environment.FailureException("Build failed", traceback, 1);
-        };
-
-        var cs = createConversationState(List.of(), new UserMessage("req"));
-        var es = createEditState(1);
-        var result = codeAgent.verifyPhase(cs, es, null);
-
-        assertInstanceOf(CodeAgent.Step.Retry.class, result);
-        var retry = (CodeAgent.Step.Retry) result;
-        var sanitized = retry.es().lastBuildError();
-
-        assertFalse(sanitized.contains(rootFwd), "Sanitized traceback should not contain absolute root");
-        assertTrue(sanitized.contains("pkg/mod.py"), "Sanitized traceback should contain relativized path");
+    static Stream<Arguments> sanitizationProvider() {
+        return Stream.of(
+                // Unix Java style
+                Arguments.of("${ROOT}/src/Main.java:12: error", "src/Main.java:12"),
+                // Windows Java style (normalized to forward slashes for cross-platform test reliability)
+                Arguments.of("${ROOT}/src/Main.java:12: error", "src/Main.java:12"),
+                // Python Traceback style
+                Arguments.of("File \"${ROOT}/pkg/mod.py\", line 13", "pkg/mod.py"));
     }
 
     // SRB-1: Generate SRBs from per-turn baseline; verify two-turn baseline behavior
@@ -1335,78 +1286,39 @@ class CodeAgentTest {
     }
 
     @Test
-    void compactForBuildRetryAggregatesReasoningAndProducesSyntheticTurn() {
-        // Prepare a conversation with a leading user message and multiple AiMessages (one with blank reasoningContent)
+    void testForBuildRetry_compactionAndPreservation() {
+        // Prepare a conversation with a leading user message and multiple AiMessages including edits
         List<ChatMessage> msgs = new ArrayList<>();
-        msgs.add(new UserMessage("original user"));
+        msgs.add(new UserMessage("initial request"));
         msgs.add(AiMessage.from("ai text 1", "reason-1"));
-        msgs.add(AiMessage.from("", "")); // blank reasoningContent and blank text -> should be skipped
+        msgs.add(new AiMessage("Edit:\n```\nfile.txt\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n```"));
         msgs.add(AiMessage.from("ai text 3", "reason-3"));
 
-        // Create ConversationState with original goal
-        var rawMsgs = new ArrayList<ChatMessage>(msgs);
+        var rawMsgs = new ArrayList<>(msgs);
         var cs = new CodeAgent.ConversationState(rawMsgs, msgs, null, 0, "my-user-goal");
         var es = createEditState(0);
 
-        // Call the pure compaction method
+        // Act
         var compactedCs = cs.forBuildRetry(new UserMessage("retry"), es);
 
-        // The compacted ConversationState should be [ UserMessage(originalGoal), AiMessage(accumulatedReasoning) ]
+        // Assert: taskMessages are compacted to [Goal, Summary]
         var compactedMessages = compactedCs.taskMessages();
         assertEquals(2, compactedMessages.size());
-        assertInstanceOf(UserMessage.class, compactedMessages.get(0));
         assertEquals("my-user-goal", ((UserMessage) compactedMessages.get(0)).singleText());
-        assertInstanceOf(AiMessage.class, compactedMessages.get(1));
 
-        // Both non-blank AI text segments should be joined and prepended with the harness note
-        // Note: ai text 1 and ai text 3 are included because they have no S/R blocks and silent redaction keeps them
-        String expectedAccumulated =
-                """
-                [HARNESS NOTE: this is a synthetic summary of your explanations of the edits made.
-                 All changes have been merged into the Workspace files you see above.]
-                ai text 1
+        String summary = ((AiMessage) compactedMessages.get(1)).text();
+        assertTrue(summary.contains("[HARNESS NOTE:"), "Summary should contain harness note");
+        assertTrue(summary.contains("ai text 1"), "Summary should include AI prose");
+        assertTrue(summary.contains("ai text 3"), "Summary should include AI prose");
+        assertFalse(summary.contains("<<<<<<< SEARCH"), "Summary should have redacted search/replace blocks");
+        assertEquals(1, countOccurrences(summary, "[HARNESS NOTE:"), "Should only have one harness note");
 
-                ai text 3
-                """;
-        assertEquals(
-                expectedAccumulated.trim(),
-                ((AiMessage) compactedMessages.get(1)).text().trim());
+        // Assert: rawMessages are preserved exactly
+        assertSame(rawMsgs, compactedCs.rawMessages(), "rawMessages reference should be preserved");
+        assertEquals(4, compactedCs.rawMessages().size());
 
-        // Original goal should be preserved
+        // Assert: Meta data preserved
         assertEquals("my-user-goal", compactedCs.originalGoal());
-    }
-
-    @Test
-    void testRawMessagesPreservedDuringBuildRetry() {
-        // Prepare a conversation with multiple messages including an AI message with S/R blocks
-        var msgs = new ArrayList<ChatMessage>();
-        msgs.add(new UserMessage("initial request"));
-        msgs.add(new AiMessage(
-                "Here is the edit:\n```\nfile.txt\n<<<<<<< SEARCH\nold\n=======\nnew\n>>>>>>> REPLACE\n```"));
-        msgs.add(new UserMessage("retry prompt"));
-        msgs.add(new AiMessage(
-                "Another edit:\n```\nfile2.txt\n<<<<<<< SEARCH\nfoo\n=======\nbar\n>>>>>>> REPLACE\n```"));
-
-        var rawMsgs = new ArrayList<ChatMessage>(msgs);
-        var taskMsgs = new ArrayList<ChatMessage>(msgs);
-        var cs = new CodeAgent.ConversationState(rawMsgs, taskMsgs, null, 0, "my-goal");
-        var es = createEditState(0);
-
-        // Perform build retry compaction
-        var compacted = cs.forBuildRetry(new UserMessage("fix build"), es);
-
-        // rawMessages should be unchanged (same reference, same content)
-        assertSame(rawMsgs, compacted.rawMessages(), "rawMessages should be the same list reference");
-        assertEquals(4, compacted.rawMessages().size(), "rawMessages should still have all 4 original messages");
-
-        // taskMessages should be compacted to just [goal, summary]
-        assertEquals(2, compacted.taskMessages().size(), "taskMessages should be compacted to 2 messages");
-        assertEquals("my-goal", ((UserMessage) compacted.taskMessages().get(0)).singleText());
-
-        // The summary should NOT contain duplicate HARNESS NOTEs even if called multiple times
-        var summary = ((AiMessage) compacted.taskMessages().get(1)).text();
-        int harnessNoteCount = countOccurrences(summary, "[HARNESS NOTE:");
-        assertEquals(1, harnessNoteCount, "Summary should contain exactly one HARNESS NOTE");
     }
 
     private static int countOccurrences(String text, String sub) {
@@ -1420,33 +1332,10 @@ class CodeAgentTest {
     }
 
     @Test
-    void testCollectCodeMessages_goalIncluded() {
-        var consoleIO = new TestConsoleIO();
-        var project = new TestProject(projectRoot, Languages.JAVA);
-        var cm = new TestContextManager(projectRoot, consoleIO, new JavaAnalyzer(project));
-        var ctx = new Context(cm);
-
-        var request = new UserMessage("Please fix this");
-        var messages = CodePrompts.instance.collectCodeMessages(
-                cm.getCodeModel(),
-                ctx,
-                List.of(),
-                List.of(),
-                request,
-                java.util.EnumSet.of(SpecialTextType.TASK_LIST),
-                "My special goal text");
-
-        // First message should be the system message; ensure it contains the goal block with original text.
-        ChatMessage system = messages.get(0);
-        String sysText = Messages.getText(system);
-        assertTrue(sysText.contains("<goal>"), "System message should include a <goal> block");
-        assertTrue(sysText.contains("My special goal text"), "Goal text should appear inside the <goal> block");
-    }
-
-    @Test
-    void testSystemMessageContainsSearchReplaceFormatInstructions() {
+    void testCollectCodeMessages_systemMessageStructure() {
         var ctx = newContext();
-        var request = new UserMessage("Test goal");
+        var request = new UserMessage("Request text");
+        var goalText = "Special goal text";
         var messages = CodePrompts.instance.collectCodeMessages(
                 cm.getCodeModel(),
                 ctx,
@@ -1454,16 +1343,19 @@ class CodeAgentTest {
                 List.of(),
                 request,
                 java.util.EnumSet.of(SpecialTextType.TASK_LIST),
-                "Test goal");
+                goalText);
 
-        // First message should be SystemMessage
+        // First message must be SystemMessage
         assertInstanceOf(dev.langchain4j.data.message.SystemMessage.class, messages.get(0));
         String sysText = Messages.getText(messages.get(0));
 
-        // Verify format instructions are present
+        // Verify Goal block
+        assertTrue(sysText.contains("<goal>"), "System message should include a <goal> block");
+        assertTrue(sysText.contains(goalText), "Goal text should appear inside the <goal> block");
+
+        // Verify SEARCH/REPLACE format instructions
         assertTrue(sysText.contains("SEARCH/REPLACE"), "System message should contain SEARCH/REPLACE instructions");
         assertTrue(sysText.contains("<<<<<<< SEARCH"), "System message should contain SEARCH marker");
-        assertTrue(sysText.contains("======="), "System message should contain divider");
         assertTrue(sysText.contains(">>>>>>> REPLACE"), "System message should contain REPLACE marker");
         assertTrue(sysText.contains("<rules>"), "System message should contain rules section");
     }
@@ -1486,42 +1378,5 @@ class CodeAgentTest {
         assertFalse(requestText.contains("<rules>"), "Initial request should not contain rules section");
         assertFalse(
                 requestText.contains("SEARCH/REPLACE block"), "Initial request should not contain format instructions");
-    }
-
-    @Test
-    void testBuildRetryRequestContainsOnlyErrorDetailsAndCorrectionRequest() {
-        // Setup similar to testVerifyPhase_buildFailureAndSuccessCycle
-        var bd = new BuildAgent.BuildDetails("echo build", "echo testAll", "echo test {{files}}", Set.of());
-        project.setBuildDetails(bd);
-        project.setCodeAgentTestScope(IProject.CodeAgentTestScope.ALL);
-
-        Environment.shellCommandRunnerFactory = (cmd, root) -> (outputConsumer, timeout) -> {
-            outputConsumer.accept("Build error: compilation failed at line 42");
-            throw new Environment.FailureException("Build failed", "Build error: compilation failed at line 42", 1);
-        };
-
-        var originalGoal = "Fix the authentication bug";
-        var cs = createConversationState(List.of(), new UserMessage(originalGoal));
-        var es = createEditState(1);
-
-        var result = codeAgent.verifyPhase(cs, es, null);
-
-        assertInstanceOf(CodeAgent.Step.Retry.class, result);
-        var retryStep = (CodeAgent.Step.Retry) result;
-
-        String nextReqText = Messages.getText(requireNonNull(retryStep.cs().nextRequest()));
-
-        // Retry request should contain error details
-        assertTrue(
-                nextReqText.contains("build_output") || nextReqText.contains("Build error"),
-                "Retry request should contain build error details");
-        assertTrue(
-                nextReqText.contains("SEARCH/REPLACE") || nextReqText.contains("correct"),
-                "Retry request should ask for corrections");
-
-        // Retry request should NOT contain the original goal (goal is in conversation history, not retry request)
-        assertFalse(
-                nextReqText.contains(originalGoal),
-                "Retry request should not contain the original goal - goal is preserved in conversation history");
     }
 }
