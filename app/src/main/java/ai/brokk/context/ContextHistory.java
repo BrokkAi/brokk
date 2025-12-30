@@ -155,7 +155,7 @@ public class ContextHistory {
             return liveContext();
         }
 
-        pushContext(updatedLiveContext);
+        pushContextInternal(updatedLiveContext, false);
         return liveContext();
     }
 

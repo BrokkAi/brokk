@@ -89,14 +89,21 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
             actionText = value != null ? value.toString() : "";
         }
 
+        // Column 2 holds either a Context or a GroupRow; only Context rows get diff summaries.
+        Object ctxVal = table.getModel().getValueAt(row, 2);
+        Context ctx = (ctxVal instanceof Context c) ? c : null;
+
+        // If this row represents a Context, use its live action description.
+        if (ctx != null) {
+            actionText = ctx.getAction();
+        }
+
         // Separator rows are rendered entirely by the existing fallback renderer.
         if (ActivityTableRenderers.isSeparatorAction(actionText)) {
             return fallback.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
         }
 
-        // Column 2 holds either a Context or a GroupRow; only Context rows get diff summaries.
-        Object ctxVal = table.getModel().getValueAt(row, 2);
-        if (!(ctxVal instanceof Context ctx)) {
+        if (ctx == null) {
             Component comp = super.getTableCellRendererComponent(table, actionText, isSelected, hasFocus, row, column);
             if (comp instanceof JLabel lbl) {
                 lbl.setVerticalAlignment(JLabel.TOP);

@@ -267,27 +267,36 @@ public class Context {
 
         // 5. Merge and Build unified action message
         keptExistingFragments.addAll(fragmentsToAdd);
-        String action = buildAddFragmentsAction(fragmentsToAdd);
+        Future<String> action = buildAddFragmentsAction(fragmentsToAdd);
 
-        return this.withFragments(keptExistingFragments, CompletableFuture.completedFuture(action));
+        return this.withFragments(keptExistingFragments, action);
     }
 
-    private String buildAddFragmentsAction(List<ContextFragment> added) {
+    private Future<String> buildAddFragmentsAction(List<ContextFragment> added) {
         int count = added.size();
-        if (count == 1) {
-            var shortDesc = added.getFirst().shortDescription().join();
-            return "Added " + shortDesc;
+        if (count == 0) {
+            return CompletableFuture.completedFuture("Added fragments");
         }
 
         // Show up to 2 fragments, then indicate count
-        var descriptions =
-                added.stream().limit(2).map(f -> f.shortDescription().join()).toList();
+        var preview = added.stream().limit(2).toList();
+        var futures = preview.stream().map(f -> f.shortDescription().future()).toArray(CompletableFuture[]::new);
 
-        var message = "Added " + String.join(", ", descriptions);
-        if (count > 2) {
-            message += ", " + (count - 2) + " more";
-        }
-        return message;
+        return CompletableFuture.allOf(futures).handle((v, th) -> {
+            var descriptions = preview.stream()
+                    .map(f -> f.shortDescription().renderNowOr("..."))
+                    .toList();
+
+            if (count == 1) {
+                return "Added " + descriptions.getFirst();
+            }
+
+            var message = "Added " + String.join(", ", descriptions);
+            if (count > 2) {
+                message += ", " + (count - 2) + " more";
+            }
+            return message;
+        });
     }
 
     private String buildRemoveFragmentsAction(List<ContextFragment> removed) {
@@ -656,6 +665,12 @@ public class Context {
             }
         }
         return SUMMARIZING;
+    }
+
+    public void onActionComplete(Runnable callback) {
+        if (action instanceof CompletableFuture<?> cf) {
+            cf.whenComplete((v, e) -> callback.run());
+        }
     }
 
     public IContextManager getContextManager() {

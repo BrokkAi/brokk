@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -517,5 +518,77 @@ public class ContextHistoryTest {
         assertNotNull(usageDiff, "Diffs should include the UsageFragment");
         assertFalse(usageDiff.diff().isEmpty(), "Usage diff output should not be empty");
         assertTrue(usageDiff.linesAdded() > 0 || usageDiff.linesDeleted() > 0, "Expected changes in usage diff");
+    }
+
+    @Test
+    public void testPushDoesNotWaitForSlowFragments() {
+        var latch = new CountDownLatch(1);
+        var slowFrag = new SlowFragment(contextManager, "Slow1", latch);
+
+        var initialContext =
+                new Context(contextManager, List.of(), List.of(), null, CompletableFuture.completedFuture("Initial"));
+        var history = new ContextHistory(initialContext);
+
+        var startTime = System.nanoTime();
+        // This call should be non-blocking with respect to the SlowFragment computation.
+        // If it waited for the fragment to compute, it would hang here at least SNAPSHOT_AWAIT_TIMEOUT interval because
+        // latch is not counted down.
+        history.push(ctx -> new Context(
+                contextManager, List.of(slowFrag), List.of(), null, CompletableFuture.completedFuture("Add Slow")));
+
+        var elapsedNanos = System.nanoTime() - startTime;
+        var elapsed = Duration.ofNanos(elapsedNanos);
+
+        // Verify push returned quickly (before SNAPSHOT_AWAIT_TIMEOUT)
+        assertTrue(
+                elapsed.compareTo(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT) < 0,
+                "push() took %dms, which exceeds SNAPSHOT_AWAIT_TIMEOUT (%dms); it likely blocked waiting for the slow fragment"
+                        .formatted(elapsed.toMillis(), ContextHistory.SNAPSHOT_AWAIT_TIMEOUT.toMillis()));
+
+        // Allow the computation to finish now
+        latch.countDown();
+
+        // Verify it eventually computes
+        var text = slowFrag.text().await(Duration.ofSeconds(5));
+        assertTrue(text.isPresent());
+        assertEquals("Computed Content", text.get());
+    }
+
+    /**
+     * A fragment that simulates slow computation to verify async/non-blocking behavior.
+     */
+    private static final class SlowFragment extends ContextFragments.AbstractComputedFragment {
+
+        private final CountDownLatch latch;
+
+        public SlowFragment(IContextManager cm, String id, CountDownLatch latch) {
+            super(id, cm, null, () -> {
+                try {
+                    latch.await();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+                return new ContextFragments.FragmentSnapshot(
+                        "Slow Fragment",
+                        "Slow",
+                        "Computed Content",
+                        "text",
+                        Set.of(),
+                        Set.of(),
+                        (List<Byte>) null,
+                        true);
+            });
+            this.latch = latch;
+        }
+
+        @Override
+        public ContextFragment.FragmentType getType() {
+            return ContextFragment.FragmentType.STRING;
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new SlowFragment(contextManager, id, latch);
+        }
     }
 }

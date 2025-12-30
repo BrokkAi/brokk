@@ -640,6 +640,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             ComputedSubscription.disposeAll(historyTable);
             for (var ctx1 : contexts) {
                 ctx1.allFragments().forEach(f -> ComputedSubscription.bind(f, historyTable, historyTable::repaint));
+                ctx1.onActionComplete(() -> SwingUtilities.invokeLater(historyTable::repaint));
             }
 
             // Diff warm-up is deferred; request diffs only for visible rows and current selection.
