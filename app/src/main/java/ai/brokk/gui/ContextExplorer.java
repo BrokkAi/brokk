@@ -313,10 +313,12 @@ public final class ContextExplorer extends JFrame {
 
                 List<TableRow> rows = new ArrayList<>();
                 int contextIndex = 1;
+                Context previous = null;
                 for (var ctx : ch.getHistory()) {
                     int historyEntries = ctx.getTaskHistory().size();
                     int historyLines = countTaskHistoryLines(ctx);
-                    var header = new HeaderRow(contextIndex, ctx.id(), safeAction(ctx), historyEntries, historyLines);
+                    var header =
+                            new HeaderRow(contextIndex, ctx.id(), safeAction(ctx, previous), historyEntries, historyLines);
                     rows.add(header);
 
                     for (var fragment : ctx.allFragments().toList()) {
@@ -332,6 +334,7 @@ public final class ContextExplorer extends JFrame {
                         rows.add(new FragmentRow(ctx.id(), parsed, lines));
                     }
 
+                    previous = ctx;
                     contextIndex++;
                 }
                 return rows;
@@ -363,10 +366,9 @@ public final class ContextExplorer extends JFrame {
         }.execute();
     }
 
-    private static String safeAction(Context ctx) {
+    private static String safeAction(Context ctx, @Nullable Context previous) {
         try {
-            // Context.getAction() already handles Future completion with a timeout
-            return ctx.getAction();
+            return ctx.getDescription(previous);
         } catch (Exception e) {
             logger.warn("Error getting action for context {}: {}", ctx.id(), e.getMessage());
             return "(Summary Unavailable)";
