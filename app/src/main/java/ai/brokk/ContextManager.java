@@ -925,9 +925,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        // Push an updated context with the modified history and a "Delete message" action
+        // Push an updated context with the modified history
         pushContext(currentLiveCtx ->
-                currentLiveCtx.withHistory(newHistory).withParsedOutput(null, "Delete task from history"));
+                currentLiveCtx.withHistory(newHistory).withParsedOutput(null));
 
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + seqToDrop);
     }
@@ -2188,7 +2188,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var action = result.actionDescription();
             logger.debug("Adding session result to history. Action: '{}', Reason: {}", action, result.stopDetails());
 
-            var actionFuture = summarizeTaskForConversation(action).thenApply(r -> {
+            summarizeTaskForConversation(action).thenApply(r -> {
                 io.postSummarize();
                 return r;
             });
@@ -2200,7 +2200,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(finalEntry, result.output(), actionFuture)
+                return updated.addHistoryEntry(finalEntry, result.output())
                         .withGroup(groupId, groupLabel);
             });
 
@@ -2352,10 +2352,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<Void> createSessionFromContextAsync(Context sourceContext, String newSessionName) {
         return submitExclusiveAction(() -> {
+                    var prev = contextHistory.previousOf(sourceContext);
                     logger.debug(
                             "Attempting to create and switch to new session '{}' from workspace of context '{}'",
                             newSessionName,
-                            sourceContext.getAction());
+                            sourceContext.getDescription(prev));
 
                     var sessionManager = project.getSessionManager();
                     // 1. Create new session info
@@ -2388,11 +2389,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** returns a new Context based on the source one */
     private Context newContextFrom(Context sourceContext) {
-        var newActionDescription = "New session (from: " + sourceContext.getAction() + ")";
-        var newActionFuture = CompletableFuture.completedFuture(newActionDescription);
+        var prev = contextHistory.previousOf(sourceContext);
+        var newActionDescription = "New session (from: " + sourceContext.getDescription(prev) + ")";
         var newParsedOutputFragment = new ContextFragments.TaskFragment(
-                this, List.of(SystemMessage.from(newActionDescription)), newActionDescription);
-        return sourceContext.withParsedOutput(newParsedOutputFragment, newActionFuture);
+            this, List.of(SystemMessage.from(newActionDescription)), newActionDescription);
+        return sourceContext.withParsedOutput(newParsedOutputFragment);
     }
 
     /**

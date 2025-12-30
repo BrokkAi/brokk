@@ -473,10 +473,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                             }
                         }
 
-                        String fileList =
-                                filesToDelete.stream().map(Object::toString).collect(Collectors.joining(", "));
-                        var description = "Deleted " + fileList;
-                        contextManager.pushContext(ctx -> ctx.withParsedOutput(null, description));
+                        contextManager.pushContext(ctx -> ctx.withParsedOutput(null));
 
                         if (!deletedInfos.isEmpty()) {
                             var contextHistory = contextManager.getContextHistory();
@@ -489,6 +486,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                                     .saveHistory(contextHistory, contextManager.getCurrentSessionId());
                         }
 
+                        var fileList = filesToDelete.stream()
+                                .map(ProjectFile::getFileName)
+                                .collect(Collectors.joining(", "));
                         SwingUtilities.invokeLater(() -> {
                             chrome.showNotification(
                                     IConsoleIO.NotificationRole.INFO, "Deleted " + fileList + ". Use Ctrl+Z to undo.");

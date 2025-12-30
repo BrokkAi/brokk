@@ -171,18 +171,20 @@ public final class HistoryGrouping {
         }
 
         private static String computeHeaderLabelFor(List<Context> children) {
-            String firstWord = safeFirstWord(children.getFirst());
-            int size = children.size();
-            return firstWord + " (" + size + ")";
+            if (children.isEmpty()) {
+                return "Action (0)";
+            }
+            // Use the precomputed description or compute it relative to null for the group start
+            String desc = children.getFirst().getDescription(null);
+            return safeFirstWord(desc) + " (" + children.size() + ")";
         }
 
-        private static String safeFirstWord(Context ctx) {
-            String action = ctx.getAction();
-            if (action == null || action.isBlank() || Context.SUMMARIZING.equals(action)) {
+        private static String safeFirstWord(String description) {
+            if (description == null || description.isBlank()) {
                 return "Action";
             }
-            int space = action.indexOf(' ');
-            return (space == -1) ? action : action.substring(0, space);
+            int space = description.indexOf(' ');
+            return (space == -1) ? description : description.substring(0, space);
         }
     }
 

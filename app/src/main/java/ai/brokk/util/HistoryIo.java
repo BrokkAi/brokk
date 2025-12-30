@@ -279,14 +279,6 @@ public final class HistoryIo {
         return new ContextHistory(contexts, resetEdges, gitStates, entryInfos);
     }
 
-    private static String summarizeAction(Context ctx) {
-        try {
-            return ctx.action.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            return "(Summary Unavailable)";
-        }
-    }
-
     @Blocking
     public static void writeZip(ContextHistory ch, Path target) throws IOException {
         var writer = new ContentWriter();
@@ -351,7 +343,7 @@ public final class HistoryIo {
 
         var contextsJsonlContent = new StringBuilder();
         for (Context ctx : ch.getHistory()) {
-            var compactDto = DtoMapper.toCompactDto(ctx, writer, summarizeAction(ctx));
+            var compactDto = DtoMapper.toCompactDto(ctx, writer);
             contextsJsonlContent
                     .append(objectMapper.writeValueAsString(compactDto))
                     .append('\n');

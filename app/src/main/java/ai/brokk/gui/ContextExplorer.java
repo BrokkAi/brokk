@@ -367,12 +367,7 @@ public final class ContextExplorer extends JFrame {
     }
 
     private static String safeAction(Context ctx, @Nullable Context previous) {
-        try {
-            return ctx.getDescription(previous);
-        } catch (Exception e) {
-            logger.warn("Error getting action for context {}: {}", ctx.id(), e.getMessage());
-            return "(Summary Unavailable)";
-        }
+        return ctx.getDescription(previous);
     }
 
     private static boolean safeIsText(ContextFragment f) {

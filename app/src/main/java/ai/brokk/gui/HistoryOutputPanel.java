@@ -1951,8 +1951,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             if (ter.status() != ToolExecutionResult.Status.SUCCESS) {
                                 chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
                             } else {
-                                this.contextManager.pushContext(ctx -> ws.getContext()
-                                        .withAction(CompletableFuture.completedFuture("Task List created")));
+                                this.contextManager.pushContext(ctx -> ws.getContext());
                             }
                         }
                     }
@@ -2236,12 +2235,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         contextManager.submitBackgroundTask("Compute diff window entries", () -> {
             // Build a multi-file BrokkDiffPanel like showFileHistoryDiff, but with our per-file old/new buffers
+            var prevOfCtx = contextManager.getContextHistory().previousOf(ctx);
             var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                     .setMultipleCommitsContext(false)
-                    .setRootTitle("Diff: " + ctx.getAction())
+                    .setRootTitle("Diff: " + ctx.getDescription(prevOfCtx))
                     .setInitialFileIndex(0);
-
-            var prevOfCtx = contextManager.getContextHistory().previousOf(ctx);
             String tabTitle = "Diff: " + ctx.getDescription(prevOfCtx);
             if (diffs.size() == 1) {
                 var files = diffs.getFirst().fragment().files().join();

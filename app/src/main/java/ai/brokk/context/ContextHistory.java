@@ -199,28 +199,11 @@ public class ContextHistory {
         }
 
         // Maintain "Load external changes (n)" semantics.
-        var previousAction = base.getAction();
-        boolean isContinuation = previousAction.startsWith("Load external changes");
-
-        String newAction = "Load external changes";
-        if (isContinuation) {
-            var pattern = Pattern.compile("Load external changes(?: \\((\\d+)\\))?");
-            var matcher = pattern.matcher(previousAction);
-            int newCount;
-            if (matcher.matches() && matcher.group(1) != null) {
-                try {
-                    newCount = Integer.parseInt(matcher.group(1)) + 1;
-                } catch (NumberFormatException e) {
-                    newCount = 2;
-                }
-            } else {
-                newCount = 2;
-            }
-            newAction = "Load external changes (%d)".formatted(newCount);
-        }
+        var previousDescription = base.getDescription(previousOf(base));
+        boolean isContinuation = previousDescription.startsWith("Load external changes");
 
         // parsedOutout == null indicated no AI result (render no icon in activity)
-        var updatedLive = merged.withParsedOutput(null, CompletableFuture.completedFuture(newAction));
+        var updatedLive = merged.withParsedOutput(null);
 
         if (isContinuation) {
             replaceTopInternal(updatedLive);

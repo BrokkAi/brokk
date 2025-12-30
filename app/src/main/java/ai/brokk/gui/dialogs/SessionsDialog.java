@@ -431,15 +431,19 @@ public class SessionsDialog extends BaseThemedDialog {
         }
 
         // Add rows for each context in history
+        Context previous = null;
         for (var ctx : history.getHistory()) {
             // Add icon for AI responses, null for user actions
             boolean hasAiMessages = ctx.getParsedOutput() != null
                     && ctx.getParsedOutput().messages().stream()
                             .anyMatch(chatMessage -> chatMessage.type() == ChatMessageType.AI);
             Icon iconEmoji = hasAiMessages ? Icons.CHAT_BUBBLE : null;
-            activityTableModel.addRow(
-                    new Object[] {iconEmoji, ctx.getAction(), ctx // Store the actual context object in hidden column
-                    });
+            activityTableModel.addRow(new Object[] {
+                iconEmoji,
+                ctx.getDescription(previous),
+                ctx // Store the actual context object in hidden column
+            });
+            previous = ctx;
         }
 
         // Update reset edges for arrow painter
