@@ -52,7 +52,6 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Path gitTopLevel; // The actual top-level directory of the git repository
     private final Repository repository;
     private final Git git;
-    private final char @Nullable [] gpgPassPhrase; // if the user has enabled GPG signing by default
     private final Supplier<String> tokenSupplier; // Supplier for GitHub token
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
     private @Nullable Set<Path> trackedPathsCache = null;
@@ -152,9 +151,6 @@ public class GitRepo implements Closeable, IGitRepo {
             git = new Git(repository);
             worktrees = new GitRepoWorktrees(this);
 
-            // Check for GPG signing
-            this.gpgPassPhrase = null; // TODO: Fetch from settings, vault, etc.
-
             // For worktrees, we need to find the actual repository root, not the .git/worktrees path
             if (isWorktree()) {
                 // For worktrees, read the commondir file to find the main repository
@@ -231,9 +227,9 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** @return true if GPG signing is enabled by default for this repository, false if otherwise. */
+    /** @return true if GPG signing is enabled globally in Brokk. */
     public boolean isGpgSigned() {
-        return gpgPassPhrase != null;
+        return MainProject.isGpgCommitSigningEnabled();
     }
 
     @Override
@@ -637,11 +633,31 @@ public class GitRepo implements Closeable, IGitRepo {
      * @return a properly configured Git commit command.
      */
     public CommitCommand commitCommand() {
+        CommitCommand command = git.commit();
         if (!isGpgSigned()) {
-            return git.commit().setSign(false);
+            logger.debug("GPG signing is disabled in global settings.");
+            return command.setSign(false);
         } else {
+            String signingKey = MainProject.getGpgSigningKey();
+            logger.info("Configuring commit with GPG signing. Key: {}", signingKey.isBlank() ? "default" : signingKey);
+
             var signer = new BouncyCastleGpgSignerFactory().create();
-            return git.commit().setSigner(signer).setSign(true);
+            command.setSigner(signer).setSign(true);
+
+            if (!signingKey.isBlank()) {
+                try {
+                    var config = repository.getConfig();
+                    // JGit's BouncyCastleGpgSigner looks at user.signingkey in the config
+                    if (!signingKey.equals(config.getString("user", null, "signingkey"))) {
+                        config.setString("user", null, "signingkey", signingKey);
+                        // We do not call config.save() to avoid modifying the user's .git/config file on disk.
+                        // The in-memory config is sufficient for this JGit session.
+                    }
+                } catch (Exception e) {
+                    logger.error("Failed to configure GPG signing key in repository config", e);
+                }
+            }
+            return command;
         }
     }
 
