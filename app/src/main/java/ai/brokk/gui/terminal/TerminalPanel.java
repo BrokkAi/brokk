@@ -259,13 +259,13 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             Point selEnd = null;
             BrokkJediTermPanel displayPanel = null;
             if (w.getTerminalDisplay() instanceof BrokkJediTermPanel display) {
+                displayPanel = display;
                 var selection = display.getSelection();
                 if (selection != null) {
                     var s = selection.getStart();
                     var endPt = selection.getEnd();
                     selStart = new Point(s.x, s.y);
                     selEnd = new Point(endPt.x, endPt.y);
-                    displayPanel = display;
                 }
             }
 
@@ -282,33 +282,15 @@ public class TerminalPanel extends JPanel implements ThemeAware {
                     return text.lines().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
                 });
             } else {
-                var buffer = w.getTerminalTextBuffer();
-                if (buffer == null) {
+                if (displayPanel == null) {
                     console.systemNotify(
                             "No terminal buffer available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
                     return;
                 }
 
-                future = c.getContextManager().submitBackgroundTask("Capturing terminal buffer", () -> {
-                    var lines = new ArrayList<String>();
-                    buffer.lock();
-                    try {
-                        int historyCount = buffer.getHistoryLinesCount();
-                        for (int i = 0; i < historyCount; i++) {
-                            var line = buffer.getLine(i - historyCount);
-                            lines.add(line.getText());
-                        }
-
-                        for (int i = 0; i < buffer.getHeight(); i++) {
-                            var line = buffer.getLine(i);
-                            lines.add(line.getText());
-                        }
-                    } finally {
-                        buffer.unlock();
-                    }
-
-                    return lines.stream().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
-                });
+                final var finalDisplay = displayPanel;
+                future = c.getContextManager().submitBackgroundTask("Capturing terminal buffer",
+                        finalDisplay::getFullBufferText);
             }
 
             future.thenAcceptAsync(this::submitCapturedContent, SwingUtilities::invokeLater)

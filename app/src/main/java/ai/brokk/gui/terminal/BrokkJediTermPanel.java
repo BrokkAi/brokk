@@ -24,6 +24,35 @@ public class BrokkJediTermPanel extends TerminalPanel {
         reinitFontAndResize();
     }
 
+    @NotNull
+    public String getFullBufferText() {
+        var lines = new java.util.ArrayList<String>();
+        terminalTextBuffer.lock();
+        try {
+            int historyCount = terminalTextBuffer.getHistoryLinesCount();
+            int height = terminalTextBuffer.getHeight();
+
+            for (int i = 0; i < historyCount; i++) {
+                lines.add(terminalTextBuffer.getLine(i - historyCount).getText());
+            }
+
+            for (int i = 0; i < height; i++) {
+                lines.add(terminalTextBuffer.getLine(i).getText());
+            }
+        } finally {
+            terminalTextBuffer.unlock();
+        }
+
+        var sb = new StringBuilder();
+        for (int i = 0; i < lines.size(); i++) {
+            sb.append(lines.get(i).replaceAll("\\s+$", ""));
+            if (i < lines.size() - 1) {
+                sb.append('\n');
+            }
+        }
+        return sb.toString();
+    }
+
     @Nullable
     public String getSelectionText() {
         var selection = getSelection();
