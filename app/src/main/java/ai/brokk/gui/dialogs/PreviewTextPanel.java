@@ -1220,74 +1220,73 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         requireNonNull(file, "Attempted to save but no ProjectFile is associated with this panel");
         var newContent = textArea.getText();
 
-        // Explicitly pause/resume around the entire save and context update block
-        cm.getAnalyzerWrapper().pause();
-        try {
-            return cm.withFileChangeNotificationsPaused(() -> {
-                try {
-                    // Write the new content to the file first
-                    file.write(newContent);
+        // Note: withFileChangeNotificationsPaused provides a nested pause/resume for the actual write.
+        // watcherPausedForThisPanel handles the long-lived pause started by the first manual keystroke.
+        return cm.withFileChangeNotificationsPaused(() -> {
+            try {
+                // Write the new content to the file first
+                file.write(newContent);
 
-                    // Then, add a history entry for the change.
-                    var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
-                    if (contentChangedFromInitial) {
-                        try {
-                            var fileNameForDiff = file.toString();
-                            var diffResult = ContentDiffUtils.computeDiffResult(
-                                    contentBeforeSave, newContent, fileNameForDiff, fileNameForDiff, 3);
-                            var diffText = diffResult.diff();
-                            // Create the SessionResult representing the net change
-                            var actionDescription = "Edited " + fileNameForDiff;
-                            // Include filtered quick edit messages (without XML context) + the current diff
-                            var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
-                            messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
-                            messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
-                            // Build resulting Context by adding the saved file if it is not already editable
-                            var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
+                // Then, add a history entry for the change.
+                var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
+                if (contentChangedFromInitial) {
+                    try {
+                        var fileNameForDiff = file.toString();
+                        var diffResult = ContentDiffUtils.computeDiffResult(
+                                contentBeforeSave, newContent, fileNameForDiff, fileNameForDiff, 3);
+                        var diffText = diffResult.diff();
+                        // Create the SessionResult representing the net change
+                        var actionDescription = "Edited " + fileNameForDiff;
+                        // Include filtered quick edit messages (without XML context) + the current diff
+                        var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
+                        messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
+                        messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
+                        // Build resulting Context by adding the saved file if it is not already editable
+                        var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
 
-                            var saveResult = TaskResult.humanResult(
-                                    cm, actionDescription, messagesForHistory, ctx, TaskResult.StopReason.SUCCESS);
-                            try (var scope = cm.beginTask("File changed saved", false)) {
-                                scope.append(saveResult);
-                            }
-                            logger.debug("Added history entry for changes in: {}", file);
-                        } catch (Exception e) {
-                            logger.error("Failed to generate diff or add history entry for {}", file, e);
+                        var saveResult = TaskResult.humanResult(
+                                cm, actionDescription, messagesForHistory, ctx, TaskResult.StopReason.SUCCESS);
+                        try (var scope = cm.beginTask("File changed saved", false)) {
+                            scope.append(saveResult);
                         }
+                        logger.debug("Added history entry for changes in: {}", file);
+                    } catch (Exception e) {
+                        logger.error("Failed to generate diff or add history entry for {}", file, e);
                     }
-
-                    if (buttonToDisable != null) {
-                        buttonToDisable.setEnabled(false); // Disable after successful save
-                    }
-                    quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
-                    logger.debug("File saved: " + file);
-
-                    // If we paused the watcher because of manual edits, resume it now since changes are saved
-                    if (watcherPausedForThisPanel) {
-                        cm.getAnalyzerWrapper().resume();
-                        watcherPausedForThisPanel = false;
-                    }
-
-                    // Notify other preview windows to refresh (but not this one)
-                    SwingUtilities.invokeLater(() -> {
-                        if (cm.getIo() instanceof Chrome chrome) {
-                            var currentFrame = (JFrame) SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
-                            chrome.refreshPreviewsForFiles(Set.of(file), currentFrame);
-                        }
-                    });
-
-                    return true; // Save successful
-                } catch (IOException ex) {
-                    // If save fails, button remains enabled and messages are not cleared.
-                    logger.error("Error saving file {}", file, ex);
-                    JOptionPane.showMessageDialog(
-                            this, "Error saving file: " + ex.getMessage(), "Save Error", JOptionPane.ERROR_MESSAGE);
-                    return false; // Save failed
                 }
-            });
-        } finally {
-            cm.getAnalyzerWrapper().resume();
-        }
+
+                if (buttonToDisable != null) {
+                    buttonToDisable.setEnabled(false); // Disable after successful save
+                }
+                quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
+                logger.debug("File saved: " + file);
+
+                // If we paused the watcher because of manual edits, resume it now since changes are saved.
+                // This is only reached on successful write.
+                if (watcherPausedForThisPanel) {
+                    logger.debug("Resuming watcher after successful save in {}", file);
+                    cm.getAnalyzerWrapper().resume();
+                    watcherPausedForThisPanel = false;
+                }
+
+                // Notify other preview windows to refresh (but not this one)
+                SwingUtilities.invokeLater(() -> {
+                    if (cm.getIo() instanceof Chrome chrome) {
+                        var currentFrame = (JFrame) SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
+                        chrome.refreshPreviewsForFiles(Set.of(file), currentFrame);
+                    }
+                });
+
+                return true; // Save successful
+            } catch (IOException ex) {
+                // If save fails, button remains enabled and messages are not cleared.
+                // watcherPausedForThisPanel remains true (if it was true) so the watcher stays paused.
+                logger.error("Error saving file {}", file, ex);
+                JOptionPane.showMessageDialog(
+                        this, "Error saving file: " + ex.getMessage(), "Save Error", JOptionPane.ERROR_MESSAGE);
+                return false; // Save failed
+            }
+        });
     }
 
     /**
