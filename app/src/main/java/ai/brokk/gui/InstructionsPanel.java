@@ -1850,11 +1850,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             var combined = new ArrayList<>(beforeTasks.tasks());
                             combined.addAll(agentTasks.tasks());
                             context = cm.deriveContextWithTaskList(
-                                    context, new TaskList.TaskListData(combined), "Appended new tasks");
+                                    context, new TaskList.TaskListData(combined));
                         } else {
                             // Replace: already the state of 'context' from result, but we ensure it is set in CM
                             context = cm.deriveContextWithTaskList(
-                                    context, agentTasks, "Replaced task list with new tasks");
+                                    context, agentTasks);
                         }
                     }
 
@@ -3216,7 +3216,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // If any tasks were removed, update the task list and refresh UI
         if (filtered.size() < originalTasks.size()) {
-            cm.setTaskList(new TaskList.TaskListData(filtered), "Auto-cleared completed tasks");
+            cm.setTaskList(new TaskList.TaskListData(filtered));
         }
     }
 

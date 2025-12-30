@@ -1205,10 +1205,32 @@ public class Context {
     }
 
     /**
+     * Refreshes all computed fragments in this context without filtering.
+     *
+     * @return a new context with refreshed fragments, or this context if no changes occurred
+     */
+    @Blocking
+    public Context copyAndRefresh() {
+        return copyAndRefreshInternal(Set.copyOf(fragments));
+    }
+
+    /** Compatibility overload for tests. No-op. */
+    @org.jetbrains.annotations.TestOnly
+    public Context copyAndRefresh(String action) {
+        return copyAndRefresh();
+    }
+
+    /** Compatibility overload for tests. No-op for the action string. */
+    @org.jetbrains.annotations.TestOnly
+    public Context withTaskList(TaskList.TaskListData data, String action) {
+        return withTaskList(data);
+    }
+
+    /**
      * Serializes and updates the Task List fragment using TaskList.TaskListData.
      * If the task list is empty, removes any existing Task List fragment instead of creating an empty one.
      */
-    public Context withTaskList(TaskList.TaskListData data, String action) {
+    public Context withTaskList(TaskList.TaskListData data) {
         // If tasks are empty, remove the Task List fragment instead of creating an empty one
         if (data.tasks().isEmpty()) {
             var existing = getSpecial(SpecialTextType.TASK_LIST.description());
@@ -1221,17 +1243,6 @@ public class Context {
         // Non-empty case: serialize and update normally
         String json = Json.toJson(data);
         return withTaskList(json);
-    }
-
-    /**
-     * Refreshes all computed fragments in this context without filtering.
-     * Equivalent to calling {@link #copyAndRefresh(Set, String)} with all fragments.
-     *
-     * @return a new context with refreshed fragments, or this context if no changes occurred
-     */
-    @Blocking
-    public Context copyAndRefresh(String action) {
-        return copyAndRefreshInternal(Set.copyOf(fragments));
     }
 
     /**

@@ -152,9 +152,10 @@ public class TaskListTest {
         var tasks = List.of("Task 1");
 
         var items = tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items), "Task list replaced");
+        var result = context.withTaskList(new TaskList.TaskListData(items));
 
-        var action = result.getAction();
-        assertTrue(action.toLowerCase().contains("replaced"), "Action should indicate replacement");
+        // The description should indicate that something changed (task list added)
+        var description = result.getDescription(context);
+        assertFalse(description.isEmpty(), "Description should not be empty after adding task list");
     }
 }
