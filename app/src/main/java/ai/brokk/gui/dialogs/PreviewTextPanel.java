@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -103,6 +104,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
     @Nullable
     private final Future<Map<Language, AnalyzerCapabilities>> analyzerCapabilities;
+
+    @Nullable
+    private Future<Set<String>> symbolsFuture;
 
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
@@ -745,7 +749,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Informational label below the input area
         var infoLabel = new JLabel("Quick Edit will apply to the selected lines only");
         infoLabel.setFont(new Font(Font.DIALOG, Font.ITALIC, 11));
-        infoLabel.setForeground(Color.DARK_GRAY);
+        infoLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         infoLabel.setBorder(new EmptyBorder(5, 5, 0, 5));
 
         // Voice input button
@@ -753,7 +757,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         var gbc = new GridBagConstraints();
 
         // Start calculation of symbols specific to the current file in the background
-        Future<Set<String>> symbolsFuture = null;
         // Only try to get symbols if we have a file and its corresponding fragment is a PathFragment
         if (file != null) {
             // Submit the task to fetch symbols in the background
@@ -891,6 +894,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         systemArea.setLineWrap(true);
         systemArea.setWrapStyleWord(true);
         systemArea.setRows(5);
+        systemArea.setForeground(UIManager.getColor("TextArea.foreground"));
+        systemArea.setBackground(UIManager.getColor("TextArea.background"));
         var systemScrollPane = new JScrollPane(systemArea);
         systemScrollPane.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -919,11 +924,13 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             final AtomicBoolean hasError = new AtomicBoolean();
 
             private void appendSystemMessage(String text) {
-                if (!systemArea.getText().isEmpty() && !systemArea.getText().endsWith("\n")) {
+                SwingUtilities.invokeLater(() -> {
+                    if (!systemArea.getText().isEmpty() && !systemArea.getText().endsWith("\n")) {
+                        systemArea.append("\n");
+                    }
+                    systemArea.append(text);
                     systemArea.append("\n");
-                }
-                systemArea.append(text);
-                systemArea.append("\n");
+                });
             }
 
             @Override
@@ -951,7 +958,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Submit the quick-edit session to a background future
         var future = cm.submitExclusiveAction(() -> {
-            var agent = new CodeAgent(cm, cm.getService().quickEditModel());
+            var agent = new CodeAgent(cm, cm.getService().quickEditModel(), resultsIo);
             return agent.runQuickTask(file, selectedText, instructions);
         });
 
@@ -1010,16 +1017,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                             }
                         });
                     } else {
-                        // Display an error dialog with the failure message
-                        var errorMessage = quickEditResult.error();
-                        SwingUtilities.invokeLater(() -> {
-                            JOptionPane.showMessageDialog(
-                                    SwingUtilities.getWindowAncestor(textArea),
-                                    errorMessage,
-                                    "Quick Edit Failed",
-                                    JOptionPane.ERROR_MESSAGE);
-                            textArea.setEditable(true);
-                        });
+                        // Error already displayed in system messages area, just re-enable editing
+                        SwingUtilities.invokeLater(() -> textArea.setEditable(true));
                     }
                 })
                 .start();
@@ -1061,7 +1060,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // LLM call succeeded; try to parse a snippet
         var response = sessionResult.output().messages().getLast();
-        assert response instanceof AiMessage;
+        if (!(response instanceof AiMessage)) {
+            throw new IllegalStateException(
+                    "Expected AiMessage but got: " + response.getClass().getSimpleName());
+        }
         var responseText = Messages.getText(response);
         var snippet = EditBlock.extractCodeFromTripleBackticks(responseText).trim();
         if (snippet.isEmpty()) {
@@ -1074,13 +1076,23 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             try {
                 // Find position of the selected text
                 var currentText = textArea.getText();
-                int startPos = currentText.indexOf(selectedText.stripLeading());
+                var strippedSelection = selectedText.stripLeading();
+                int startPos = currentText.indexOf(strippedSelection);
+
+                if (startPos == -1) {
+                    logger.warn("Quick edit failed: selected text no longer found in document");
+                    JOptionPane.showMessageDialog(
+                            SwingUtilities.getWindowAncestor(textArea),
+                            "The selected text has changed and can no longer be found.",
+                            "Quick Edit Failed",
+                            JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
 
                 // Use beginAtomicEdit and endAtomicEdit to group operations as a single undo unit
                 textArea.beginAtomicEdit();
                 try {
-                    textArea.getDocument()
-                            .remove(startPos, selectedText.stripLeading().length());
+                    textArea.getDocument().remove(startPos, strippedSelection.length());
                     textArea.getDocument().insertString(startPos, snippet.stripLeading(), null);
                 } finally {
                     textArea.endAtomicEdit();
@@ -1088,7 +1100,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             } catch (BadLocationException ex) {
                 logger.error("Error applying quick edit change", ex);
                 // Fallback to direct text replacement
-                textArea.setText(textArea.getText().replace(selectedText.stripLeading(), snippet.stripLeading()));
+                textArea.setText(textArea.getText()
+                        .replaceFirst(
+                                Pattern.quote(selectedText.stripLeading()),
+                                Matcher.quoteReplacement(snippet.stripLeading())));
             }
         });
         return new QuickEditResult(snippet, null);
@@ -1151,24 +1166,33 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
      * @return true if the window should close, false otherwise.
      */
     public boolean confirmClose() {
+        boolean shouldClose;
+
         if (saveButton == null || !saveButton.isEnabled()) {
-            return true; // No unsaved changes or not a savable file, okay to close
+            shouldClose = true; // No unsaved changes or not a savable file, okay to close
+        } else {
+            // Prompt the user via the application's IConsoleIO (omits the Frame parameter)
+            int choice = cm.getIo()
+                    .showConfirmDialog(
+                            SwingUtilities.getWindowAncestor(this),
+                            "You have unsaved changes. Do you want to save them before closing?",
+                            "Unsaved Changes",
+                            JOptionPane.YES_NO_CANCEL_OPTION,
+                            JOptionPane.WARNING_MESSAGE);
+
+            shouldClose = switch (choice) {
+                case JOptionPane.YES_OPTION -> performSave(saveButton);
+                case JOptionPane.NO_OPTION -> true; // Allow closing, discard changes
+                default -> false; // Prevent closing
+            };
         }
 
-        // Prompt the user via the application's IConsoleIO (omits the Frame parameter)
-        int choice = cm.getIo()
-                .showConfirmDialog(
-                        SwingUtilities.getWindowAncestor(this),
-                        "You have unsaved changes. Do you want to save them before closing?",
-                        "Unsaved Changes",
-                        JOptionPane.YES_NO_CANCEL_OPTION,
-                        JOptionPane.WARNING_MESSAGE);
+        // Clean up background tasks if closing
+        if (shouldClose && symbolsFuture != null) {
+            symbolsFuture.cancel(true);
+        }
 
-        return switch (choice) {
-            case JOptionPane.YES_OPTION -> performSave(saveButton);
-            case JOptionPane.NO_OPTION -> true; // Allow closing, discard changes
-            default -> false; // Prevent closing
-        };
+        return shouldClose;
     }
 
     /** Registers the Ctrl+S (or Cmd+S on Mac) keyboard shortcut to trigger the save action. */

@@ -413,17 +413,8 @@ public class CodeAgent {
                         break;
                     }
 
-                    var diagnosticMessages = es.javaLintDiagnostics().entrySet().stream()
-                            .map(entry -> {
-                                var pf = entry.getKey();
-                                var diags = entry.getValue();
-                                var diagLines = diags.stream()
-                                        .map(diag -> "  - " + diag.description())
-                                        .collect(Collectors.joining("\n"));
-                                return "**%s**: %d issue(s)\n%s".formatted(pf.getFileName(), diags.size(), diagLines);
-                            })
-                            .collect(Collectors.joining("\n\n", "Java syntax issues detected:\n\n", "\n"));
-                    report(diagnosticMessages.toString());
+                    var diagnosticMessages = formatDiagnosticsReport(es.javaLintDiagnostics());
+                    report(diagnosticMessages);
 
                     UserMessage nextRequestForLintFailure =
                             new UserMessage("The following Java syntax issues were detected. Please fix them:\n\n"
@@ -639,9 +630,7 @@ public class CodeAgent {
                 break; // Valid Java
             }
 
-            var diagnosticMessages = diags.stream()
-                    .map(diag -> "  - " + diag.description())
-                    .collect(Collectors.joining("\n", "\nJava syntax issues detected:\n\n", "\n"));
+            var diagnosticMessages = formatDiagnosticsReport(Map.of(file, diags));
             io.llmOutput(diagnosticMessages, ChatMessageType.CUSTOM);
 
             if (attempts++ >= MAX_QUICK_FIX_ATTEMPTS) {
@@ -1210,6 +1199,23 @@ public class CodeAgent {
         }
 
         return diags;
+    }
+
+    /**
+     * Format a diagnostics report from per-file Java lint diagnostics.
+     * Used by both runTaskInternal (DEFER_BUILD path) and runQuickTask.
+     */
+    static String formatDiagnosticsReport(Map<ProjectFile, List<JavaDiagnostic>> perFileDiags) {
+        return perFileDiags.entrySet().stream()
+                .map(entry -> {
+                    var pf = entry.getKey();
+                    var diags = entry.getValue();
+                    var diagLines = diags.stream()
+                            .map(diag -> "  - " + diag.description())
+                            .collect(Collectors.joining("\n"));
+                    return "**%s**: %d issue(s)\n%s".formatted(pf.getFileName(), diags.size(), diagLines);
+                })
+                .collect(Collectors.joining("\n\n", "Java syntax issues detected:\n\n", "\n"));
     }
 
     private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob, String src) {
