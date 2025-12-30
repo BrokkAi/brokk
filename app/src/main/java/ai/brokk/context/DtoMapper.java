@@ -324,19 +324,22 @@ public class DtoMapper {
                 logger.warn("Skeleton fragments are no longer supported, dropping fragment");
                 yield null;
             }
-            case SummaryFragmentDto summaryDto ->
-                new ContextFragments.SummaryFragment(
+            case SummaryFragmentDto summaryDto -> {
+                ContextFragments.setMinimumId(parseNumericId(summaryDto.id()));
+                yield ContextFragments.SummaryFragment.withId(
                         summaryDto.id(),
                         mgr,
                         summaryDto.targetIdentifier(),
                         ContextFragment.SummaryType.valueOf(summaryDto.summaryType()));
+            }
             case UsageFragmentDto usageDto -> {
+                ContextFragments.setMinimumId(parseNumericId(usageDto.id()));
                 String snapshot = usageDto.snapshotText() != null ? reader.readContent(usageDto.snapshotText()) : null;
-                yield new ContextFragments.UsageFragment(
+                yield ContextFragments.UsageFragment.withId(
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles(), snapshot);
             }
             case PasteTextFragmentDto pasteTextDto ->
-                new ContextFragments.PasteTextFragment(
+                ContextFragments.PasteTextFragment.withId(
                         pasteTextDto.id(),
                         mgr,
                         reader.readContent(pasteTextDto.contentId()),
@@ -372,16 +375,19 @@ public class DtoMapper {
                         stDto.exception(),
                         reader.readContent(stDto.codeContentId()));
             }
-            case CallGraphFragmentDto callGraphDto ->
-                new ContextFragments.CallGraphFragment(
+            case CallGraphFragmentDto callGraphDto -> {
+                ContextFragments.setMinimumId(parseNumericId(callGraphDto.id()));
+                yield new ContextFragments.CallGraphFragment(
                         callGraphDto.id(),
                         mgr,
                         callGraphDto.methodName(),
                         callGraphDto.depth(),
                         callGraphDto.isCalleeGraph());
+            }
             case CodeFragmentDto codeDto -> {
+                ContextFragments.setMinimumId(parseNumericId(codeDto.id()));
                 String snapshot = codeDto.snapshotText() != null ? reader.readContent(codeDto.snapshotText()) : null;
-                yield new ContextFragments.CodeFragment(codeDto.id(), mgr, codeDto.fullyQualifiedName(), snapshot);
+                yield ContextFragments.CodeFragment.withId(codeDto.id(), mgr, codeDto.fullyQualifiedName(), snapshot);
             }
             case BuildFragmentDto bfDto -> {
                 // Backward compatibility: convert legacy BuildFragment to StringFragment with BUILD_RESULTS
@@ -703,7 +709,7 @@ public class DtoMapper {
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
-                    return new ContextFragments.ProjectPathFragment(file, mgr, snapshot);
+                    return ContextFragments.ProjectPathFragment.withId(file, ffd.id(), mgr, snapshot);
                 }
                 case "io.github.jbellis.brokk.context.ContextFragment$ExternalPathFragment",
                         "ai.brokk.context.ContextFragment$ExternalPathFragment" -> {
@@ -794,10 +800,11 @@ public class DtoMapper {
                     if (fqName == null) {
                         throw new IllegalArgumentException("Missing 'fqName' for CodeFragment");
                     }
+                    ContextFragments.setMinimumId(parseNumericId(ffd.id()));
                     String snapshot = ffd.contentId() != null && ffd.isTextFragment()
                             ? reader.readContent(ffd.contentId())
                             : null;
-                    return new ContextFragments.CodeFragment(mgr, fqName, snapshot);
+                    return ContextFragments.CodeFragment.withId(ffd.id(), mgr, fqName, snapshot);
                 }
                 default -> throw new RuntimeException("Unsupported FrozenFragment originalClassName=" + original);
             }

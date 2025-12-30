@@ -961,6 +961,23 @@ public class ContextFragments {
                     syntaxStyleFuture);
         }
 
+        public static PasteTextFragment withId(
+                String id,
+                IContextManager contextManager,
+                String text,
+                Future<String> descriptionFuture,
+                Future<String> syntaxStyleFuture) {
+            // PasteTextFragment uses content-hash IDs, not numeric IDs.
+            // We don't call validateNumericId here, but we can safely try to update nextId
+            // if this ID happens to be numeric (e.g. from an older session).
+            try {
+                int numericId = Integer.parseInt(id);
+                setMinimumId(numericId + 1);
+            } catch (NumberFormatException ignored) {
+            }
+            return new PasteTextFragment(id, contextManager, text, descriptionFuture, syntaxStyleFuture);
+        }
+
         public PasteTextFragment(
                 String id,
                 IContextManager contextManager,
@@ -1220,21 +1237,52 @@ public class ContextFragments {
                     snapshotText);
         }
 
-        public UsageFragment(String id, IContextManager contextManager, String targetIdentifier) {
-            this(id, contextManager, targetIdentifier, true, null);
+        public static UsageFragment withId(String id, IContextManager contextManager, String targetIdentifier) {
+            return withId(id, contextManager, targetIdentifier, true, null);
         }
 
-        public UsageFragment(
+        public static UsageFragment withId(
                 String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
+            return withId(id, contextManager, targetIdentifier, includeTestFiles, null);
+        }
+
+        public static UsageFragment withId(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText) {
+            validateNumericId(id);
+            return new UsageFragment(id, contextManager, targetIdentifier, includeTestFiles, snapshotText);
+        }
+
+        /**
+         * Constructor for V3 migration compatibility and tests - creates fragment with given ID and optional snapshot.
+         */
+        public UsageFragment(String id, IContextManager contextManager, String targetIdentifier, boolean includeTestFiles) {
             this(id, contextManager, targetIdentifier, includeTestFiles, null);
         }
 
+        /**
+         * Public constructor for tests and legacy code - creates fragment with given ID and snapshot.
+         */
         public UsageFragment(
                 String id,
                 IContextManager contextManager,
                 String targetIdentifier,
                 boolean includeTestFiles,
                 @Nullable String snapshotText) {
+            this(id, contextManager, targetIdentifier, includeTestFiles, snapshotText, true);
+        }
+
+        @SuppressWarnings("unused")
+        private UsageFragment(
+                String id,
+                IContextManager contextManager,
+                String targetIdentifier,
+                boolean includeTestFiles,
+                @Nullable String snapshotText,
+                boolean ignored) {
             super(
                     id,
                     contextManager,
@@ -1434,11 +1482,24 @@ public class ContextFragments {
                     snapshotText);
         }
 
+        public static CodeFragment withId(String id, IContextManager contextManager, String fullyQualifiedName) {
+            return withId(id, contextManager, fullyQualifiedName, null);
+        }
+
+        public static CodeFragment withId(
+                String id, IContextManager contextManager, String fullyQualifiedName, @Nullable String snapshotText) {
+            validateNumericId(id);
+            return new CodeFragment(id, contextManager, fullyQualifiedName, snapshotText);
+        }
+
+        /**
+         * Constructor for V3 migration compatibility - creates fragment with given ID but no snapshot.
+         */
         public CodeFragment(String id, IContextManager contextManager, String fullyQualifiedName) {
             this(id, contextManager, fullyQualifiedName, null);
         }
 
-        public CodeFragment(
+        private CodeFragment(
                 String id, IContextManager contextManager, String fullyQualifiedName, @Nullable String snapshotText) {
             super(
                     id,
@@ -1559,7 +1620,7 @@ public class ContextFragments {
 
         @Override
         public ContextFragment refreshCopy() {
-            return new CodeFragment(id, contextManager, fullyQualifiedName);
+            return new CodeFragment(contextManager, fullyQualifiedName);
         }
     }
 
@@ -1745,6 +1806,12 @@ public class ContextFragments {
                     contextManager,
                     targetIdentifier,
                     summaryType);
+        }
+
+        public static SummaryFragment withId(
+                String id, IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
+            validateNumericId(id);
+            return new SummaryFragment(id, contextManager, targetIdentifier, summaryType);
         }
 
         public SummaryFragment(
