@@ -14,7 +14,6 @@ public final class FileChooserUtil {
 
     /**
      * Shows a directory chooser dialog with a "New Folder" button.
-     * FlatLaf doesn't show the New Folder button by default, so this adds one.
      *
      * @param parent the parent frame (may be null)
      * @param title the dialog title
