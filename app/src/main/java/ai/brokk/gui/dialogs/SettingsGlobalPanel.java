@@ -20,6 +20,7 @@ import ai.brokk.mcp.McpServer;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.mcp.StdioMcpServer;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.GpgKeyUtil;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
 import io.modelcontextprotocol.spec.McpSchema;
@@ -78,7 +79,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // Appearance controls (kept in Global)
     private JComboBox<String> themeCombo = new JComboBox<>();
     private JCheckBox gpgSigningCheckbox = new JCheckBox("Sign commits with GPG");
-    private JComboBox<String> gpgKeyCombo = new JComboBox<>();
+    private JComboBox<GpgKeyUtil.GpgKey> gpgKeyCombo = new JComboBox<>();
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JCheckBox classicBrokkViewCheckbox = new JCheckBox("Enable Classic (Horizontal) View");
     private JRadioButton diffSideBySideRadio = new JRadioButton("Side-by-Side");
@@ -199,10 +200,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // GPG Signing
         gpgSigningCheckbox.setSelected(MainProject.isGpgCommitSigningEnabled());
-        String savedKey = MainProject.getGpgSigningKey();
-        if (!savedKey.isEmpty()) {
-            gpgKeyCombo.setSelectedItem(savedKey);
-        }
         discoverGpgKeys();
     }
 
@@ -398,40 +395,39 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private void discoverGpgKeys() {
-        new SwingWorker<List<String>, Void>() {
+        String savedKeyId = MainProject.getGpgSigningKey();
+        new SwingWorker<List<GpgKeyUtil.GpgKey>, Void>() {
             @Override
-            protected List<String> doInBackground() {
-                List<String> keys = new ArrayList<>();
-                try {
-                    Process process = new ProcessBuilder("gpg", "--list-secret-keys", "--with-colons").start();
-                    try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            String[] parts = line.split(":");
-                            if ((parts[0].equals("sec") || parts[0].equals("ssb")) && parts.length > 4) {
-                                String keyId = parts[4];
-                                if (!keyId.isEmpty()) keys.add(keyId);
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    logger.debug("GPG key discovery failed: {}", e.getMessage());
-                }
-                return keys;
+            protected List<GpgKeyUtil.GpgKey> doInBackground() {
+                return GpgKeyUtil.listSecretKeys();
             }
 
             @Override
             protected void done() {
                 try {
-                    List<String> keys = get();
-                    String current = (String) gpgKeyCombo.getSelectedItem();
-                    DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
-                    keys.forEach(model::addElement);
-                    gpgKeyCombo.setModel(model);
-                    if (current != null && !current.isEmpty()) {
-                        gpgKeyCombo.setSelectedItem(current);
+                    List<GpgKeyUtil.GpgKey> keys = get();
+                    DefaultComboBoxModel<GpgKeyUtil.GpgKey> model = new DefaultComboBoxModel<>();
+                    GpgKeyUtil.GpgKey selected = null;
+                    for (var key : keys) {
+                        model.addElement(key);
+                        if (key.id().equals(savedKeyId)) {
+                            selected = key;
+                        }
                     }
-                } catch (Exception ignore) {}
+                    
+                    // If the saved key isn't in the discovered list, add it as a manual entry so it's not lost
+                    if (selected == null && !savedKeyId.isEmpty()) {
+                        selected = new GpgKeyUtil.GpgKey(savedKeyId, savedKeyId);
+                        model.insertElementAt(selected, 0);
+                    }
+                    
+                    gpgKeyCombo.setModel(model);
+                    if (selected != null) {
+                        gpgKeyCombo.setSelectedItem(selected);
+                    }
+                } catch (Exception e) {
+                    logger.debug("GPG key discovery update failed", e);
+                }
             }
         }.execute();
     }
@@ -1206,8 +1202,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Git / Signing settings
         MainProject.setGpgCommitSigningEnabled(gpgSigningCheckbox.isSelected());
-        Object selectedKey = gpgKeyCombo.getSelectedItem();
-        MainProject.setGpgSigningKey(selectedKey != null ? selectedKey.toString() : "");
+        Object selectedItem = gpgKeyCombo.getSelectedItem();
+        if (selectedItem instanceof GpgKeyUtil.GpgKey key) {
+            MainProject.setGpgSigningKey(key.id());
+        } else if (selectedItem != null) {
+            MainProject.setGpgSigningKey(selectedItem.toString());
+        } else {
+            MainProject.setGpgSigningKey("");
+        }
 
         // Side effects
 
