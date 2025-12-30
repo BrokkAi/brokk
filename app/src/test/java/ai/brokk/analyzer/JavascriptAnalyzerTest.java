@@ -1,15 +1,14 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
-import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.Context;
 import ai.brokk.testutil.TestProject;
-import ai.brokk.testutil.TestService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -704,19 +703,9 @@ public final class JavascriptAnalyzerTest {
         assertCodeEquals(expected, related, "Related identifiers tree for Hello.js mismatch.");
     }
 
-    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
-        return hits.stream()
-                .map(hit -> hit.file().absPath().getFileName().toString())
-                .collect(Collectors.toSet());
-    }
-
-    private static FuzzyUsageFinder newFinder() {
-        return new FuzzyUsageFinder(jsTestProject, jsAnalyzer, new TestService(jsTestProject), null);
-    }
-
     @Test
     public void getUsesClassComprehensivePatternsTest() {
-        var finder = newFinder();
+        var finder = newFinder(jsTestProject, jsAnalyzer);
         var symbol = "BaseClass";
         var either = finder.findUsages(symbol).toEither();
 

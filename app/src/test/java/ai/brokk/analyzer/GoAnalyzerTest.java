@@ -1,14 +1,13 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
-import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.testutil.TestProject;
-import ai.brokk.testutil.TestService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,7 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors; // Already present, no change needed to this line, but ensure it's here
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -552,19 +551,9 @@ public class GoAnalyzerTest {
         assertTrue(analyzer.getSymbols(Set.of()).isEmpty(), "getSymbols with empty set should return empty.");
     }
 
-    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
-        return hits.stream()
-                .map(hit -> hit.file().absPath().getFileName().toString())
-                .collect(Collectors.toSet());
-    }
-
-    private static FuzzyUsageFinder newFinder() {
-        return new FuzzyUsageFinder(testProject, analyzer, new TestService(testProject), null);
-    }
-
     @Test
     public void getUsesClassComprehensivePatternsTest() {
-        var finder = newFinder();
+        var finder = newFinder(testProject, analyzer);
         var symbol = "main.BaseStruct";
         var either = finder.findUsages(symbol).toEither();
 

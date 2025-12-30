@@ -1,24 +1,22 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.IContextManager;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
-import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
-import ai.brokk.testutil.TestService;
 import java.io.IOException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -371,16 +369,6 @@ public final class CSharpAnalyzerTest {
         assertTrue(
                 handlerSkeleton.get().contains("public class GetTerminationRecordByIdHandler"),
                 "Handler skeleton should contain correct class name");
-    }
-
-    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
-        return hits.stream()
-                .map(hit -> hit.file().absPath().getFileName().toString())
-                .collect(Collectors.toSet());
-    }
-
-    private static FuzzyUsageFinder newFinder(TestProject project, CSharpAnalyzer analyzer) {
-        return new FuzzyUsageFinder(project, analyzer, new TestService(project), null);
     }
 
     @Test

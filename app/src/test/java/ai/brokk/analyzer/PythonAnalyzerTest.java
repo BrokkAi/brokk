@@ -1,15 +1,14 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.analyzer.usages.FuzzyUsageFinder;
-import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestProject;
-import ai.brokk.testutil.TestService;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
@@ -1950,19 +1949,9 @@ public final class PythonAnalyzerTest {
         }
     }
 
-    private static Set<String> fileNamesFromHits(Set<UsageHit> hits) {
-        return hits.stream()
-                .map(hit -> hit.file().absPath().getFileName().toString())
-                .collect(Collectors.toSet());
-    }
-
-    private static FuzzyUsageFinder newFinder() {
-        return new FuzzyUsageFinder(project, analyzer, new TestService(project), null);
-    }
-
     @Test
     public void getUsesClassComprehensivePatternsTest() {
-        var finder = newFinder();
+        var finder = newFinder(project, analyzer);
         var symbol = "class_usage_patterns.BaseClass";
         var either = finder.findUsages(symbol).toEither();
 
