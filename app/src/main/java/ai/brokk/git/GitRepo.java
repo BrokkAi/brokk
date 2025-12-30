@@ -637,28 +637,136 @@ public class GitRepo implements Closeable, IGitRepo {
         if (!isGpgSigned()) {
             logger.debug("GPG signing is disabled in global settings.");
             return command.setSign(false);
-        } else {
-            String signingKey = MainProject.getGpgSigningKey();
-            logger.info("Configuring commit with GPG signing. Key: {}", signingKey.isBlank() ? "default" : signingKey);
-
-            var signer = new BouncyCastleGpgSignerFactory().create();
-            command.setSigner(signer).setSign(true);
-
-            if (!signingKey.isBlank()) {
-                try {
-                    var config = repository.getConfig();
-                    // JGit's BouncyCastleGpgSigner looks at user.signingkey in the config
-                    if (!signingKey.equals(config.getString("user", null, "signingkey"))) {
-                        config.setString("user", null, "signingkey", signingKey);
-                        // We do not call config.save() to avoid modifying the user's .git/config file on disk.
-                        // The in-memory config is sufficient for this JGit session.
-                    }
-                } catch (Exception e) {
-                    logger.error("Failed to configure GPG signing key in repository config", e);
-                }
-            }
-            return command;
         }
+
+        String configuredKey = MainProject.getGpgSigningKey().strip();
+        String resolvedKey = resolveSigningKeyForJGit(configuredKey);
+
+        logger.info("Configuring commit with GPG signing. Key: {}", resolvedKey.isBlank() ? "default" : resolvedKey);
+
+        var signer = new BouncyCastleGpgSignerFactory().create();
+        command.setSigner(signer).setSign(true);
+
+        if (!resolvedKey.isBlank()) {
+            try {
+                var config = repository.getConfig();
+                // JGit's BouncyCastleGpgSigner looks at user.signingkey in the config.
+                if (!resolvedKey.equals(config.getString("user", null, "signingkey"))) {
+                    config.setString("user", null, "signingkey", resolvedKey);
+                    // We do not call config.save() to avoid modifying the user's .git/config file on disk.
+                    // The in-memory config is sufficient for this JGit session.
+                }
+            } catch (Exception e) {
+                logger.error("Failed to configure GPG signing key in repository config", e);
+            }
+        }
+
+        return command;
+    }
+
+    private record GpgKeyCandidate(String keyIdLong, String fingerprint) {}
+
+    private String resolveSigningKeyForJGit(String configuredKey) {
+        if (configuredKey.isBlank()) {
+            return "";
+        }
+
+        String normalized = configuredKey.replaceAll("\\s+", "");
+        if (normalized.regionMatches(true, 0, "0x", 0, 2)) {
+            normalized = normalized.substring(2);
+        }
+
+        // If the configured value isn't hex-like, assume it's a user id/email and pass it through.
+        if (!normalized.matches("(?i)^[0-9a-f]{8,40}$")) {
+            return configuredKey;
+        }
+
+        String needle = normalized.toUpperCase(Locale.ROOT);
+        if (needle.length() == 40) {
+            return needle;
+        }
+
+        // Most commonly, users pick the 16-hex "long key id" (suffix of the fingerprint).
+        if (needle.length() != 16 && needle.length() != 8) {
+            return needle;
+        }
+
+        try {
+            var candidates = listSecretKeyCandidates();
+            var matches = candidates.stream()
+                    .filter(c -> c.keyIdLong().equalsIgnoreCase(needle)
+                            || c.fingerprint().equalsIgnoreCase(needle)
+                            || c.fingerprint().toUpperCase(Locale.ROOT).endsWith(needle))
+                    .toList();
+
+            if (matches.isEmpty()) {
+                logger.warn(
+                        "GPG signing key '{}' looks like a key id, but no matching secret key fingerprint was found via gpg.",
+                        configuredKey);
+                return needle;
+            }
+
+            if (matches.size() > 1) {
+                logger.warn(
+                        "GPG signing key '{}' matched multiple fingerprints via gpg; using the first match.",
+                        configuredKey);
+            }
+
+            return matches.getFirst().fingerprint();
+        } catch (Exception e) {
+            logger.warn(
+                    "Failed to resolve GPG signing key '{}' via gpg; using configured value as-is.", configuredKey, e);
+            return needle;
+        }
+    }
+
+    private List<GpgKeyCandidate> listSecretKeyCandidates()
+            throws Environment.SubprocessException, InterruptedException {
+        String gpg = Environment.exeName("gpg");
+        String cmd = String.join(
+                " ",
+                gpg,
+                "--batch",
+                "--with-colons",
+                "--fixed-list-mode",
+                "--fingerprint",
+                "--keyid-format=long",
+                "--list-secret-keys");
+
+        String output = Environment.instance.runShellCommand(cmd, getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
+
+        String currentKeyId = null;
+        List<GpgKeyCandidate> candidates = new ArrayList<>();
+
+        for (String line : output.split("\\R")) {
+            if (line.isEmpty()) {
+                continue;
+            }
+            String[] parts = line.split(":", -1);
+            if (parts.length == 0) {
+                continue;
+            }
+
+            String type = parts[0];
+            switch (type) {
+                case "sec", "ssb", "pub", "sub" -> currentKeyId = parts.length > 4 ? parts[4] : null;
+                case "fpr" -> {
+                    if (currentKeyId == null) {
+                        continue;
+                    }
+                    if (parts.length <= 9) {
+                        continue;
+                    }
+                    String fingerprint = parts[9];
+                    if (!fingerprint.isBlank()) {
+                        candidates.add(new GpgKeyCandidate(currentKeyId, fingerprint));
+                    }
+                }
+                default -> {}
+            }
+        }
+
+        return candidates;
     }
 
     /**

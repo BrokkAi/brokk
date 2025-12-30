@@ -2,7 +2,6 @@ package ai.brokk.util;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,11 +37,7 @@ public final class GpgKeyUtil {
     public static List<GpgKey> listSecretKeys() {
         try {
             Process process = new ProcessBuilder(
-                            "gpg",
-                            "--list-secret-keys",
-                            "--with-colons",
-                            "--fixed-list-mode",
-                            "--keyid-format=long")
+                            "gpg", "--list-secret-keys", "--with-colons", "--fixed-list-mode", "--keyid-format=long")
                     .redirectErrorStream(true)
                     .start();
 

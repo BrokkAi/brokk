@@ -20,9 +20,9 @@ import ai.brokk.mcp.McpServer;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.mcp.StdioMcpServer;
 import ai.brokk.project.MainProject;
-import ai.brokk.util.GpgKeyUtil;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.GpgKeyUtil;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.awt.*;
 import java.awt.event.InputEvent;
@@ -414,13 +414,13 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                             selected = key;
                         }
                     }
-                    
+
                     // If the saved key isn't in the discovered list, add it as a manual entry so it's not lost
                     if (selected == null && !savedKeyId.isEmpty()) {
                         selected = new GpgKeyUtil.GpgKey(savedKeyId, savedKeyId);
                         model.insertElementAt(selected, 0);
                     }
-                    
+
                     gpgKeyCombo.setModel(model);
                     if (selected != null) {
                         gpgKeyCombo.setSelectedItem(selected);

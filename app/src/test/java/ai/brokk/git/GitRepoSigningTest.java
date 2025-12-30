@@ -2,13 +2,13 @@ package ai.brokk.git;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import java.nio.file.Path;
-import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.CommitCommand;
+import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -20,9 +20,9 @@ class GitRepoSigningTest {
     @Test
     void testCommitCommandConfigurationWhenSigningDisabled() throws Exception {
         Git.init().setDirectory(tempDir.toFile()).call();
-        
+
         MainProject.setGpgCommitSigningEnabled(false);
-        
+
         try (GitRepo repo = new GitRepo(tempDir)) {
             CommitCommand cmd = repo.commitCommand();
             // JGit doesn't provide a public getter for isSign, but we verify it doesn't throw
@@ -50,12 +50,44 @@ class GitRepoSigningTest {
     }
 
     @Test
+    void testCommitCommandResolvesLongKeyIdToFingerprintViaGpg() throws Exception {
+        Git.init().setDirectory(tempDir.toFile()).call();
+
+        MainProject.setGpgCommitSigningEnabled(true);
+        MainProject.setGpgSigningKey("C6AFE785167A7D3C");
+
+        var oldFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Environment.shellCommandRunnerFactory = (cmd, projectRoot) -> (outputConsumer, timeout) -> {
+                if (cmd.contains("gpg") && cmd.contains("--list-secret-keys")) {
+                    return """
+                            sec:u:4096:1:C6AFE785167A7D3C:1735560000:0:::::::scESC:::+:::23::0:
+                            fpr:::::::::20076F891F0E8065D08EE22FC6AFE785167A7D3C:
+                            uid:u::::1735560000::AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA::Test User <test@example.com>::::::::::0:
+                            """;
+                }
+                return "";
+            };
+
+            try (GitRepo repo = new GitRepo(tempDir)) {
+                CommitCommand cmd = repo.commitCommand();
+                assertNotNull(cmd);
+
+                String configKey = repo.getGit().getRepository().getConfig().getString("user", null, "signingkey");
+                assertEquals("20076F891F0E8065D08EE22FC6AFE785167A7D3C", configKey);
+            }
+        } finally {
+            Environment.shellCommandRunnerFactory = oldFactory;
+        }
+    }
+
+    @Test
     void testCommitCommandConfigurationWithDefaultKey() throws Exception {
         Git.init().setDirectory(tempDir.toFile()).call();
-        
+
         MainProject.setGpgCommitSigningEnabled(true);
         MainProject.setGpgSigningKey(""); // Empty means default
-        
+
         try (GitRepo repo = new GitRepo(tempDir)) {
             CommitCommand cmd = repo.commitCommand();
             assertNotNull(cmd);
@@ -99,7 +131,9 @@ class GitRepoSigningTest {
                         .getConfig()
                         .getNames("commit", false)
                         .contains("gpgsign");
-                assertTrue(!isSetLocally, "GPG signing config should not be present in local config if it was originally unset");
+                assertTrue(
+                        !isSetLocally,
+                        "GPG signing config should not be present in local config if it was originally unset");
             }
         }
     }

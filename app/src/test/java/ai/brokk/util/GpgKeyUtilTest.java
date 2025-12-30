@@ -27,10 +27,13 @@ class GpgKeyUtilTest {
         assertEquals(2, keys.size());
 
         assertEquals("ABCDEF0123456789", keys.get(0).id());
-        assertEquals("Brokk User <user@brokk.ai> (ABCDEF0123456789)", keys.get(0).displayName());
+        assertEquals(
+                "Brokk User <user@brokk.ai> (ABCDEF0123456789)", keys.get(0).displayName());
 
         assertEquals("1122334455667788", keys.get(1).id());
-        assertEquals("Another Key <another@example.com> (1122334455667788)", keys.get(1).displayName());
+        assertEquals(
+                "Another Key <another@example.com> (1122334455667788)",
+                keys.get(1).displayName());
     }
 
     @Test
@@ -60,7 +63,9 @@ class GpgKeyUtilTest {
 
         assertEquals(1, keys.size());
         assertEquals("ABCDEF0123456789", keys.get(0).id());
-        assertEquals("Primary User <primary@example.com> (ABCDEF0123456789)", keys.get(0).displayName());
+        assertEquals(
+                "Primary User <primary@example.com> (ABCDEF0123456789)",
+                keys.get(0).displayName());
     }
 
     private static List<String> linesFrom(String output) {

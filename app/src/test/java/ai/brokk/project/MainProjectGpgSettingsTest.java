@@ -49,7 +49,7 @@ class MainProjectGpgSettingsTest {
 
         assertTrue(MainProject.isGpgCommitSigningEnabled());
         assertEquals("ABC12345", MainProject.getGpgSigningKey());
-        
+
         // Verify empty key removal
         MainProject.setGpgSigningKey("");
         assertEquals("", MainProject.getGpgSigningKey());

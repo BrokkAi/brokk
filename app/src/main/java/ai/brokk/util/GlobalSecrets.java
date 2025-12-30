@@ -50,17 +50,17 @@ public final class GlobalSecrets {
         Path path = getSecretsFile();
         try {
             Files.createDirectories(path.getParent());
-            
+
             // Ensure restrictive permissions if the file doesn't exist yet
             if (!Files.exists(path)) {
                 ensureRestrictivePermissions(path);
             }
 
             AtomicWrites.atomicSaveProperties(path, props, "Brokk Global Secrets - Read Protected");
-            
+
             // Re-apply permissions after atomic move to ensure they are correct on POSIX
             ensureRestrictivePermissions(path);
-            
+
             cachedProps = (Properties) props.clone();
         } catch (IOException e) {
             logger.error("Failed to save global secrets to {}: {}", path, e.getMessage());

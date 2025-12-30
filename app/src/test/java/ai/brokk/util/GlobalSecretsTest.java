@@ -9,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.Set;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -23,8 +22,8 @@ class GlobalSecretsTest {
 
     @BeforeEach
     void setUp() {
-        // Use reflection or a system property if BrokkConfigPaths allowed it, 
-        // but here we rely on the fact that we can manipulate the environment or 
+        // Use reflection or a system property if BrokkConfigPaths allowed it,
+        // but here we rely on the fact that we can manipulate the environment or
         // just test the logic via GlobalSecrets if it were more injectable.
         // For this focused test, we'll verify the permission logic specifically.
         GlobalSecrets.resetForTests();
@@ -36,7 +35,7 @@ class GlobalSecretsTest {
         // we test the core logic of set/get which is platform independent.
         GlobalSecrets.setSecret("test.key", "test.value");
         assertEquals("test.value", GlobalSecrets.getSecret("test.key", ""));
-        
+
         GlobalSecrets.resetForTests();
         assertEquals("test.value", GlobalSecrets.getSecret("test.key", ""));
     }
@@ -48,11 +47,11 @@ class GlobalSecretsTest {
         }
 
         Path secretFile = tempDir.resolve("test.secrets.properties");
-        
+
         // Manual trigger of the permission logic
         GlobalSecrets.setSecret("dummy", "value");
         Path realFile = BrokkConfigPaths.getGlobalConfigDir().resolve("brokk.secrets.properties");
-        
+
         if (Files.exists(realFile)) {
             Set<PosixFilePermission> perms = Files.getPosixFilePermissions(realFile);
             assertTrue(perms.contains(PosixFilePermission.OWNER_READ));
