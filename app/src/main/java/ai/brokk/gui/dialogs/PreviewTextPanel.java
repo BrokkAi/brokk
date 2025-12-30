@@ -242,10 +242,12 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             saveButtonDocumentListener = new DocumentListener() {
                 private void onModification() {
                     finalSaveButtonRef.setEnabled(true);
-                    if (!watcherPausedForThisPanel) {
-                        logger.debug("Pausing watcher due to manual edit in {}", file);
-                        cm.getAnalyzerWrapper().pause();
-                        watcherPausedForThisPanel = true;
+                    synchronized (PreviewTextPanel.this) {
+                        if (!watcherPausedForThisPanel) {
+                            logger.debug("Pausing watcher due to manual edit in {}", file);
+                            cm.getAnalyzerWrapper().pause();
+                            watcherPausedForThisPanel = true;
+                        }
                     }
                 }
 
