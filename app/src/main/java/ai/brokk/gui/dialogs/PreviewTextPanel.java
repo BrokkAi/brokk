@@ -181,7 +181,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Edit button (conditionally added for ProjectFile)
         if (file != null) {
-            attachButton = new MaterialButton("Attach File");
+            var text = (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE)
+                    ? "Attach Current Version"
+                    : "Attach File";
+            attachButton = new MaterialButton(text);
+            SwingUtilities.invokeLater(() -> requireNonNull(attachButton).setIcon(Icons.ATTACH_FILE));
             var finalAttachButton = attachButton; // Final reference for lambda
 
             cm.submitBackgroundTask("Determining files in the current context", () -> {
@@ -198,7 +202,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                             finalAttachButton.setToolTipText("File is in Workspace context");
                         });
                     }
-                    actionButtonPanel.add(attachButton); // Add edit button to the action panel
+                    actionButtonPanel.add(attachButton); // Add attach button to the action panel
                 });
             });
         }
