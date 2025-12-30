@@ -42,7 +42,7 @@ public class SettingsGitHubTabVisibilityTest {
             // Look for the GitHub tab
             boolean foundGitHubTab = false;
             for (int i = 0; i < tabCount; i++) {
-                if (SettingsDialog.GITHUB_SETTINGS_TAB_NAME.equals(tabs.getTitleAt(i))) {
+                if (SettingsDialog.GIT_SETTINGS_TAB_NAME.equals(tabs.getTitleAt(i))) {
                     foundGitHubTab = true;
                     break;
                 }
@@ -85,7 +85,7 @@ public class SettingsGitHubTabVisibilityTest {
 
             boolean foundGitHubTab = false;
             for (int i = 0; i < tabCount; i++) {
-                if (SettingsDialog.GITHUB_SETTINGS_TAB_NAME.equals(tabs.getTitleAt(i))) {
+                if (SettingsDialog.GIT_SETTINGS_TAB_NAME.equals(tabs.getTitleAt(i))) {
                     foundGitHubTab = true;
                     break;
                 }

@@ -97,7 +97,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     // GitHub / MCP / Keybindings
-    private GitHubSettingsPanel gitHubSettingsPanel;
+    private final GitHubSettingsPanel gitSettingsPanel;
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
     private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
 
@@ -110,6 +110,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
+        this.gitSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
         // NOTE: loadSettings() is now called explicitly in SettingsDialog.showSettingsDialog()
@@ -230,7 +231,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // GitHub / Git Signing Tab
         var githubAndSigningPanel = createGitHubAndSigningPanel();
         globalSubTabbedPane.addTab(
-                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, githubAndSigningPanel, "Git and signing settings");
+                SettingsDialog.GIT_SETTINGS_TAB_NAME, null, githubAndSigningPanel, "Git and signing settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
@@ -368,11 +369,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         mainPanel.add(githubHeader);
         mainPanel.add(Box.createVerticalStrut(5));
 
-        gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
         // Remove individual panel border to avoid double padding
-        gitHubSettingsPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 10, 5));
-        gitHubSettingsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        mainPanel.add(gitHubSettingsPanel);
+        gitSettingsPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 10, 5));
+        gitSettingsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mainPanel.add(gitSettingsPanel);
 
         mainPanel.add(new JSeparator(JSeparator.HORIZONTAL));
         mainPanel.add(Box.createVerticalStrut(15));
@@ -741,7 +741,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private void populateGitHubTab() {
-        gitHubSettingsPanel.loadSettings();
+        gitSettingsPanel.loadSettings();
     }
 
     /**
@@ -1163,7 +1163,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // GitHub settings
-        if (!gitHubSettingsPanel.applySettings()) {
+        if (!gitSettingsPanel.applySettings()) {
             return false;
         }
 
@@ -2337,7 +2337,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // SettingsChangeListener implementation
     @Override
     public void gitHubTokenChanged() {
-        gitHubSettingsPanel.gitHubTokenChanged();
+        gitSettingsPanel.gitHubTokenChanged();
     }
 
     @Override

@@ -28,7 +28,7 @@ import org.jetbrains.annotations.Nullable;
 public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
 
-    public static final String GITHUB_SETTINGS_TAB_NAME = "Git";
+    public static final String GIT_SETTINGS_TAB_NAME = "Git";
 
     private final Chrome chrome;
     private final JTabbedPane tabbedPane;

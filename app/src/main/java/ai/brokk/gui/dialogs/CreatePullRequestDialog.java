@@ -790,7 +790,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                     JOptionPane.YES_NO_OPTION,
                     JOptionPane.WARNING_MESSAGE);
             if (choice == JOptionPane.YES_OPTION) {
-                SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME);
+                SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GIT_SETTINGS_TAB_NAME);
             }
             return;
         }
