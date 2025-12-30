@@ -1349,16 +1349,10 @@ public class WorkspaceChip extends JPanel {
                     .count();
             String title = totalFiles > 0 ? "Summaries (" + totalFiles + ")" : "Summaries";
 
-            StringBuilder combinedText = new StringBuilder();
-            for (var summary : summaryFragments) {
-                var txt = summary.text().renderNowOr("");
-                combinedText.append(txt).append("\n\n");
-            }
-
-            // Use the most common syntax style among fragments
+            // Use the most common syntax style among fragments (non-blocking)
             var syntaxStyle = summaryFragments.stream()
                     .map(f -> f.syntaxStyle().renderNowOrNull())
-                    .filter(s -> s != null)
+                    .filter(Objects::nonNull)
                     .collect(Collectors.groupingBy(s -> s, Collectors.counting()))
                     .entrySet()
                     .stream()
@@ -1366,9 +1360,21 @@ public class WorkspaceChip extends JPanel {
                     .map(Map.Entry::getKey)
                     .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            var syntheticFragment = new ContextFragments.StringFragment(
-                    chrome.getContextManager(), combinedText.toString(), title, syntaxStyle);
-            chrome.openFragmentPreview(syntheticFragment);
+            // Aggregate and dedupe in background to avoid blocking EDT on .join()
+            List<ContextFragments.SummaryFragment> fragmentsToProcess = summaryFragments.stream()
+                    .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                    .map(f -> (ContextFragments.SummaryFragment) f)
+                    .toList();
+
+            contextManager
+                    .submitBackgroundTask("Aggregating summaries", () -> {
+                        return ContextFragments.SummaryFragment.combinedText(fragmentsToProcess);
+                    })
+                    .thenAccept(combinedText -> SwingUtilities.invokeLater(() -> {
+                        var syntheticFragment = new ContextFragments.StringFragment(
+                                chrome.getContextManager(), combinedText, title, syntaxStyle);
+                        chrome.openFragmentPreview(syntheticFragment);
+                    }));
         }
 
         private void executeSyntheticChipDrop() {

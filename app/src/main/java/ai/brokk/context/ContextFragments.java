@@ -60,6 +60,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -1749,11 +1750,65 @@ public class ContextFragments {
                     desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, (List<Byte>) null, valid);
         }
 
+        public record CodeUnitSkeleton(CodeUnit codeUnit, String skeleton) {}
+
+        @Blocking
+        private Map<String, CodeUnitSkeleton> skeletonsByFqName() {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
+            if (skeletonProviderOpt.isEmpty()) {
+                return Map.of();
+            }
+            SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
+
+            Map<String, CodeUnitSkeleton> out = new LinkedHashMap<>();
+            for (CodeUnit cu : sources().join()) {
+                if (cu.isAnonymous()) {
+                    continue;
+                }
+                skeletonProvider
+                        .getSkeleton(cu)
+                        .filter(s -> !s.isBlank())
+                        .ifPresent(skeleton -> out.putIfAbsent(cu.fqName(), new CodeUnitSkeleton(cu, skeleton)));
+            }
+            return out;
+        }
+
+        /**
+         * Combines multiple summary fragments into a single text block.
+         *
+         * <p>Semantic aggregation:
+         * - Union CodeUnits across fragments via sources()
+         * - Deduplicate by CodeUnit.fqName() (stable first-seen)
+         * - Exclude anonymous units
+         * - Use each fragment's own analyzer via SkeletonProvider to obtain skeleton text
+         * - Format via SkeletonFragmentFormatter in by-package mode
+         */
+        @Blocking
         public static String combinedText(List<SummaryFragment> fragments) {
-            return fragments.stream()
-                    .map(sf -> sf.text().join())
-                    .filter(s -> !s.isBlank())
-                    .collect(Collectors.joining("\n\n"));
+            if (fragments.isEmpty()) {
+                return "";
+            }
+
+            if (SwingUtilities.isEventDispatchThread()) {
+                logger.error("combinedText is a blocking function and should not be called on the EDT!");
+            }
+
+            Map<String, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
+            for (SummaryFragment fragment : fragments) {
+                fragment.skeletonsByFqName().forEach(deduped::putIfAbsent);
+            }
+
+            if (deduped.isEmpty()) {
+                return "";
+            }
+
+            Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
+            deduped.values().forEach(cus -> skeletonsMap.put(cus.codeUnit(), cus.skeleton()));
+
+            return new SkeletonFragmentFormatter()
+                    .format(new SkeletonFragmentFormatter.Request(
+                            null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
         }
 
         private static Set<CodeUnit> resolvePrimaryTargets(

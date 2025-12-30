@@ -13,6 +13,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
@@ -286,6 +287,87 @@ public class SummaryFragmentTest {
                     .orElseThrow();
             var files = fragment.files().join();
             assertEquals(Set.of(expectedFile), files, "files() should include only Test.java");
+        }
+    }
+
+    @Test
+    public void fileSkeletonDeduplicatesSharedAncestorsInOutput() throws IOException {
+        var builder = InlineTestProjectCreator.code("""
+    public class SharedBase {}
+    """, "Base.java");
+        try (var testProject = builder.addFileContents(
+                        """
+    class ChildA extends SharedBase {}
+    class ChildB extends SharedBase {}
+    """,
+                        "Children.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            ProjectFile childrenFile = testProject.getAllFiles().stream()
+                    .filter(pf -> pf.getFileName().equals("Children.java"))
+                    .findFirst()
+                    .orElseThrow();
+
+            var fragment = new SummaryFragment(cm, childrenFile.toString(), SummaryType.FILE_SKELETONS);
+            String text = fragment.text().join();
+
+            long count = Pattern.compile("\\bclass\\s+SharedBase\\b")
+                    .matcher(text)
+                    .results()
+                    .count();
+            assertEquals(1, count, "SharedBase skeleton should only appear once in the output text");
+
+            // Verify the individual class skeletons are present (without assuming exact formatting)
+            assertTrue(text.contains("class ChildA extends SharedBase"), "Should contain ChildA skeleton");
+            assertTrue(text.contains("class ChildB extends SharedBase"), "Should contain ChildB skeleton");
+            assertTrue(text.contains("public class SharedBase"), "Should contain SharedBase skeleton");
+
+            // Verify sources() has no duplicates
+            var sources = fragment.sources().join();
+            var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+            assertEquals(
+                    Set.of("ChildA", "ChildB", "SharedBase"),
+                    fqns,
+                    "sources() should include both children and SharedBase");
+            assertEquals(sources.size(), fqns.size(), "sources() should not contain duplicates");
+        }
+    }
+
+    @Test
+    public void combinedTextDeduplicatesSharedAncestors() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+    public class Base {}
+    class ChildA extends Base {}
+    class ChildB extends Base {}
+    """,
+                        "Test.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
+
+            var sfA = new SummaryFragment(cm, "ChildA", SummaryType.CODEUNIT_SKELETON);
+            var sfB = new SummaryFragment(cm, "ChildB", SummaryType.CODEUNIT_SKELETON);
+
+            String combined = SummaryFragment.combinedText(java.util.List.of(sfA, sfB));
+
+            // Combined text uses "by package" formatting, so it shouldn't have redundant ancestor headers
+            assertFalse(combined.contains("// Direct ancestors"), "Combined text should use flat package formatting");
+
+            // Each child should be present
+            assertTrue(combined.contains("class ChildA extends Base"), "Should contain ChildA");
+            assertTrue(combined.contains("class ChildB extends Base"), "Should contain ChildB");
+
+            // The superclass "Base" should appear EXACTLY once in the whole combined output
+            int count = 0;
+            int index = 0;
+            while ((index = combined.indexOf("public class Base", index)) != -1) {
+                count++;
+                index += "public class Base".length();
+            }
+            assertEquals(1, count, "Shared ancestor 'Base' should only appear once in combined output");
         }
     }
 }
