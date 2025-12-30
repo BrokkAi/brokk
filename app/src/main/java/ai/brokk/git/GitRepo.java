@@ -680,10 +680,10 @@ public class GitRepo implements Closeable, IGitRepo {
         List<String> cmdParts = new ArrayList<>();
         cmdParts.add("git");
         cmdParts.add("commit");
-        cmdParts.add("-S");
         if (!key.isEmpty()) {
-            cmdParts.add("-u");
-            cmdParts.add(key);
+            cmdParts.add("--gpg-sign=" + key);
+        } else {
+            cmdParts.add("-S");
         }
         cmdParts.add("-m");
         cmdParts.add(message);

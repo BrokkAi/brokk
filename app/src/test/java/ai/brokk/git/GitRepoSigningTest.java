@@ -7,6 +7,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.nio.file.Path;
+import org.junit.jupiter.api.AfterEach;
 import org.eclipse.jgit.api.CommitCommand;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,12 @@ class GitRepoSigningTest {
 
     @TempDir
     Path tempDir;
+
+    @AfterEach
+    void tearDown() {
+        MainProject.setGpgCommitSigningEnabled(false);
+        MainProject.setGpgSigningKey("");
+    }
 
     @Test
     void testCommitCommandConfigurationWhenSigningDisabled() throws Exception {
@@ -58,8 +65,7 @@ class GitRepoSigningTest {
 
                 String cmd = capturedCommand.get();
                 assertNotNull(cmd);
-                assertTrue(cmd.contains("-S"), "Should contain -S flag");
-                assertTrue(cmd.contains("-u") && cmd.contains("TESTKEYID"), "Should contain -u flag with key");
+                assertTrue(cmd.contains("--gpg-sign=TESTKEYID"), "Should contain --gpg-sign=TESTKEYID");
                 assertTrue(cmd.contains("Test Message"), "Should contain message");
             }
         } finally {
@@ -70,7 +76,11 @@ class GitRepoSigningTest {
     @Test
     void testCommitFilesNativeSyntaxWithMultipleFiles() throws Exception {
         try (Git git = Git.init().setDirectory(tempDir.toFile()).call()) {
-            git.commit().setSign(false).setAllowEmpty(true).setMessage("Initial").call();
+            git.commit()
+                    .setSign(false)
+                    .setAllowEmpty(true)
+                    .setMessage("Initial")
+                    .call();
         }
 
         MainProject.setGpgCommitSigningEnabled(true);
@@ -96,7 +106,8 @@ class GitRepoSigningTest {
                 String cmd = capturedCommand.get();
                 assertNotNull(cmd);
                 // Correct syntax: git commit ... --only -- file1 file2
-                assertTrue(cmd.contains("--only -- file1.txt file2.txt"),
+                assertTrue(
+                        cmd.contains("--only -- file1.txt file2.txt"),
                         "Command should contain files after a single --only --. Found: " + cmd);
 
                 // Verify --only doesn't appear multiple times
@@ -136,7 +147,7 @@ class GitRepoSigningTest {
                 String cmd = capturedCommand.get();
                 assertNotNull(cmd);
                 assertTrue(cmd.contains("-S"), "Should contain -S flag");
-                assertTrue(!cmd.contains("-u"), "Should not contain -u flag when key is empty");
+                assertTrue(!cmd.contains("--gpg-sign"), "Should not contain --gpg-sign flag when key is empty");
             }
         } finally {
             Environment.shellCommandRunnerFactory = oldFactory;
