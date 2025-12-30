@@ -85,6 +85,8 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         if (value instanceof HistoryOutputPanel.ActionText at) {
             actionText = at.text();
             indentLevel = Math.max(0, at.indentLevel());
+        } else if (value instanceof HistoryGrouping.GroupDescriptor gd) {
+            actionText = HistoryGrouping.computeLabel(gd);
         } else {
             actionText = value != null ? value.toString() : "";
         }

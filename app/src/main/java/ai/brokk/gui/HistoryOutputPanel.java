@@ -674,7 +674,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         .anyMatch(c -> ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
 
                 var groupRow = new GroupRow(uuidKey, expanded, containsClearHistory);
-                historyModel.addRow(new Object[] {new TriangleIcon(expanded), descriptor.label(), groupRow});
+                historyModel.addRow(new Object[] {new TriangleIcon(expanded), descriptor, groupRow});
                 currentRow++;
 
                 if (expanded) {

@@ -54,10 +54,47 @@ public final class HistoryGrouping {
             String label,
             List<Context> children,
             boolean shouldShowHeader,
-            boolean isLastGroup) {}
+            boolean isLastGroup) {
+    }
+
+    /**
+     * Compute the display label for a group descriptor based on its current children.
+     */
+    public static String computeLabel(GroupDescriptor gd) {
+        if (gd.type() == GroupType.GROUP_BY_ID) {
+            // For ID groups, re-scan children for the preferred label
+            return gd.children().stream()
+                    .map(Context::getGroupLabel)
+                    .filter(s -> s != null && !s.isBlank())
+                    .findFirst()
+                    .orElse(gd.key());
+        } else {
+            // For legacy/action groups
+            return computeHeaderLabelFor(gd.children());
+        }
+    }
+
+    static String computeHeaderLabelFor(List<Context> children) {
+        int size = children.size();
+        if (size == 2) {
+            var a0 = safeFirstWord(children.get(0).getAction());
+            var a1 = safeFirstWord(children.get(1).getAction());
+            return a0 + " + " + a1;
+        }
+        return size + " actions";
+    }
+
+    static String safeFirstWord(String text) {
+        if (text.isBlank()) {
+            return "";
+        }
+        int idx = text.indexOf(' ');
+        return (idx < 0) ? text : text.substring(0, idx);
+    }
 
     public static final class GroupingBuilder {
-        private GroupingBuilder() {}
+        private GroupingBuilder() {
+        }
 
         /**
          * Discover logical group descriptors from the provided contexts.
@@ -170,23 +207,6 @@ public final class HistoryGrouping {
             }
         }
 
-        private static String computeHeaderLabelFor(List<Context> children) {
-            int size = children.size();
-            if (size == 2) {
-                var a0 = safeFirstWord(children.get(0).getAction());
-                var a1 = safeFirstWord(children.get(1).getAction());
-                return a0 + " + " + a1;
-            }
-            return size + " actions";
-        }
-
-        private static String safeFirstWord(String text) {
-            if (text.isBlank()) {
-                return "";
-            }
-            int idx = text.indexOf(' ');
-            return (idx < 0) ? text : text.substring(0, idx);
-        }
     }
 
     /**
