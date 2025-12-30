@@ -16,7 +16,6 @@ import org.jspecify.annotations.NullMarked;
 /**
  * Utility for managing global secrets (e.g., API keys, tokens) in a read-protected file.
  */
-@NullMarked
 public final class GlobalSecrets {
     private static final Logger logger = LogManager.getLogger(GlobalSecrets.class);
     private static final String SECRETS_FILE_NAME = "brokk.secrets.properties";
