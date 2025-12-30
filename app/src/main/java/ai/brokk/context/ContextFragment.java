@@ -1,13 +1,10 @@
 package ai.brokk.context;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.*;
 import java.time.Duration;
@@ -193,14 +190,6 @@ public interface ContextFragment {
     }
 
     /**
-     * Retrieves the {@link IContextManager} associated with this fragment.
-     *
-     * @return The context manager instance, or {@code null} if not applicable or available.
-     */
-    @Nullable
-    IContextManager getContextManager();
-
-    /**
      * For live fragments ONLY, isValid reflects current external state (a file fragment whose file is missing is invalid);
      * historical/frozen fragments have already snapshotted their state and are always valid.
      *
@@ -212,18 +201,6 @@ public interface ContextFragment {
      */
     default boolean isValid() {
         return true;
-    }
-
-    /**
-     * Convenience method to get the analyzer in a non-blocking way using the fragment's context manager.
-     *
-     * @return The IAnalyzer instance if available, or null if it's not ready yet or if the context manager is not
-     * available.
-     */
-    default IAnalyzer getAnalyzer() {
-        var cm = getContextManager();
-        requireNonNull(cm);
-        return cm.getAnalyzerUninterrupted();
     }
 
     /**

@@ -280,10 +280,8 @@ class FragmentEqualityTest {
             var sf2 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            // Identity-based: different instances are NOT equal()
-            assertNotEquals(sf1, sf2);
-            // But they have the same content source
             assertTrue(sf1.hasSameSource(sf2));
+            assertEquals(sf1, sf2);
         }
 
         @Test
@@ -830,10 +828,8 @@ class FragmentEqualityTest {
             var tf1 = new ContextFragments.TaskFragment(contextManager, messages, "session");
             var tf2 = new ContextFragments.TaskFragment(contextManager, messages, "session");
 
-            // Identity-based: different instances are NOT equal()
-            assertNotEquals(tf1, tf2);
-            // But they represent the same session content
             assertTrue(tf1.hasSameSource(tf2));
+            assertEquals(tf1, tf2);
         }
 
         @Test
@@ -873,10 +869,8 @@ class FragmentEqualityTest {
             var sf2 =
                     new ContextFragments.StacktraceFragment(contextManager, sources, "stacktrace", "Exception", "code");
 
-            // Identity-based: different instances are NOT equal()
-            assertNotEquals(sf1, sf2);
-            // But they represent the same stacktrace content
             assertTrue(sf1.hasSameSource(sf2));
+            assertEquals(sf1, sf2);
         }
 
         @Test
@@ -944,10 +938,8 @@ class FragmentEqualityTest {
             var hf1 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
             var hf2 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
 
-            // Identity-based: different instances are NOT equal()
-            assertNotEquals(hf1, hf2);
-            // But they represent the same history content
             assertTrue(hf1.hasSameSource(hf2));
+            assertEquals(hf1, hf2);
         }
 
         @Test

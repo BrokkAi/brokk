@@ -147,16 +147,9 @@ public class WorkspaceChip extends JPanel {
         readOnlyIcon.setIcon(null);
 
         ContextFragment fragment = getPrimaryFragment();
-        String safeShortDescription = fragment.shortDescription().renderNowOr("");
-        if (safeShortDescription.isBlank()) {
-            safeShortDescription = "(no description)";
-        }
-
-        // Initial label text (may be updated once computed values are ready).
+        String safeShortDescription = fragment.shortDescription().renderNowOr("Loading...");
         // Truncate to keep the chip compact so the close button remains visible.
-        if (fragment instanceof ContextFragments.AbstractComputedFragment) {
-            label.setText("Loading...");
-        } else if (kind == ChipKind.OTHER) {
+        if (kind == ChipKind.OTHER) {
             label.setText(truncateForDisplay(capitalizeFirst(safeShortDescription)));
         } else {
             label.setText(truncateForDisplay(safeShortDescription));
