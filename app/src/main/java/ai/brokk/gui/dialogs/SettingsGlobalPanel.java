@@ -227,18 +227,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var appearancePanel = createAppearancePanel();
         globalSubTabbedPane.addTab("Appearance", null, appearancePanel, "Theme settings");
 
-        // GitHub Tab
-        gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
+        // GitHub / Git Signing Tab
+        var githubAndSigningPanel = createGitHubAndSigningPanel();
         globalSubTabbedPane.addTab(
-                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
+                SettingsDialog.GITHUB_SETTINGS_TAB_NAME,
+                null,
+                githubAndSigningPanel,
+                "GitHub and Git signing settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
         globalSubTabbedPane.addTab("MCP Servers", null, mcpPanel, "MCP server configuration");
-
-        // Git / Signing Tab
-        var gitSigningPanel = createGitSigningPanel();
-        globalSubTabbedPane.addTab("Git / Signing", null, gitSigningPanel, "Git and GPG signing settings");
 
         // Keybindings Tab (scrollable)
         var keybindingsPanel = createKeybindingsPanel();
@@ -360,9 +359,48 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         this.signupLabel.setVisible(!keyIsEffectivelyPresent);
     }
 
+    private JPanel createGitHubAndSigningPanel() {
+        var mainPanel = new JPanel();
+        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        // Section 1: GitHub
+        var githubHeader = new JLabel("GitHub Integration");
+        githubHeader.setFont(githubHeader.getFont().deriveFont(Font.BOLD));
+        githubHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mainPanel.add(githubHeader);
+        mainPanel.add(Box.createVerticalStrut(5));
+
+        gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
+        // Remove individual panel border to avoid double padding
+        gitHubSettingsPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 10, 5));
+        gitHubSettingsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mainPanel.add(gitHubSettingsPanel);
+
+        mainPanel.add(new JSeparator(JSeparator.HORIZONTAL));
+        mainPanel.add(Box.createVerticalStrut(15));
+
+        // Section 2: Git Signing
+        var gitHeader = new JLabel("Git / Signing");
+        gitHeader.setFont(gitHeader.getFont().deriveFont(Font.BOLD));
+        gitHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mainPanel.add(gitHeader);
+        mainPanel.add(Box.createVerticalStrut(5));
+
+        var gitSigningPanel = createGitSigningPanel();
+        gitSigningPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mainPanel.add(gitSigningPanel);
+
+        // Push everything to the top
+        mainPanel.add(Box.createVerticalGlue());
+
+        return mainPanel;
+    }
+
     private JPanel createGitSigningPanel() {
         var panel = new JPanel(new GridBagLayout());
-        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        // Border removed as it is now inside the combined panel section
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
         var gbc = new GridBagConstraints();
         gbc.anchor = GridBagConstraints.WEST;
         gbc.insets = new Insets(5, 5, 5, 5);

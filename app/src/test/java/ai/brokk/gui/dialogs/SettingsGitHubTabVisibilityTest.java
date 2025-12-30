@@ -52,6 +52,16 @@ public class SettingsGitHubTabVisibilityTest {
                     foundGitHubTab,
                     "Global settings should always include the GitHub tab so users can configure GitHub auth, "
                             + "even when the project is not a GitHub repo");
+
+            // Verify Git / Signing tab is merged and no longer standalone
+            boolean foundGitSigningTab = false;
+            for (int i = 0; i < tabCount; i++) {
+                if ("Git / Signing".equals(tabs.getTitleAt(i))) {
+                    foundGitSigningTab = true;
+                    break;
+                }
+            }
+            assertFalse(foundGitSigningTab, "Git / Signing tab should be merged into GitHub tab");
         });
     }
 
@@ -82,6 +92,16 @@ public class SettingsGitHubTabVisibilityTest {
             }
 
             assertTrue(foundGitHubTab, "Global settings should include the GitHub tab for all projects");
+
+            // Verify Git / Signing tab is merged and no longer standalone
+            boolean foundGitSigningTab = false;
+            for (int i = 0; i < tabCount; i++) {
+                if ("Git / Signing".equals(tabs.getTitleAt(i))) {
+                    foundGitSigningTab = true;
+                    break;
+                }
+            }
+            assertFalse(foundGitSigningTab, "Git / Signing tab should be merged into GitHub tab");
         });
     }
 }
