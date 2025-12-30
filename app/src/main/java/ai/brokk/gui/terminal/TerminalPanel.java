@@ -239,86 +239,92 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         captureButton.setMargin(new Insets(0, 0, 0, 0));
         captureButton.setToolTipText(
                 "<html><p width='280'>Capture the terminal's current output into a new text fragment in your workspace context. This action appends to your context and does not replace or update any previous terminal captures.</p></html>");
-        captureButton.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            try {
-                var w = widget;
-                if (w == null) {
-                    console.systemNotify(
-                            "No terminal available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
-                    return;
-                }
-
-                String content = null;
-                if (w.getTerminalDisplay() instanceof BrokkJediTermPanel display) {
-                    content = display.getSelectionText();
-                }
-
-                if (content == null || content.isEmpty()) {
-                    var buffer = w.getTerminalTextBuffer();
-                    if (buffer == null) {
-                        console.systemNotify(
-                                "No terminal buffer available to capture",
-                                "Terminal Capture",
-                                JOptionPane.WARNING_MESSAGE);
-                        return;
-                    }
-
-                    var lines = new ArrayList<String>();
-                    buffer.lock();
-                    try {
-                        int historyCount = buffer.getHistoryLinesCount();
-                        for (int i = 0; i < historyCount; i++) {
-                            var line = buffer.getLine(i - historyCount);
-                            lines.add(line.getText());
-                        }
-
-                        for (int i = 0; i < buffer.getHeight(); i++) {
-                            var line = buffer.getLine(i);
-                            lines.add(line.getText());
-                        }
-                    } finally {
-                        buffer.unlock();
-                    }
-
-                    content = lines.stream().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
-                }
-
-                if (content == null || content.isBlank()) {
-                    console.systemNotify(
-                            "No terminal content available to capture",
-                            "Terminal Capture",
-                            JOptionPane.WARNING_MESSAGE);
-                    return;
-                }
-
-                final String capturedContent = content;
-                if (console instanceof Chrome c) {
-                    c.getContextManager().submitContextTask(() -> {
-                        try {
-                            c.getContextManager().addPastedTextFragment(capturedContent);
-                            SwingUtilities.invokeLater(() -> {
-                                console.showNotification(
-                                        IConsoleIO.NotificationRole.INFO, "Terminal content captured to workspace");
-                            });
-                        } catch (Exception ex) {
-                            logger.error("Error adding terminal content to workspace", ex);
-                            SwingUtilities.invokeLater(() -> {
-                                console.toolError(
-                                        "Failed to add terminal content to workspace: " + ex.getMessage(),
-                                        "Terminal Capture Failed");
-                            });
-                        }
-                    });
-                }
-            } catch (Exception ex) {
-                logger.error("Error capturing terminal output", ex);
-                console.toolError("Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture Failed");
+        captureButton.addActionListener(e -> {
+            var w = widget;
+            if (w == null) {
+                console.systemNotify(
+                        "No terminal available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
+                return;
             }
-        }));
+
+            String selection = null;
+            if (w.getTerminalDisplay() instanceof BrokkJediTermPanel display) {
+                selection = display.getSelectionText();
+            }
+
+            if (selection != null && !selection.isEmpty()) {
+                submitCapturedContent(selection);
+                return;
+            }
+
+            var buffer = w.getTerminalTextBuffer();
+            if (buffer == null) {
+                console.systemNotify(
+                        "No terminal buffer available to capture",
+                        "Terminal Capture",
+                        JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            CompletableFuture.supplyAsync(() -> {
+                var lines = new ArrayList<String>();
+                buffer.lock();
+                try {
+                    int historyCount = buffer.getHistoryLinesCount();
+                    for (int i = 0; i < historyCount; i++) {
+                        var line = buffer.getLine(i - historyCount);
+                        lines.add(line.getText());
+                    }
+
+                    for (int i = 0; i < buffer.getHeight(); i++) {
+                        var line = buffer.getLine(i);
+                        lines.add(line.getText());
+                    }
+                } finally {
+                    buffer.unlock();
+                }
+
+                return lines.stream().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
+            }).thenAcceptAsync(this::submitCapturedContent, SwingUtilities::invokeLater).exceptionally(ex -> {
+                logger.error("Error capturing terminal output", ex);
+                SwingUtilities.invokeLater(() -> console.toolError(
+                        "Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture Failed"));
+                return null;
+            });
+        });
 
         panel.add(tabPanel, BorderLayout.WEST);
         panel.add(captureButton, BorderLayout.EAST);
         return panel;
+    }
+
+    private void submitCapturedContent(String content) {
+        if (content == null || content.isBlank()) {
+            console.systemNotify(
+                    "No terminal content available to capture",
+                    "Terminal Capture",
+                    JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        if (console instanceof Chrome c) {
+            c.getContextManager().submitContextTask(() -> {
+                try {
+                    c.getContextManager().addPastedTextFragment(content);
+                    SwingUtilities.invokeLater(() -> {
+                        console.showNotification(
+                                IConsoleIO.NotificationRole.INFO, "Terminal content captured to workspace");
+                    });
+                } catch (Exception ex) {
+                    logger.error("Error adding terminal content to workspace", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        console.toolError(
+                                "Failed to add terminal content to workspace: " + ex.getMessage(),
+                                "Terminal Capture Failed");
+                    });
+                }
+            });
+        }
     }
 
     private void startProcessAsync(String[] cmd) {
