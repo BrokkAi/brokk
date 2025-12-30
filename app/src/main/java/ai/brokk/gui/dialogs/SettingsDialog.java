@@ -28,7 +28,7 @@ import org.jetbrains.annotations.Nullable;
 public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SettingsDialog.class);
 
-    public static final String GITHUB_SETTINGS_TAB_NAME = "GitHub";
+    public static final String GITHUB_SETTINGS_TAB_NAME = "Git";
 
     private final Chrome chrome;
     private final JTabbedPane tabbedPane;
@@ -266,6 +266,11 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
      * Shows settings dialog.
      */
     public static SettingsDialog showSettingsDialog(Chrome chrome, String targetTabName) {
+        // Handle backward compatibility for "GitHub" tab name
+        if ("GitHub".equalsIgnoreCase(targetTabName)) {
+            targetTabName = GITHUB_SETTINGS_TAB_NAME;
+        }
+
         var dialog = new SettingsDialog(chrome.getFrame(), chrome);
 
         // Load settings after dialog construction but before showing

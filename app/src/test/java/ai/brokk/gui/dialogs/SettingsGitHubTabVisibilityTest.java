@@ -50,7 +50,7 @@ public class SettingsGitHubTabVisibilityTest {
 
             assertTrue(
                     foundGitHubTab,
-                    "Global settings should always include the GitHub tab so users can configure GitHub auth, "
+                    "Global settings should always include the Git tab so users can configure Git/GitHub settings, "
                             + "even when the project is not a GitHub repo");
 
             // Verify Git / Signing tab is merged and no longer standalone
@@ -91,7 +91,7 @@ public class SettingsGitHubTabVisibilityTest {
                 }
             }
 
-            assertTrue(foundGitHubTab, "Global settings should include the GitHub tab for all projects");
+            assertTrue(foundGitHubTab, "Global settings should include the Git tab for all projects");
 
             // Verify Git / Signing tab is merged and no longer standalone
             boolean foundGitSigningTab = false;

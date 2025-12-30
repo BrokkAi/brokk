@@ -233,7 +233,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 SettingsDialog.GITHUB_SETTINGS_TAB_NAME,
                 null,
                 githubAndSigningPanel,
-                "GitHub and Git signing settings");
+                "Git and signing settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
