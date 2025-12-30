@@ -368,8 +368,15 @@ public class CodeAgent {
             assert es.pendingBlocks().isEmpty() : es;
 
             if (options.contains(Option.DEFER_BUILD)) {
-                // Report Java lint diagnostics before stopping (issue #2131)
                 if (!es.javaLintDiagnostics().isEmpty()) {
+                    if (es.consecutiveBuildFailures() >= MAX_BUILD_FAILURES) {
+                        reportComplete("Java syntax errors persist after %d attempts; aborting."
+                                .formatted(MAX_BUILD_FAILURES));
+                        stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR,
+                                "Java syntax issues persist.");
+                        break;
+                    }
+
                     var diagnosticMessages = new StringBuilder();
                     diagnosticMessages.append("Java syntax issues detected:\n\n");
                     for (var entry : es.javaLintDiagnostics().entrySet()) {
@@ -378,14 +385,17 @@ public class CodeAgent {
                         diagnosticMessages.append(
                                 String.format("**%s**: %d issue(s)\n", pf.getFileName(), diags.size()));
                         for (var diag : diags) {
-                            diagnosticMessages
-                                    .append("  - ")
-                                    .append(diag.description())
-                                    .append("\n");
+                            diagnosticMessages.append("  - ").append(diag.description()).append("\n");
                         }
                         diagnosticMessages.append("\n");
                     }
                     report(diagnosticMessages.toString());
+
+                    UserMessage nextRequestForLintFailure = new UserMessage(
+                            "The following Java syntax issues were detected. Please fix them:\n\n" + diagnosticMessages);
+                    cs = new ConversationState(cs.taskMessages(), nextRequestForLintFailure, cs.taskMessages().size());
+                    es = es.afterBuildFailure(diagnosticMessages.toString());
+                    continue;
                 }
 
                 reportComplete(
@@ -578,69 +588,79 @@ public class CodeAgent {
 
         // Use up to 5 related classes as context (format as combined summaries)
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
-
         String fileContents = file.read().orElse("");
-
         var styleGuide = contextManager.getProject().getStyleGuide();
 
         // Build the prompt messages
         var messages = QuickEditPrompts.instance.collectMessages(fileContents, relatedCode, styleGuide);
-
-        // The user instructions
         var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
         messages.add(new UserMessage(instructionsMsg));
 
-        // Initialize pending history with the instruction
         var pendingHistory = new ArrayList<ChatMessage>();
         pendingHistory.add(new UserMessage(instructionsMsg));
 
-        // No echo for Quick Edit, use instance quickModel
-        var result = coder.sendRequest(messages);
+        TaskResult.StopDetails stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+        int attempts = 0;
+        final int MAX_QUICK_FIX_ATTEMPTS = 3;
 
-        // Determine stop reason based on LLM response
-        TaskResult.StopDetails stopDetails;
-        if (result.error() != null) {
-            stopDetails = TaskResult.StopDetails.fromResponse(result);
-            io.toolError("Quick edit failed: " + stopDetails.explanation());
-        } else {
-            // Success from LLM perspective
+        while (attempts < MAX_QUICK_FIX_ATTEMPTS) {
+            attempts++;
+            var result = coder.sendRequest(messages);
+
+            if (result.error() != null) {
+                stopDetails = TaskResult.StopDetails.fromResponse(result);
+                io.toolError("Quick edit failed: " + stopDetails.explanation());
+                break;
+            }
+
             pendingHistory.add(result.aiMessage());
-            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+            var responseText = Messages.getText(result.aiMessage());
+            var snippet = EditBlock.extractCodeFromTripleBackticks(responseText).trim();
 
-            // Parse Java for lint diagnostics (issue #2131)
+            if (snippet.isEmpty()) {
+                io.toolError("Could not extract code block from LLM response.", "Quick Edit Diagnostics");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR, "Empty code block");
+                break;
+            }
+
+            if (snippet.equals(oldText)) {
+                break; // No changes suggested
+            }
+
+            // Validate Java syntax if applicable
             if (Languages.JAVA.getExtensions().contains(file.extension())) {
-                var responseText = Messages.getText(result.aiMessage());
-                var snippet = EditBlock.extractCodeFromTripleBackticks(responseText).trim();
-
-                if (snippet.isEmpty()) {
-                    io.toolError(
-                            "Could not extract code block from LLM response. Ensure the response includes code fenced with triple backticks.",
-                            "Quick Edit Diagnostics");
-                } else if (!snippet.equals(oldText)) {
-                    var updatedContent =
-                            fileContents.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
-
-                    if (updatedContent.equals(fileContents)) {
-                        logger.warn("Quick Edit diagnostics: could not find target text in file (may have changed)");
-                    } else {
-                        var diags = parseJavaForDiagnostics(file, updatedContent);
-                        if (!diags.isEmpty()) {
-                            var diagnosticMessages = new StringBuilder();
-                            diagnosticMessages.append("\nJava syntax issues detected:\n\n");
-                            for (var diag : diags) {
-                                diagnosticMessages
-                                        .append("  - ")
-                                        .append(diag.description())
-                                        .append("\n");
-                            }
-                            io.llmOutput(diagnosticMessages.toString(), ChatMessageType.CUSTOM);
-                        }
-                    }
+                var updatedContent = fileContents.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
+                if (updatedContent.equals(fileContents)) {
+                    logger.warn("Quick Edit: target text not found in file (may have changed)");
+                    break;
                 }
+
+                var diags = parseJavaForDiagnostics(file, updatedContent);
+                if (diags.isEmpty()) {
+                    break; // Valid Java
+                }
+
+                var diagnosticMessages = new StringBuilder();
+                diagnosticMessages.append("\nJava syntax issues detected:\n\n");
+                for (var diag : diags) {
+                    diagnosticMessages.append("  - ").append(diag.description()).append("\n");
+                }
+                io.llmOutput(diagnosticMessages.toString(), ChatMessageType.CUSTOM);
+
+                if (attempts < MAX_QUICK_FIX_ATTEMPTS) {
+                    messages.add(result.aiMessage());
+                    messages.add(new UserMessage("The following Java syntax issues were detected in your response. Please fix them and provide the full corrected code block:\n\n" + diagnosticMessages));
+                    report("Quick Edit: Syntax errors detected, retrying...");
+                    continue;
+                } else {
+                    report("Quick Edit: Maximum fix attempts reached.");
+                    stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "Syntax errors persist");
+                }
+            } else {
+                break; // Not Java, stop here
             }
         }
 
-        // Return TaskResult containing conversation and resulting context (populate TaskMeta since an LLM was used)
         var quickMeta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
         return new TaskResult(
