@@ -77,6 +77,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     // Appearance controls (kept in Global)
     private JComboBox<String> themeCombo = new JComboBox<>();
+    private JCheckBox gpgSigningCheckbox = new JCheckBox("Sign commits with GPG");
+    private JComboBox<String> gpgKeyCombo = new JComboBox<>();
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JCheckBox classicBrokkViewCheckbox = new JCheckBox("Enable Classic (Horizontal) View");
     private JRadioButton diffSideBySideRadio = new JRadioButton("Side-by-Side");
@@ -194,6 +196,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // MCP servers list
         populateMcpServersTab();
+
+        // GPG Signing
+        gpgSigningCheckbox.setSelected(MainProject.isGpgCommitSigningEnabled());
+        String savedKey = MainProject.getGpgSigningKey();
+        if (!savedKey.isEmpty()) {
+            gpgKeyCombo.setSelectedItem(savedKey);
+        }
+        discoverGpgKeys();
     }
 
     @Override
@@ -228,6 +238,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
         globalSubTabbedPane.addTab("MCP Servers", null, mcpPanel, "MCP server configuration");
+
+        // Git / Signing Tab
+        var gitSigningPanel = createGitSigningPanel();
+        globalSubTabbedPane.addTab("Git / Signing", null, gitSigningPanel, "Git and GPG signing settings");
 
         // Keybindings Tab (scrollable)
         var keybindingsPanel = createKeybindingsPanel();
@@ -347,6 +361,79 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         String currentPersistedKey = MainProject.getBrokkKey();
         boolean keyIsEffectivelyPresent = !currentPersistedKey.trim().isEmpty();
         this.signupLabel.setVisible(!keyIsEffectivelyPresent);
+    }
+
+    private JPanel createGitSigningPanel() {
+        var panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        var gbc = new GridBagConstraints();
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.insets = new Insets(5, 5, 5, 5);
+        int row = 0;
+
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.gridwidth = 2;
+        panel.add(gpgSigningCheckbox, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        panel.add(new JLabel("GPG Signing Key:"), gbc);
+
+        gpgKeyCombo.setEditable(true);
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(gpgKeyCombo, gbc);
+
+        row++;
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.BOTH;
+        panel.add(Box.createGlue(), gbc);
+
+        return panel;
+    }
+
+    private void discoverGpgKeys() {
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() {
+                List<String> keys = new ArrayList<>();
+                try {
+                    Process process = new ProcessBuilder("gpg", "--list-secret-keys", "--with-colons").start();
+                    try (var reader = new java.io.BufferedReader(new java.io.InputStreamReader(process.getInputStream()))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            String[] parts = line.split(":");
+                            if ((parts[0].equals("sec") || parts[0].equals("ssb")) && parts.length > 4) {
+                                String keyId = parts[4];
+                                if (!keyId.isEmpty()) keys.add(keyId);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    logger.debug("GPG key discovery failed: {}", e.getMessage());
+                }
+                return keys;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<String> keys = get();
+                    String current = (String) gpgKeyCombo.getSelectedItem();
+                    DefaultComboBoxModel<String> model = new DefaultComboBoxModel<>();
+                    keys.forEach(model::addElement);
+                    gpgKeyCombo.setModel(model);
+                    if (current != null && !current.isEmpty()) {
+                        gpgKeyCombo.setSelectedItem(current);
+                    }
+                } catch (Exception ignore) {}
+            }
+        }.execute();
     }
 
     private JPanel createAppearancePanel() {
@@ -1116,6 +1203,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         var mcpConfig = new McpConfig(mcpServers);
         chrome.getProject().getMainProject().setMcpConfig(mcpConfig);
+
+        // Git / Signing settings
+        MainProject.setGpgCommitSigningEnabled(gpgSigningCheckbox.isSelected());
+        Object selectedKey = gpgKeyCombo.getSelectedItem();
+        MainProject.setGpgSigningKey(selectedKey != null ? selectedKey.toString() : "");
 
         // Side effects
 
