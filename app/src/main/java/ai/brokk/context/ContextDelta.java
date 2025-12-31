@@ -77,10 +77,37 @@ public record ContextDelta(
         // Check for content changes in existing fragments
         var updatedSpecials = new ArrayList<ContextFragments.StringFragment>();
         boolean contentsChanged = false;
-        // TODO: make two passes
-        // 1. for each special type, see if it exists in both; if it does, and text() differs, then add to updatedSpecials
-        // 2. for each fragment in `to`, see if it has a counterpart in `from` (findWithSameSource); if it does,
-        // set contentsChanged if to_f.text() != from_f.text()
+
+        // 1. Check for updated special fragments
+        for (SpecialTextType type : SpecialTextType.values()) {
+            var fromSpecial = from.getSpecial(type.description());
+            var toSpecial = to.getSpecial(type.description());
+
+            if (fromSpecial.isPresent() && toSpecial.isPresent()) {
+                String fromText = fromSpecial.get().text().join();
+                String toText = toSpecial.get().text().join();
+                if (!fromText.equals(toText)) {
+                    updatedSpecials.add(toSpecial.get());
+                }
+            }
+        }
+
+        // 2. Check for content changes in any overlapping fragments
+        for (ContextFragment toFrag : to.fragments) {
+            if (!(toFrag instanceof ContextFragments.StringFragment sf) || sf.specialType().isPresent()) {
+                continue;
+            }
+
+            var fromFragOpt = from.findWithSameSource(toFrag);
+            if (fromFragOpt.isPresent()) {
+                String fromText = fromFragOpt.get().text().join();
+                String toText = toFrag.text().join();
+                if (!fromText.equals(toText)) {
+                    contentsChanged = true;
+                    break;
+                }
+            }
+        }
 
         return new ContextDelta(
                 added,
