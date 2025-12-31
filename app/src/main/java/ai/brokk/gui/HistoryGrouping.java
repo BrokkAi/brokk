@@ -70,7 +70,8 @@ public final class HistoryGrouping {
          * @param isBoundary boundary predicate; true indicates a boundary context that terminates any group
          * @return ordered list of group descriptors covering all input contexts
          */
-        public static List<GroupDescriptor> discoverGroups(List<Context> contexts, Predicate<Context> isBoundary) {
+        public static List<GroupDescriptor> discoverGroups(
+                List<Context> contexts, Predicate<Context> isBoundary, Set<UUID> resetTargetIds) {
             if (contexts.isEmpty()) {
                 return List.of();
             }
@@ -84,12 +85,12 @@ public final class HistoryGrouping {
             for (int i = 1; i < n; i++) {
                 if (isBoundary.test(contexts.get(i))) {
                     // emit [segStart, i)
-                    emitSegment(contexts, segStart, i, out, isBoundary);
+                    emitSegment(contexts, segStart, i, out, isBoundary, resetTargetIds);
                     segStart = i;
                 }
             }
             // emit final segment [segStart, n)
-            emitSegment(contexts, segStart, n, out, isBoundary);
+            emitSegment(contexts, segStart, n, out, isBoundary, resetTargetIds);
 
             // 2) Mark last descriptor, if any
             if (!out.isEmpty()) {
@@ -115,7 +116,8 @@ public final class HistoryGrouping {
                 int start,
                 int end,
                 List<GroupDescriptor> out,
-                java.util.function.Predicate<Context> isBoundary) {
+                java.util.function.Predicate<Context> isBoundary,
+                Set<UUID> resetTargetIds) {
             int i = start;
             while (i < end) {
                 Context ctx = contexts.get(i);
@@ -160,7 +162,7 @@ public final class HistoryGrouping {
                     int len = j - i;
                     if (len >= 2) {
                         List<Context> children = contexts.subList(i, j);
-                        String label = computeHeaderLabelFor(contexts, i, j);
+                        String label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
                         String key = children.get(0).id().toString();
                         out.add(new GroupDescriptor(GroupType.GROUP_BY_ACTION, key, label, children, true, false));
                     } else {
@@ -174,23 +176,26 @@ public final class HistoryGrouping {
             }
         }
 
-        private static String computeHeaderLabelFor(List<Context> contexts, int i, int j) {
+        private static String computeHeaderLabelFor(List<Context> contexts, int i, int j, Set<UUID> resetTargetIds) {
             int size = j - i;
             assert size > 0 : "%d <= %d".formatted(j, i);
 
-            String d1 = getDescription(contexts, i);
+            String d1 = getDescription(contexts, i, resetTargetIds);
             if (size == 1) {
                 return d1;
             } else if (size == 2) {
-                String d2 = getDescription(contexts, i + 1);
+                String d2 = getDescription(contexts, i + 1, resetTargetIds);
                 return safeFirstWord(d1) + " + " + safeFirstWord(d2);
             } else {
                 return safeFirstWord(d1) + " + " + (size - 1) + " more";
             }
         }
 
-        private static String getDescription(List<Context> contexts, int index) {
+        private static String getDescription(List<Context> contexts, int index, Set<UUID> resetTargetIds) {
             Context ctx = contexts.get(index);
+            if (resetTargetIds.contains(ctx.id())) {
+                return "Copy From History";
+            }
             int prev = index - 1;
             return ctx.getDescription(prev >= 0 ? contexts.get(prev) : null);
         }

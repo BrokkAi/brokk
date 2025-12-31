@@ -645,7 +645,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             // Diff warm-up is deferred; request diffs only for visible rows and current selection.
             var diffService = contextManager.getContextHistory().getDiffService();
-            var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary);
+            var resetEdges = contextManager.getContextHistory().getResetEdges();
+            var resetTargetIds = resetEdges.stream()
+                    .map(ai.brokk.context.ContextHistory.ResetEdge::targetId)
+                    .collect(java.util.stream.Collectors.toSet());
+
+            var descriptors =
+                    HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary, resetTargetIds);
             latestDescriptors = descriptors;
 
             for (var descriptor : descriptors) {
@@ -657,7 +663,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     var ctx = children.getFirst();
                     Context prev = contextManager.getContextHistory().previousOf(ctx);
                     Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                    var actionVal = new ActionText(ctx.getDescription(prev), 0);
+
+                    String description = resetTargetIds.contains(ctx.id())
+                            ? "Copy From History"
+                            : ctx.getDescription(prev);
+
+                    var actionVal = new ActionText(description, 0);
                     historyModel.addRow(new Object[] {icon, actionVal, ctx});
                     if (ctx.equals(contextToSelect)) {
                         rowToSelect = currentRow;
@@ -754,7 +765,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             requestVisibleDiffs();
 
             contextManager.getProject().getMainProject().sessionsListChanged();
-            var resetEdges = contextManager.getContextHistory().getResetEdges();
             arrowLayerUI.setResetEdges(resetEdges);
             updateUndoRedoButtonStates();
         });
