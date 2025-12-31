@@ -549,9 +549,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         try {
             List<String> pathStrings = objectMapper.readValue(
                     json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
-            return pathStrings.stream()
-                    .map(Path::of)
-                    .collect(Collectors.toList());
+            return pathStrings.stream().map(Path::of).collect(Collectors.toList());
         } catch (Exception e) {
             logger.warn("Error parsing expanded tree paths: {}", e.getMessage());
             return List.of();
@@ -561,9 +559,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public void setExpandedTreePaths(List<Path> paths) {
         try {
-            var pathStrings = paths.stream()
-                    .map(Path::toString)
-                    .collect(Collectors.toList());
+            var pathStrings = paths.stream().map(Path::toString).collect(Collectors.toList());
             var json = objectMapper.writeValueAsString(pathStrings);
             workspaceProps.setProperty(PROP_TREE_EXPANDED, json);
             saveWorkspaceProperties();

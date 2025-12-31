@@ -28,6 +28,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
@@ -70,6 +71,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
     @Nullable
     private Timer expansionSaveTimer;
+
+    /** Flag to prevent refresh during expansion state restoration */
+    private volatile boolean isRestoringExpansion = false;
 
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
@@ -604,9 +608,15 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             return CompletableFuture.completedFuture(null);
         }
 
-        // If already loaded or currently loading, nothing to do.
-        if (treeNode.isChildrenLoaded() || treeNode.isLoading()) {
+        // If already loaded, nothing to do.
+        if (treeNode.isChildrenLoaded()) {
             return CompletableFuture.completedFuture(null);
+        }
+
+        // If currently loading, return the existing future so caller can wait for it
+        if (treeNode.isLoading()) {
+            var existingFuture = treeNode.getLoadingFuture();
+            return existingFuture != null ? existingFuture : CompletableFuture.completedFuture(null);
         }
         treeNode.setLoading(true);
 
@@ -625,6 +635,8 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         // Capture the directory reference to validate the node hasn't changed by the time the worker completes.
         final File expectedDirectory = directory;
         var result = new CompletableFuture<Void>();
+        // Store the future so other callers can wait for this loading to complete
+        treeNode.setLoadingFuture(result);
 
         // Perform expensive filesystem operations off the EDT using dedicated I/O executor.
         CompletableFuture.supplyAsync(
@@ -664,10 +676,12 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         try {
                             // Validate node still represents the same directory and is present in tree.
                             if (!(node.getUserObject() instanceof ProjectTreeNode currentTreeNode)) {
+                                treeNode.setLoadingFuture(null);
                                 result.complete(null);
                                 return;
                             }
                             if (!currentTreeNode.getFile().equals(expectedDirectory)) {
+                                treeNode.setLoadingFuture(null);
                                 result.complete(null);
                                 return;
                             }
@@ -688,6 +702,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
                             currentTreeNode.setChildrenLoaded(true);
                             currentTreeNode.setLoading(false);
+                            currentTreeNode.setLoadingFuture(null);
                             ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
 
                             // Attempt to auto-expand single-directory chains as before.
@@ -696,6 +711,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         } catch (Exception ex) {
                             if (node.getUserObject() instanceof ProjectTreeNode ptn) {
                                 ptn.setLoading(false);
+                                ptn.setLoadingFuture(null);
                             }
                             logger.error("Error applying loaded children to tree node", ex);
                             SwingUtilities.invokeLater(
@@ -775,6 +791,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     }
 
     private void scheduleExpansionSave() {
+        if (isRestoringExpansion) {
+            return;
+        }
         if (expansionSaveTimer != null) {
             expansionSaveTimer.stop();
         }
@@ -798,16 +817,40 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         if (paths.isEmpty()) {
             return;
         }
+
+        // Block refresh during restoration to avoid race conditions
+        isRestoringExpansion = true;
+
         var root = (DefaultMutableTreeNode) getModel().getRoot();
-        for (var relativePath : paths) {
-            if (relativePath.getNameCount() > 0) {
-                findAndExpandNodeAsync(root, relativePath, 0);
-            }
+
+        // Sort by depth (shortest first) and process sequentially to avoid race conditions.
+        // Shorter paths (parents) must be expanded before longer paths (children) that depend on them.
+        var sortedPaths = paths.stream()
+                .filter(p -> p.getNameCount() > 0 && !p.toString().isEmpty())
+                .sorted(Comparator.comparingInt(Path::getNameCount))
+                .toList();
+        logger.trace("Restoring expansion state for paths: {}", sortedPaths);
+
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+        for (var relativePath : sortedPaths) {
+            final Path pathForLambda = relativePath;
+            chain = chain.thenCompose(v -> findAndExpandNodeAsync(root, pathForLambda, 0).thenAccept(node -> {
+                if (node == null) {
+                    logger.trace("Could not restore expansion for path: {}", pathForLambda);
+                }
+            }));
         }
+
+        // Clear the flag when restoration completes (success or failure)
+        chain.whenComplete((result, ex) -> isRestoringExpansion = false);
     }
 
     @Override
     public void onTrackedFilesChanged() {
+        // Skip refresh during expansion state restoration to avoid race conditions
+        if (isRestoringExpansion) {
+            return;
+        }
         // Debounce rapid calls - only refresh after 100ms of no new calls
         SwingUtilities.invokeLater(() -> {
             if (refreshDebounceTimer != null) {
@@ -848,26 +891,33 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         final var rootRef = root;
         loadChildrenForNodeAsync(root)
                 .thenCompose(ignored -> {
-                    // Restore expanded directories
-                    var expansionFutures = previouslyExpandedDirPaths.stream()
-                            .filter(p -> p.getNameCount() > 0)
-                            .map(expandedDirPath -> findAndExpandNodeAsync(rootRef, expandedDirPath, 0)
-                                    .thenAccept(nodeToExpand -> {
-                                        if (nodeToExpand != null) {
-                                            SwingUtilities.invokeLater(() -> {
-                                                TreePath pathToExpand = new TreePath(nodeToExpand.getPath());
-                                                if (!isExpanded(pathToExpand)) {
-                                                    expandPath(pathToExpand);
-                                                }
-                                            });
-                                        } else {
-                                            logger.trace(
-                                                    "Could not find previously expanded directory: {}",
-                                                    expandedDirPath);
-                                        }
-                                    }))
-                            .toArray(CompletableFuture[]::new);
-                    return CompletableFuture.allOf(expansionFutures);
+                    // Restore expanded directories - process sequentially by depth to avoid race conditions.
+                    // Shorter paths (parents) must be expanded before longer paths (children) that depend on them.
+                    // Also exclude empty paths - Path.of("").getNameCount() returns 1 but searching for "" never
+                    // matches
+                    var sortedPaths = previouslyExpandedDirPaths.stream()
+                            .filter(p -> p.getNameCount() > 0 && !p.toString().isEmpty())
+                            .sorted(Comparator.comparingInt(Path::getNameCount))
+                            .toList();
+
+                    CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+                    for (Path expandedDirPath : sortedPaths) {
+                        final Path pathForLambda = expandedDirPath;
+                        chain = chain.thenCompose(v -> findAndExpandNodeAsync(rootRef, pathForLambda, 0)
+                                .thenAccept(nodeToExpand -> {
+                                    if (nodeToExpand != null) {
+                                        SwingUtilities.invokeLater(() -> {
+                                            TreePath pathToExpand = new TreePath(nodeToExpand.getPath());
+                                            if (!isExpanded(pathToExpand)) {
+                                                expandPath(pathToExpand);
+                                            }
+                                        });
+                                    } else {
+                                        logger.trace("Could not find previously expanded directory: {}", pathForLambda);
+                                    }
+                                }));
+                    }
+                    return chain;
                 })
                 .thenCompose(ignored -> {
                     // Restore selections
@@ -1164,10 +1214,16 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                             if (!isExpanded(childPath)) {
                                 expandPath(childPath);
                             }
+                            // Wait for children to load before recursing
+                            loadChildrenForNodeAsync(childNode)
+                                    .thenCompose(v ->
+                                            findNodeAsync(childNode, relativePath, depth + 1, expandDuringTraversal))
+                                    .thenAccept(result::complete);
+                        } else {
+                            // Non-directory or not expanding - recurse immediately
+                            findNodeAsync(childNode, relativePath, depth + 1, expandDuringTraversal)
+                                    .thenAccept(result::complete);
                         }
-                        // Recurse and chain result
-                        findNodeAsync(childNode, relativePath, depth + 1, expandDuringTraversal)
-                                .thenAccept(result::complete);
                         return;
                     }
                 }
@@ -1421,7 +1477,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         private final File file;
         private final boolean isDirectory; // Cached at construction to avoid repeated syscalls
         private boolean childrenLoaded;
-        private boolean isLoading = false;
+        private volatile boolean isLoading = false;
+        // Track in-progress loading so callers can wait for it to complete
+        private volatile @Nullable CompletableFuture<Void> loadingFuture;
         // Cached coloring state (computed lazily, but can be pre-warmed off EDT)
         // Volatile for cross-thread visibility between pre-warming (ForkJoinPool) and rendering (EDT)
         private volatile @Nullable Boolean cachedIsExcluded;
@@ -1456,6 +1514,14 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
         public void setLoading(boolean loading) {
             this.isLoading = loading;
+        }
+
+        public @Nullable CompletableFuture<Void> getLoadingFuture() {
+            return loadingFuture;
+        }
+
+        public void setLoadingFuture(@Nullable CompletableFuture<Void> future) {
+            this.loadingFuture = future;
         }
 
         /** Returns cached excluded state, computing and caching if needed */
