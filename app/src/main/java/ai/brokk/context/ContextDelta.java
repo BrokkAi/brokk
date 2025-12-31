@@ -3,6 +3,7 @@ package ai.brokk.context;
 import ai.brokk.TaskEntry;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import ai.brokk.TaskResult;
 import org.jetbrains.annotations.Blocking;
@@ -62,23 +63,20 @@ public record ContextDelta(
         boolean compressedHistory = false;
         if (to.taskHistory.size() > from.taskHistory.size()) {
             addedTasks.addAll(to.taskHistory.subList(from.taskHistory.size(), to.taskHistory.size()));
-        } else if (to.taskHistory.size() == from.taskHistory.size() && !to.taskHistory.isEmpty()) {
-            // Check if any entries were compressed (isCompressed() is on TaskEntry)
-            for (int i = 0; i < to.taskHistory.size(); i++) {
-                if (to.taskHistory.get(i).isCompressed() && !from.taskHistory.get(i).isCompressed()) {
-                    compressedHistory = true;
-                    break;
-                }
+        }
+        // Check for compression in the overlapping portion of history
+        int commonSize = Math.min(from.taskHistory.size(), to.taskHistory.size());
+        for (int i = 0; i < commonSize; i++) {
+            if (to.taskHistory.get(i).isCompressed() && !from.taskHistory.get(i).isCompressed()) {
+                compressedHistory = true;
+                break;
             }
         }
 
         boolean clearedHistory = from.taskHistory.size() > to.taskHistory.size() && to.taskHistory.isEmpty();
 
-        // Check for content changes in existing fragments
-        var updatedSpecials = new ArrayList<ContextFragments.StringFragment>();
-        boolean contentsChanged = false;
-
         // 1. Check for updated special fragments
+        var updatedSpecials = new ArrayList<ContextFragments.StringFragment>();
         for (SpecialTextType type : SpecialTextType.values()) {
             var fromSpecial = from.getSpecial(type.description());
             var toSpecial = to.getSpecial(type.description());
@@ -92,22 +90,12 @@ public record ContextDelta(
             }
         }
 
-        // 2. Check for content changes in any overlapping fragments
-        for (ContextFragment toFrag : to.fragments) {
-            if (!(toFrag instanceof ContextFragments.StringFragment sf) || sf.specialType().isPresent()) {
-                continue;
-            }
-
-            var fromFragOpt = from.findWithSameSource(toFrag);
-            if (fromFragOpt.isPresent()) {
-                String fromText = fromFragOpt.get().text().join();
-                String toText = toFrag.text().join();
-                if (!fromText.equals(toText)) {
-                    contentsChanged = true;
-                    break;
-                }
-            }
-        }
+        // 2. Check for content changes in any overlapping non-special fragments
+        boolean contentsChanged = to.fragments.stream()
+                .filter(toFrag -> !(toFrag instanceof ContextFragments.StringFragment sf && sf.specialType().isPresent()))
+                .anyMatch(toFrag -> from.findWithSameSource(toFrag)
+                        .map(fromFrag -> !fromFrag.text().join().equals(toFrag.text().join()))
+                        .orElse(false));
 
         return new ContextDelta(
                 added,
