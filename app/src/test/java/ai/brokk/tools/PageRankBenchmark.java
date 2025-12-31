@@ -5,6 +5,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import org.jspecify.annotations.NullMarked;
@@ -96,7 +97,7 @@ public class PageRankBenchmark implements Callable<Integer> {
             scenarios.add(new ScenarioConfig("sparse", sparseImportProb, sparseCommitDensity, sparseCommitCount));
         }
         if ("dense".equalsIgnoreCase(scenario) || "both".equalsIgnoreCase(scenario)) {
-            scenarios.add(new ScenarioConfig("dense", denseImportProb, sparseCommitDensity, denseCommitCount));
+            scenarios.add(new ScenarioConfig("dense", denseImportProb, denseCommitDensity, denseCommitCount));
         }
 
         for (ScenarioConfig config : scenarios) {
@@ -131,14 +132,27 @@ public class PageRankBenchmark implements Callable<Integer> {
         }
 
         for (int i = 0; i < config.commitCount(); i++) {
-            String fileA = String.format("File%05d.java", random.nextInt(fileCount));
-            String fileB = String.format("File%05d.java", random.nextInt(fileCount));
-            builder.addCommit(fileA, fileB);
+            int filesInCommit = (int) Math.max(2, Math.round(config.commitDensity() + random.nextGaussian()));
+            List<String> commitFiles = random.ints(0, fileCount)
+                    .distinct()
+                    .limit(filesInCommit)
+                    .mapToObj(idx -> String.format("File%05d.java", idx))
+                    .toList();
+
+            for (int j = 0; j < commitFiles.size() - 1; j++) {
+                builder.addCommit(commitFiles.get(j), commitFiles.get(j + 1));
+            }
         }
 
         try (var project = builder.build()) {
             IAnalyzer analyzer = Languages.JAVA.createAnalyzer(project);
-            GitRepo repo = (GitRepo) requireNonNull(project.getRepo());
+            IGitRepo iRepo = project.getRepo();
+            GitRepo repo = iRepo instanceof GitRepo gr ? gr : null;
+
+            if (repo == null) {
+                System.out.println("  [Warning] Project does not have a valid GitRepo. Skipping GitDistance.");
+            }
+
             List<ProjectFile> allFiles = project.getAllFiles().stream().sorted().toList();
 
             Map<ProjectFile, Double> seedWeights = new HashMap<>();
@@ -151,7 +165,9 @@ public class PageRankBenchmark implements Callable<Integer> {
                 System.out.printf(Locale.ROOT, "Warming up (%d iterations)...%n", warmUpIterations);
                 for (int i = 0; i < warmUpIterations; i++) {
                     ImportPageRanker.getRelatedFilesByImports(analyzer, seedWeights, topK, reversed);
-                    GitDistance.getRelatedFiles(repo, seedWeights, topK, reversed);
+                    if (repo != null) {
+                        GitDistance.getRelatedFiles(repo, seedWeights, topK, reversed);
+                    }
                 }
             }
 
@@ -161,10 +177,12 @@ public class PageRankBenchmark implements Callable<Integer> {
                 long start = System.nanoTime();
                 ImportPageRanker.getRelatedFilesByImports(analyzer, seedWeights, topK, reversed);
                 long mid = System.nanoTime();
-                GitDistance.getRelatedFiles(repo, seedWeights, topK, reversed);
+                if (repo != null) {
+                    GitDistance.getRelatedFiles(repo, seedWeights, topK, reversed);
+                }
                 long end = System.nanoTime();
 
-                IterationResult res = new IterationResult(mid - start, end - mid);
+                IterationResult res = new IterationResult(mid - start, repo != null ? end - mid : 0L);
                 results.add(res);
 
                 System.out.printf(Locale.ROOT, "  Iteration %d: ImportRanker=%s, GitDistance=%s%n",
