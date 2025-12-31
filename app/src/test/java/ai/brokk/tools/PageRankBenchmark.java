@@ -85,7 +85,7 @@ public class PageRankBenchmark implements Callable<Integer> {
             double commitDensity,
             int commitCount) {}
 
-    private record IterationResult(long importNanos, long gitNanos) {}
+    private record IterationResult(long analyzerNanos, long importNanos, long gitNanos) {}
 
     @Override
     public Integer call() throws Exception {
@@ -145,7 +145,6 @@ public class PageRankBenchmark implements Callable<Integer> {
         }
 
         try (var project = builder.build()) {
-            IAnalyzer analyzer = Languages.JAVA.createAnalyzer(project);
             IGitRepo iRepo = project.getRepo();
             GitRepo repo = iRepo instanceof GitRepo gr ? gr : null;
 
@@ -164,6 +163,7 @@ public class PageRankBenchmark implements Callable<Integer> {
             if (warmUpIterations > 0) {
                 System.out.printf(Locale.ROOT, "Warming up (%d iterations)...%n", warmUpIterations);
                 for (int i = 0; i < warmUpIterations; i++) {
+                    IAnalyzer analyzer = Languages.JAVA.createAnalyzer(project);
                     ImportPageRanker.getRelatedFilesByImports(analyzer, seedWeights, topK, reversed);
                     if (repo != null) {
                         GitDistance.getRelatedFiles(repo, seedWeights, topK, reversed);
@@ -174,19 +174,23 @@ public class PageRankBenchmark implements Callable<Integer> {
             System.out.printf(Locale.ROOT, "Measuring (%d iterations)...%n", iterations);
             List<IterationResult> results = new ArrayList<>();
             for (int i = 0; i < iterations; i++) {
-                long start = System.nanoTime();
+                long t0 = System.nanoTime();
+                IAnalyzer analyzer = Languages.JAVA.createAnalyzer(project);
+                long t1 = System.nanoTime();
+
                 ImportPageRanker.getRelatedFilesByImports(analyzer, seedWeights, topK, reversed);
-                long mid = System.nanoTime();
+                long t2 = System.nanoTime();
+
                 if (repo != null) {
                     GitDistance.getRelatedFiles(repo, seedWeights, topK, reversed);
                 }
-                long end = System.nanoTime();
+                long t3 = System.nanoTime();
 
-                IterationResult res = new IterationResult(mid - start, repo != null ? end - mid : 0L);
+                IterationResult res = new IterationResult(t1 - t0, t2 - t1, repo != null ? t3 - t2 : 0L);
                 results.add(res);
 
-                System.out.printf(Locale.ROOT, "  Iteration %d: ImportRanker=%s, GitDistance=%s%n",
-                        i + 1, formatDuration(res.importNanos()), formatDuration(res.gitNanos()));
+                System.out.printf(Locale.ROOT, "  Iteration %d: Analyzer=%s, ImportRanker=%s, GitDistance=%s%n",
+                        i + 1, formatDuration(res.analyzerNanos()), formatDuration(res.importNanos()), formatDuration(res.gitNanos()));
             }
 
             printSummary(results);
@@ -202,6 +206,10 @@ public class PageRankBenchmark implements Callable<Integer> {
     }
 
     private void printSummary(List<IterationResult> results) {
+        long analyzerMin = results.stream().mapToLong(IterationResult::analyzerNanos).min().orElse(0);
+        long analyzerMax = results.stream().mapToLong(IterationResult::analyzerNanos).max().orElse(0);
+        double analyzerMean = results.stream().mapToLong(IterationResult::analyzerNanos).average().orElse(0);
+
         long importMin = results.stream().mapToLong(IterationResult::importNanos).min().orElse(0);
         long importMax = results.stream().mapToLong(IterationResult::importNanos).max().orElse(0);
         double importMean = results.stream().mapToLong(IterationResult::importNanos).average().orElse(0);
@@ -211,9 +219,11 @@ public class PageRankBenchmark implements Callable<Integer> {
         double gitMean = results.stream().mapToLong(IterationResult::gitNanos).average().orElse(0);
 
         System.out.println("\nScenario Statistics:");
-        System.out.printf(Locale.ROOT, "  ImportPageRanker: [Min: %s, Mean: %s, Max: %s]%n",
+        System.out.printf(Locale.ROOT, "  Analyzer (Create): [Min: %s, Mean: %s, Max: %s]%n",
+                formatDuration(analyzerMin), formatDuration((long) analyzerMean), formatDuration(analyzerMax));
+        System.out.printf(Locale.ROOT, "  ImportPageRanker:  [Min: %s, Mean: %s, Max: %s]%n",
                 formatDuration(importMin), formatDuration((long) importMean), formatDuration(importMax));
-        System.out.printf(Locale.ROOT, "  GitDistance:      [Min: %s, Mean: %s, Max: %s]%n",
+        System.out.printf(Locale.ROOT, "  GitDistance:       [Min: %s, Mean: %s, Max: %s]%n",
                 formatDuration(gitMin), formatDuration((long) gitMean), formatDuration(gitMax));
         System.out.println();
     }
