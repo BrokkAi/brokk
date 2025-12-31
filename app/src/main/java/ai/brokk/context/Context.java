@@ -12,6 +12,7 @@ import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.project.AbstractProject;
+import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.*;
@@ -328,10 +329,13 @@ public class Context {
     }
 
     /**
-     * Returns the files from the git repo that are most relevant to this context, up to the specified limit.
+     * Returns files relevant to this context, prioritizing Git-based distance and supplementing with
+     * import-based PageRank if fewer than {@code topK} results are found.
      */
     @Blocking
     public List<ProjectFile> getMostRelevantFiles(int topK) throws InterruptedException {
+        if (topK <= 0) return List.of();
+
         var ineligibleSources = fragments.stream()
                 .filter(f -> !f.isEligibleForAutoContext())
                 .flatMap(f -> f.files().join().stream())
@@ -351,9 +355,35 @@ public class Context {
             return List.of();
         }
 
-        var gitDistanceResults =
-                GitDistance.getRelatedFiles((GitRepo) contextManager.getRepo(), weightedSeeds, topK, false);
-        return gitDistanceResults.stream()
+        Set<ProjectFile> resultFiles = new LinkedHashSet<>();
+        var repoObj = contextManager.getRepo();
+
+        // 1. Try Git-based distance first if a real GitRepo is available
+        if (repoObj instanceof GitRepo gr) {
+            try {
+                var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK);
+                resultFiles.addAll(filterResults(gitResults, ineligibleSources));
+            } catch (Exception e) {
+                logger.warn("Failed to compute Git-based related files; falling back to imports.", e);
+            }
+        }
+
+        // 2. Supplement with Import-based PageRank if we need more results
+        if (resultFiles.size() < topK) {
+            int remaining = topK - resultFiles.size();
+            IAnalyzer analyzer = contextManager.getAnalyzer();
+            var importResults = ImportPageRanker.getRelatedFilesByImports(analyzer, weightedSeeds, topK, false);
+            filterResults(importResults, ineligibleSources).stream()
+                    .filter(file -> !resultFiles.contains(file))
+                    .limit(remaining)
+                    .forEach(resultFiles::add);
+        }
+
+        return List.copyOf(resultFiles);
+    }
+
+    private List<ProjectFile> filterResults(List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
+        return results.stream()
                 .map(IAnalyzer.FileRelevance::file)
                 .filter(file -> !ineligibleSources.contains(file))
                 .toList();
