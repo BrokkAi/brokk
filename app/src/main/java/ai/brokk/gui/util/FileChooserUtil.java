@@ -1,6 +1,9 @@
 package ai.brokk.gui.util;
 
 import java.awt.*;
+import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.io.File;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
@@ -42,6 +45,26 @@ public final class FileChooserUtil {
 
         var dialog = chooser.createDialog(parent);
         dialog.setTitle(title);
+
+        // Ensure ESC closes the dialog using KeyEventDispatcher for reliable capture
+        var dispatcher = new KeyEventDispatcher() {
+            @Override
+            public boolean dispatchKeyEvent(KeyEvent e) {
+                if (e.getID() == KeyEvent.KEY_PRESSED && e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                    dialog.dispose();
+                    return true;
+                }
+                return false;
+            }
+        };
+        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(dispatcher);
+        dialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(dispatcher);
+            }
+        });
+
         dialog.setVisible(true);
 
         return chooser.getSelectedFile();
