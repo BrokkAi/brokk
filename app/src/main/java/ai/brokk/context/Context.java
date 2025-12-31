@@ -1,7 +1,6 @@
 package ai.brokk.context;
 
 import ai.brokk.Completions;
-import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -33,7 +32,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -53,10 +51,6 @@ public class Context {
 
     private static final String WELCOME_ACTION = "Session Start";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
-
-    /** @deprecated Action strings are no longer stored; use getDescription(previous) instead */
-    @Deprecated
-    public final transient CompletableFuture<String> action;
 
     private final transient IContextManager contextManager;
 
@@ -116,7 +110,6 @@ public class Context {
         this.parsedOutput = parsedOutput;
         this.groupId = groupId;
         this.groupLabel = groupLabel;
-        this.action = CompletableFuture.completedFuture("");
         this.markedReadonlyFragments = validateReadOnlyFragments(markedReadonlyFragments, fragments);
         this.pinnedFragments = validatePinnedFragments(pinnedFragments, fragments);
     }
@@ -596,8 +589,7 @@ public class Context {
      * @param previous the baseline context to compare against
      * @return a human-readable description of the change
      */
-    @Blocking
-    public String getDescription(@Nullable Context previous) {
+    public String getAction(@Nullable Context previous) {
         if (previous == null) {
             return WELCOME_ACTION;
         }

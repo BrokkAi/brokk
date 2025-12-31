@@ -155,7 +155,7 @@ public class TaskListTest {
         var result = context.withTaskList(new TaskList.TaskListData(items));
 
         // The description should indicate that something changed (task list added)
-        var description = result.getDescription(context);
+        var description = result.getAction(context);
         assertFalse(description.isEmpty(), "Description should not be empty after adding task list");
     }
 }

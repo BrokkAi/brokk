@@ -2366,7 +2366,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     logger.debug(
                             "Attempting to create and switch to new session '{}' from workspace of context '{}'",
                             newSessionName,
-                            sourceContext.getDescription(prev));
+                            sourceContext.getAction(prev));
 
                     var sessionManager = project.getSessionManager();
                     // 1. Create new session info
@@ -2400,7 +2400,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** returns a new Context based on the source one */
     private Context newContextFrom(Context sourceContext) {
         var prev = contextHistory.previousOf(sourceContext);
-        var newActionDescription = "New session (from: " + sourceContext.getDescription(prev) + ")";
+        var newActionDescription = "New session (from: " + sourceContext.getAction(prev) + ")";
         var newParsedOutputFragment = new ContextFragments.TaskFragment(
                 this, List.of(SystemMessage.from(newActionDescription)), newActionDescription);
         return sourceContext.withParsedOutput(newParsedOutputFragment);

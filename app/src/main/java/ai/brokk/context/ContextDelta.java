@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
@@ -122,8 +123,7 @@ public record ContextDelta(
     /**
      * Returns a human-readable description of the changes in this delta.
      */
-    @Blocking
-    public String description(IContextManager icm) {
+    public CompletableFuture<String> description(IContextManager icm) {
         if (sessionReset) {
             return DROPPED_ALL_CONTEXT;
         }

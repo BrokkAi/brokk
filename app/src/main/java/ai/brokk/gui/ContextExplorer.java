@@ -369,7 +369,7 @@ public final class ContextExplorer extends JFrame {
     }
 
     private static String safeAction(Context ctx, @Nullable Context previous) {
-        return ctx.getDescription(previous);
+        return ctx.getAction(previous);
     }
 
     private static boolean safeIsText(ContextFragment f) {

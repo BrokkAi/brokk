@@ -440,7 +440,7 @@ public class SessionsDialog extends BaseThemedDialog {
             Icon iconEmoji = hasAiMessages ? Icons.CHAT_BUBBLE : null;
             activityTableModel.addRow(new Object[] {
                 iconEmoji,
-                ctx.getDescription(previous),
+                ctx.getAction(previous),
                 ctx // Store the actual context object in hidden column
             });
             previous = ctx;

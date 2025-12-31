@@ -666,7 +666,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     String description = resetTargetIds.contains(ctx.id())
                             ? "Copy From History"
-                            : ctx.getDescription(prev);
+                            : ctx.getAction(prev);
 
                     var actionVal = new ActionText(description, 0);
                     historyModel.addRow(new Object[] {icon, actionVal, ctx});
@@ -696,7 +696,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 if (expanded) {
                     for (Context child : children) {
                         Context prev = contextManager.getContextHistory().previousOf(child);
-                        var childAction = new ActionText(child.getDescription(prev), 1);
+                        var childAction = new ActionText(child.getAction(prev), 1);
                         Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
                         historyModel.addRow(new Object[] {childIcon, childAction, child});
                         if (child.equals(contextToSelect)) {
@@ -2249,9 +2249,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var prevOfCtx = contextManager.getContextHistory().previousOf(ctx);
             var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                     .setMultipleCommitsContext(false)
-                    .setRootTitle("Diff: " + ctx.getDescription(prevOfCtx))
+                    .setRootTitle("Diff: " + ctx.getAction(prevOfCtx))
                     .setInitialFileIndex(0);
-            String tabTitle = "Diff: " + ctx.getDescription(prevOfCtx);
+            String tabTitle = "Diff: " + ctx.getAction(prevOfCtx);
             if (diffs.size() == 1) {
                 var files = diffs.getFirst().fragment().files().join();
                 if (!files.isEmpty()) {
