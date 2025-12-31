@@ -762,11 +762,9 @@ public final class HeadlessExecutorMain {
             return;
         }
 
-        var sessionZipPath =
-                sessionManager.getSessionsDir().resolve(sessionId + ".zip");
+        var sessionZipPath = sessionManager.getSessionsDir().resolve(sessionId + ".zip");
         if (!Files.exists(sessionZipPath)) {
-            var error = ErrorPayload.of(
-                    ErrorPayload.Code.NOT_FOUND, "Session zip not found for session " + sessionId);
+            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Session zip not found for session " + sessionId);
             SimpleHttpServer.sendJsonResponse(exchange, 404, error);
             return;
         }
