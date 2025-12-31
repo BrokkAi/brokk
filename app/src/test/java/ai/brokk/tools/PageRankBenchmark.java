@@ -56,9 +56,13 @@ public class PageRankBenchmark implements Callable<Integer> {
     @CommandLine.Option(names = "--scenario", description = "Scenario to run: sparse, normal, dense, all (default: all)")
     private String scenario = "all";
 
-    private static final double SPARSE_EDGE_FRACTION = 0.05;
-    private static final double NORMAL_EDGE_FRACTION = 0.15;
-    private static final double DENSE_EDGE_FRACTION = 0.25;
+    private static final double SPARSE_IMPORT_FRACTION = 0.0005;
+    private static final double NORMAL_IMPORT_FRACTION = 0.0015;
+    private static final double DENSE_IMPORT_FRACTION = 0.0030;
+
+    private static final double SPARSE_GIT_FRACTION = 0.0002;
+    private static final double NORMAL_GIT_FRACTION = 0.0006;
+    private static final double DENSE_GIT_FRACTION = 0.0012;
 
     public static void main(String[] args) {
         int exitCode = new CommandLine(new PageRankBenchmark()).execute(args);
@@ -67,7 +71,8 @@ public class PageRankBenchmark implements Callable<Integer> {
 
     private record ScenarioConfig(
             String name,
-            double edgeFraction) {}
+            double importEdgeFraction,
+            double gitPairFraction) {}
 
     private record IterationResult(long analyzerNanos, long importNanos, long gitNanos) {}
 
@@ -79,13 +84,13 @@ public class PageRankBenchmark implements Callable<Integer> {
         List<ScenarioConfig> scenarios = new ArrayList<>();
         boolean all = "all".equalsIgnoreCase(scenario);
         if (all || "sparse".equalsIgnoreCase(scenario)) {
-            scenarios.add(new ScenarioConfig("sparse", SPARSE_EDGE_FRACTION));
+            scenarios.add(new ScenarioConfig("sparse", SPARSE_IMPORT_FRACTION, SPARSE_GIT_FRACTION));
         }
         if (all || "normal".equalsIgnoreCase(scenario)) {
-            scenarios.add(new ScenarioConfig("normal", NORMAL_EDGE_FRACTION));
+            scenarios.add(new ScenarioConfig("normal", NORMAL_IMPORT_FRACTION, NORMAL_GIT_FRACTION));
         }
         if (all || "dense".equalsIgnoreCase(scenario)) {
-            scenarios.add(new ScenarioConfig("dense", DENSE_EDGE_FRACTION));
+            scenarios.add(new ScenarioConfig("dense", DENSE_IMPORT_FRACTION, DENSE_GIT_FRACTION));
         }
 
         for (ScenarioConfig config : scenarios) {
@@ -105,7 +110,7 @@ public class PageRankBenchmark implements Callable<Integer> {
 
         // 1) Import Edges: Sample distinct directed edges (src != dst)
         long maxImportEdges = (long) nodeCount * (nodeCount - 1);
-        int targetImportEdges = (int) Math.round(maxImportEdges * config.edgeFraction());
+        int targetImportEdges = (int) Math.round(maxImportEdges * config.importEdgeFraction());
 
         Map<Integer, List<Integer>> adjacencyList = new HashMap<>();
         if (nodeCount > 1) {
@@ -126,7 +131,7 @@ public class PageRankBenchmark implements Callable<Integer> {
 
         // 2) Git Co-change Edges: Sample distinct unordered file pairs {a, b}
         long maxGitPairs = (long) nodeCount * (nodeCount - 1) / 2;
-        int targetGitPairs = (int) Math.round(maxGitPairs * config.edgeFraction());
+        int targetGitPairs = (int) Math.round(maxGitPairs * config.gitPairFraction());
 
         List<Long> allPossiblePairs = new ArrayList<>();
         if (nodeCount > 1) {
@@ -212,8 +217,8 @@ public class PageRankBenchmark implements Callable<Integer> {
 
     private void printScenarioHeader(ScenarioConfig config, int targetImportEdges, int targetGitPairs) {
         System.out.println("=".repeat(60));
-        System.out.printf(Locale.ROOT, "SCENARIO: %s (Fraction: %.2f)%n",
-                config.name().toUpperCase(Locale.ROOT), config.edgeFraction());
+        System.out.printf(Locale.ROOT, "SCENARIO: %s (ImportFraction: %.4f, GitFraction: %.4f)%n",
+                config.name().toUpperCase(Locale.ROOT), config.importEdgeFraction(), config.gitPairFraction());
         System.out.printf(Locale.ROOT, "  Import Edges: %d | Git Co-change Pairs: %d%n",
                 targetImportEdges, targetGitPairs);
         System.out.println("=".repeat(60));
@@ -228,8 +233,8 @@ public class PageRankBenchmark implements Callable<Integer> {
     }
 
     private void printSummary(ScenarioConfig config, int targetImportEdges, int targetGitPairs, List<IterationResult> results) {
-        System.out.printf(Locale.ROOT, "SCENARIO SUMMARY: %s (Fraction: %.2f)%n",
-                config.name().toUpperCase(Locale.ROOT), config.edgeFraction());
+        System.out.printf(Locale.ROOT, "SCENARIO SUMMARY: %s (ImportFraction: %.4f, GitFraction: %.4f)%n",
+                config.name().toUpperCase(Locale.ROOT), config.importEdgeFraction(), config.gitPairFraction());
         System.out.printf(Locale.ROOT, "Import Edges: %d | Git Co-change Pairs: %d%n",
                 targetImportEdges, targetGitPairs);
 
