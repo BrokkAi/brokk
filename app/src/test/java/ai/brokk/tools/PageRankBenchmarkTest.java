@@ -7,6 +7,9 @@ import org.junit.jupiter.api.Test;
 import picocli.CommandLine;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.List;
@@ -64,8 +67,8 @@ class PageRankBenchmarkTest {
 
     @Test
     void generatedImportsAreSyntacticallyValidAndResolvable() throws IOException {
-        int n = 20;
-        double edgeProb = 0.05;
+        int n = 10;
+        double fraction = 0.2; // 10 * 9 * 0.2 = 18 edges
         long seed = 42L;
         Random random = new Random(seed);
 
@@ -73,11 +76,28 @@ class PageRankBenchmarkTest {
                 .mapToObj(i -> String.format("File%05d", i))
                 .toList();
 
-        String firstContent = PageRankBenchmark.generateFileContent(0, fileNames, random, edgeProb);
+        // Simulate the sampling logic used in PageRankBenchmark
+        List<Long> allPossibleEdges = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                if (i == j) continue;
+                allPossibleEdges.add(((long) i << 32) | (j & 0xffffffffL));
+            }
+        }
+        java.util.Collections.shuffle(allPossibleEdges, random);
+        int targetEdges = (int) Math.round((n * (n - 1)) * fraction);
+        java.util.Map<Integer, List<Integer>> adjacency = new java.util.HashMap<>();
+        allPossibleEdges.stream().limit(targetEdges).forEach(edge -> {
+            int src = (int) (edge >> 32);
+            int dst = (int) (edge.longValue());
+            adjacency.computeIfAbsent(src, k -> new ArrayList<>()).add(dst);
+        });
+
+        String firstContent = PageRankBenchmark.generateFileContent(0, fileNames, adjacency.getOrDefault(0, List.of()));
         var builder = InlineTestProjectCreator.code(firstContent, "File00000.java");
 
         for (int i = 1; i < n; i++) {
-            String content = PageRankBenchmark.generateFileContent(i, fileNames, random, edgeProb);
+            String content = PageRankBenchmark.generateFileContent(i, fileNames, adjacency.getOrDefault(i, List.of()));
             builder.addFileContents(content, String.format("File%05d.java", i));
         }
 

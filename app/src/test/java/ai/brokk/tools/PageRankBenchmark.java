@@ -111,13 +111,12 @@ public class PageRankBenchmark implements Callable<Integer> {
     }
 
     private void runScenario(ScenarioConfig config, long baseSeed) throws Exception {
-        double importProb = config.importProb(nodeCount);
         double commitDensity = config.commitDensity();
         int commitCount = config.commitCount(nodeCount);
 
         System.out.println("=".repeat(60));
-        System.out.printf(Locale.ROOT, "SCENARIO: %s (Import Prob: %.4f, Commit Density: %.1f, Commits: %d)%n",
-                config.name().toUpperCase(Locale.ROOT), importProb, commitDensity, commitCount);
+        System.out.printf(Locale.ROOT, "SCENARIO: %s (Fraction: %.2f, Commit Density: %.1f, Commits: %d)%n",
+                config.name().toUpperCase(Locale.ROOT), config.edgeFraction(), commitDensity, commitCount);
         System.out.println("=".repeat(60));
 
         long scenarioSeed = baseSeed ^ config.name().hashCode();
@@ -127,14 +126,35 @@ public class PageRankBenchmark implements Callable<Integer> {
                 .mapToObj(i -> String.format("File%05d", i))
                 .toList();
 
+        // Sample distinct directed edges (src != dst)
+        long maxImportEdges = (long) nodeCount * (nodeCount - 1);
+        int targetImportEdges = (int) Math.round(maxImportEdges * config.edgeFraction());
+
+        Map<Integer, List<Integer>> adjacencyList = new HashMap<>();
+        if (nodeCount > 1) {
+            List<Long> allPossibleEdges = new ArrayList<>();
+            for (int i = 0; i < nodeCount; i++) {
+                for (int j = 0; j < nodeCount; j++) {
+                    if (i == j) continue;
+                    allPossibleEdges.add(((long) i << 32) | (j & 0xffffffffL));
+                }
+            }
+            java.util.Collections.shuffle(allPossibleEdges, random);
+            allPossibleEdges.stream().limit(targetImportEdges).forEach(edge -> {
+                int src = (int) (edge >> 32);
+                int dst = (int) (edge.longValue());
+                adjacencyList.computeIfAbsent(src, k -> new ArrayList<>()).add(dst);
+            });
+        }
+
         String firstFile = String.format("File%05d.java", 0);
         var builder = InlineTestProjectCreator.code(
-                generateFileContent(0, fileNames, random, importProb),
+                generateFileContent(0, fileNames, adjacencyList.getOrDefault(0, List.of())),
                 firstFile).withGit();
 
         for (int i = 1; i < nodeCount; i++) {
             builder.addFileContents(
-                    generateFileContent(i, fileNames, random, importProb),
+                    generateFileContent(i, fileNames, adjacencyList.getOrDefault(i, List.of())),
                     String.format("File%05d.java", i));
         }
 
@@ -235,13 +255,12 @@ public class PageRankBenchmark implements Callable<Integer> {
         System.out.println();
     }
 
-    static String generateFileContent(int index, List<String> allFileNames, Random random, double edgeProb) {
+    static String generateFileContent(int index, List<String> allFileNames, List<Integer> importedIndices) {
         int pkgIdx = index % 10;
         String className = allFileNames.get(index);
 
-        String imports = IntStream.range(0, allFileNames.size())
-                .filter(i -> i != index && random.nextDouble() < edgeProb)
-                .mapToObj(targetIdx -> String.format("import p%d.%s;", targetIdx % 10, allFileNames.get(targetIdx)))
+        String imports = importedIndices.stream()
+                .map(targetIdx -> String.format("import p%d.%s;", targetIdx % 10, allFileNames.get(targetIdx)))
                 .sorted()
                 .collect(java.util.stream.Collectors.joining("\n"));
 
