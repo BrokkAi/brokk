@@ -183,9 +183,9 @@ public final class HistoryGrouping {
                 return d1;
             } else if (size == 2) {
                 String d2 = getDescription(contexts, i + 1);
-                return d1 + " + " + d2;
+                return safeFirstWord(d1) + " + " + safeFirstWord(d2);
             } else {
-                return d1 + " + " + (size - 1) + " more";
+                return safeFirstWord(d1) + " + " + (size - 1) + " more";
             }
         }
 
@@ -193,6 +193,14 @@ public final class HistoryGrouping {
             Context ctx = contexts.get(index);
             int prev = index - 1;
             return ctx.getDescription(prev >= 0 ? contexts.get(prev) : null);
+        }
+
+        private static String safeFirstWord(String text) {
+            if (text.isBlank()) {
+                return "";
+            }
+            int idx = text.indexOf(' ');
+            return (idx < 0) ? text : text.substring(0, idx);
         }
     }
 
