@@ -528,7 +528,9 @@ public class WorkspaceChip extends JPanel {
                 // Clear any cached metrics for this fragment as it is being dropped.
                 metricsCache.remove(fragment);
 
-                if (fragment.getType() == ContextFragment.FragmentType.HISTORY || onRemoveFragment == null) {
+                if (fragment.getType() == ContextFragment.FragmentType.HISTORY) {
+                    contextManager.clearHistoryOnly();
+                } else if (onRemoveFragment == null) {
                     contextManager.dropWithHistorySemantics(List.of(fragment));
                 } else {
                     onRemoveFragment.accept(fragment);

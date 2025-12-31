@@ -865,6 +865,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .withTaskList(new TaskList.TaskListData(List.of()), "Clear task history and tasks"));
     }
 
+    /** Clear conversation history only, preserving the task list. */
+    public void clearHistoryOnly() {
+        pushContext(Context::clearHistory);
+    }
+
     /**
      * Drops fragments with HISTORY-aware semantics: - If selection is empty: drop all and reset selected context to the
      * latest (top) context. - If selection includes HISTORY: clear history, then drop only non-HISTORY fragments. -
