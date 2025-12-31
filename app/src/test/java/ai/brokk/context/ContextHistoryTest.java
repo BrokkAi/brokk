@@ -381,7 +381,7 @@ public class ContextHistoryTest {
 
         assertNotNull(updated, "A context should be returned when content changes");
         assertEquals(updated.id(), history.liveContext().id(), "Returned context should be the new live context");
-        assertTrue(updated.getDescription(initialContext).startsWith("Load external changes"), "Action should indicate external changes");
+        assertTrue(updated.getDescription(initialContext).startsWith("Load External Changes"), "Action should indicate external changes");
 
         var prev = history.previousOf(updated);
         assertNotNull(prev, "There must be a previous context to diff against");
@@ -419,17 +419,17 @@ public class ContextHistoryTest {
         var first = history.processExternalFileChangesIfNeeded(Set.of(pf));
         assertNotNull(first, "First external change should produce a new context");
         assertEquals(sizeBefore + 1, history.getHistory().size(), "History should grow by one on first change");
-        assertEquals("Load external changes", first.getDescription(initialContext), "First change has no counter suffix");
+        assertEquals("Load External Changes", first.getDescription(initialContext), "First change has no counter suffix");
 
         var prevOfFirst = history.previousOf(first);
         assertNotNull(prevOfFirst, "Previous of first should be the original context");
 
-        // Second external change -> should replace top and increment counter to (2)
+        // Second external change -> should replace top
         Files.writeString(pf.absPath(), "one\ntwo\nthree\n");
         var second = history.processExternalFileChangesIfNeeded(Set.of(pf));
         assertNotNull(second, "Second external change should produce an updated context");
         assertEquals(sizeBefore + 1, history.getHistory().size(), "Second change should replace the top (no growth)");
-        assertEquals("Load external changes (2)", second.getDescription(initialContext), "Continuation count should increment to (2)");
+        assertEquals("Load External Changes", second.getDescription(initialContext));
 
         var prevOfSecond = history.previousOf(second);
         assertNotNull(prevOfSecond, "Previous of second should exist");
@@ -488,7 +488,8 @@ public class ContextHistoryTest {
         var updated = history.processExternalFileChangesIfNeeded(Set.of(pf));
         assertNotNull(updated, "Expected a new context for actual content change");
         assertEquals(updated.id(), history.liveContext().id(), "Returned context should be live");
-        assertTrue(updated.getDescription(initialContext).startsWith("Load external changes"), "Action should indicate external change");
+        assertNotEquals(initialContext, updated);
+        assertTrue(updated.getDescription(initialContext).startsWith("Load External Changes"), "Action should indicate external change");
 
         var prev = history.previousOf(updated);
         assertNotNull(prev, "There must be a previous context to diff against");

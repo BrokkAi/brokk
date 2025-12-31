@@ -517,7 +517,7 @@ public class ContextSerializationTest {
         Context l3 = loadedContexts.get(2);
 
         assertEquals("Session Start", l1.getDescription(null));
-        assertEquals("Added test.java", l2.getDescription(l1));
+        assertEquals("Add test.java", l2.getDescription(l1));
         assertEquals("Summary 1", l3.getDescription(l2));
     }
 
