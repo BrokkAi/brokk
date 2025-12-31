@@ -712,12 +712,12 @@ public class GuiTheme {
     private static final String ICON_ACCENT_KEY = "Brokk.icon_accent";
     private static final String ICON_ACCENT_LIGHT_KEY = "Brokk.icon_accent_light";
 
-    private static final Map<Color, String> ICON_COLOR_KEYS = Map.of(
-            new Color(0x000000), ICON_PRIMARY_KEY,
-            new Color(0x3D3D3D), ICON_SECONDARY_KEY,
-            new Color(0xE3E3E3), ICON_LIGHT_KEY,
-            new Color(0x00B104), ICON_ACCENT_KEY,
-            new Color(0x00D61B), ICON_ACCENT_LIGHT_KEY);
+    private static final Map<Integer, String> ICON_COLOR_KEYS = Map.of(
+            0x000000, ICON_PRIMARY_KEY,
+            0x3D3D3D, ICON_SECONDARY_KEY,
+            0xE3E3E3, ICON_LIGHT_KEY,
+            0x00B104, ICON_ACCENT_KEY,
+            0x00D61B, ICON_ACCENT_LIGHT_KEY);
 
     private static FlatSVGIcon.ColorFilter createIconColorFilter() {
         var filter = new FlatSVGIcon.ColorFilter();
@@ -735,12 +735,12 @@ public class GuiTheme {
     }
 
     private static @Nullable Color mapIconColor(Color color) {
-        Color rgb = new Color(color.getRed(), color.getGreen(), color.getBlue());
+        int rgb = (color.getRed() << 16) | (color.getGreen() << 8) | color.getBlue();
         String key = ICON_COLOR_KEYS.get(rgb);
         if (key == null) {
             return null;
         }
-        return resolveThemeColor(key, rgb);
+        return resolveThemeColor(key, color);
     }
 
     private static Color resolveThemeColor(String key, Color fallback) {
