@@ -10,6 +10,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.git.LocalFileRepo;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.EnvironmentJava;
+import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.awt.Rectangle;
@@ -549,8 +550,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
         try {
             List<String> pathStrings = objectMapper.readValue(
                     json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
-            // Filter out empty/blank paths (defensive, in case old data exists)
-            return pathStrings.stream().filter(s -> !s.isBlank()).map(Path::of).collect(Collectors.toList());
+            // Filter out empty/blank paths and normalize separators for cross-platform compatibility
+            return pathStrings.stream()
+                    .filter(s -> !s.isBlank())
+                    .map(s -> s.replace('\\', '/'))
+                    .map(Path::of)
+                    .collect(Collectors.toList());
         } catch (Exception e) {
             logger.warn("Error parsing expanded tree paths: {}", e.getMessage());
             return List.of();
@@ -560,9 +565,11 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public void setExpandedTreePaths(List<Path> paths) {
         try {
-            // Filter out empty/blank paths to avoid persisting invalid data
-            var pathStrings =
-                    paths.stream().map(Path::toString).filter(s -> !s.isBlank()).collect(Collectors.toList());
+            // Filter out empty/blank paths and normalize to forward slashes for cross-platform compatibility
+            var pathStrings = paths.stream()
+                    .map(p -> PathNormalizer.canonicalizeForProject(p.toString(), getRoot()))
+                    .filter(s -> !s.isBlank())
+                    .collect(Collectors.toList());
             var json = objectMapper.writeValueAsString(pathStrings);
             workspaceProps.setProperty(PROP_TREE_EXPANDED, json);
             saveWorkspaceProperties();
