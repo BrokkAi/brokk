@@ -121,7 +121,7 @@ public record ContextDelta(
 
             var log = latest.log();
             if (log != null) {
-                var typeText = latest.meta().type() == TaskResult.Type.CONTEXT ? "" : latest.meta().type().displayName();
+                var typeText = (latest.meta() == null || latest.meta().type() == TaskResult.Type.CONTEXT) ? "" : latest.meta().type().displayName();
                 return (typeText.isBlank() ? "" : typeText + ": ") + log.shortDescription().join();
             }
 

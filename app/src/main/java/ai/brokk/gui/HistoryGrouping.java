@@ -184,6 +184,15 @@ public final class HistoryGrouping {
                 return getDescription(contexts, i, resetTargetIds);
             }
 
+            // skip "session start" in larger list
+            if (i == 0) {
+                i++;
+                size--;
+                if (size == 1) {
+                    return getDescription(contexts, i, resetTargetIds);
+                }
+            }
+
             record Group(String word, int count) {
                 @Override
                 public String toString() {
