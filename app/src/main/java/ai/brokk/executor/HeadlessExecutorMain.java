@@ -399,6 +399,35 @@ public final class HeadlessExecutorMain {
         return null;
     }
 
+    enum SessionPathStatus {
+        VALID,
+        INVALID_SESSION_ID,
+        NOT_FOUND
+    }
+
+    record SessionPathParseResult(SessionPathStatus status, @Nullable UUID sessionId) {}
+
+    static SessionPathParseResult parseSessionPath(String path) {
+        var normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
+        var basePath = "/v1/sessions/";
+        if (!normalizedPath.startsWith(basePath)) {
+            return new SessionPathParseResult(SessionPathStatus.NOT_FOUND, null);
+        }
+        if (normalizedPath.equals("/v1/sessions")) {
+            return new SessionPathParseResult(SessionPathStatus.NOT_FOUND, null);
+        }
+        var suffix = normalizedPath.substring(basePath.length());
+        if (suffix.isBlank() || suffix.contains("/")) {
+            return new SessionPathParseResult(SessionPathStatus.NOT_FOUND, null);
+        }
+        try {
+            var sessionId = UUID.fromString(suffix);
+            return new SessionPathParseResult(SessionPathStatus.VALID, sessionId);
+        } catch (IllegalArgumentException e) {
+            return new SessionPathParseResult(SessionPathStatus.INVALID_SESSION_ID, null);
+        }
+    }
+
     /**
      * Parse query string into a map.
      */
@@ -494,25 +523,13 @@ public final class HeadlessExecutorMain {
             return;
         }
         if (method.equals("GET")) {
-            var parts = Splitter.on('/').omitEmptyStrings().splitToList(normalizedPath);
-            if (parts.size() >= 3 && "v1".equals(parts.get(0)) && "sessions".equals(parts.get(1))) {
-                var sessionIdText = parts.get(2);
-                boolean validPath = parts.size() == 3;
-                if (!validPath) {
-                    var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
-                    SimpleHttpServer.sendJsonResponse(exchange, 404, error);
-                    return;
-                }
-                if (sessionIdText.isBlank()) {
-                    sendValidationError(exchange, "Session ID is required");
-                    return;
-                }
-                try {
-                    var sessionId = UUID.fromString(sessionIdText);
-                    handleGetSessionZip(exchange, sessionId);
-                } catch (IllegalArgumentException e) {
-                    sendValidationError(exchange, "Invalid session ID in path");
-                }
+            var parseResult = parseSessionPath(normalizedPath);
+            if (parseResult.status() == SessionPathStatus.VALID) {
+                handleGetSessionZip(exchange, Objects.requireNonNull(parseResult.sessionId()));
+                return;
+            }
+            if (parseResult.status() == SessionPathStatus.INVALID_SESSION_ID) {
+                sendValidationError(exchange, "Invalid session ID in path");
                 return;
             }
             var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
