@@ -239,6 +239,44 @@ public class ImportPageRankerTest {
     }
 
     @Test
+    public void pageRank_handlesCircularImports() throws Exception {
+        // A -> B -> C -> A
+        try (var project = InlineTestProjectCreator.code(
+                        "package test; import test.B; public class A {}", "test/A.java")
+                .addFileContents("package test; import test.C; public class B {}", "test/B.java")
+                .addFileContents("package test; import test.A; public class C {}", "test/C.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
+                    .map(CodeUnit::source).distinct()
+                    .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
+
+            ProjectFile a = files.get("A.java");
+            ProjectFile b = files.get("B.java");
+            ProjectFile c = files.get("C.java");
+
+            // Seed with A
+            Map<ProjectFile, Double> seeds = Map.of(a, 1.0);
+            List<IAnalyzer.FileRelevance> results =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, false);
+
+            List<ProjectFile> resultFiles = results.stream().map(IAnalyzer.FileRelevance::file).toList();
+
+            // Should contain B and C, but not A (the seed)
+            assertFalse(resultFiles.contains(a), "Seed A should be excluded");
+            assertTrue(resultFiles.contains(b), "B should be reached in the cycle");
+            assertTrue(resultFiles.contains(c), "C should be reached in the cycle");
+
+            // Verify scores are stable (non-zero and reasonable)
+            for (IAnalyzer.FileRelevance fr : results) {
+                assertTrue(fr.score() > 0, "Scores should be positive");
+                assertTrue(fr.score() < 1.0, "Scores should be normalized");
+            }
+        }
+    }
+
+    @Test
     public void noProjectImportsHandledGracefully() throws Exception {
         try (var project = InlineTestProjectCreator.code(
                         """
