@@ -172,7 +172,7 @@ public class ArchitectAgent {
         // Record planning history before invoking CodeAgent
         addPlanningToHistory();
 
-        io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
+        io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.AI, true, false);
         var agent = new CodeAgent(cm, codeModel);
         var opts = new HashSet<CodeAgent.Option>();
         if (deferBuild) {
@@ -407,7 +407,7 @@ public class ArchitectAgent {
 
             // Only the winner prints the "engaged" message
             if (shouldEcho) {
-                io.llmOutput("**Search Agent** engaged: " + query, ChatMessageType.AI, true, false);
+                io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.AI, true, false);
             }
 
             // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
