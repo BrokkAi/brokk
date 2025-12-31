@@ -21,7 +21,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -380,7 +379,9 @@ public class ContextNoGitFallbackTest {
 
     @Test
     public void testGitDistanceFastPathForUntrackedSeeds() throws Exception {
-        try (var project = InlineTestProjectCreator.code("public class A {}", "A.java").withGit().build()) {
+        try (var project = InlineTestProjectCreator.code("public class A {}", "A.java")
+                .withGit()
+                .build()) {
             ProjectFile a = project.getAllFiles().iterator().next();
 
             // Create a stub that claims nothing is tracked

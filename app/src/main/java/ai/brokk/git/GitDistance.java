@@ -46,8 +46,7 @@ public final class GitDistance {
         if (seedWeights.isEmpty()) return List.of();
 
         // Fast-path: If none of the seed files are tracked by Git, we can't find co-occurrences.
-        boolean anyTracked = seedWeights.keySet().stream()
-                .anyMatch(pf -> repo.isTracked(pf.getRelPath()));
+        boolean anyTracked = seedWeights.keySet().stream().anyMatch(pf -> repo.isTracked(pf.getRelPath()));
         if (!anyTracked) {
             return List.of();
         }
