@@ -347,8 +347,7 @@ public class Context {
         var repoObj = contextManager.getRepo();
 
         // 1. Try Git-based distance first
-        if (contextManager.getProject().hasGit()
-                && repoObj instanceof GitRepo gr
+        if (repoObj instanceof GitRepo gr
                 && !areManySeedsNew(weightedSeeds, gr)) {
             try {
                 var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false);
