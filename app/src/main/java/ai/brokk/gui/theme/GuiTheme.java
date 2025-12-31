@@ -592,7 +592,7 @@ public class GuiTheme {
      * @return the icon directory path
      */
     private String getIconDirectoryForTheme() {
-        return "/icons/light/";
+        return "/icons/";
     }
 
     /**
