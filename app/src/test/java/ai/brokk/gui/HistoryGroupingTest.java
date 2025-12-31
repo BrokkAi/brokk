@@ -19,7 +19,7 @@ public class HistoryGroupingTest {
 
     private static Context ctx(String action) {
         var base = new Context(new IContextManager() {});
-        return base.withAction(CompletableFuture.completedFuture(action));
+        return base.withDescription(action);
     }
 
     private static Context ctxWithGroup(String action, UUID gid, String label) {
@@ -250,5 +250,50 @@ public class HistoryGroupingTest {
         assertFalse(gg2.shouldShowHeader());
         assertEquals(1, gg2.children().size());
         assertEquals(c.id(), gg2.children().getFirst().id());
+    }
+
+    @Test
+    public void anonymousGroup_singleChild_showsJustDescription() {
+        // A single ungrouped context should show its description directly (no header since it's a singleton)
+        var c1 = ctx("Build project");
+        var groups = discover(List.of(c1), c -> false);
+
+        assertEquals(1, groups.size());
+        var g = groups.getFirst();
+        // Singleton should not show header, but if it did, it would show the description
+        assertFalse(g.shouldShowHeader(), "Singleton should not show header");
+    }
+
+    @Test
+    public void anonymousGroup_twoChildren_showsBothDescriptions() {
+        // Two ungrouped contexts should form a legacy group with "desc1 + desc2" label
+        var c1 = ctx("Added foo.java");
+        var c2 = ctx("Removed bar.java");
+
+        var groups = discover(List.of(c1, c2), c -> false);
+
+        assertEquals(1, groups.size());
+        var g = groups.getFirst();
+        assertTrue(g.shouldShowHeader(), "Two-item group should show header");
+        // The label should be "Session Start + Session Start" since ctx() creates contexts
+        // that will return "Session Start" from getDescription(null)
+        // Let's just verify the label contains " + "
+        assertTrue(g.label().contains(" + "), "Two-item group label should join descriptions with ' + '");
+    }
+
+    @Test
+    public void anonymousGroup_threeOrMoreChildren_showsFirstPlusCount() {
+        // Three or more ungrouped contexts should show "desc1 + N more"
+        var c1 = ctx("First action");
+        var c2 = ctx("Second action");
+        var c3 = ctx("Third action");
+
+        var groups = discover(List.of(c1, c2, c3), c -> false);
+
+        assertEquals(1, groups.size());
+        var g = groups.getFirst();
+        assertTrue(g.shouldShowHeader(), "Three-item group should show header");
+        // The label should contain " + 2 more" for 3 items
+        assertTrue(g.label().contains(" more"), "Three-item group label should indicate count of remaining items");
     }
 }

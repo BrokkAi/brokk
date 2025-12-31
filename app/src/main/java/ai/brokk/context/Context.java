@@ -127,7 +127,11 @@ public class Context {
         this.groupLabel = groupLabel;
         this.descriptionOverride = descriptionOverride;
         this.action = CompletableFuture.completedFuture(
-                descriptionOverride != null ? descriptionOverride : (parsedOutput != null ? SUMMARIZING : WELCOME_ACTION));
+                descriptionOverride != null
+                        ? descriptionOverride
+                        : (parsedOutput != null
+                                ? SUMMARIZING
+                                : (fragments.isEmpty() && taskHistory.isEmpty() ? "" : WELCOME_ACTION)));
         this.markedReadonlyFragments = validateReadOnlyFragments(markedReadonlyFragments, fragments);
         this.pinnedFragments = validatePinnedFragments(pinnedFragments, fragments);
     }
@@ -228,6 +232,26 @@ public class Context {
                 return pf.getRelPath().toString();
             }
             return fragment.shortDescription().join();
+        }
+    }
+
+    /**
+     * Represents the delta between two Context states.
+     * Unlike DiffService which tracks file content changes, this tracks workspace state changes
+     * (fragments added/removed, task history changes).
+     */
+    public record ContextDelta(
+            List<ContextFragment> addedFragments,
+            List<ContextFragment> removedFragments,
+            List<TaskEntry> addedTasks,
+            boolean clearedHistory,
+            @Nullable String descriptionOverride) {
+        public boolean isEmpty() {
+            return addedFragments.isEmpty()
+                    && removedFragments.isEmpty()
+                    && addedTasks.isEmpty()
+                    && !clearedHistory
+                    && descriptionOverride == null;
         }
     }
 
@@ -689,6 +713,47 @@ public class Context {
      */
     public List<TaskEntry> getTaskHistory() {
         return taskHistory;
+    }
+
+    /**
+     * Computes the delta between this context and another (previous) context.
+     * Returns what changed from {@code other} to reach {@code this}.
+     *
+     * @param other the baseline context (typically the previous state)
+     * @return a ContextDelta describing added/removed fragments and task history changes
+     */
+    public ContextDelta delta(@Nullable Context other) {
+        if (other == null) {
+            // Everything in this context is "added" relative to nothing
+            return new ContextDelta(
+                    List.copyOf(this.fragments),
+                    List.of(),
+                    List.copyOf(this.taskHistory),
+                    false,
+                    this.descriptionOverride);
+        }
+
+        var currentFragments = Set.copyOf(this.fragments);
+        var previousFragments = Set.copyOf(other.fragments);
+
+        var added = this.fragments.stream()
+                .filter(f -> !previousFragments.contains(f))
+                .toList();
+
+        var removed = other.fragments.stream()
+                .filter(f -> !currentFragments.contains(f))
+                .toList();
+
+        // Task history changes
+        var addedTasks = new ArrayList<TaskEntry>();
+        if (this.taskHistory.size() > other.taskHistory.size()) {
+            // New tasks were added
+            addedTasks.addAll(this.taskHistory.subList(other.taskHistory.size(), this.taskHistory.size()));
+        }
+
+        boolean clearedHistory = other.taskHistory.size() > this.taskHistory.size() && this.taskHistory.isEmpty();
+
+        return new ContextDelta(added, removed, addedTasks, clearedHistory, this.descriptionOverride);
     }
 
     /**

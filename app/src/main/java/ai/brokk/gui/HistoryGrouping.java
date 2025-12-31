@@ -3,6 +3,10 @@ package ai.brokk.gui;
 import ai.brokk.context.Context;
 import java.util.*;
 import java.util.function.Predicate;
+import org.jetbrains.annotations.Nullable;
+import org.jspecify.annotations.NullMarked;
+
+@NullMarked
 
 /**
  * Unified grouping model for context history rendering.
@@ -172,14 +176,34 @@ public final class HistoryGrouping {
 
         private static String computeHeaderLabelFor(List<Context> children) {
             if (children.isEmpty()) {
-                return "Action (0)";
+                return "Action";
             }
-            // Use the precomputed description or compute it relative to null for the group start
-            String desc = children.getFirst().getDescription(null);
-            return safeFirstWord(desc) + " (" + children.size() + ")";
+
+            // Get descriptions for each child relative to null (session start)
+            // This gives us labels like "Added foo.java", "Removed bar.java", etc.
+            List<String> descriptions = children.stream()
+                    .map(ctx -> ctx.getDescription(null))
+                    .filter(d -> d != null && !d.isBlank())
+                    .toList();
+
+            if (descriptions.isEmpty()) {
+                return "Action";
+            }
+
+            int count = descriptions.size();
+            if (count == 1) {
+                // Single item: just show the description
+                return descriptions.get(0);
+            } else if (count == 2) {
+                // Two items: show both joined with " + "
+                return descriptions.get(0) + " + " + descriptions.get(1);
+            } else {
+                // 3+ items: show first + count of remaining
+                return descriptions.get(0) + " + " + (count - 1) + " more";
+            }
         }
 
-        private static String safeFirstWord(String description) {
+        private static String safeFirstWord(@Nullable String description) {
             if (description == null || description.isBlank()) {
                 return "Action";
             }
