@@ -3,7 +3,7 @@ package ai.brokk.gui;
 import ai.brokk.context.Context;
 import java.util.*;
 import java.util.function.Predicate;
-import org.jetbrains.annotations.Nullable;
+
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -159,8 +159,8 @@ public final class HistoryGrouping {
                     }
                     int len = j - i;
                     if (len >= 2) {
-                        List<Context> children = Collections.unmodifiableList(new ArrayList<>(contexts.subList(i, j)));
-                        String label = computeHeaderLabelFor(children);
+                        List<Context> children = contexts.subList(i, j);
+                        String label = computeHeaderLabelFor(contexts, i, j);
                         String key = children.get(0).id().toString();
                         out.add(new GroupDescriptor(GroupType.GROUP_BY_ACTION, key, label, children, true, false));
                     } else {
@@ -174,33 +174,25 @@ public final class HistoryGrouping {
             }
         }
 
-        private static String computeHeaderLabelFor(List<Context> children) {
-            if (children.isEmpty()) {
-                return "Action";
-            }
+        private static String computeHeaderLabelFor(List<Context> contexts, int i, int j) {
+            int size = j - i;
+            assert size > 0 : "%d <= %d".formatted(j, i);
 
-            // Get descriptions for each child relative to null (session start)
-            // This gives us labels like "Added foo.java", "Removed bar.java", etc.
-            List<String> descriptions = children.stream()
-                    .map(ctx -> ctx.getDescription(null))
-                    .filter(d -> d != null && !d.isBlank())
-                    .toList();
-
-            if (descriptions.isEmpty()) {
-                return "Action";
-            }
-
-            int count = descriptions.size();
-            if (count == 1) {
-                // Single item: just show the description
-                return descriptions.get(0);
-            } else if (count == 2) {
-                // Two items: show both joined with " + "
-                return "[2] " + descriptions.get(0) + " + " + descriptions.get(1);
+            String d1 = getDescription(contexts, i);
+            if (size == 1) {
+                return d1;
+            } else if (size == 2) {
+                String d2 = getDescription(contexts, i + 1);
+                return d1 + " + " + d2;
             } else {
-                // 3+ items: show first + count of remaining
-                return "[" + count + "] " + descriptions.get(0) + " + " + (count - 1) + " more";
+                return d1 + " + " + (size - 1) + " more";
             }
+        }
+
+        private static String getDescription(List<Context> contexts, int index) {
+            Context ctx = contexts.get(index);
+            int prev = index - 1;
+            return ctx.getDescription(prev >= 0 ? contexts.get(prev) : null);
         }
     }
 

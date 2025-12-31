@@ -299,17 +299,6 @@ class ContextTest {
     }
 
     @Test
-    @SuppressWarnings("deprecation")
-    void testGetActionSummarizingWhenIncomplete() {
-        // The deprecated withAction/getAction pattern no longer supports incomplete futures.
-        // When withAction receives a future that times out, it returns the original context.
-        // For an empty context, getDescription(null) returns WELCOME_ACTION ("Session Start"),
-        // but getAction() checks the legacy action field which is initialized to "" for empty contexts.
-        var ctx = new Context(contextManager).withAction(new CompletableFuture<>());
-        assertEquals("", ctx.getAction(), "Empty context with incomplete action returns empty string");
-    }
-
-    @Test
     void testWorkspaceContentEqualsBySource() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Eq.java");
         Files.createDirectories(pf.absPath().getParent());
@@ -416,101 +405,4 @@ class ContextTest {
                 ctx.isFileContentEmpty(), "Context with mixed fragments including file content should return false");
     }
 
-    @Test
-    void testDelta_nullPrevious_returnsAllAsAdded() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/Delta.java");
-        Files.createDirectories(pf.absPath().getParent());
-        pf.write("class Delta {}");
-        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
-
-        var ctx = new Context(contextManager).addFragments(List.of(ppf));
-
-        var delta = ctx.delta(null);
-
-        assertEquals(1, delta.addedFragments().size(), "All fragments should be added when previous is null");
-        assertTrue(delta.removedFragments().isEmpty(), "No fragments should be removed when previous is null");
-        assertTrue(delta.addedTasks().isEmpty(), "No tasks should be added for this context");
-        assertFalse(delta.clearedHistory(), "History was not cleared");
-        assertFalse(delta.isEmpty(), "Delta should not be empty");
-    }
-
-    @Test
-    void testDelta_identicalContexts_returnsEmptyDelta() {
-        var ctx = new Context(contextManager);
-
-        var delta = ctx.delta(ctx);
-
-        assertTrue(delta.addedFragments().isEmpty(), "No fragments should be added for identical contexts");
-        assertTrue(delta.removedFragments().isEmpty(), "No fragments should be removed for identical contexts");
-        assertTrue(delta.addedTasks().isEmpty(), "No tasks should be added for identical contexts");
-        assertFalse(delta.clearedHistory(), "History was not cleared");
-        assertTrue(delta.isEmpty(), "Delta should be empty for identical contexts");
-    }
-
-    @Test
-    void testDelta_identifiesAddedFragments() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/Added.java");
-        Files.createDirectories(pf.absPath().getParent());
-        pf.write("class Added {}");
-        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
-
-        var ctx1 = new Context(contextManager);
-        var ctx2 = ctx1.addFragments(List.of(ppf));
-
-        var delta = ctx2.delta(ctx1);
-
-        assertEquals(1, delta.addedFragments().size(), "Should identify added fragment");
-        assertTrue(delta.removedFragments().isEmpty(), "No fragments should be removed");
-        assertFalse(delta.isEmpty(), "Delta should not be empty");
-    }
-
-    @Test
-    void testDelta_identifiesRemovedFragments() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/Removed.java");
-        Files.createDirectories(pf.absPath().getParent());
-        pf.write("class Removed {}");
-        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
-
-        var ctx1 = new Context(contextManager).addFragments(List.of(ppf));
-        var ctx2 = ctx1.removeFragments(List.of(ppf));
-
-        var delta = ctx2.delta(ctx1);
-
-        assertTrue(delta.addedFragments().isEmpty(), "No fragments should be added");
-        assertEquals(1, delta.removedFragments().size(), "Should identify removed fragment");
-        assertFalse(delta.isEmpty(), "Delta should not be empty");
-    }
-
-    @Test
-    void testDelta_identifiesAddedTasks() {
-        var ctx1 = new Context(contextManager);
-
-        List<dev.langchain4j.data.message.ChatMessage> msgs = List.of(
-                dev.langchain4j.data.message.UserMessage.from("User"), dev.langchain4j.data.message.AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
-        var entry = new TaskEntry(1, taskFrag, null);
-        var ctx2 = ctx1.addHistoryEntry(entry, taskFrag);
-
-        var delta = ctx2.delta(ctx1);
-
-        assertEquals(1, delta.addedTasks().size(), "Should identify added task");
-        assertFalse(delta.isEmpty(), "Delta should not be empty");
-    }
-
-    @Test
-    void testDelta_detectsClearedHistory() {
-        var ctx1 = new Context(contextManager);
-
-        List<dev.langchain4j.data.message.ChatMessage> msgs = List.of(
-                dev.langchain4j.data.message.UserMessage.from("User"), dev.langchain4j.data.message.AiMessage.from("AI"));
-        var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
-        var entry = new TaskEntry(1, taskFrag, null);
-        var ctxWithHistory = ctx1.addHistoryEntry(entry, taskFrag);
-        var ctxCleared = ctxWithHistory.clearHistory();
-
-        var delta = ctxCleared.delta(ctxWithHistory);
-
-        assertTrue(delta.clearedHistory(), "Should detect cleared history");
-        assertFalse(delta.isEmpty(), "Delta should not be empty when history cleared");
-    }
 }

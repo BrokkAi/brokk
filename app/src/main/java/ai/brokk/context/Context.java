@@ -236,26 +236,6 @@ public class Context {
         }
     }
 
-    /**
-     * Represents the delta between two Context states.
-     * Unlike DiffService which tracks file content changes, this tracks workspace state changes
-     * (fragments added/removed, task history changes).
-     */
-    public record ContextDelta(
-            List<ContextFragment> addedFragments,
-            List<ContextFragment> removedFragments,
-            List<TaskEntry> addedTasks,
-            boolean clearedHistory,
-            @Nullable String descriptionOverride) {
-        public boolean isEmpty() {
-            return addedFragments.isEmpty()
-                    && removedFragments.isEmpty()
-                    && addedTasks.isEmpty()
-                    && !clearedHistory
-                    && descriptionOverride == null;
-        }
-    }
-
     public static UUID newContextId() {
         return UuidCreator.getTimeOrderedEpoch();
     }
@@ -322,6 +302,10 @@ public class Context {
         keptExistingFragments.addAll(fragmentsToAdd);
 
         return this.withFragments(keptExistingFragments);
+    }
+
+    public boolean containsWithSameSource(ContextFragment fragment) {
+        return fragments.stream().anyMatch(f -> f.hasSameSource(fragment));
     }
 
     private String buildAddFragmentsAction(List<ContextFragment> added) {
@@ -483,8 +467,8 @@ public class Context {
     /** @deprecated Use getDescription(previousContext) instead */
     @Deprecated
     public String getAction() {
-        String desc = getDescription(null);
-        if (WELCOME_ACTION.equals(desc) && action.isDone()) {
+        String desc = WELCOME_ACTION;
+        if (action.isDone()) {
             try {
                 return action.get();
             } catch (Exception e) {
@@ -753,37 +737,7 @@ public class Context {
      * @return a ContextDelta describing added/removed fragments and task history changes
      */
     public ContextDelta delta(@Nullable Context other) {
-        if (other == null) {
-            // Everything in this context is "added" relative to nothing
-            return new ContextDelta(
-                    List.copyOf(this.fragments),
-                    List.of(),
-                    List.copyOf(this.taskHistory),
-                    false,
-                    this.descriptionOverride);
-        }
-
-        var currentFragments = Set.copyOf(this.fragments);
-        var previousFragments = Set.copyOf(other.fragments);
-
-        var added = this.fragments.stream()
-                .filter(f -> !previousFragments.contains(f))
-                .toList();
-
-        var removed = other.fragments.stream()
-                .filter(f -> !currentFragments.contains(f))
-                .toList();
-
-        // Task history changes
-        var addedTasks = new ArrayList<TaskEntry>();
-        if (this.taskHistory.size() > other.taskHistory.size()) {
-            // New tasks were added
-            addedTasks.addAll(this.taskHistory.subList(other.taskHistory.size(), this.taskHistory.size()));
-        }
-
-        boolean clearedHistory = other.taskHistory.size() > this.taskHistory.size() && this.taskHistory.isEmpty();
-
-        return new ContextDelta(added, removed, addedTasks, clearedHistory, this.descriptionOverride);
+        return ContextDelta.between(other, this);
     }
 
     /**
@@ -804,7 +758,7 @@ public class Context {
         }
 
         if (this.equals(previous)) {
-            return "";
+            return "(No changes)";
         }
 
         // 1. Prioritize Task History changes
