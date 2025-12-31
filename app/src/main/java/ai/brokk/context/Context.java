@@ -611,10 +611,6 @@ public class Context {
      */
     @Blocking
     public String getDescription(@Nullable Context previous) {
-        if (descriptionOverride != null) {
-            return descriptionOverride;
-        }
-
         if (previous == null) {
             return WELCOME_ACTION;
         }

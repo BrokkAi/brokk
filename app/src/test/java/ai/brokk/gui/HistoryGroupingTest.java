@@ -27,7 +27,7 @@ public class HistoryGroupingTest {
     }
 
     private static List<GroupDescriptor> discover(List<Context> contexts, Predicate<Context> boundary) {
-        return GroupingBuilder.discoverGroups(contexts, boundary);
+        return GroupingBuilder.discoverGroups(contexts, boundary, java.util.Set.of());
     }
 
     @Test
@@ -265,35 +265,24 @@ public class HistoryGroupingTest {
     }
 
     @Test
-    public void anonymousGroup_twoChildren_showsBothDescriptions() {
-        // Two ungrouped contexts should form a legacy group with "desc1 + desc2" label
-        var c1 = ctx("Added foo.java");
-        var c2 = ctx("Removed bar.java");
+    public void anonymousGroup_complexGrouping() {
+        // 1. Two same words -> "Wordx2"
+        var g1 = discover(List.of(ctx("Edit A"), ctx("Edit B")), c -> false);
+        assertEquals("Editx2", g1.getFirst().label());
 
-        var groups = discover(List.of(c1, c2), c -> false);
+        // 2. Two different words -> "Word1 + Word2"
+        var g2 = discover(List.of(ctx("Edit A"), ctx("Run B")), c -> false);
+        assertEquals("Edit + Run", g2.getFirst().label());
 
-        assertEquals(1, groups.size());
-        var g = groups.getFirst();
-        assertTrue(g.shouldShowHeader(), "Two-item group should show header");
-        // The label should be "Session Start + Session Start" since ctx() creates contexts
-        // that will return "Session Start" from getDescription(null)
-        // Let's just verify the label contains " + "
-        assertTrue(g.label().contains(" + "), "Two-item group label should join descriptions with ' + '");
-    }
+        // 3. Two groups, multiple items -> "Word1xN + Word2xM"
+        var g3 = discover(List.of(ctx("Edit A"), ctx("Edit B"), ctx("Run C")), c -> false);
+        assertEquals("Edit x2 + Run", g3.getFirst().label());
 
-    @Test
-    public void anonymousGroup_threeOrMoreChildren_showsFirstPlusCount() {
-        // Three or more ungrouped contexts should show "desc1 + N more"
-        var c1 = ctx("First action");
-        var c2 = ctx("Second action");
-        var c3 = ctx("Third action");
+        // 4. More than 2 groups -> "Word1xN + more"
+        var g4 = discover(List.of(ctx("Edit A"), ctx("Run B"), ctx("Test C")), c -> false);
+        assertEquals("Edit + more", g4.getFirst().label());
 
-        var groups = discover(List.of(c1, c2, c3), c -> false);
-
-        assertEquals(1, groups.size());
-        var g = groups.getFirst();
-        assertTrue(g.shouldShowHeader(), "Three-item group should show header");
-        // The label should contain " + 2 more" for 3 items
-        assertTrue(g.label().contains(" more"), "Three-item group label should indicate count of remaining items");
+        var g5 = discover(List.of(ctx("Edit A"), ctx("Edit B"), ctx("Run C"), ctx("Test D")), c -> false);
+        assertEquals("Editx2 + more", g5.getFirst().label());
     }
 }

@@ -178,7 +178,7 @@ public class CodeAgent {
 
         // Create Coder instance with the user's input as the task description
         var coder = contextManager.getLlm(
-                new Llm.Options(model, "Code: " + userInput).withEcho().withPartialResponses());
+                new Llm.Options(model, userInput).withEcho().withPartialResponses());
         coder.setOutput(io);
 
         // Track changed files

@@ -180,14 +180,33 @@ public final class HistoryGrouping {
             int size = j - i;
             assert size > 0 : "%d <= %d".formatted(j, i);
 
-            String d1 = getDescription(contexts, i, resetTargetIds);
             if (size == 1) {
-                return d1;
-            } else if (size == 2) {
-                String d2 = getDescription(contexts, i + 1, resetTargetIds);
-                return safeFirstWord(d1) + " + " + safeFirstWord(d2);
+                return getDescription(contexts, i, resetTargetIds);
+            }
+
+            record Group(String word, int count) {
+                @Override
+                public String toString() {
+                    return count > 1 ? word + " x" + count : word;
+                }
+            }
+
+            List<Group> groups = new ArrayList<>();
+            for (int k = i; k < j; k++) {
+                String word = safeFirstWord(getDescription(contexts, k, resetTargetIds));
+                if (!groups.isEmpty() && groups.getLast().word().equals(word)) {
+                    groups.set(groups.size() - 1, new Group(word, groups.getLast().count() + 1));
+                } else {
+                    groups.add(new Group(word, 1));
+                }
+            }
+
+            if (groups.size() == 1) {
+                return groups.getFirst().toString();
+            } else if (groups.size() == 2) {
+                return groups.get(0).toString() + " + " + groups.get(1).toString();
             } else {
-                return safeFirstWord(d1) + " + " + (size - 1) + " more";
+                return groups.get(0).toString() + " + more";
             }
         }
 
