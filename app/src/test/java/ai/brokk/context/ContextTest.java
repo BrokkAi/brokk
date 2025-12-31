@@ -67,12 +67,14 @@ class ContextTest {
         var p1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var p2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
 
-        var ctx = new Context(contextManager);
-        ctx = ctx.addFragments(List.of(p1, p2));
+        // Start with a non-empty context so getDescription doesn't hit the empty check if we had one
+        var originalCtx = new Context(contextManager).addFragments(new ContextFragments.StringFragment(contextManager, "base", "base", SyntaxConstants.SYNTAX_STYLE_NONE));
+        var ctx = originalCtx.addFragments(List.of(p1, p2));
 
         // Dedup: only one path fragment
         assertEquals(1, ctx.fileFragments().count(), "Duplicate path fragments should be deduped");
-        assertTrue(ctx.getAction().startsWith("Added "), ctx.getAction());
+        String description = ctx.getDescription(originalCtx);
+        assertTrue(description.startsWith("Added "), "Expected 'Added ...' but got: " + description);
     }
 
     @Test
@@ -216,7 +218,7 @@ class ContextTest {
         var ctx = new Context(contextManager).addFragments(List.of(ppf)).addFragments(sf);
 
         pf.write("class RefreshR0 { public static void main() {} }");
-        var refreshed = ctx.copyAndRefresh(Set.of(pf), "Test Action");
+        var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
         // ProjectPathFragment should be replaced (new instance), StringFragment should be reused (same instance)
         var oldPpf = ctx.fileFragments().findFirst().orElseThrow();
@@ -230,7 +232,6 @@ class ContextTest {
                         .findFirst()
                         .orElseThrow(),
                 "Unrelated virtual fragments should be reused");
-        assertEquals("Test Action", refreshed.getAction(), "Action should be set accordingly");
     }
 
     @Test
@@ -246,7 +247,7 @@ class ContextTest {
 
         // Update and trigger refresh
         pf.write("class RefreshR0 { public static void main() {} }");
-        var refreshed = ctx.copyAndRefresh(Set.of(pf), "Test");
+        var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
         var newFrag = refreshed.fileFragments().findFirst().orElseThrow();
         assertNotSame(ppf, newFrag, "Project fragment should be refreshed to a new instance");

@@ -51,14 +51,6 @@ public class Context {
     private final UUID id;
     public static final Context EMPTY = new Context(new IContextManager() {});
 
-    /** @deprecated Compatibility for tests only. */
-    @Deprecated
-    public static final String SUMMARIZING = "...";
-
-    /** @deprecated Compatibility for tests only. */
-    @Deprecated
-    public final CompletableFuture<String> action = CompletableFuture.completedFuture("");
-
     private static final String WELCOME_ACTION = "Session Start";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
@@ -84,6 +76,9 @@ public class Context {
     @Nullable
     private final String groupLabel;
 
+    @Nullable
+    private final String descriptionOverride;
+
     private final Set<ContextFragment> markedReadonlyFragments;
     private final Set<ContextFragment> pinnedFragments;
 
@@ -99,6 +94,7 @@ public class Context {
                 null,
                 null,
                 null,
+                null,
                 Set.of(),
                 Set.of());
     }
@@ -111,6 +107,7 @@ public class Context {
             @Nullable ContextFragments.TaskFragment parsedOutput,
             @Nullable UUID groupId,
             @Nullable String groupLabel,
+            @Nullable String descriptionOverride,
             Set<ContextFragment> markedReadonlyFragments,
             Set<ContextFragment> pinnedFragments) {
         this.id = id;
@@ -120,8 +117,11 @@ public class Context {
         this.parsedOutput = parsedOutput;
         this.groupId = groupId;
         this.groupLabel = groupLabel;
+        this.descriptionOverride = descriptionOverride;
         this.markedReadonlyFragments = validateReadOnlyFragments(markedReadonlyFragments, fragments);
         this.pinnedFragments = validatePinnedFragments(pinnedFragments, fragments);
+        // Backward-compatibility: action field is always completed
+        this.action = CompletableFuture.completedFuture(descriptionOverride != null ? descriptionOverride : SUMMARIZING);
     }
 
     public Context(
@@ -135,6 +135,7 @@ public class Context {
                 fragments,
                 taskHistory,
                 parsedOutput,
+                null,
                 null,
                 null,
                 Set.of(),
@@ -320,12 +321,13 @@ public class Context {
     }
 
     private Context withFragments(List<ContextFragment> newFragments) {
-        // By default, derived contexts should NOT inherit grouping; grouping is explicit via withGroup(...)
+        // By default, derived contexts should NOT inherit grouping or overrides
         return new Context(
                 newContextId(),
                 contextManager,
                 newFragments,
                 taskHistory,
+                null,
                 null,
                 null,
                 null,
@@ -509,6 +511,7 @@ public class Context {
                 null,
                 null,
                 null,
+                null,
                 newReadOnly,
                 newPinned);
     }
@@ -519,6 +522,7 @@ public class Context {
                 contextManager,
                 List.of(),
                 List.of(),
+                null,
                 null,
                 null,
                 null,
@@ -544,6 +548,7 @@ public class Context {
                 parsedOutput,
                 null,
                 null,
+                null,
                 this.markedReadonlyFragments,
                 newPinned);
     }
@@ -565,6 +570,7 @@ public class Context {
                 contextManager,
                 fragments,
                 taskHistory,
+                null,
                 null,
                 null,
                 null,
@@ -602,6 +608,7 @@ public class Context {
                 parsed,
                 null,
                 null,
+                null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
     }
@@ -621,6 +628,7 @@ public class Context {
                 contextManager,
                 fragments,
                 List.of(),
+                null,
                 null,
                 null,
                 null,
@@ -644,7 +652,11 @@ public class Context {
      */
     @Blocking
     public String getDescription(@Nullable Context previous) {
-        if (previous == null || previous.isEmpty()) {
+        if (descriptionOverride != null) {
+            return descriptionOverride;
+        }
+
+        if (previous == null) {
             return WELCOME_ACTION;
         }
 
@@ -734,6 +746,7 @@ public class Context {
                 parsedOutput,
                 null,
                 null,
+                null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
     }
@@ -753,6 +766,7 @@ public class Context {
                 parsedOutput,
                 groupId,
                 groupLabel,
+                null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
     }
@@ -772,7 +786,7 @@ public class Context {
             Set<ContextFragment> readOnlyFragments,
             Set<ContextFragment> pinnedFragments) {
         return new Context(
-                id, cm, fragments, history, parsed, groupId, groupLabel, readOnlyFragments, pinnedFragments);
+                id, cm, fragments, history, parsed, groupId, groupLabel, null, readOnlyFragments, pinnedFragments);
     }
 
     /**
@@ -784,6 +798,7 @@ public class Context {
                 contextManager,
                 fragments,
                 newHistory,
+                null,
                 null,
                 null,
                 null,
@@ -822,6 +837,7 @@ public class Context {
                 null,
                 sourceContext.getGroupId(),
                 sourceContext.getGroupLabel(),
+                null,
                 sourceContext.markedReadonlyFragments,
                 sourceContext.pinnedFragments);
     }
@@ -838,15 +854,56 @@ public class Context {
         return id.hashCode();
     }
 
+    /** Constant for backward compatibility with tests checking incomplete action futures. */
+    @Deprecated
+    public static final String SUMMARIZING = "(summarizing...)";
+
+    /**
+     * Backward-compatibility field for tests that check action.isDone().
+     * Always completed since action strings are no longer async.
+     * @deprecated Action strings are now derived on-demand via getDescription()
+     */
+    @Deprecated
+    public final transient CompletableFuture<String> action;
+
     /** Compatibility getter for tests. Returns the description relative to no previous state. */
     public String getAction() {
         return getDescription(null);
     }
 
-    /** Compatibility method for tests. No-op as action strings are no longer stored in Context. */
-    @org.jetbrains.annotations.TestOnly
-    public Context withAction(@Nullable CompletableFuture<String> action) {
-        return this;
+    /**
+     * Backward-compatibility method for tests that previously used action futures.
+     * Maps to withDescription, resolving the future immediately or using SUMMARIZING placeholder.
+     * @deprecated Use withDescription(String) instead
+     */
+    @Deprecated
+    public Context withAction(Future<String> actionFuture) {
+        String desc;
+        if (actionFuture.isDone()) {
+            try {
+                desc = actionFuture.get();
+            } catch (Exception e) {
+                desc = SUMMARIZING;
+            }
+        } else {
+            desc = SUMMARIZING;
+        }
+        return withDescription(desc);
+    }
+
+    /** Sets a description override for this context (e.g., "Load external changes"). */
+    public Context withDescription(String description) {
+        return new Context(
+                id,
+                contextManager,
+                fragments,
+                taskHistory,
+                parsedOutput,
+                groupId,
+                groupLabel,
+                description,
+                markedReadonlyFragments,
+                pinnedFragments);
     }
 
     /**
@@ -919,6 +976,7 @@ public class Context {
                 newFragments,
                 afterClear.taskHistory,
                 afterClear.parsedOutput,
+                null,
                 null,
                 null,
                 afterClear.markedReadonlyFragments,
@@ -1214,6 +1272,12 @@ public class Context {
         return copyAndRefreshInternal(Set.copyOf(fragments));
     }
 
+    /** Compatibility overload for tests. */
+    @org.jetbrains.annotations.TestOnly
+    public Context copyAndRefresh(Set<ProjectFile> maybeChanged, String action) {
+        return copyAndRefresh(maybeChanged);
+    }
+
     /** Compatibility overload for tests. No-op. */
     @org.jetbrains.annotations.TestOnly
     public Context copyAndRefresh(String action) {
@@ -1249,11 +1313,10 @@ public class Context {
      * Refreshes fragments whose source files intersect the provided set.
      *
      * @param maybeChanged     set of project files that may have changed
-     * @param action description string for Activity history
      * @return a new context with refreshed fragments, or this context if no changes occurred
      */
     @Blocking
-    public Context copyAndRefresh(Set<ProjectFile> maybeChanged, String action) {
+    public Context copyAndRefresh(Set<ProjectFile> maybeChanged) {
         if (maybeChanged.isEmpty()) {
             return this;
         }
@@ -1339,6 +1402,7 @@ public class Context {
                 parsedOutput,
                 this.groupId,
                 this.groupLabel,
+                this.descriptionOverride,
                 newReadOnly,
                 newPinned);
     }

@@ -49,6 +49,13 @@ public class ContextHistory {
     private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
 
     /**
+     * Tracks the ID of the last context created by an external file change to handle continuations.
+     */
+    private @Nullable UUID lastExternalChangeId;
+
+    private int externalChangeContinuationCount = 0;
+
+    /**
      * UI-selection; never {@code null} once an initial context is set.
      */
     private @Nullable Context selected;
@@ -198,18 +205,29 @@ public class ContextHistory {
             return null; // nothing meaningful changed; do not push/replace
         }
 
-        // Maintain "Load external changes (n)" semantics.
-        var previousDescription = base.getDescription(previousOf(base));
-        boolean isContinuation = previousDescription.startsWith("Load external changes");
+        // Maintain continuation semantics for rapid external changes.
+        boolean isContinuation = Objects.equals(base.id(), lastExternalChangeId);
 
-        // parsedOutout == null indicated no AI result (render no icon in activity)
-        var updatedLive = merged.withParsedOutput(null);
+        String description;
+        if (isContinuation) {
+            externalChangeContinuationCount++;
+            description = externalChangeContinuationCount > 1
+                    ? "Load external changes (" + externalChangeContinuationCount + ")"
+                    : "Load external changes";
+        } else {
+            externalChangeContinuationCount = 1;
+            description = "Load external changes";
+        }
+
+        // parsedOutput == null indicates no AI result (render no icon in activity)
+        var updatedLive = merged.withParsedOutput(null).withDescription(description);
 
         if (isContinuation) {
             replaceTopInternal(updatedLive);
         } else {
             pushContextInternal(updatedLive, false);
         }
+        lastExternalChangeId = updatedLive.id();
         return updatedLive;
     }
 
