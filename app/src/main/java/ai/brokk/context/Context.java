@@ -33,7 +33,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -74,7 +73,7 @@ public class Context {
     /**
      * description of the action that created this context, can be a future (like PasteFragment)
      */
-    public final transient Future<String> action;
+    public final transient CompletableFuture<String> action;
 
     @Nullable
     private final UUID groupId;
@@ -108,7 +107,7 @@ public class Context {
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
             @Nullable ContextFragments.TaskFragment parsedOutput,
-            Future<String> action,
+            CompletableFuture<String> action,
             @Nullable UUID groupId,
             @Nullable String groupLabel,
             Set<ContextFragment> markedReadonlyFragments,
@@ -130,7 +129,7 @@ public class Context {
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
             @Nullable ContextFragments.TaskFragment parsedOutput,
-            Future<String> action) {
+            CompletableFuture<String> action) {
         this(
                 newContextId(),
                 contextManager,
@@ -267,12 +266,12 @@ public class Context {
 
         // 5. Merge and Build unified action message
         keptExistingFragments.addAll(fragmentsToAdd);
-        Future<String> action = buildAddFragmentsAction(fragmentsToAdd);
+        CompletableFuture<String> action = buildAddFragmentsAction(fragmentsToAdd);
 
         return this.withFragments(keptExistingFragments, action);
     }
 
-    private Future<String> buildAddFragmentsAction(List<ContextFragment> added) {
+    private CompletableFuture<String> buildAddFragmentsAction(List<ContextFragment> added) {
         int count = added.size();
         if (count == 0) {
             return CompletableFuture.completedFuture("Added fragments");
@@ -321,7 +320,7 @@ public class Context {
         return addFragments(List.of(fragment));
     }
 
-    private Context withFragments(List<ContextFragment> newFragments, Future<String> action) {
+    private Context withFragments(List<ContextFragment> newFragments, CompletableFuture<String> action) {
         // By default, derived contexts should NOT inherit grouping; grouping is explicit via withGroup(...)
         return new Context(
                 newContextId(),
@@ -569,7 +568,7 @@ public class Context {
         }
 
         // Build action message (non-blocking where possible)
-        Future<String> actionFuture;
+        CompletableFuture<String> actionFuture;
         String actionPrefix = readonly ? "Set Read-Only: " : "Unset Read-Only: ";
 
         var cv = fragment.description();
@@ -614,7 +613,7 @@ public class Context {
     }
 
     public Context addHistoryEntry(
-            TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed, Future<String> action) {
+            TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed, CompletableFuture<String> action) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
         // Do not inherit grouping on derived contexts; grouping is explicit
@@ -668,9 +667,7 @@ public class Context {
     }
 
     public void onActionComplete(Runnable callback) {
-        if (action instanceof CompletableFuture<?> cf) {
-            cf.whenComplete((v, e) -> callback.run());
-        }
+        action.whenComplete((v, e) -> callback.run());
     }
 
     public IContextManager getContextManager() {
@@ -709,7 +706,8 @@ public class Context {
         return result;
     }
 
-    public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput, Future<String> action) {
+    public Context withParsedOutput(
+            @Nullable ContextFragments.TaskFragment parsedOutput, CompletableFuture<String> action) {
         // Clear grouping by default on derived contexts
         return new Context(
                 newContextId(),
@@ -739,7 +737,7 @@ public class Context {
                 this.pinnedFragments);
     }
 
-    public Context withAction(Future<String> action) {
+    public Context withAction(CompletableFuture<String> action) {
         // Clear grouping by default on derived contexts
         return new Context(
                 newContextId(),
@@ -778,7 +776,7 @@ public class Context {
             List<ContextFragment> fragments,
             List<TaskEntry> history,
             @Nullable ContextFragments.TaskFragment parsed,
-            Future<String> action,
+            CompletableFuture<String> action,
             @Nullable UUID groupId,
             @Nullable String groupLabel,
             Set<ContextFragment> readOnlyFragments,
