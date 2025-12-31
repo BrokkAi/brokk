@@ -19,6 +19,7 @@ import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -266,6 +267,48 @@ public class ContextNoGitFallbackTest {
             assertTrue(tracked.stream().anyMatch(f -> f.toString().endsWith("A.txt")), "A should be tracked");
             assertTrue(tracked.stream().anyMatch(f -> f.toString().endsWith("B.txt")), "B should be tracked");
             assertFalse(tracked.stream().anyMatch(f -> f.toString().endsWith("C.txt")), "C should NOT be tracked");
+        }
+    }
+
+    @Test
+    public void testFillBehaviorWhenGitResultsAreInsufficient() throws Exception {
+        // A and B are linked by Git.
+        // A and C are linked by Imports.
+        // If we ask for topK=2 with seed A, Git provides 1 result (B).
+        // Context should fill the 2nd slot using ImportPageRanker (C).
+        try (var project = InlineTestProjectCreator.code(
+                        "package test; import test.C; public class A { }", "test/A.java")
+                .addFileContents("package test; public class B { }", "test/B.java")
+                .addFileContents("package test; public class C { }", "test/C.java")
+                .withGit()
+                .addCommit("test/A.java", "test/B.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
+                    .map(CodeUnit::source).distinct()
+                    .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
+
+            ProjectFile a = files.get("A.java");
+            ProjectFile b = files.get("B.java");
+            ProjectFile c = files.get("C.java");
+
+            IContextManager cm = new IContextManager() {
+                @Override public IAnalyzer getAnalyzer() { return analyzer; }
+                @Override public IProject getProject() { return project; }
+                @Override public IGitRepo getRepo() { return project.getRepo(); }
+            };
+            Context ctx = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(a, cm));
+
+            List<ProjectFile> results = ctx.getMostRelevantFiles(2);
+
+            assertEquals(2, results.size(), "Should return exactly topK results");
+            assertTrue(results.contains(b), "Should contain Git-linked file B");
+            assertTrue(results.contains(c), "Should contain Import-linked file C to fill the list");
+            assertFalse(results.contains(a), "Seed A should be excluded");
+
+            // Verify uniqueness
+            assertEquals(2, new HashSet<>(results).size(), "Results should be unique");
         }
     }
 

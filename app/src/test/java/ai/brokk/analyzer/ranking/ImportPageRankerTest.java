@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.ranking;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -170,6 +171,70 @@ public class ImportPageRankerTest {
             for (String path : seedPaths) {
                 assertFalse(results.contains(filesByRelPath.get(path)), "Seed " + path + " should be excluded");
             }
+        }
+    }
+
+    @Test
+    public void testRelativeRankingOfHubNode() throws Exception {
+        // Construct a "Star" graph where many files import 'Hub.java'.
+        // Seed is one of the leaf nodes. 'Hub' should be the top result.
+        try (var project = InlineTestProjectCreator.code("package test; public class Hub {}", "test/Hub.java")
+                .addFileContents("package test; import test.Hub; public class Leaf1 {}", "test/Leaf1.java")
+                .addFileContents("package test; import test.Hub; public class Leaf2 {}", "test/Leaf2.java")
+                .addFileContents("package test; import test.Hub; public class Leaf3 {}", "test/Leaf3.java")
+                .addFileContents("package test; import test.Hub; public class Leaf4 {}", "test/Leaf4.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
+                    .map(CodeUnit::source).distinct()
+                    .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
+
+            ProjectFile hub = files.get("Hub.java");
+            ProjectFile leaf1 = files.get("Leaf1.java");
+
+            // Seed from a leaf
+            Map<ProjectFile, Double> seeds = Map.of(leaf1, 1.0);
+            List<IAnalyzer.FileRelevance> results =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, false);
+
+            assertFalse(results.isEmpty(), "Should have results");
+            assertEquals(hub, results.get(0).file(), "The central Hub should be the top ranked result");
+        }
+    }
+
+    @Test
+    public void testRankFlowsThroughChain() throws Exception {
+        // A -> B -> C -> D. Seed is A.
+        // With IMPORT_DEPTH=2, it should reach C.
+        try (var project = InlineTestProjectCreator.code("package test; import test.B; public class A {}", "test/A.java")
+                .addFileContents("package test; import test.C; public class B {}", "test/B.java")
+                .addFileContents("package test; import test.D; public class C {}", "test/C.java")
+                .addFileContents("package test; public class D {}", "test/D.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
+                    .map(CodeUnit::source).distinct()
+                    .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
+
+            ProjectFile a = files.get("A.java");
+            ProjectFile b = files.get("B.java");
+            ProjectFile c = files.get("C.java");
+
+            List<IAnalyzer.FileRelevance> results =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, Map.of(a, 1.0), 10, false);
+
+            List<ProjectFile> resultFiles = results.stream().map(IAnalyzer.FileRelevance::file).toList();
+
+            assertTrue(resultFiles.contains(b), "Direct import B should be present");
+            assertTrue(resultFiles.contains(c), "Indirect import C (2 hops) should be present");
+            assertFalse(resultFiles.contains(files.get("D.java")), "D is 3 hops away, should be outside IMPORT_DEPTH");
+
+            // Relative order: B should be higher than C
+            int indexB = resultFiles.indexOf(b);
+            int indexC = resultFiles.indexOf(c);
+            assertTrue(indexB < indexC, "Direct neighbor B should rank higher than indirect neighbor C");
         }
     }
 
