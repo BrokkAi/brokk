@@ -754,16 +754,22 @@ public final class HeadlessExecutorMain {
             return;
         }
 
+        boolean headersSent = false;
         try {
             var headers = exchange.getResponseHeaders();
             headers.set("Content-Type", "application/zip");
             headers.set("Content-Disposition", "attachment; filename=\"" + sessionId + ".zip\"");
             exchange.sendResponseHeaders(200, 0);
+            headersSent = true;
             try (var responseBody = exchange.getResponseBody()) {
                 Files.copy(sessionZipPath, responseBody);
             }
         } catch (IOException e) {
             logger.error("Failed to stream session zip {}", sessionId, e);
+            if (headersSent) {
+                exchange.close();
+                return;
+            }
             var error = ErrorPayload.internalError("Failed to stream session zip", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
