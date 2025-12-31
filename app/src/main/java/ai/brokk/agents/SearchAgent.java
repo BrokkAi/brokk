@@ -829,7 +829,7 @@ public class SearchAgent {
         logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
         io.llmOutput("**Code Agent** engaged: " + instructions, ChatMessageType.AI, true, false);
         var agent = new ArchitectAgent(
-                cm, cm.getService().getModel(ModelType.ARCHITECT), cm.getCodeModel(), instructions, scope);
+                cm, cm.getService().getModel(ModelType.ARCHITECT), cm.getCodeModel(), instructions, scope, context);
         var result = agent.execute();
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
@@ -838,7 +838,7 @@ public class SearchAgent {
         if (reason == TaskResult.StopReason.SUCCESS) {
             // housekeeping
             new GitWorkflow(cm).performAutoCommit(instructions);
-            cm.compressHistory();
+            cm.compressHistory(context.getGroupId(), context.getGroupLabel());
             // CodeAgent appended its own result; we don't need to llmOutput anything redundant
             logger.debug("SearchAgent.callCodeAgent finished successfully");
             return "CodeAgent finished with a successful build!";
@@ -865,11 +865,8 @@ public class SearchAgent {
     }
 
     private TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta) {
-        // Build final messages from already-streamed transcript; fallback to session-local messages if empty
+        // Build final messages from already-streamed transcript
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
-        if (finalMessages.isEmpty()) {
-            finalMessages = new ArrayList<>(sessionMessages);
-        }
 
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
@@ -886,11 +883,8 @@ public class SearchAgent {
     }
 
     private TaskResult errorResult(TaskResult.StopDetails details, @Nullable TaskResult.TaskMeta meta) {
-        // Build final messages from already-streamed transcript; fallback to session-local messages if empty
+        // Build final messages from already-streamed transcript
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
-        if (finalMessages.isEmpty()) {
-            finalMessages = new ArrayList<>(sessionMessages);
-        }
 
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
