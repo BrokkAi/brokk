@@ -29,7 +29,6 @@ import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.prompts.CodePrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.GitTools;
@@ -866,6 +865,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .withTaskList(new TaskList.TaskListData(List.of()), "Clear task history and tasks"));
     }
 
+    /** Clear conversation history only, preserving the task list. */
+    public void clearHistoryOnly() {
+        pushContext(Context::clearHistory);
+    }
+
     /**
      * Drops fragments with HISTORY-aware semantics: - If selection is empty: drop all and reset selected context to the
      * latest (top) context. - If selection includes HISTORY: clear history, then drop only non-HISTORY fragments. -
@@ -951,6 +955,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         });
     }
 
+    @Override
     public boolean undoContext() {
         return withFileChangeNotificationsPaused(() -> {
             UndoResult result = contextHistory.undo(1, io, project);
@@ -1045,7 +1050,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public ContextFragments.AnonymousImageFragment addPastedImageFragment(
             Image image, @Nullable String descriptionOverride) {
-        Future<String> descriptionFuture;
+        CompletableFuture<String> descriptionFuture;
         if (descriptionOverride != null && !descriptionOverride.isBlank()) {
             descriptionFuture = CompletableFuture.completedFuture(descriptionOverride);
         } else {
@@ -1318,15 +1323,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return joinClassesForOutput(toJoin);
         }
         return "%d files".formatted(files.size());
-    }
-
-    /**
-     * @return A list containing two messages: a UserMessage with the string representation of the task history, and an
-     *     AiMessage acknowledging it. Returns an empty list if there is no history.
-     */
-    @Override
-    public List<ChatMessage> getHistoryMessages() {
-        return CodePrompts.instance.getHistoryMessages(liveContext());
     }
 
     public List<ChatMessage> getHistoryMessagesForCopy() {
@@ -1698,56 +1694,42 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Submits a background task using SwingWorker to summarize a pasted image. This uses the quickest model to generate
+     * Submits a background task to summarize a pasted image. This uses the quickest model to generate
      * a short description.
      *
      * @param pastedImage The java.awt.Image that was pasted.
-     * @return A SwingWorker whose `get()` method will return the description string.
+     * @return A CompletableFuture that will return the description string.
      */
-    public SwingWorker<String, Void> submitSummarizePastedImage(Image pastedImage) {
-        ExceptionAwareSwingWorker<String, Void> worker = new ExceptionAwareSwingWorker<>(io) {
-            @Override
-            protected String doInBackground() {
-                try {
-                    // Convert AWT Image to LangChain4j Image (requires Base64 encoding)
-                    var l4jImage = ImageUtil.toL4JImage(pastedImage); // Assumes ImageUtil helper exists
-                    var imageContent = ImageContent.from(l4jImage);
+    public CompletableFuture<String> submitSummarizePastedImage(Image pastedImage) {
+        return submitBackgroundTask("Summarizing pasted image", () -> {
+            try {
+                // Convert AWT Image to LangChain4j Image (requires Base64 encoding)
+                var l4jImage = ImageUtil.toL4JImage(pastedImage);
+                var imageContent = ImageContent.from(l4jImage);
 
-                    // Create prompt messages for the LLM
-                    var textContent = TextContent.from(
-                            "Briefly describe this image in a few words (e.g., 'screenshot of code', 'diagram of system').");
-                    var userMessage = UserMessage.from(textContent, imageContent);
-                    List<ChatMessage> messages = List.of(userMessage);
-                    Llm.StreamingResult result;
-                    try {
-                        result = getLlm(serviceProvider.get().summarizeModel(), "Summarize pasted image")
-                                .sendRequest(messages);
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
-                    if (result.error() != null) {
-                        logger.warn("Image summarization failed or was cancelled.");
-                        return "(Image summarization failed)";
-                    }
-                    var description = result.text();
-                    return description.isBlank() ? "(Image description empty)" : description.trim();
-                } catch (IOException e) {
-                    logger.error("Failed to convert pasted image for summarization", e);
-                    return "(Error processing image)";
+                // Create prompt messages for the LLM
+                var textContent = TextContent.from(
+                        "Briefly describe this image in a few words (e.g., 'screenshot of code', 'diagram of system').");
+                var userMessage = UserMessage.from(textContent, imageContent);
+                List<ChatMessage> messages = List.of(userMessage);
+
+                Llm.StreamingResult result = getLlm(serviceProvider.get().summarizeModel(), "Summarize pasted image")
+                        .sendRequest(messages);
+
+                if (result.error() != null) {
+                    logger.warn("Image summarization failed or was cancelled.");
+                    return "(Image summarization failed)";
                 }
+                var description = result.text();
+                return description.isBlank() ? "(Image description empty)" : description.trim();
+            } catch (IOException e) {
+                logger.error("Failed to convert pasted image for summarization", e);
+                return "(Error processing image)";
+            } finally {
+                SwingUtilities.invokeLater(io::postSummarize);
             }
-
-            @Override
-            protected void done() {
-                super.done();
-                io.postSummarize();
-            }
-        };
-
-        worker.execute();
-        return worker;
+        });
     }
-
     /** Submits a background task to the internal background executor (non-user actions). */
     @Override
     public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
@@ -2169,7 +2151,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
-        private boolean closed = false;
+        private final AtomicBoolean closed = new AtomicBoolean(false);
         private final @Nullable UUID groupId;
         private final @Nullable String groupLabel;
 
@@ -2189,7 +2171,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
          * @param result   The TaskResult to append.
          */
         public Context append(TaskResult result) throws InterruptedException {
-            assert !closed : "TaskScope already closed";
+            assert !closed.get() : "TaskScope already closed";
 
             // If interrupted before any LLM output, skip
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
@@ -2234,10 +2216,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return updatedContext;
         }
 
+        /**
+         * Publishes an intermediate Context snapshot to history without finalizing a TaskResult.
+         * This allows capturing checkpoints during long-running tasks.
+         */
+        public void publish(Context context) {
+            assert !closed.get() : "TaskScope already closed";
+            var updated = context.withGroup(groupId, groupLabel);
+            pushContext(currentLiveCtx -> updated);
+            io.prepareOutputForNextStream(updated.getTaskHistory()); // is this necessary?
+        }
+
         @Override
         public void close() {
-            if (closed) return;
-            closed = true;
+            if (!closed.compareAndSet(false, true)) return;
             SwingUtilities.invokeLater(() -> {
                 // deferred cleanup
                 taskScopeInProgress.set(false);
@@ -2709,6 +2701,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     @Blocking
     public void compressHistory() throws InterruptedException {
+        compressHistory(null, null);
+    }
+
+    @Override
+    @Blocking
+    public void compressHistory(@Nullable UUID groupId, @Nullable String groupLabel) throws InterruptedException {
         io.disableHistoryPanel();
         try {
             // Operate on the task history
@@ -2761,10 +2759,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return;
                 }
 
-                // pushContext will update liveContext with the compressed history
-                // and add a frozen version to contextHistory.
-                // Entries now have both log and summary, so AI uses summary while UI can show either
-                pushContext(currentLiveCtx -> currentLiveCtx.withHistory(compressedTaskEntries));
+                if (groupId != null) {
+                    pushContext(currentLiveCtx ->
+                            currentLiveCtx.withHistory(compressedTaskEntries).withGroup(groupId, groupLabel));
+                } else {
+                    pushContext(currentLiveCtx -> currentLiveCtx.withHistory(compressedTaskEntries));
+                }
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
             }
         } finally {

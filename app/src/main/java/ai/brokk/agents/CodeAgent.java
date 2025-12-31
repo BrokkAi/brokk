@@ -51,6 +51,8 @@ import java.util.SequencedSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -194,8 +196,7 @@ public class CodeAgent {
         var parser = EditBlockParser.instance;
         // We'll collect the conversation as ChatMessages to store in context history.
         var taskMessages = new ArrayList<ChatMessage>();
-        UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                context, userInput.trim(), CodePrompts.instance.codeReminder(contextManager.getService(), model));
+        UserMessage nextRequest = CodePrompts.instance.codeRequest(context, userInput.trim(), model);
 
         // FSM state - include original goal for build-retry compaction
         var rawMessages = new ArrayList<ChatMessage>();
@@ -403,6 +404,26 @@ public class CodeAgent {
 
             // VERIFY or finish if build is deferred
             if (options.contains(Option.DEFER_BUILD)) {
+                if (!es.javaLintDiagnostics().isEmpty()) {
+                    if (es.consecutiveBuildFailures() >= MAX_BUILD_FAILURES) {
+                        reportComplete("Java syntax errors persist after %d attempts; aborting."
+                                .formatted(MAX_BUILD_FAILURES));
+                        stopDetails = new TaskResult.StopDetails(
+                                TaskResult.StopReason.BUILD_ERROR, "Java syntax issues persist.");
+                        break;
+                    }
+
+                    var diagnosticMessages = formatDiagnosticsReport(es.javaLintDiagnostics());
+                    report(diagnosticMessages);
+
+                    UserMessage nextRequestForLintFailure =
+                            new UserMessage("The following Java syntax issues were detected. Please fix them:\n\n"
+                                    + diagnosticMessages);
+                    cs = cs.withNextRequest(nextRequestForLintFailure);
+                    es = es.afterBuildFailure(diagnosticMessages.toString());
+                    continue;
+                }
+
                 reportComplete(
                         es.blocksAppliedWithoutBuild() > 0
                                 ? "Edits applied. Build/check deferred."
@@ -552,46 +573,87 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation and original content.
      */
     public TaskResult runQuickTask(ProjectFile file, String oldText, String instructions) throws InterruptedException {
-        var coder = contextManager.getLlm(model, "QuickEdit: " + instructions);
-        coder.setOutput(io);
+        var llm = contextManager.getLlm(model, "QuickEdit: " + instructions);
+        llm.setOutput(io);
 
         // Use up to 5 related classes as context (format as combined summaries)
         var relatedCode = contextManager.liveContext().buildAutoContext(5);
-
         String fileContents = file.read().orElse("");
-
         var styleGuide = contextManager.getProject().getStyleGuide();
 
         // Build the prompt messages
         var messages = QuickEditPrompts.instance.collectMessages(fileContents, relatedCode, styleGuide);
-
-        // The user instructions
+        int messageHistoryStart = messages.size();
         var instructionsMsg = QuickEditPrompts.instance.formatInstructions(oldText, instructions);
         messages.add(new UserMessage(instructionsMsg));
 
-        // Initialize pending history with the instruction
-        var pendingHistory = new ArrayList<ChatMessage>();
-        pendingHistory.add(new UserMessage(instructionsMsg));
+        TaskResult.StopDetails stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+        int attempts = 0;
+        final int MAX_QUICK_FIX_ATTEMPTS = 3;
 
-        // No echo for Quick Edit, use instance quickModel
-        var result = coder.sendRequest(messages);
+        while (true) {
+            var result = llm.sendRequest(messages);
+            if (result.error() != null) {
+                stopDetails = TaskResult.StopDetails.fromResponse(result);
+                io.toolError("Quick edit failed: " + stopDetails.explanation());
+                break;
+            }
+            messages.add(result.aiMessage());
 
-        // Determine stop reason based on LLM response
-        TaskResult.StopDetails stopDetails;
-        if (result.error() != null) {
-            stopDetails = TaskResult.StopDetails.fromResponse(result);
-            io.toolError("Quick edit failed: " + stopDetails.explanation());
-        } else {
-            // Success from LLM perspective
-            pendingHistory.add(result.aiMessage());
-            stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
+            var responseText = Messages.getText(result.aiMessage());
+            var snippet = EditBlock.extractCodeFromTripleBackticks(responseText).trim();
+
+            if (snippet.isEmpty()) {
+                io.toolError("Could not extract code block from LLM response.", "Quick Edit Diagnostics");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.PARSE_ERROR, "Empty code block");
+                break;
+            }
+
+            if (snippet.equals(oldText)) {
+                logger.debug("Quick Edit: LLM returned unchanged code, skipping diagnostics");
+                break; // No changes suggested
+            }
+
+            var updatedContent = fileContents.replaceFirst(Pattern.quote(oldText), Matcher.quoteReplacement(snippet));
+            if (updatedContent.equals(fileContents)) {
+                logger.warn("Quick Edit: target text not found in file (may have changed)");
+                break;
+            }
+
+            // Validate Java syntax if applicable
+            if (!Languages.JAVA.getExtensions().contains(file.extension())) {
+                break; // Not Java, accept the result
+            }
+
+            var diags = parseJavaForDiagnostics(file, updatedContent);
+            if (diags.isEmpty()) {
+                break; // Valid Java
+            }
+
+            var diagnosticMessages = formatDiagnosticsReport(Map.of(file, diags));
+            io.llmOutput(diagnosticMessages, ChatMessageType.CUSTOM);
+
+            if (attempts++ >= MAX_QUICK_FIX_ATTEMPTS) {
+                report("Quick Edit: Maximum fix attempts reached.");
+                stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, "Syntax errors persist");
+                break;
+            }
+
+            messages.add(new UserMessage(
+                    "The following Java syntax issues were detected in your response. Please fix them and provide the full corrected code block:\n\n"
+                            + diagnosticMessages));
+            report("Quick Edit: Syntax errors detected, retrying...");
         }
 
-        // Return TaskResult containing conversation and resulting context (populate TaskMeta since an LLM was used)
         var quickMeta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
         return new TaskResult(
-                contextManager, "Quick Edit: " + file.getFileName(), pendingHistory, context, stopDetails, quickMeta);
+                contextManager,
+                "Quick Edit: " + file.getFileName(),
+                messages.subList(messageHistoryStart, messages.size()),
+                context,
+                stopDetails,
+                quickMeta);
     }
 
     /**
@@ -737,6 +799,7 @@ public class CodeAgent {
             }
             var buildPrompt =
                     """
+                    The build failed.
                     Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
                     You should use the conversation history to understand what has been done so far, but
                     only use the Workspace to generate SEARCH/REPLACE blocks.
@@ -748,14 +811,9 @@ public class CodeAgent {
                     <build_output>
                     %s
                     </build_output>
-
-                    <original_goal>
-                    %s
-                    </original_goal>
                     """
-                            .formatted(buildError, cs.originalGoal());
-            UserMessage nextRequest = CodePrompts.instance.codeRequest(
-                    context, buildPrompt, CodePrompts.instance.codeReminder(contextManager.getService(), model));
+                            .formatted(buildError);
+            UserMessage nextRequest = new UserMessage(buildPrompt.trim());
             // Compact conversation into a concise summary for the build step
             var newCs = cs.forBuildRetry(nextRequest, es);
             var newEs = es.afterBuildFailure(buildError);
@@ -1039,8 +1097,11 @@ public class CodeAgent {
     }
 
     /**
-     * Quickly parse files in memory for local-only errors, with no classpath bindings, before proceeding to the
-     * expensive full build. Goal is to catch as many true positives as possible with zero false positives.
+     * Quickly parse files in memory for local-only errors before proceeding to the expensive full build.
+     * Uses JDT binding resolution with empty environment (boot classpath only) to detect control-flow
+     * and value-category errors. Goal is to catch as many true positives as possible with zero false positives.
+     * Note: Binding resolution with empty environment may produce unstable results; we filter out diagnostics
+     * that require stable type information to avoid false positives.
      */
     Step parseJavaPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
         // Only run if there were edits since the last build attempt (PJ-21)
@@ -1057,8 +1118,6 @@ public class CodeAgent {
             return new Step.Continue(cs, es);
         }
 
-        // Use Eclipse JDT ASTParser without classpath/bindings
-
         // Map from ProjectFile -> diagnostic list for that file
         var perFileProblems = new ConcurrentHashMap<ProjectFile, List<JavaDiagnostic>>();
 
@@ -1068,49 +1127,7 @@ public class CodeAgent {
             if (src.isBlank()) { // PJ-3: blank files should produce no diagnostics
                 continue;
             }
-            char[] sourceChars = src.toCharArray();
-
-            ASTParser parser = ASTParser.newParser(AST.JLS24);
-            parser.setKind(ASTParser.K_COMPILATION_UNIT);
-            parser.setSource(sourceChars);
-            // Enable binding resolution with recovery and use the running JVM's boot classpath.
-            parser.setResolveBindings(true);
-            parser.setStatementsRecovery(true);
-            parser.setBindingsRecovery(true);
-            parser.setUnitName(file.getFileName());
-            parser.setEnvironment(new String[0], new String[0], null, true);
-            var options = JavaCore.getOptions();
-            JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
-            // Disable annotation-based null analysis to avoid emitting JDT nullability diagnostics during parse-only
-            // lint
-            options.put(JavaCore.COMPILER_ANNOTATION_NULL_ANALYSIS, JavaCore.DISABLED);
-            // Enable preview features for maximum compatibility
-            options.put(JavaCore.COMPILER_PB_ENABLE_PREVIEW_FEATURES, JavaCore.ENABLED);
-            parser.setCompilerOptions(options);
-
-            CompilationUnit cu = (CompilationUnit) parser.createAST(null);
-
-            IProblem[] problems = cu.getProblems();
-
-            // Determine if this CU has evidence of shaky type info (missing types/imports/inference).
-            boolean hasShakyTypeInfo = Arrays.stream(problems).anyMatch(p -> {
-                int pid = p.getID();
-                return RESOLUTION_NOISE_IDS.contains(pid) || CROSS_FILE_INFERENCE_IDS.contains(pid);
-            });
-
-            var diags = new ArrayList<JavaDiagnostic>();
-            for (IProblem prob : problems) {
-                int id = prob.getID();
-                @Nullable Integer catId = (prob instanceof CategorizedProblem cp) ? cp.getCategoryID() : null;
-
-                if (!shouldKeepJavaProblem(id, prob.isError(), catId, hasShakyTypeInfo)) {
-                    continue;
-                }
-
-                var description = formatJdtProblem(file.absPath(), cu, prob, src);
-                diags.add(new JavaDiagnostic(id, catId, description));
-            }
-
+            var diags = parseJavaForDiagnostics(file, src);
             if (!diags.isEmpty()) {
                 perFileProblems.put(file, diags);
             }
@@ -1119,6 +1136,83 @@ public class CodeAgent {
         // Save diagnostics per-file and continue (non-blocking pre-lint)
         var nextEs = es.withJavaLintDiagnostics(perFileProblems);
         return new Step.Continue(cs, nextEs);
+    }
+
+    /**
+     * Parse a Java source file using Eclipse JDT and return diagnostics.
+     * Used by both parseJavaPhase and Quick Edit.
+     *
+     * Performance/Stability Trade-off: Enables binding resolution with empty environment
+     * (boot classpath only). This is moderately expensive (~100-200ms per file) but necessary
+     * to detect control-flow and value-category errors (e.g., uninitialized variables, missing
+     * returns). Without bindings, JDT cannot analyze these issues.
+     *
+     * The empty environment means type resolution is incomplete, so we filter out diagnostics
+     * that require stable type information (see shouldKeepJavaProblem). This minimizes false
+     * positives while catching true local-only errors early, before the expensive full build.
+     */
+    static List<JavaDiagnostic> parseJavaForDiagnostics(ProjectFile file, String src) {
+        char[] sourceChars = src.toCharArray();
+
+        ASTParser parser = ASTParser.newParser(AST.JLS24);
+        parser.setKind(ASTParser.K_COMPILATION_UNIT);
+        parser.setSource(sourceChars);
+        // Enable binding resolution with recovery (see method javadoc for trade-off discussion)
+        parser.setResolveBindings(true);
+        parser.setStatementsRecovery(true);
+        parser.setBindingsRecovery(true);
+        parser.setUnitName(file.getFileName());
+        parser.setEnvironment(new String[0], new String[0], null, true);
+        var options = JavaCore.getOptions();
+        JavaCore.setComplianceOptions(JavaCore.VERSION_25, options);
+        // Disable annotation-based null analysis to avoid emitting JDT nullability diagnostics during parse-only
+        // lint
+        options.put(JavaCore.COMPILER_ANNOTATION_NULL_ANALYSIS, JavaCore.DISABLED);
+        // Enable preview features for maximum compatibility
+        options.put(JavaCore.COMPILER_PB_ENABLE_PREVIEW_FEATURES, JavaCore.ENABLED);
+        parser.setCompilerOptions(options);
+
+        CompilationUnit cu = (CompilationUnit) parser.createAST(null);
+
+        IProblem[] problems = cu.getProblems();
+
+        // Determine if this CU has evidence of shaky type info (missing types/imports/inference).
+        boolean hasShakyTypeInfo = Arrays.stream(problems).anyMatch(p -> {
+            int pid = p.getID();
+            return RESOLUTION_NOISE_IDS.contains(pid) || CROSS_FILE_INFERENCE_IDS.contains(pid);
+        });
+
+        var diags = new ArrayList<JavaDiagnostic>();
+        for (IProblem prob : problems) {
+            int id = prob.getID();
+            @Nullable Integer catId = (prob instanceof CategorizedProblem cp) ? cp.getCategoryID() : null;
+
+            if (!shouldKeepJavaProblem(id, prob.isError(), catId, hasShakyTypeInfo)) {
+                continue;
+            }
+
+            var description = formatJdtProblem(file.absPath(), cu, prob, src);
+            diags.add(new JavaDiagnostic(id, catId, description));
+        }
+
+        return diags;
+    }
+
+    /**
+     * Format a diagnostics report from per-file Java lint diagnostics.
+     * Used by both runTaskInternal (DEFER_BUILD path) and runQuickTask.
+     */
+    static String formatDiagnosticsReport(Map<ProjectFile, List<JavaDiagnostic>> perFileDiags) {
+        return perFileDiags.entrySet().stream()
+                .map(entry -> {
+                    var pf = entry.getKey();
+                    var diags = entry.getValue();
+                    var diagLines = diags.stream()
+                            .map(diag -> "  - " + diag.description())
+                            .collect(Collectors.joining("\n"));
+                    return "**%s**: %d issue(s)\n%s".formatted(pf.getFileName(), diags.size(), diagLines);
+                })
+                .collect(Collectors.joining("\n\n", "Java syntax issues detected:\n\n", "\n"));
     }
 
     private static String formatJdtProblem(Path absPath, CompilationUnit cu, IProblem prob, String src) {

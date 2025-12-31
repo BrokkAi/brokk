@@ -273,10 +273,6 @@ public class Context {
         return this.withFragments(keptExistingFragments, CompletableFuture.completedFuture(action));
     }
 
-    /**
-     * Builds a concise action message for added fragments.
-     * Shows first few fragment descriptions (up to 2) and indicates if there are more.
-     */
     private String buildAddFragmentsAction(List<ContextFragment> added) {
         int count = added.size();
         if (count == 1) {
@@ -289,6 +285,24 @@ public class Context {
                 added.stream().limit(2).map(f -> f.shortDescription().join()).toList();
 
         var message = "Added " + String.join(", ", descriptions);
+        if (count > 2) {
+            message += ", " + (count - 2) + " more";
+        }
+        return message;
+    }
+
+    private String buildRemoveFragmentsAction(List<ContextFragment> removed) {
+        int count = removed.size();
+        if (count == 1) {
+            var shortDesc = removed.getFirst().shortDescription().join();
+            return "Removed " + shortDesc;
+        }
+
+        // Show up to 2 fragments, then indicate count
+        var descriptions =
+                removed.stream().limit(2).map(f -> f.shortDescription().join()).toList();
+
+        var message = "Removed " + String.join(", ", descriptions);
         if (count > 2) {
             message += ", " + (count - 2) + " more";
         }
@@ -494,13 +508,14 @@ public class Context {
      */
     public Context removeFragments(Collection<? extends ContextFragment> toRemove) {
         var toRemoveSet = new HashSet<>(toRemove);
-        var newFragments =
-                fragments.stream().filter(f -> !toRemoveSet.contains(f)).toList();
+        var actualToRemove = fragments.stream().filter(toRemoveSet::contains).toList();
 
-        int removedCount = fragments.size() - newFragments.size();
-        if (removedCount == 0) {
+        if (actualToRemove.isEmpty()) {
             return this;
         }
+
+        var newFragments =
+                fragments.stream().filter(f -> !toRemoveSet.contains(f)).toList();
 
         // Remove any tracking for dropped fragments
         var newReadOnly = this.markedReadonlyFragments.stream()
@@ -510,7 +525,7 @@ public class Context {
                 .filter(f -> !toRemoveSet.contains(f))
                 .collect(Collectors.toSet());
 
-        String actionString = "Removed " + removedCount + " fragment" + (removedCount == 1 ? "" : "s");
+        String actionString = buildRemoveFragmentsAction(actualToRemove);
         return new Context(
                 newContextId(),
                 contextManager,
@@ -1374,7 +1389,7 @@ public class Context {
     public void awaitContextsAreComputed(Duration timeout) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         for (var fragment : this.allFragments().toList()) {
-            if (fragment instanceof ContextFragments.AbstractComputedFragment cf) {
+            if (fragment instanceof ContextFragment.ComputedFragment cf) {
                 long remainingMillis = deadline - System.currentTimeMillis();
                 if (remainingMillis <= 0) {
                     break; // Timeout exhausted

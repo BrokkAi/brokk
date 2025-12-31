@@ -47,19 +47,19 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import javax.imageio.ImageIO;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -149,78 +149,100 @@ public class ContextFragments {
         }
     }
 
-    public record FragmentSnapshot(
-            String description,
-            String shortDescription,
+    record ContentSnapshot(
             String text,
-            String syntaxStyle,
             Set<CodeUnit> sources,
             Set<ProjectFile> files,
             // may not be a byte[] object as records require immutability which cannot be enforced by arrays
             @Nullable List<Byte> imageByteList,
             boolean valid) {
 
-        public FragmentSnapshot(
-                String description,
-                String shortDescription,
+        public ContentSnapshot(
                 String text,
-                String syntaxStyle,
                 Set<CodeUnit> sources,
                 Set<ProjectFile> files,
                 byte @Nullable [] imageBytes,
                 boolean valid) {
-            this(description, shortDescription, text, syntaxStyle, sources, files, convertToList(imageBytes), valid);
+            this(text, sources, files, convertToList(imageBytes), valid);
         }
 
         /**
          * Factory method for valid text fragments with no image content.
          */
-        public static FragmentSnapshot textSnapshot(
-                String description,
-                String shortDescription,
-                String text,
-                String syntaxStyle,
-                Set<CodeUnit> sources,
-                Set<ProjectFile> files) {
-            return new FragmentSnapshot(
-                    description, shortDescription, text, syntaxStyle, sources, files, (List<Byte>) null, true);
+        public static ContentSnapshot textSnapshot(String text, Set<CodeUnit> sources, Set<ProjectFile> files) {
+            return new ContentSnapshot(text, sources, files, (List<Byte>) null, true);
         }
 
-        public static FragmentSnapshot textSnapshot(
-                String description, String shortDescription, String text, String syntaxStyle) {
-            return textSnapshot(description, shortDescription, text, syntaxStyle, Set.of(), Set.of());
+        public static ContentSnapshot textSnapshot(String text) {
+            return textSnapshot(text, Set.of(), Set.of());
         }
 
         public byte @Nullable [] imageBytes() {
             return convertToByteArray(imageByteList);
         }
-
-        public static FragmentSnapshot EMPTY =
-                new FragmentSnapshot("", "", "", "", Set.of(), Set.of(), (List<Byte>) null, true);
     }
 
     // Base implementation for fragments with async computation
-    public abstract static class AbstractComputedFragment implements ContextFragment {
+    abstract static class AbstractComputedFragment implements ContextFragment.ComputedFragment {
         protected final String id;
         protected final IContextManager contextManager;
-        final ComputedValue<FragmentSnapshot> snapshotCv;
+        protected final ComputedValue<String> descriptionCv;
+        protected final ComputedValue<String> shortDescriptionCv;
+        protected final ComputedValue<String> syntaxStyleCv;
+        final ComputedValue<ContentSnapshot> snapshotCv;
         private final ConcurrentMap<String, ComputedValue<?>> derivedCvs = new ConcurrentHashMap<>();
 
+        /**
+         * Constructor for metadata known eagerly.
+         */
         protected AbstractComputedFragment(
                 String id,
                 IContextManager contextManager,
-                @Nullable FragmentSnapshot initialSnapshot,
-                @Nullable java.util.concurrent.Callable<FragmentSnapshot> computeTask) {
+                String description,
+                String shortDescription,
+                String syntaxStyle,
+                @Nullable ContentSnapshot initialSnapshot,
+                @Nullable java.util.concurrent.Callable<ContentSnapshot> computeTask) {
+            this(
+                    id,
+                    contextManager,
+                    ComputedValue.completed("desc-" + id, description),
+                    ComputedValue.completed("short-" + id, shortDescription),
+                    ComputedValue.completed("syntax-" + id, syntaxStyle),
+                    initialSnapshot,
+                    computeTask);
+        }
+
+        /**
+         * Constructor for metadata provided via ComputedValues (for async metadata).
+         */
+        protected AbstractComputedFragment(
+                String id,
+                IContextManager contextManager,
+                ComputedValue<String> descriptionCv,
+                ComputedValue<String> shortDescriptionCv,
+                ComputedValue<String> syntaxStyleCv,
+                @Nullable ContentSnapshot initialSnapshot,
+                @Nullable java.util.concurrent.Callable<ContentSnapshot> computeTask) {
             assert (initialSnapshot == null) ^ (computeTask == null);
             this.id = id;
             this.contextManager = contextManager;
+            this.descriptionCv = descriptionCv;
+            this.shortDescriptionCv = shortDescriptionCv;
+            this.syntaxStyleCv = syntaxStyleCv;
             this.snapshotCv = initialSnapshot == null
                     ? new ComputedValue<>("snap-" + id, getFragmentExecutor().submit(requireNonNull(computeTask)))
                     : ComputedValue.completed("snap-" + id, initialSnapshot);
         }
 
-        public void await(Duration timeout) throws InterruptedException {
-            snapshotCv.await(timeout);
+        @Override
+        public boolean await(Duration timeout) throws InterruptedException {
+            return snapshotCv.await(timeout).isPresent();
+        }
+
+        @Override
+        public ComputedValue.Subscription onComplete(Runnable runnable) {
+            return snapshotCv.onComplete((v, ex) -> runnable.run());
         }
 
         @Override
@@ -228,12 +250,7 @@ public class ContextFragments {
             return id;
         }
 
-        @Override
-        public IContextManager getContextManager() {
-            return contextManager;
-        }
-
-        protected <T> ComputedValue<T> derived(String key, Function<FragmentSnapshot, T> extractor) {
+        protected <T> ComputedValue<T> derived(String key, Function<ContentSnapshot, T> extractor) {
             @SuppressWarnings("unchecked")
             ComputedValue<T> cv = (ComputedValue<T>) derivedCvs.computeIfAbsent(key, k -> snapshotCv.map(extractor));
             return cv;
@@ -241,32 +258,32 @@ public class ContextFragments {
 
         @Override
         public ComputedValue<String> text() {
-            return derived("text", FragmentSnapshot::text);
+            return derived("text", ContentSnapshot::text);
         }
 
         @Override
         public ComputedValue<String> description() {
-            return derived("desc", FragmentSnapshot::description);
+            return descriptionCv;
         }
 
         @Override
         public ComputedValue<String> shortDescription() {
-            return derived("shortDesc", FragmentSnapshot::shortDescription);
+            return shortDescriptionCv;
         }
 
         @Override
         public ComputedValue<String> syntaxStyle() {
-            return derived("syntax", FragmentSnapshot::syntaxStyle);
+            return syntaxStyleCv;
         }
 
         @Override
         public ComputedValue<Set<CodeUnit>> sources() {
-            return derived("sources", FragmentSnapshot::sources);
+            return derived("sources", ContentSnapshot::sources);
         }
 
         @Override
         public ComputedValue<Set<ProjectFile>> files() {
-            return derived("files", FragmentSnapshot::files);
+            return derived("files", ContentSnapshot::files);
         }
 
         @Override
@@ -275,11 +292,9 @@ public class ContextFragments {
             return null;
         }
 
-        @Blocking
         @Override
         public boolean isValid() {
-            var snapshot = snapshotCv.tryGet().orElse(null);
-            return snapshot != null && snapshot.valid();
+            return snapshotCv.tryGet().map(ContentSnapshot::valid).orElse(true);
         }
 
         // Common hasSameSource implementation (identity for dynamic, override for others)
@@ -287,25 +302,25 @@ public class ContextFragments {
         public boolean hasSameSource(ContextFragment other) {
             if (this == other) return true;
             if (this.getClass() != other.getClass()) return false;
-            // Dynamic fragments use ID or repr
-            if (this instanceof DynamicIdentity) {
-                return (this.repr().equals(other.repr()) && !this.repr().isEmpty())
-                        || this.id().equals(other.id());
-            }
-            // Content hashed fragments (if any computed ones are)
-            return this.id().equals(other.id());
+            return (this.repr().equals(other.repr()) && !this.repr().isEmpty())
+                    || this.id().equals(other.id());
         }
     }
 
     // Base implementation for fragments with static/known content
-    public abstract static class AbstractStaticFragment implements ContextFragment {
+    abstract static class AbstractStaticFragment implements ContextFragment {
         protected final String id;
-        protected final IContextManager contextManager;
-        protected final FragmentSnapshot snapshot;
+        protected final String description;
+        protected final String shortDescription;
+        protected final String syntaxStyle;
+        protected final ContentSnapshot snapshot;
 
-        protected AbstractStaticFragment(String id, IContextManager contextManager, FragmentSnapshot snapshot) {
+        protected AbstractStaticFragment(
+                String id, String description, String shortDescription, String syntaxStyle, ContentSnapshot snapshot) {
             this.id = id;
-            this.contextManager = contextManager;
+            this.description = description;
+            this.shortDescription = shortDescription;
+            this.syntaxStyle = syntaxStyle;
             this.snapshot = snapshot;
         }
 
@@ -315,28 +330,23 @@ public class ContextFragments {
         }
 
         @Override
-        public IContextManager getContextManager() {
-            return contextManager;
-        }
-
-        @Override
         public ComputedValue<String> text() {
             return ComputedValue.completed("text-" + id, snapshot.text());
         }
 
         @Override
         public ComputedValue<String> description() {
-            return ComputedValue.completed("desc-" + id, snapshot.description());
+            return ComputedValue.completed("desc-" + id, description);
         }
 
         @Override
         public ComputedValue<String> shortDescription() {
-            return ComputedValue.completed("short-" + id, snapshot.shortDescription());
+            return ComputedValue.completed("short-" + id, shortDescription);
         }
 
         @Override
         public ComputedValue<String> syntaxStyle() {
-            return ComputedValue.completed("syntax-" + id, snapshot.syntaxStyle());
+            return ComputedValue.completed("syntax-" + id, syntaxStyle);
         }
 
         @Override
@@ -360,10 +370,19 @@ public class ContextFragments {
         public ContextFragment refreshCopy() {
             return this;
         }
+
+        @Override
+        public boolean equals(Object obj) {
+            return obj instanceof AbstractStaticFragment asf && id().equals(asf.id());
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hashCode(id());
+        }
     }
 
-    public static final class ProjectPathFragment extends AbstractComputedFragment
-            implements PathFragment, ContextFragment.DynamicIdentity {
+    public static final class ProjectPathFragment extends AbstractComputedFragment implements PathFragment {
         private final ProjectFile file;
 
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
@@ -384,11 +403,14 @@ public class ContextFragments {
             return new ProjectPathFragment(file, existingId, contextManager, snapshotText);
         }
 
-        private static FragmentSnapshot decodeFrozen(ProjectFile file, IContextManager contextManager, byte[] bytes) {
+        private static String computeDescription(ProjectFile file) {
+            String name = file.getFileName();
+            return file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
+        }
+
+        private static ContentSnapshot decodeFrozen(ProjectFile file, IContextManager contextManager, byte[] bytes) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String name = file.getFileName();
-            String desc = file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
-            String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
             Set<CodeUnit> sources;
             try {
                 sources = contextManager.getAnalyzerUninterrupted().getDeclarations(file);
@@ -396,15 +418,13 @@ public class ContextFragments {
                 logger.error("Failed to analyze declarations for file {}, sources will be empty", name, t);
                 sources = Set.of();
             }
-            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null, true);
+            return new ContentSnapshot(text, sources, Set.of(file), (List<Byte>) null, true);
         }
 
-        private static FragmentSnapshot computeSnapshotFor(ProjectFile file, IContextManager contextManager) {
+        private static ContentSnapshot computeSnapshotFor(ProjectFile file, IContextManager contextManager) {
             boolean valid = file.exists();
             String text = file.read().orElse("");
             String name = file.getFileName();
-            String desc = file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
-            String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
             Set<CodeUnit> sources = Set.of();
             try {
                 sources = contextManager.getAnalyzerUninterrupted().getDeclarations(file);
@@ -412,7 +432,7 @@ public class ContextFragments {
                 logger.error("Failed to analyze declarations for file {}, sources will be empty", name, e);
             }
 
-            return new FragmentSnapshot(desc, name, text, syntax, sources, Set.of(file), (List<Byte>) null, valid);
+            return new ContentSnapshot(text, sources, Set.of(file), (List<Byte>) null, valid);
         }
 
         private ProjectPathFragment(
@@ -420,6 +440,9 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
+                    computeDescription(file),
+                    file.getFileName(),
+                    FileTypeUtil.get().guessContentType(file.absPath().toFile()),
                     snapshotText == null
                             ? null
                             : decodeFrozen(file, contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
@@ -459,8 +482,11 @@ public class ContextFragments {
         }
     }
 
-    public record GitFileFragment(ProjectFile file, String revision, String content, String id)
-            implements PathFragment {
+    public static final class GitFileFragment extends AbstractStaticFragment implements PathFragment {
+        private final ProjectFile file;
+        private final String revision;
+        private final String content;
+
         public GitFileFragment(ProjectFile file, String revision, String content) {
             this(
                     file,
@@ -472,6 +498,24 @@ public class ContextFragments {
                             content,
                             FileTypeUtil.get().guessContentType(file.absPath().toFile()),
                             GitFileFragment.class.getName()));
+        }
+
+        private static String computeDescription(ProjectFile file, String revision) {
+            var parentDir = file.getParent();
+            var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
+            return parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir);
+        }
+
+        public GitFileFragment(ProjectFile file, String revision, String content, String id) {
+            super(
+                    id,
+                    computeDescription(file, revision),
+                    "%s @%s".formatted(file.getFileName(), revision),
+                    FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                    ContentSnapshot.textSnapshot(content, Set.of(), Set.of(file)));
+            this.file = file;
+            this.revision = revision;
+            this.content = content;
         }
 
         public static GitFileFragment withId(ProjectFile file, String revision, String content, String existingId) {
@@ -491,71 +535,33 @@ public class ContextFragments {
             }
         }
 
+        public String revision() {
+            return revision;
+        }
+
+        public String content() {
+            return content;
+        }
+
+        @Override
+        public ProjectFile file() {
+            return file;
+        }
+
         @Override
         public FragmentType getType() {
             return FragmentType.GIT_FILE;
         }
 
         @Override
-        public @Nullable IContextManager getContextManager() {
-            return null;
-        }
-
-        // Manually implementing CV methods as this is a record and cannot extend AbstractStaticFragment
-        @Override
-        public ComputedValue<String> description() {
-            var parentDir = file.getParent();
-            var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
-            return ComputedValue.completed(
-                    "gff-desc-" + id,
-                    parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir));
-        }
-
-        @Override
-        public ComputedValue<String> shortDescription() {
-            return ComputedValue.completed("gff-short-" + id, "%s @%s".formatted(file.getFileName(), revision));
-        }
-
-        @Override
-        public ComputedValue<String> text() {
-            return ComputedValue.completed("gff-text-" + id, content);
-        }
-
-        @Override
-        public ComputedValue<Set<CodeUnit>> sources() {
-            // Treat historical content as potentially different from current; don't claim sources
-            return ComputedValue.completed(Set.of());
-        }
-
-        @Override
-        public ComputedValue<Set<ProjectFile>> files() {
-            return ComputedValue.completed(Set.of(file));
-        }
-
-        @Override
-        public ComputedValue<String> syntaxStyle() {
-            return ComputedValue.completed(
-                    FileTypeUtil.get().guessContentType(file.absPath().toFile()));
-        }
-
-        @Override
         public boolean hasSameSource(ContextFragment other) {
             if (!(other instanceof GitFileFragment that)) return false;
-            return this.file()
-                            .absPath()
-                            .normalize()
-                            .equals(that.file().absPath().normalize())
-                    && this.revision().equals(that.revision());
-        }
-
-        @Override
-        public ContextFragment refreshCopy() {
-            return this;
+            return this.file.absPath().normalize().equals(that.file.absPath().normalize())
+                    && this.revision.equals(that.revision);
         }
     }
 
-    public static final class ExternalPathFragment extends AbstractComputedFragment
-            implements PathFragment, ContextFragment.DynamicIdentity {
+    public static final class ExternalPathFragment extends AbstractComputedFragment implements PathFragment {
         private final ExternalFile file;
 
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
@@ -577,18 +583,14 @@ public class ContextFragments {
             return new ExternalPathFragment(file, existingId, contextManager, snapshotText);
         }
 
-        private static FragmentSnapshot decodeFrozen(ExternalFile file, byte[] bytes) {
+        private static ContentSnapshot decodeFrozen(byte[] bytes) {
             String text = new String(bytes, StandardCharsets.UTF_8);
-            String name = file.toString();
-            String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
-            return FragmentSnapshot.textSnapshot(name, name, text, syntax);
+            return ContentSnapshot.textSnapshot(text);
         }
 
-        private static FragmentSnapshot computeSnapshotFor(ExternalFile file) {
+        private static ContentSnapshot computeSnapshotFor(ExternalFile file) {
             String text = file.read().orElse("");
-            String name = file.toString();
-            String syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
-            return new FragmentSnapshot(name, name, text, syntax, Set.of(), Set.of(), (byte[]) null, file.exists());
+            return new ContentSnapshot(text, Set.of(), Set.of(), (byte[]) null, file.exists());
         }
 
         private ExternalPathFragment(
@@ -596,7 +598,10 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
-                    snapshotText == null ? null : decodeFrozen(file, snapshotText.getBytes(StandardCharsets.UTF_8)),
+                    file.toString(),
+                    file.toString(),
+                    FileTypeUtil.get().guessContentType(file.absPath().toFile()),
+                    snapshotText == null ? null : decodeFrozen(snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null ? () -> computeSnapshotFor(file) : null);
             this.file = file;
         }
@@ -624,7 +629,7 @@ public class ContextFragments {
     }
 
     public static final class ImageFileFragment extends AbstractComputedFragment
-            implements PathFragment, ContextFragment.ImageFragment, ContextFragment.DynamicIdentity {
+            implements PathFragment, ContextFragment.ImageFragment {
         private final BrokkFile file;
 
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
@@ -632,8 +637,22 @@ public class ContextFragments {
         }
 
         private ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) {
-            super(id, contextManager, null, () -> computeSnapshotFor(file));
+            super(
+                    id,
+                    contextManager,
+                    computeDescription(file),
+                    file.getFileName(),
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    null,
+                    () -> computeSnapshotFor(file));
             this.file = file;
+        }
+
+        private static String computeDescription(BrokkFile file) {
+            if (file instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
+                return "%s [%s]".formatted(file.getFileName(), pf.getParent());
+            }
+            return file.toString();
         }
 
         public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
@@ -661,12 +680,7 @@ public class ContextFragments {
             return id();
         }
 
-        private static FragmentSnapshot computeSnapshotFor(BrokkFile file) {
-            String desc = file.toString();
-            if (file instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
-                desc = "%s [%s]".formatted(file.getFileName(), pf.getParent());
-            }
-
+        private static ContentSnapshot computeSnapshotFor(BrokkFile file) {
             byte[] bytes = null;
             try {
                 var path = file.absPath();
@@ -719,11 +733,8 @@ public class ContextFragments {
                 logger.error("Unexpected error reading image file {}: {}", file.getFileName(), e.getMessage(), e);
             }
 
-            return new FragmentSnapshot(
-                    desc,
-                    file.getFileName(),
+            return new ContentSnapshot(
                     "[Image content provided out of band]",
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
                     Set.of(),
                     (file instanceof ProjectFile pf) ? Set.of(pf) : Set.of(),
                     bytes,
@@ -732,7 +743,7 @@ public class ContextFragments {
 
         @Override
         public ComputedValue<byte[]> imageBytes() {
-            return derived("imageBytes", FragmentSnapshot::imageBytes);
+            return derived("imageBytes", ContentSnapshot::imageBytes);
         }
 
         @Override
@@ -769,16 +780,11 @@ public class ContextFragments {
                 String id, IContextManager contextManager, String text, String description, String syntaxStyle) {
             super(
                     id,
-                    contextManager,
-                    new FragmentSnapshot(
-                            description,
-                            description,
-                            text,
-                            syntaxStyle,
-                            Set.of(),
-                            extractFilesFromDiff(text, contextManager),
-                            (List<Byte>) null,
-                            true));
+                    description,
+                    description,
+                    syntaxStyle,
+                    new ContentSnapshot(
+                            text, Set.of(), extractFilesFromDiff(text, contextManager), (List<Byte>) null, true));
         }
 
         /**
@@ -875,16 +881,10 @@ public class ContextFragments {
                 Set<ProjectFile> files) {
             super(
                     id,
-                    contextManager,
-                    new FragmentSnapshot(
-                            description,
-                            description,
-                            text,
-                            syntaxStyle,
-                            Set.of(),
-                            Set.copyOf(files),
-                            (List<Byte>) null,
-                            true));
+                    description,
+                    description,
+                    syntaxStyle,
+                    new ContentSnapshot(text, Set.of(), Set.copyOf(files), (List<Byte>) null, true));
         }
 
         @Override
@@ -893,11 +893,13 @@ public class ContextFragments {
         }
 
         public Optional<SpecialTextType> specialType() {
-            return SpecialTextType.fromDescription(snapshot.description());
+            return SpecialTextType.fromDescription(description().join());
         }
 
         public String previewSyntaxStyle() {
-            return specialType().map(SpecialTextType::previewSyntaxStyle).orElse(snapshot.syntaxStyle());
+            return specialType()
+                    .map(SpecialTextType::previewSyntaxStyle)
+                    .orElse(syntaxStyle().join());
         }
 
         public String previewText() {
@@ -906,31 +908,31 @@ public class ContextFragments {
 
         @Override
         public String toString() {
-            return "StringFragment('%s')".formatted(snapshot.description());
+            return "StringFragment('%s')".formatted(description().join());
         }
 
         @Override
         public boolean hasSameSource(ContextFragment other) {
             if (this == other) return true;
             if (!(other instanceof StringFragment that)) return false;
-            var thisType = SpecialTextType.fromDescription(this.snapshot.description());
-            var thatType = SpecialTextType.fromDescription(that.snapshot.description());
+            var thisType = SpecialTextType.fromDescription(this.description().join());
+            var thatType = SpecialTextType.fromDescription(that.description().join());
             if (thisType.isPresent() && thisType.equals(thatType)) {
                 return true;
             }
-            return Objects.equals(this.snapshot, that.snapshot);
+            return Objects.equals(this.description().join(), that.description().join())
+                    && Objects.equals(
+                            this.syntaxStyle().join(), that.syntaxStyle().join())
+                    && Objects.equals(this.snapshot, that.snapshot);
         }
     }
 
     public static class PasteTextFragment extends AbstractComputedFragment {
-        private final Future<String> descriptionFuture;
-        private final Future<String> syntaxStyleFuture;
-
         public PasteTextFragment(
                 IContextManager contextManager,
                 String text,
-                Future<String> descriptionFuture,
-                Future<String> syntaxStyleFuture) {
+                CompletableFuture<String> descriptionFuture,
+                CompletableFuture<String> syntaxStyleFuture) {
             this(
                     FragmentUtils.calculateContentHash(
                             FragmentType.PASTE_TEXT,
@@ -948,38 +950,51 @@ public class ContextFragments {
                 String id,
                 IContextManager contextManager,
                 String text,
-                Future<String> descriptionFuture,
-                Future<String> syntaxStyleFuture) {
+                CompletableFuture<String> descriptionFuture,
+                CompletableFuture<String> syntaxStyleFuture) {
             super(
                     id,
                     contextManager,
+                    new ComputedValue<>("desc-" + id, descriptionFuture.exceptionally(ex -> "text content"))
+                            .map(d -> "Paste of " + d),
+                    new ComputedValue<>("short-" + id, descriptionFuture.exceptionally(ex -> "text content"))
+                            .map(d -> "Paste of " + d),
+                    new ComputedValue<>("syntax-" + id, syntaxStyleFuture),
                     null,
-                    () -> computeSnapshotFor(text, descriptionFuture, syntaxStyleFuture, contextManager));
-            this.descriptionFuture = descriptionFuture;
-            this.syntaxStyleFuture = syntaxStyleFuture;
+                    () -> computeSnapshotFor(text, contextManager));
         }
 
-        private static FragmentSnapshot computeSnapshotFor(
+        /**
+         * Constructor for deserialization: accepts already-computed description without applying "Paste of " prefix.
+         */
+        public static PasteTextFragment withResolvedDescription(
+                String id,
+                IContextManager contextManager,
                 String text,
-                Future<String> descriptionFuture,
-                Future<String> syntaxStyleFuture,
-                IContextManager contextManager) {
-            String desc = "Paste of pasted content";
-            String syntax = SyntaxConstants.SYNTAX_STYLE_MARKDOWN;
-            try {
-                String d = descriptionFuture.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-                desc = "Paste of " + d;
-            } catch (Exception e) {
-                logger.error("Unable to compute PasteTextFragment description within specified timeout period", e);
-            }
-            try {
-                if (syntaxStyleFuture.isDone()) syntax = syntaxStyleFuture.get();
-            } catch (Exception e) {
-                logger.error("Unable to compute PasteTextFragment syntax style within specified timeout period", e);
-            }
+                String resolvedDescription,
+                String syntaxStyle) {
+            return new PasteTextFragment(id, contextManager, text, resolvedDescription, syntaxStyle);
+        }
 
+        private PasteTextFragment(
+                String id,
+                IContextManager contextManager,
+                String text,
+                String resolvedDescription,
+                String syntaxStyle) {
+            super(
+                    id,
+                    contextManager,
+                    ComputedValue.completed("desc-" + id, resolvedDescription),
+                    ComputedValue.completed("short-" + id, resolvedDescription),
+                    ComputedValue.completed("syntax-" + id, syntaxStyle),
+                    null,
+                    () -> computeSnapshotFor(text, contextManager));
+        }
+
+        private static ContentSnapshot computeSnapshotFor(String text, IContextManager contextManager) {
             var files = ContextFragment.extractFilesFromText(text, contextManager);
-            return FragmentSnapshot.textSnapshot(desc, desc, text, syntax, Set.of(), files);
+            return ContentSnapshot.textSnapshot(text, Set.of(), files);
         }
 
         @Override
@@ -991,21 +1006,14 @@ public class ContextFragments {
         public ContextFragment refreshCopy() {
             return this;
         }
-
-        public Future<String> getDescriptionFuture() {
-            return descriptionFuture;
-        }
-
-        public Future<String> getSyntaxStyleFuture() {
-            return syntaxStyleFuture;
-        }
     }
 
     public static class AnonymousImageFragment extends AbstractComputedFragment
             implements ContextFragment.ImageFragment {
-        final Future<String> descriptionFuture;
+        final CompletableFuture<String> descriptionFuture;
 
-        public AnonymousImageFragment(IContextManager contextManager, Image image, Future<String> descriptionFuture) {
+        public AnonymousImageFragment(
+                IContextManager contextManager, Image image, CompletableFuture<String> descriptionFuture) {
             this(
                     FragmentUtils.calculateContentHash(
                             FragmentType.PASTE_IMAGE,
@@ -1023,8 +1031,15 @@ public class ContextFragments {
         }
 
         public AnonymousImageFragment(
-                String id, IContextManager contextManager, Image image, Future<String> descriptionFuture) {
-            super(id, contextManager, null, () -> computeSnapshotFor(image, descriptionFuture));
+                String id, IContextManager contextManager, Image image, CompletableFuture<String> descriptionFuture) {
+            super(
+                    id,
+                    contextManager,
+                    new ComputedValue<>("desc-" + id, descriptionFuture),
+                    new ComputedValue<>("short-" + id, descriptionFuture),
+                    ComputedValue.completed(SyntaxConstants.SYNTAX_STYLE_NONE),
+                    null,
+                    () -> computeSnapshotFor(image));
             this.descriptionFuture = descriptionFuture;
         }
 
@@ -1052,28 +1067,14 @@ public class ContextFragments {
             return id();
         }
 
-        private static FragmentSnapshot computeSnapshotFor(Image image, Future<String> descriptionFuture) {
-            String desc = "(Error summarizing paste)";
-            try {
-                desc = descriptionFuture.get();
-            } catch (Exception e) {
-                logger.error("Unable to compute AnonymousImageFragment description", e);
-            }
+        private static ContentSnapshot computeSnapshotFor(Image image) {
             byte[] bytes = imageToBytes(image);
-            return new FragmentSnapshot(
-                    desc,
-                    desc,
-                    "[Image content provided out of band]",
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    Set.of(),
-                    Set.of(),
-                    bytes,
-                    true);
+            return new ContentSnapshot("[Image content provided out of band]", Set.of(), Set.of(), bytes, true);
         }
 
         @Override
         public @Nullable ComputedValue<byte[]> imageBytes() {
-            return derived("imageBytes", FragmentSnapshot::imageBytes);
+            return derived("imageBytes", ContentSnapshot::imageBytes);
         }
 
         @Override
@@ -1114,14 +1115,13 @@ public class ContextFragments {
                 String code) {
             super(
                     id,
-                    contextManager,
-                    FragmentSnapshot.textSnapshot(
-                            "stacktrace of " + exception,
-                            "stacktrace of " + exception,
+                    "stacktrace of " + exception,
+                    "stacktrace of " + exception,
+                    sources.isEmpty()
+                            ? SyntaxConstants.SYNTAX_STYLE_NONE
+                            : sources.iterator().next().source().getSyntaxStyle(),
+                    ContentSnapshot.textSnapshot(
                             original + "\n\nStacktrace methods in this project:\n\n" + code,
-                            sources.isEmpty()
-                                    ? SyntaxConstants.SYNTAX_STYLE_NONE
-                                    : sources.iterator().next().source().getSyntaxStyle(),
                             sources,
                             sources.stream().map(CodeUnit::source).collect(Collectors.toSet())));
             this.original = original;
@@ -1147,7 +1147,7 @@ public class ContextFragments {
         }
     }
 
-    public static class UsageFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class UsageFragment extends AbstractComputedFragment {
         private final String targetIdentifier;
         private final boolean includeTestFiles;
 
@@ -1190,10 +1190,12 @@ public class ContextFragments {
             super(
                     id,
                     contextManager,
+                    "Uses of " + targetIdentifier,
+                    "Uses of " + targetIdentifier,
+                    SyntaxConstants.SYNTAX_STYLE_NONE, // Will be updated if we find files/units
                     snapshotText == null
                             ? null
-                            : decodeFrozen(
-                                    contextManager, targetIdentifier, snapshotText.getBytes(StandardCharsets.UTF_8)),
+                            : decodeFrozen(contextManager, snapshotText.getBytes(StandardCharsets.UTF_8)),
                     snapshotText == null
                             ? () -> computeSnapshotFor(targetIdentifier, includeTestFiles, contextManager)
                             : null);
@@ -1201,11 +1203,9 @@ public class ContextFragments {
             this.includeTestFiles = includeTestFiles;
         }
 
-        private static FragmentSnapshot decodeFrozen(
-                IContextManager contextManager, String targetIdentifier, byte[] bytes) {
+        private static ContentSnapshot decodeFrozen(IContextManager contextManager, byte[] bytes) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             String text = new String(bytes, StandardCharsets.UTF_8);
-            String desc = "Uses of " + targetIdentifier;
 
             Set<ProjectFile> files = new LinkedHashSet<>();
             Set<CodeUnit> units = new LinkedHashSet<>();
@@ -1277,16 +1277,7 @@ public class ContextFragments {
                 files.addAll(units.stream().map(CodeUnit::source).collect(Collectors.toCollection(LinkedHashSet::new)));
             }
 
-            // Determine syntax style from first file or unit, else NONE
-            String syntax = SyntaxConstants.SYNTAX_STYLE_NONE;
-            if (!files.isEmpty()) {
-                var pf = files.iterator().next();
-                syntax = FileTypeUtil.get().guessContentType(pf.absPath().toFile());
-            } else if (!units.isEmpty()) {
-                syntax = units.iterator().next().source().getSyntaxStyle();
-            }
-
-            return FragmentSnapshot.textSnapshot(desc, desc, text, syntax, units, files);
+            return ContentSnapshot.textSnapshot(text, units, files);
         }
 
         @Override
@@ -1307,7 +1298,7 @@ public class ContextFragments {
             return includeTestFiles;
         }
 
-        private static FragmentSnapshot computeSnapshotFor(
+        private static ContentSnapshot computeSnapshotFor(
                 String targetIdentifier, boolean includeTestFiles, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             FuzzyResult usageResult = FuzzyUsageFinder.create(contextManager).findUsages(targetIdentifier);
@@ -1342,22 +1333,9 @@ public class ContextFragments {
                         .collect(Collectors.toSet());
             }
 
-            String syntax = sources.stream()
-                    .findFirst()
-                    .map(s -> s.source().getSyntaxStyle())
-                    .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
-
             // Validity based on whether definitions exist
             boolean valid = !analyzer.getDefinitions(targetIdentifier).isEmpty();
-            return new FragmentSnapshot(
-                    "Uses of " + targetIdentifier,
-                    "Uses of " + targetIdentifier,
-                    text,
-                    syntax,
-                    sources,
-                    files,
-                    (List<Byte>) null,
-                    valid);
+            return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
         }
 
         @Override
@@ -1366,7 +1344,7 @@ public class ContextFragments {
         }
     }
 
-    public static class CodeFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class CodeFragment extends AbstractComputedFragment {
         private final String fullyQualifiedName;
 
         public CodeFragment(IContextManager contextManager, String fullyQualifiedName) {
@@ -1387,23 +1365,35 @@ public class ContextFragments {
 
         public CodeFragment(
                 String id, IContextManager contextManager, String fullyQualifiedName, @Nullable String snapshotText) {
+            this(id, contextManager, fullyQualifiedName, snapshotText, null);
+        }
+
+        private CodeFragment(
+                String id,
+                IContextManager contextManager,
+                String fullyQualifiedName,
+                @Nullable String snapshotText,
+                @Nullable CodeUnit eagerUnit) {
             super(
                     id,
                     contextManager,
+                    "Source for " + fullyQualifiedName,
+                    eagerUnit != null ? eagerUnit.shortName() : fullyQualifiedName,
+                    eagerUnit != null ? eagerUnit.source().getSyntaxStyle() : SyntaxConstants.SYNTAX_STYLE_NONE,
                     snapshotText == null
                             ? null
                             : decodeFrozen(
                                     fullyQualifiedName,
                                     snapshotText.getBytes(StandardCharsets.UTF_8),
                                     contextManager.getAnalyzerUninterrupted()),
-                    snapshotText == null ? () -> computeSnapshotFor(fullyQualifiedName, contextManager, null) : null);
+                    snapshotText == null
+                            ? () -> computeSnapshotFor(fullyQualifiedName, contextManager, eagerUnit)
+                            : null);
             this.fullyQualifiedName = fullyQualifiedName;
         }
 
-        private static FragmentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
+        private static ContentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
             String text = new String(bytes, StandardCharsets.UTF_8);
-            String desc = "Source for " + fullyQualifiedName;
-            String syntax = SyntaxConstants.SYNTAX_STYLE_NONE;
             Set<CodeUnit> units = Set.of();
             Set<ProjectFile> files = Set.of();
             try {
@@ -1413,21 +1403,15 @@ public class ContextFragments {
                 units = Set.of(unit);
                 var file = unit.source();
                 files = Set.of(file);
-                syntax = FileTypeUtil.get().guessContentType(file.absPath().toFile());
-            } catch (IllegalArgumentException e) {
+            } catch (Exception e) {
                 logger.warn("Unable to resolve CodeUnit for fqName: {}", fullyQualifiedName);
             }
 
-            return FragmentSnapshot.textSnapshot(desc, fullyQualifiedName, text, syntax, units, files);
+            return ContentSnapshot.textSnapshot(text, units, files);
         }
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
-            super(
-                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
-                    contextManager,
-                    null,
-                    () -> computeSnapshotFor(unit.fqName(), contextManager, unit));
-            this.fullyQualifiedName = unit.fqName();
+            this(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, unit.fqName(), null, unit);
         }
 
         @Override
@@ -1444,7 +1428,7 @@ public class ContextFragments {
             return fullyQualifiedName;
         }
 
-        private static FragmentSnapshot computeSnapshotFor(
+        private static ContentSnapshot computeSnapshotFor(
                 String fqName, IContextManager contextManager, @Nullable CodeUnit preResolvedUnit) {
             CodeUnit unit = preResolvedUnit;
             if (unit == null) {
@@ -1481,15 +1465,7 @@ public class ContextFragments {
                 }
             }
 
-            return new FragmentSnapshot(
-                    "Source for " + unit.fqName(),
-                    unit.shortName(),
-                    text,
-                    unit.source().getSyntaxStyle(),
-                    Set.of(unit),
-                    Set.of(unit.source()),
-                    (List<Byte>) null,
-                    hasSourceCode);
+            return new ContentSnapshot(text, Set.of(unit), Set.of(unit.source()), (List<Byte>) null, hasSourceCode);
         }
 
         @Override
@@ -1498,7 +1474,7 @@ public class ContextFragments {
         }
     }
 
-    public static class CallGraphFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class CallGraphFragment extends AbstractComputedFragment {
         private final String methodName;
         private final int depth;
         private final boolean isCalleeGraph;
@@ -1514,7 +1490,14 @@ public class ContextFragments {
 
         public CallGraphFragment(
                 String id, IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
-            super(id, contextManager, null, () -> computeSnapshotFor(methodName, depth, isCalleeGraph, contextManager));
+            super(
+                    id,
+                    contextManager,
+                    "%s of %s (depth %d)".formatted(isCalleeGraph ? "Callees" : "Callers", methodName, depth),
+                    "%s of %s (depth %d)".formatted(isCalleeGraph ? "Callees" : "Callers", methodName, depth),
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    null,
+                    () -> computeSnapshotFor(methodName, depth, isCalleeGraph, contextManager));
             this.methodName = methodName;
             this.depth = depth;
             this.isCalleeGraph = isCalleeGraph;
@@ -1542,7 +1525,7 @@ public class ContextFragments {
             return "CallGraph('%s', depth=%d, direction=%s)".formatted(methodName, depth, isCalleeGraph ? "OUT" : "IN");
         }
 
-        private static FragmentSnapshot computeSnapshotFor(
+        private static ContentSnapshot computeSnapshotFor(
                 String methodName, int depth, boolean isCalleeGraph, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             var methodCodeUnit = analyzer.getDefinitions(methodName).stream()
@@ -1570,13 +1553,10 @@ public class ContextFragments {
                 text = "Method not found: " + methodName;
             }
 
-            String type = isCalleeGraph ? "Callees" : "Callers";
-            String desc = "%s of %s (depth %d)".formatted(type, methodName, depth);
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
 
             boolean valid = analyzer.getDefinitions(methodName).stream().anyMatch(CodeUnit::isFunction);
-            return new FragmentSnapshot(
-                    desc, desc, text, SyntaxConstants.SYNTAX_STYLE_NONE, sources, files, (List<Byte>) null, valid);
+            return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
         }
 
         @Override
@@ -1664,9 +1644,25 @@ public class ContextFragments {
         }
     }
 
-    public static class SummaryFragment extends AbstractComputedFragment implements ContextFragment.DynamicIdentity {
+    public static class SummaryFragment extends AbstractComputedFragment {
         private final String targetIdentifier;
         private final SummaryType summaryType;
+
+        private static String computeDescription(String targetIdentifier) {
+            return "Summary of %s".formatted(targetIdentifier);
+        }
+
+        private static String computeShortDescription(
+                String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
+            if (summaryType == SummaryType.FILE_SKELETONS) {
+                return "Summary of " + contextManager.toFile(targetIdentifier).getFileName();
+            }
+            var definitions = contextManager.getAnalyzerUninterrupted().getDefinitions(targetIdentifier);
+            if (!definitions.isEmpty()) {
+                return "Summary of " + definitions.getFirst().shortName();
+            }
+            return "Summary of " + targetIdentifier;
+        }
 
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
             this(
@@ -1678,7 +1674,18 @@ public class ContextFragments {
 
         public SummaryFragment(
                 String id, IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
-            super(id, contextManager, null, () -> computeSnapshotFor(targetIdentifier, summaryType, contextManager));
+            super(
+                    id,
+                    contextManager,
+                    ComputedValue.completed("desc-" + id, computeDescription(targetIdentifier)),
+                    new ComputedValue<>(
+                            "short-" + id,
+                            getFragmentExecutor()
+                                    .submit(() ->
+                                            computeShortDescription(targetIdentifier, summaryType, contextManager))),
+                    ComputedValue.completed("syntax-" + id, SyntaxConstants.SYNTAX_STYLE_JAVA),
+                    null,
+                    () -> computeSnapshotFor(targetIdentifier, summaryType, contextManager));
             this.targetIdentifier = targetIdentifier;
             this.summaryType = summaryType;
         }
@@ -1702,7 +1709,7 @@ public class ContextFragments {
             return summaryType;
         }
 
-        private static FragmentSnapshot computeSnapshotFor(
+        private static ContentSnapshot computeSnapshotFor(
                 String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
             Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
@@ -1743,20 +1750,72 @@ public class ContextFragments {
                 if (text.isEmpty()) text = "No summary found for: " + targetIdentifier;
             }
 
-            String desc = "Summary of %s".formatted(targetIdentifier);
             Set<CodeUnit> sources = skeletonsMap.keySet();
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
             boolean valid = !primaryTargets.isEmpty();
 
-            return new FragmentSnapshot(
-                    desc, desc, text, SyntaxConstants.SYNTAX_STYLE_JAVA, sources, files, (List<Byte>) null, valid);
+            return new ContentSnapshot(text, sources, files, (List<Byte>) null, valid);
         }
 
+        public record CodeUnitSkeleton(CodeUnit codeUnit, String skeleton) {}
+
+        @Blocking
+        private Map<String, CodeUnitSkeleton> skeletonsByFqName() {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
+            if (skeletonProviderOpt.isEmpty()) {
+                return Map.of();
+            }
+            SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
+
+            Map<String, CodeUnitSkeleton> out = new LinkedHashMap<>();
+            for (CodeUnit cu : sources().join()) {
+                if (cu.isAnonymous()) {
+                    continue;
+                }
+                skeletonProvider
+                        .getSkeleton(cu)
+                        .filter(s -> !s.isBlank())
+                        .ifPresent(skeleton -> out.putIfAbsent(cu.fqName(), new CodeUnitSkeleton(cu, skeleton)));
+            }
+            return out;
+        }
+
+        /**
+         * Combines multiple summary fragments into a single text block.
+         *
+         * <p>Semantic aggregation:
+         * - Union CodeUnits across fragments via sources()
+         * - Deduplicate by CodeUnit.fqName() (stable first-seen)
+         * - Exclude anonymous units
+         * - Use each fragment's own analyzer via SkeletonProvider to obtain skeleton text
+         * - Format via SkeletonFragmentFormatter in by-package mode
+         */
+        @Blocking
         public static String combinedText(List<SummaryFragment> fragments) {
-            return fragments.stream()
-                    .map(sf -> sf.text().join())
-                    .filter(s -> !s.isBlank())
-                    .collect(Collectors.joining("\n\n"));
+            if (fragments.isEmpty()) {
+                return "";
+            }
+
+            if (SwingUtilities.isEventDispatchThread()) {
+                logger.error("combinedText is a blocking function and should not be called on the EDT!");
+            }
+
+            Map<String, CodeUnitSkeleton> deduped = new LinkedHashMap<>();
+            for (SummaryFragment fragment : fragments) {
+                fragment.skeletonsByFqName().forEach(deduped::putIfAbsent);
+            }
+
+            if (deduped.isEmpty()) {
+                return "";
+            }
+
+            Map<CodeUnit, String> skeletonsMap = new LinkedHashMap<>();
+            deduped.values().forEach(cus -> skeletonsMap.put(cus.codeUnit(), cus.skeleton()));
+
+            return new SkeletonFragmentFormatter()
+                    .format(new SkeletonFragmentFormatter.Request(
+                            null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
         }
 
         private static Set<CodeUnit> resolvePrimaryTargets(
@@ -1800,16 +1859,14 @@ public class ContextFragments {
         public HistoryFragment(String id, IContextManager contextManager, List<TaskEntry> history) {
             super(
                     id,
-                    contextManager,
-                    FragmentSnapshot.textSnapshot(
-                            "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
-                            "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
-                            TaskEntry.formatMessages(history.stream()
-                                    .flatMap(e -> e.isCompressed()
-                                            ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
-                                            : castNonNull(e.log()).messages().stream())
-                                    .toList()),
-                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+                    "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
+                    "Conversation (" + history.size() + " thread%s)".formatted(history.size() > 1 ? "s" : ""),
+                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                    ContentSnapshot.textSnapshot(TaskEntry.formatMessages(history.stream()
+                            .flatMap(e -> e.isCompressed()
+                                    ? Stream.of(Messages.customSystem(castNonNull(e.summary())))
+                                    : castNonNull(e.log()).messages().stream())
+                            .toList())));
             this.history = List.copyOf(history);
         }
 
@@ -1864,12 +1921,10 @@ public class ContextFragments {
                 boolean escapeHtml) {
             super(
                     id,
-                    contextManager,
-                    FragmentSnapshot.textSnapshot(
-                            description,
-                            description,
-                            TaskEntry.formatMessages(messages),
-                            SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
+                    description,
+                    description,
+                    SyntaxConstants.SYNTAX_STYLE_MARKDOWN,
+                    ContentSnapshot.textSnapshot(TaskEntry.formatMessages(messages)));
             this.messages = List.copyOf(messages);
             this.escapeHtml = escapeHtml;
         }
