@@ -42,6 +42,10 @@ public final class ComputedValue<T> {
         future.whenComplete(this::notifyComplete);
     }
 
+    public ComputedValue(CompletableFuture<T> future) {
+        this("value", future);
+    }
+
     /**
      * Create an already-completed ComputedValue with a custom name. No worker thread is started.
      */

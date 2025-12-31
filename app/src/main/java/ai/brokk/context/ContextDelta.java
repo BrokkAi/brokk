@@ -12,10 +12,9 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.function.Supplier;
 
 import ai.brokk.TaskResult;
+import ai.brokk.util.ComputedValue;
 import org.jetbrains.annotations.Blocking;
 
 import static java.util.Objects.requireNonNull;
@@ -58,7 +57,6 @@ public record ContextDelta(
      * @param to   the target context (typically the current state)
      * @return a ContextDelta describing the changes
      */
-    @Blocking
     public static ContextDelta between(Context from, Context to) {
         boolean sessionReset = !from.isEmpty() && to.isEmpty();
 
@@ -123,19 +121,20 @@ public record ContextDelta(
     /**
      * Returns a human-readable description of the changes in this delta.
      */
-    public CompletableFuture<String> description(IContextManager icm) {
+    public ComputedValue<String> description(IContextManager icm) {
         if (sessionReset) {
-            return DROPPED_ALL_CONTEXT;
+            return CompletableFuture.completedFuture(DROPPED_ALL_CONTEXT);
         }
 
         if (isEmpty()) {
-            return "(No changes)";
+            return CompletableFuture.completedFuture("(No changes)");
         }
 
         // 1. Prioritize New Task History (User/AI turn)
         if (!addedTasks.isEmpty()) {
             TaskEntry latest = addedTasks.getLast();
-            String typeText = (latest.meta() == null || latest.meta().type() == TaskResult.Type.CONTEXT) ? "" : latest.meta().type().displayName();
+            String prefix = (latest.meta() == null || latest.meta().type() == TaskResult.Type.CONTEXT)
+                    ? "" : latest.meta().type().displayName() + ": ";
             String taskText;
             if (latest.isCompressed()) {
                 taskText = requireNonNull(latest.summary());
@@ -147,20 +146,21 @@ public record ContextDelta(
             String cacheKey;
             try {
                 byte[] hash = MessageDigest.getInstance("SHA-256").digest(taskText.getBytes(StandardCharsets.UTF_8));
-                cacheKey = "Action-" + HexFormat.of().formatHex(hash);
+                cacheKey = "action_" + HexFormat.of().formatHex(hash);
             } catch (NoSuchAlgorithmException e) {
                 throw new RuntimeException(e);
             }
 
-            var actionText = cm.getProject().getDiskCache().computeIfAbsent(cacheKey, () -> {
-                try {
-                    return cm.summarizeTaskForConversation(taskText).get();
-                } catch (InterruptedException | ExecutionException e) {
-                    throw new RuntimeException(e);
-                }
-            });
+            Optional<String> cached = cm.getProject().getDiskCache().get(cacheKey);
+            if (cached.isPresent()) {
+                return CompletableFuture.completedFuture(prefix + cached.get());
+            }
 
-            return (typeText.isBlank() ? "" : typeText + ": ") + actionText;
+            return cm.summarizeTaskForConversation(taskText)
+                    .thenApply(summary -> {
+                        cm.getProject().getDiskCache().put(cacheKey, summary);
+                        return prefix + summary;
+                    });
         }
 
         // 2. Aggregate other changes
@@ -191,10 +191,10 @@ public record ContextDelta(
         }
 
         if (parts.isEmpty()) {
-            return "(No changes detected)";
+            return CompletableFuture.completedFuture("(No changes detected)");
         }
 
-        return String.join("; ", parts);
+        return CompletableFuture.completedFuture(String.join("; ", parts));
     }
 
     private String buildAction(String verb, List<ContextFragment> items) {

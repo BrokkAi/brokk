@@ -50,6 +50,7 @@ public class Context {
     public static final Context EMPTY = new Context(new IContextManager() {});
 
     private static final String WELCOME_ACTION = "Session Start";
+    public static final String SUMMARIZING = "(Summarizing)";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
     private final transient IContextManager contextManager;
@@ -594,7 +595,7 @@ public class Context {
             return WELCOME_ACTION;
         }
 
-        return ContextDelta.between(previous, this).description(contextManager);
+        return ContextDelta.between(previous, this).description(contextManager).join();
     }
 
     public IContextManager getContextManager() {

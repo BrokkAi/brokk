@@ -4,6 +4,7 @@ import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -22,23 +23,29 @@ public final class StringDiskCache implements AutoCloseable {
     }
 
     /**
-     * Returns the cached value for the key, or computes and caches it if absent.
+     * Returns the cached value for the key, or empty if not present.
      *
      * @param key the cache key (must match [a-z0-9_-]{1,64})
-     * @param computer supplier for the value if not in cache
-     * @return the cached or computed value
+     * @return the cached value, or empty if not in cache
      */
-    public String computeIfAbsent(String key, Supplier<String> computer) {
+    public Optional<String> get(String key) {
         try (DiskLruCache.Snapshot snapshot = cache.get(key)) {
             if (snapshot != null) {
-                return snapshot.getString(0);
+                return Optional.of(snapshot.getString(0));
             }
         } catch (IOException e) {
             logger.warn("Failed to read from disk cache for key {}: {}", key, e.getMessage());
         }
+        return Optional.empty();
+    }
 
-        String value = computer.get();
-
+    /**
+     * Stores a value in the cache.
+     *
+     * @param key   the cache key (must match [a-z0-9_-]{1,64})
+     * @param value the value to store
+     */
+    public void put(String key, String value) {
         DiskLruCache.Editor editor = null;
         try {
             editor = cache.edit(key);
@@ -55,8 +62,21 @@ public final class StringDiskCache implements AutoCloseable {
                 }
             }
         }
+    }
 
-        return value;
+    /**
+     * Returns the cached value for the key, or computes and caches it if absent.
+     *
+     * @param key the cache key (must match [a-z0-9_-]{1,64})
+     * @param computer supplier for the value if not in cache
+     * @return the cached or computed value
+     */
+    public String computeIfAbsent(String key, Supplier<String> computer) {
+        return get(key).orElseGet(() -> {
+            String value = computer.get();
+            put(key, value);
+            return value;
+        });
     }
 
     @Override
