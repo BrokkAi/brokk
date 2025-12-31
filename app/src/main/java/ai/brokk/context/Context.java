@@ -361,7 +361,7 @@ public class Context {
         // 1. Try Git-based distance first if a real GitRepo is available
         if (repoObj instanceof GitRepo gr) {
             try {
-                var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false);
+                var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK);
                 resultFiles.addAll(filterResults(gitResults, ineligibleSources));
             } catch (Exception e) {
                 logger.warn("Failed to compute Git-based related files; falling back to imports.", e);

@@ -27,33 +27,33 @@ public final class GitDistance {
     public record FileEdge(ProjectFile src, ProjectFile dst) {}
 
     /**
-     * Given seed files and weights, return related files from the most recent COMMITS_TO_PROCESS commits ranked by:
-     *   score(y) = sum_over_seeds [ weight(seed) * P(y|seed) * idf(y) ]
+     * Given seed files and weights, return related files from the most recent COMMITS_TO_PROCESS commits.
      *
-     * where:
-     *   - P(y|seed) ≈ (sum over baseline commits containing {seed & y} of 1/numFilesChanged(commit))
-     *                 / (number of baseline commits containing seed)
-     *   - idf(y) = log( N / count(y) ), N = number of baseline commits in window,
-     *              count(y) = number of baseline commits where y changed
+     * <p>Ranking formula:
+     * score(y) = sum_over_seeds [ weight(seed) * P(y|seed) * idf(y) ]
      *
-     * Notes:
-     *   - 'reversed' flips sort order only.
+     * <p>where:
+     * <ul>
+     *   <li>P(y|seed) ≈ (sum over baseline commits containing {seed & y} of 1/numFilesChanged(commit))
+     *                 / (number of baseline commits containing seed)</li>
+     *   <li>idf(y) = log( N / count(y) ), N = number of baseline commits in window,
+     *              count(y) = number of baseline commits where y changed</li>
+     * </ul>
      */
     public static List<IAnalyzer.FileRelevance> getRelatedFiles(
-            GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed) throws InterruptedException {
+            GitRepo repo, Map<ProjectFile, Double> seedWeights, int k) throws InterruptedException {
 
         if (seedWeights.isEmpty()) return List.of();
 
         try {
-            return computeConditionalScores(repo, seedWeights, k, reversed);
+            return computeConditionalScores(repo, seedWeights, k);
         } catch (GitAPIException e) {
             throw new RuntimeException(e);
         }
     }
 
     private static List<IAnalyzer.FileRelevance> computeConditionalScores(
-            GitRepo repo, Map<ProjectFile, Double> seedWeights, int k, boolean reversed)
-            throws GitAPIException, InterruptedException {
+            GitRepo repo, Map<ProjectFile, Double> seedWeights, int k) throws GitAPIException, InterruptedException {
 
         // Baseline universe: recent commits on the current branch
         var baselineCommits = repo.listCommitsDetailed(repo.getCurrentBranch(), COMMITS_TO_PROCESS);
@@ -159,8 +159,7 @@ public final class GitDistance {
         // Build and sort results
         return scores.entrySet().stream()
                 .map(e -> new IAnalyzer.FileRelevance(e.getKey(), e.getValue()))
-                .sorted((a, b) ->
-                        reversed ? Double.compare(a.score(), b.score()) : Double.compare(b.score(), a.score()))
+                .sorted((a, b) -> Double.compare(b.score(), a.score()))
                 .limit(k)
                 .toList();
     }
@@ -293,7 +292,7 @@ public final class GitDistance {
         var repo = new GitRepo(repoPath);
         var important = getMostImportantFilesScored(repo, 20);
         for (IAnalyzer.FileRelevance fr : important) {
-            var related = getRelatedFiles(repo, Map.of(fr.file(), 1.0), 5, false);
+            var related = getRelatedFiles(repo, Map.of(fr.file(), 1.0), 5);
             System.out.printf("%s\t%.6f%n", fr.file().getFileName(), fr.score());
             for (IAnalyzer.FileRelevance r : related) {
                 System.out.printf("\t%s\t%.6f%n", r.file().getFileName(), r.score());
