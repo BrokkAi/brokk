@@ -250,8 +250,8 @@ public class Context {
         return this.withFragments(keptExistingFragments);
     }
 
-    public boolean containsWithSameSource(ContextFragment fragment) {
-        return fragments.stream().anyMatch(f -> f.hasSameSource(fragment));
+    public Optional<ContextFragment> findWithSameSource(ContextFragment fragment) {
+        return fragments.stream().filter(f -> f.hasSameSource(fragment)).findFirst();
     }
 
     public Context addFragments(ContextFragment fragment) {

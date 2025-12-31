@@ -3,10 +3,9 @@ package ai.brokk.context;
 import ai.brokk.TaskEntry;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 import ai.brokk.TaskResult;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.Blocking;
 
 /**
  * Represents the delta between two Context states.
@@ -19,7 +18,7 @@ public record ContextDelta(
         List<TaskEntry> addedTasks,
         boolean clearedHistory,
         boolean compressedHistory,
-        boolean externalChanges,
+        boolean contentsChanged,
         boolean sessionReset,
         List<ContextFragments.StringFragment> updatedSpecialFragments) {
 
@@ -33,7 +32,7 @@ public record ContextDelta(
                 && addedTasks.isEmpty()
                 && !clearedHistory
                 && !compressedHistory
-                && !externalChanges
+                && !contentsChanged
                 && !sessionReset
                 && updatedSpecialFragments.isEmpty();
     }
@@ -46,15 +45,16 @@ public record ContextDelta(
      * @param to   the target context (typically the current state)
      * @return a ContextDelta describing the changes
      */
+    @Blocking
     public static ContextDelta between(Context from, Context to) {
         boolean sessionReset = !from.isEmpty() && to.isEmpty();
 
         var added = to.fragments.stream()
-                .filter(f -> !from.containsWithSameSource(f))
+                .filter(f -> from.findWithSameSource(f).isEmpty())
                 .toList();
 
         var removed = from.fragments.stream()
-                .filter(f -> !to.containsWithSameSource(f))
+                .filter(f -> to.findWithSameSource(f).isEmpty())
                 .toList();
 
         // Task history changes
@@ -76,21 +76,11 @@ public record ContextDelta(
 
         // Check for content changes in existing fragments
         var updatedSpecials = new ArrayList<ContextFragments.StringFragment>();
-        boolean externalChanges = false;
-        if (added.isEmpty() && removed.isEmpty() && !to.fragments.equals(from.fragments)) {
-            // All fragments have same sources, but contents differ.
-            for (int i = 0; i < to.fragments.size(); i++) {
-                var fTo = to.fragments.get(i);
-                var fFrom = from.fragments.get(i);
-                if (!fTo.equals(fFrom)) {
-                    if (fTo instanceof ContextFragments.StringFragment sf && sf.specialType().isPresent()) {
-                        updatedSpecials.add(sf);
-                    } else {
-                        externalChanges = true;
-                    }
-                }
-            }
-        }
+        boolean contentsChanged = false;
+        // TODO: make two passes
+        // 1. for each special type, see if it exists in both; if it does, and text() differs, then add to updatedSpecials
+        // 2. for each fragment in `to`, see if it has a counterpart in `from` (findWithSameSource); if it does,
+        // set contentsChanged if to_f.text() != from_f.text()
 
         return new ContextDelta(
                 added,
@@ -98,7 +88,7 @@ public record ContextDelta(
                 addedTasks,
                 clearedHistory,
                 compressedHistory,
-                externalChanges,
+                contentsChanged,
                 sessionReset,
                 updatedSpecials);
     }
@@ -157,7 +147,7 @@ public record ContextDelta(
             parts.add("Update " + sf.specialType().get().description());
         }
 
-        if (parts.isEmpty() && externalChanges) {
+        if (parts.isEmpty() && contentsChanged) {
             parts.add("Load External Changes");
         }
 

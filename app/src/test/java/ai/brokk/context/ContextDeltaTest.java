@@ -15,7 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -156,7 +156,7 @@ class ContextDeltaTest {
 
         var delta = ContextDelta.between(ctx1, ctx2);
 
-        assertTrue(delta.externalChanges());
+        assertTrue(delta.contentsChanged());
     }
 
     @Test
