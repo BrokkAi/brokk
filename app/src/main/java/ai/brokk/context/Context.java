@@ -308,41 +308,6 @@ public class Context {
         return fragments.stream().anyMatch(f -> f.hasSameSource(fragment));
     }
 
-    private String buildAddFragmentsAction(List<ContextFragment> added) {
-        int count = added.size();
-        if (count == 1) {
-            var shortDesc = added.getFirst().shortDescription().join();
-            return "Added " + shortDesc;
-        }
-
-        // Show up to 2 fragments, then indicate count
-        var descriptions =
-                added.stream().limit(2).map(f -> f.shortDescription().join()).toList();
-
-        var message = "Added " + String.join(", ", descriptions);
-        if (count > 2) {
-            message += ", " + (count - 2) + " more";
-        }
-        return message;
-    }
-
-    private String buildRemoveFragmentsAction(List<ContextFragment> removed) {
-        int count = removed.size();
-        if (count == 1) {
-            var shortDesc = removed.getFirst().shortDescription().join();
-            return "Removed " + shortDesc;
-        }
-
-        // Show up to 2 fragments, then indicate count
-        var descriptions =
-                removed.stream().limit(2).map(f -> f.shortDescription().join()).toList();
-
-        var message = "Removed " + String.join(", ", descriptions);
-        if (count > 2) {
-            message += ", " + (count - 2) + " more";
-        }
-        return message;
-    }
 
     public Context addFragments(ContextFragment fragment) {
         return addFragments(List.of(fragment));
@@ -757,51 +722,7 @@ public class Context {
             return WELCOME_ACTION;
         }
 
-        if (this.equals(previous)) {
-            return "(No changes)";
-        }
-
-        // 1. Prioritize Task History changes
-        if (this.taskHistory.size() > previous.taskHistory.size()) {
-            TaskEntry latest = this.taskHistory.getLast();
-            String summary = latest.summary();
-            if (summary != null && !summary.isBlank()) {
-                return summary;
-            }
-            var log = latest.log();
-            if (log != null) {
-                return log.shortDescription().join();
-            }
-        }
-
-        // 2. Fragment delta logic
-        var currentFragments = Set.copyOf(this.fragments);
-        var previousFragments = Set.copyOf(previous.fragments);
-
-        var added = this.fragments.stream()
-                .filter(f -> !previousFragments.contains(f))
-                .toList();
-
-        if (!added.isEmpty()) {
-            return buildAddFragmentsAction(added);
-        }
-
-        var removed = previous.fragments.stream()
-                .filter(f -> !currentFragments.contains(f))
-                .toList();
-
-        if (!removed.isEmpty()) {
-            if (this.fragments.isEmpty()) {
-                return "Dropped all Context";
-            }
-            return buildRemoveFragmentsAction(removed);
-        }
-
-        if (previous.taskHistory.size() > this.taskHistory.size() && this.taskHistory.isEmpty()) {
-            return "Cleared Task History";
-        }
-
-        return "(No changes detected)";
+        return delta(previous).description();
     }
 
     public IContextManager getContextManager() {
@@ -976,13 +897,6 @@ public class Context {
     @Override
     public int hashCode() {
         return id.hashCode();
-    }
-
-
-    /** Returns the description override for this context, or null if not set. */
-    @Nullable
-    public String getDescriptionOverride() {
-        return descriptionOverride;
     }
 
     /** Sets a description override for this context (e.g., "Load external changes"). */

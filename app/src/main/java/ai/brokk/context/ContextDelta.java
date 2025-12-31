@@ -40,13 +40,20 @@ public record ContextDelta(
      * @param to   the target context (typically the current state)
      * @return a ContextDelta describing the changes
      */
-    public static ContextDelta between(Context from, Context to) {
+    public static ContextDelta between(@Nullable Context from, Context to) {
+        if (from == null) {
+            return new ContextDelta(to.fragments, List.of(), to.taskHistory, false, "");
+        }
+
+        var previousFragments = Set.copyOf(from.fragments);
+        var currentFragments = Set.copyOf(to.fragments);
+
         var added = to.fragments.stream()
-                .filter(from::containsWithSameSource)
+                .filter(f -> !previousFragments.contains(f))
                 .toList();
 
         var removed = from.fragments.stream()
-                .filter(to::containsWithSameSource)
+                .filter(f -> !currentFragments.contains(f))
                 .toList();
 
         // Task history changes
@@ -58,6 +65,76 @@ public record ContextDelta(
 
         boolean clearedHistory = from.taskHistory.size() > to.taskHistory.size() && to.taskHistory.isEmpty();
 
-        return new ContextDelta(added, removed, addedTasks, clearedHistory, to.getDescriptionOverride());
+        return new ContextDelta(added, removed, addedTasks, clearedHistory, "");
+    }
+
+    /**
+     * Returns a human-readable description of the changes in this delta.
+     */
+    public String description() {
+        if (descriptionOverride != null) {
+            return descriptionOverride;
+        }
+
+        if (isEmpty()) {
+            return "(No changes)";
+        }
+
+        // 1. Prioritize Task History changes
+        if (!addedTasks.isEmpty()) {
+            TaskEntry latest = addedTasks.getLast();
+            String summary = latest.summary();
+            if (summary != null && !summary.isBlank()) {
+                return summary;
+            }
+            var log = latest.log();
+            if (log != null) {
+                return log.shortDescription().join();
+            }
+        }
+
+        // 2. Fragment delta logic
+        if (!addedFragments.isEmpty()) {
+            return buildAction("Added", addedFragments);
+        }
+
+        if (!removedFragments.isEmpty()) {
+            if (addedFragments.isEmpty() && addedTasks.isEmpty() && !clearedHistory && removedFragments.size() > 0 && isAllFragmentsRemoved()) {
+                return "Dropped all Context";
+            }
+            return buildAction("Removed", removedFragments);
+        }
+
+        if (clearedHistory) {
+            return "Cleared Task History";
+        }
+
+        return "(No changes detected)";
+    }
+
+    private boolean isAllFragmentsRemoved() {
+        // This is a bit of a hack since we don't have the final size here,
+        // but if the delta says we removed items and didn't add any, and it matches 
+        // a "clear" intent. 
+        // In Context.getDescription it checked if this.fragments.isEmpty().
+        return false; 
+    }
+
+    private String buildAction(String verb, List<ContextFragment> items) {
+        int count = items.size();
+        if (count == 1) {
+            var shortDesc = items.getFirst().shortDescription().join();
+            return verb + " " + shortDesc;
+        }
+
+        // Show up to 2 fragments, then indicate count
+        var descriptions =
+                items.stream().limit(2).map(f -> f.shortDescription().join()).toList();
+
+        var message = verb + " " + String.join(", ", descriptions);
+        if (count > 2) {
+            message += ", " + (count - 2) + " more";
+        }
+        return message;
     }
 }

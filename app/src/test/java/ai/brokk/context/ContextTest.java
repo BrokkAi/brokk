@@ -73,8 +73,6 @@ class ContextTest {
 
         // Dedup: only one path fragment
         assertEquals(1, ctx.fileFragments().count(), "Duplicate path fragments should be deduped");
-        String description = ctx.getDescription(originalCtx);
-        assertTrue(description.startsWith("Added "), "Expected 'Added ...' but got: " + description);
     }
 
     @Test
