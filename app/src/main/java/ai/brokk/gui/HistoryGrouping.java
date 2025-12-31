@@ -196,19 +196,11 @@ public final class HistoryGrouping {
                 return descriptions.get(0);
             } else if (count == 2) {
                 // Two items: show both joined with " + "
-                return descriptions.get(0) + " + " + descriptions.get(1);
+                return "[2] " + descriptions.get(0) + " + " + descriptions.get(1);
             } else {
                 // 3+ items: show first + count of remaining
-                return descriptions.get(0) + " + " + (count - 1) + " more";
+                return "[" + count + "] " + descriptions.get(0) + " + " + (count - 1) + " more";
             }
-        }
-
-        private static String safeFirstWord(@Nullable String description) {
-            if (description == null || description.isBlank()) {
-                return "Action";
-            }
-            int space = description.indexOf(' ');
-            return (space == -1) ? description : description.substring(0, space);
         }
     }
 
