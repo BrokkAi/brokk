@@ -3,22 +3,16 @@ package ai.brokk.gui.util;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import java.awt.*;
-import java.awt.event.KeyEvent;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import javax.swing.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Utility for showing file choosers with enhanced functionality.
  */
 public final class FileChooserUtil {
-    private static final Logger logger = LogManager.getLogger(FileChooserUtil.class);
 
     private FileChooserUtil() {}
 
@@ -32,13 +26,7 @@ public final class FileChooserUtil {
      */
     public static @Nullable File showDirectoryChooserWithNewFolder(
             @Nullable Component parent, String title, @Nullable File initialDir) {
-        var chooser = new JFileChooser() {
-            // Expose protected createDialog for proper LAF integration
-            @Override
-            public JDialog createDialog(Component p) {
-                return super.createDialog(p);
-            }
-        };
+        var chooser = new JFileChooser();
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
         chooser.setMultiSelectionEnabled(false);
         chooser.setDialogTitle(title);
@@ -47,41 +35,19 @@ public final class FileChooserUtil {
             chooser.setCurrentDirectory(initialDir);
         }
 
-        var newFolderBtn = createNewFolderButton(chooser);
-        addButtonToChooserButtonPanel(chooser, newFolderBtn);
+        // Use accessory panel for New Folder button (public API, no internal hierarchy dependency)
+        chooser.setAccessory(createNewFolderAccessory(chooser));
 
-        // createDialog accepts null for unparented dialogs, but NullAway doesn't know
-        var dialog = chooser.createDialog(castNonNull(parent));
-        dialog.setTitle(title);
-
-        // Ensure ESC closes the dialog using KeyEventDispatcher for reliable capture
-        var dispatcher = new KeyEventDispatcher() {
-            @Override
-            public boolean dispatchKeyEvent(KeyEvent e) {
-                if (e.getID() == KeyEvent.KEY_PRESSED && e.getKeyCode() == KeyEvent.VK_ESCAPE) {
-                    dialog.dispose();
-                    return true;
-                }
-                return false;
-            }
-        };
-        KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(dispatcher);
-        dialog.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosed(WindowEvent e) {
-                KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(dispatcher);
-            }
-        });
-
-        dialog.setVisible(true);
-
-        return chooser.getSelectedFile();
+        int result = chooser.showOpenDialog(castNonNull(parent));
+        return result == JFileChooser.APPROVE_OPTION ? chooser.getSelectedFile() : null;
     }
 
-    private static JButton createNewFolderButton(JFileChooser chooser) {
+    private static JPanel createNewFolderAccessory(JFileChooser chooser) {
+        var panel = new JPanel(new BorderLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
         var btn = new JButton(Icons.NEW_FOLDER);
         btn.setToolTipText("New Folder");
-        // Size will be set in findButtonPanelAndAdd to match existing buttons
         btn.addActionListener(e -> {
             var currentDir = chooser.getCurrentDirectory();
             if (currentDir != null) {
@@ -102,43 +68,8 @@ public final class FileChooserUtil {
                 }
             }
         });
-        return btn;
-    }
 
-    private static void addButtonToChooserButtonPanel(JFileChooser chooser, JButton button) {
-        var cancelText = UIManager.getString("FileChooser.cancelButtonText");
-        boolean added = findButtonPanelAndAdd(chooser, button, cancelText);
-        if (!added) {
-            logger.warn("Could not find button panel in JFileChooser; New Folder button not added");
-        }
-    }
-
-    private static boolean findButtonPanelAndAdd(Container container, JButton button, @Nullable String cancelText) {
-        for (var comp : container.getComponents()) {
-            if (comp instanceof JPanel panel) {
-                for (var child : panel.getComponents()) {
-                    if (child instanceof JButton btn) {
-                        if (cancelText != null && cancelText.equals(btn.getText())) {
-                            // Make button square with height matching existing buttons
-                            int height = btn.getPreferredSize().height;
-                            var dim = new Dimension(height, height);
-                            button.setPreferredSize(dim);
-                            button.setMinimumSize(dim);
-                            button.setMaximumSize(dim);
-                            panel.add(button, 0);
-                            return true;
-                        }
-                    }
-                }
-                if (findButtonPanelAndAdd(panel, button, cancelText)) {
-                    return true;
-                }
-            } else if (comp instanceof Container child) {
-                if (findButtonPanelAndAdd(child, button, cancelText)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        panel.add(btn, BorderLayout.NORTH);
+        return panel;
     }
 }
