@@ -1,27 +1,24 @@
 package ai.brokk.tools;
 
+import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import org.junit.jupiter.api.Test;
-import picocli.CommandLine;
-
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-
-import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Test;
+import picocli.CommandLine;
 
 class PageRankBenchmarkTest {
 
@@ -59,8 +56,7 @@ class PageRankBenchmarkTest {
                 "--nodes", "2",
                 "--warm-up-iterations", "0",
                 "--iterations", "1",
-                "--scenario", "sparse"
-        );
+                "--scenario", "sparse");
 
         assertEquals(0, exitCode);
     }
@@ -126,15 +122,15 @@ class PageRankBenchmarkTest {
                         "Resolved import count mismatch in " + file.getFileName());
 
                 // e) Assert each imported FQN is present in the resolved set
-                Set<String> resolvedFqns = resolvedImports.stream()
-                        .map(CodeUnit::fqName)
-                        .collect(Collectors.toSet());
+                Set<String> resolvedFqns =
+                        resolvedImports.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
                 for (String importLine : rawImports) {
                     String fqn = importLine.substring("import ".length(), importLine.length() - 1);
                     assertTrue(
                             resolvedFqns.contains(fqn),
-                            "FQN " + fqn + " from import statement not found in resolved imports of " + file.getFileName());
+                            "FQN " + fqn + " from import statement not found in resolved imports of "
+                                    + file.getFileName());
                 }
             }
         }

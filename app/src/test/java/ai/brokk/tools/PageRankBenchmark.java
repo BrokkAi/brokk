@@ -8,11 +8,6 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import org.jspecify.annotations.NullMarked;
-import org.jspecify.annotations.Nullable;
-import picocli.CommandLine;
-
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,8 +17,9 @@ import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.stream.IntStream;
-
-import static java.util.Objects.requireNonNull;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
+import picocli.CommandLine;
 
 @NullMarked
 @CommandLine.Command(
@@ -32,13 +28,19 @@ import static java.util.Objects.requireNonNull;
         description = "Benchmarks ImportPageRanker and GitDistance ranking algorithms")
 public class PageRankBenchmark implements Callable<Integer> {
 
-    @CommandLine.Option(names = {"-wi", "--warm-up-iterations"}, description = "Number of warm-up iterations (default: 2)")
+    @CommandLine.Option(
+            names = {"-wi", "--warm-up-iterations"},
+            description = "Number of warm-up iterations (default: 2)")
     private int warmUpIterations = 2;
 
-    @CommandLine.Option(names = {"-i", "--iterations"}, description = "Number of measured iterations (default: 5)")
+    @CommandLine.Option(
+            names = {"-i", "--iterations"},
+            description = "Number of measured iterations (default: 5)")
     private int iterations = 5;
 
-    @CommandLine.Option(names = {"-n", "--nodes", "--files"}, description = "Number of nodes (files) in the synthetic project (default: 500)")
+    @CommandLine.Option(
+            names = {"-n", "--nodes", "--files"},
+            description = "Number of nodes (files) in the synthetic project (default: 500)")
     private int nodeCount = 500;
 
     @CommandLine.Option(names = "--seed", description = "Random seed for generation")
@@ -53,7 +55,9 @@ public class PageRankBenchmark implements Callable<Integer> {
     @CommandLine.Option(names = "--reversed", description = "Whether to use reversed ranking logic")
     private boolean reversed = false;
 
-    @CommandLine.Option(names = "--scenario", description = "Scenario to run: sparse, normal, dense, all (default: all)")
+    @CommandLine.Option(
+            names = "--scenario",
+            description = "Scenario to run: sparse, normal, dense, all (default: all)")
     private String scenario = "all";
 
     private static final double SPARSE_IMPORT_FRACTION = 0.0005;
@@ -69,10 +73,7 @@ public class PageRankBenchmark implements Callable<Integer> {
         System.exit(exitCode);
     }
 
-    private record ScenarioConfig(
-            String name,
-            double importEdgeFraction,
-            double gitPairFraction) {}
+    private record ScenarioConfig(String name, double importEdgeFraction, double gitPairFraction) {}
 
     private record IterationResult(long analyzerNanos, long importNanos, long gitNanos) {}
 
@@ -147,8 +148,8 @@ public class PageRankBenchmark implements Callable<Integer> {
 
         String firstFile = String.format("File%05d.java", 0);
         var builder = InlineTestProjectCreator.code(
-                generateFileContent(0, fileNames, adjacencyList.getOrDefault(0, List.of())),
-                firstFile).withGit();
+                        generateFileContent(0, fileNames, adjacencyList.getOrDefault(0, List.of())), firstFile)
+                .withGit();
 
         for (int i = 1; i < nodeCount; i++) {
             builder.addFileContents(
@@ -207,8 +208,13 @@ public class PageRankBenchmark implements Callable<Integer> {
                 IterationResult res = new IterationResult(t1 - t0, t2 - t1, repo != null ? t3 - t2 : 0L);
                 results.add(res);
 
-                System.out.printf(Locale.ROOT, "  Iteration %d: Analyzer=%s, ImportRanker=%s, GitDistance=%s%n",
-                        i + 1, formatDuration(res.analyzerNanos()), formatDuration(res.importNanos()), formatDuration(res.gitNanos()));
+                System.out.printf(
+                        Locale.ROOT,
+                        "  Iteration %d: Analyzer=%s, ImportRanker=%s, GitDistance=%s%n",
+                        i + 1,
+                        formatDuration(res.analyzerNanos()),
+                        formatDuration(res.importNanos()),
+                        formatDuration(res.gitNanos()));
             }
 
             printSummary(config, targetImportEdges, targetGitPairs, results);
@@ -217,47 +223,87 @@ public class PageRankBenchmark implements Callable<Integer> {
 
     private void printScenarioHeader(ScenarioConfig config, int targetImportEdges, int targetGitPairs) {
         System.out.println("=".repeat(60));
-        System.out.printf(Locale.ROOT, "SCENARIO: %s (ImportFraction: %.4f, GitFraction: %.4f)%n",
-                config.name().toUpperCase(Locale.ROOT), config.importEdgeFraction(), config.gitPairFraction());
-        System.out.printf(Locale.ROOT, "  Import Edges: %d | Git Co-change Pairs: %d%n",
-                targetImportEdges, targetGitPairs);
+        System.out.printf(
+                Locale.ROOT,
+                "SCENARIO: %s (ImportFraction: %.4f, GitFraction: %.4f)%n",
+                config.name().toUpperCase(Locale.ROOT),
+                config.importEdgeFraction(),
+                config.gitPairFraction());
+        System.out.printf(
+                Locale.ROOT, "  Import Edges: %d | Git Co-change Pairs: %d%n", targetImportEdges, targetGitPairs);
         System.out.println("=".repeat(60));
     }
 
     private void printStartupBanner(long seed) {
         System.out.println("--------------------------------------------------------------------------------");
         System.out.println("PageRank Benchmark Tool");
-        System.out.printf(Locale.ROOT, "Seed: %d | Nodes: %d | SeedCount: %d | TopK: %d | Reversed: %b%n",
-                seed, nodeCount, seedCount, topK, reversed);
+        System.out.printf(
+                Locale.ROOT,
+                "Seed: %d | Nodes: %d | SeedCount: %d | TopK: %d | Reversed: %b%n",
+                seed,
+                nodeCount,
+                seedCount,
+                topK,
+                reversed);
         System.out.println("--------------------------------------------------------------------------------");
     }
 
-    private void printSummary(ScenarioConfig config, int targetImportEdges, int targetGitPairs, List<IterationResult> results) {
-        System.out.printf(Locale.ROOT, "SCENARIO SUMMARY: %s (ImportFraction: %.4f, GitFraction: %.4f)%n",
-                config.name().toUpperCase(Locale.ROOT), config.importEdgeFraction(), config.gitPairFraction());
-        System.out.printf(Locale.ROOT, "Import Edges: %d | Git Co-change Pairs: %d%n",
-                targetImportEdges, targetGitPairs);
+    private void printSummary(
+            ScenarioConfig config, int targetImportEdges, int targetGitPairs, List<IterationResult> results) {
+        System.out.printf(
+                Locale.ROOT,
+                "SCENARIO SUMMARY: %s (ImportFraction: %.4f, GitFraction: %.4f)%n",
+                config.name().toUpperCase(Locale.ROOT),
+                config.importEdgeFraction(),
+                config.gitPairFraction());
+        System.out.printf(
+                Locale.ROOT, "Import Edges: %d | Git Co-change Pairs: %d%n", targetImportEdges, targetGitPairs);
 
-        long analyzerMin = results.stream().mapToLong(IterationResult::analyzerNanos).min().orElse(0);
-        long analyzerMax = results.stream().mapToLong(IterationResult::analyzerNanos).max().orElse(0);
-        double analyzerMean = results.stream().mapToLong(IterationResult::analyzerNanos).average().orElse(0);
+        long analyzerMin =
+                results.stream().mapToLong(IterationResult::analyzerNanos).min().orElse(0);
+        long analyzerMax =
+                results.stream().mapToLong(IterationResult::analyzerNanos).max().orElse(0);
+        double analyzerMean = results.stream()
+                .mapToLong(IterationResult::analyzerNanos)
+                .average()
+                .orElse(0);
 
-        long importMin = results.stream().mapToLong(IterationResult::importNanos).min().orElse(0);
-        long importMax = results.stream().mapToLong(IterationResult::importNanos).max().orElse(0);
-        double importMean = results.stream().mapToLong(IterationResult::importNanos).average().orElse(0);
+        long importMin =
+                results.stream().mapToLong(IterationResult::importNanos).min().orElse(0);
+        long importMax =
+                results.stream().mapToLong(IterationResult::importNanos).max().orElse(0);
+        double importMean = results.stream()
+                .mapToLong(IterationResult::importNanos)
+                .average()
+                .orElse(0);
 
-        long gitMin = results.stream().mapToLong(IterationResult::gitNanos).min().orElse(0);
-        long gitMax = results.stream().mapToLong(IterationResult::gitNanos).max().orElse(0);
-        double gitMean = results.stream().mapToLong(IterationResult::gitNanos).average().orElse(0);
+        long gitMin =
+                results.stream().mapToLong(IterationResult::gitNanos).min().orElse(0);
+        long gitMax =
+                results.stream().mapToLong(IterationResult::gitNanos).max().orElse(0);
+        double gitMean =
+                results.stream().mapToLong(IterationResult::gitNanos).average().orElse(0);
 
         System.out.println("\nScenario Statistics:");
-        System.out.printf(Locale.ROOT, "  Analyzer (Create): [Min: %s, Mean: %s, Max: %s]%n",
-                formatDuration(analyzerMin), formatDuration((long) analyzerMean), formatDuration(analyzerMax));
-        System.out.printf(Locale.ROOT, "  ImportPageRanker:  [Min: %s, Mean: %s, Max: %s]%n",
-                formatDuration(importMin), formatDuration((long) importMean), formatDuration(importMax));
+        System.out.printf(
+                Locale.ROOT,
+                "  Analyzer (Create): [Min: %s, Mean: %s, Max: %s]%n",
+                formatDuration(analyzerMin),
+                formatDuration((long) analyzerMean),
+                formatDuration(analyzerMax));
+        System.out.printf(
+                Locale.ROOT,
+                "  ImportPageRanker:  [Min: %s, Mean: %s, Max: %s]%n",
+                formatDuration(importMin),
+                formatDuration((long) importMean),
+                formatDuration(importMax));
         if (results.stream().anyMatch(r -> r.gitNanos() > 0)) {
-            System.out.printf(Locale.ROOT, "  GitDistance:       [Min: %s, Mean: %s, Max: %s]%n",
-                    formatDuration(gitMin), formatDuration((long) gitMean), formatDuration(gitMax));
+            System.out.printf(
+                    Locale.ROOT,
+                    "  GitDistance:       [Min: %s, Mean: %s, Max: %s]%n",
+                    formatDuration(gitMin),
+                    formatDuration((long) gitMean),
+                    formatDuration(gitMax));
         } else {
             System.out.println("  GitDistance:       [Skipped - No GitRepo]");
         }
@@ -273,7 +319,8 @@ public class PageRankBenchmark implements Callable<Integer> {
                 .sorted()
                 .collect(java.util.stream.Collectors.joining("\n"));
 
-        return String.join("\n",
+        return String.join(
+                "\n",
                 String.format("package p%d;", pkgIdx),
                 "",
                 imports,

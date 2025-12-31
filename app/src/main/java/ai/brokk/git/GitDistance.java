@@ -21,6 +21,7 @@ import org.jetbrains.annotations.VisibleForTesting;
 public final class GitDistance {
     private static final Logger logger = LogManager.getLogger(GitDistance.class);
     private static final int COMMITS_TO_PROCESS = 1_000;
+    private static final int LARGE_SEED_THRESHOLD = 100;
 
     /** Represents an edge between two CodeUnits in the co-occurrence graph. */
     public record FileEdge(ProjectFile src, ProjectFile dst) {}
@@ -58,6 +59,10 @@ public final class GitDistance {
         var baselineCommits = repo.listCommitsDetailed(repo.getCurrentBranch(), COMMITS_TO_PROCESS);
         final int N = baselineCommits.size();
         if (N == 0) return List.of();
+
+        if (N >= COMMITS_TO_PROCESS || seedWeights.size() > LARGE_SEED_THRESHOLD) {
+            logger.debug("GitDistance processing large dataset: commits={}, seeds={}", N, seedWeights.size());
+        }
 
         // Canonicalize paths within this baseline window
         var canonicalizer = repo.buildCanonicalizer(baselineCommits);

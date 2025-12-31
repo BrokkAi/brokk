@@ -39,7 +39,9 @@ public final class ImportPageRanker {
     /** Import reach depth when constructing the candidate set. */
     private static final int IMPORT_DEPTH = 2;
     /** Node threshold above which we log a warning about graph size. */
-    private static final int LARGE_GRAPH_NODE_THRESHOLD = 2000;
+    private static final int LARGE_GRAPH_NODE_THRESHOLD = 10_000;
+    /** Edge threshold above which we log a warning about graph size. */
+    private static final long LARGE_GRAPH_EDGE_THRESHOLD = 500_000L;
 
     private record Graph(Map<ProjectFile, Set<ProjectFile>> forward, Map<ProjectFile, Set<ProjectFile>> reverse) {}
 
@@ -161,7 +163,7 @@ public final class ImportPageRanker {
             edgeCount += outIdx.length;
         }
 
-        if (n > LARGE_GRAPH_NODE_THRESHOLD) {
+        if (n > LARGE_GRAPH_NODE_THRESHOLD || edgeCount > LARGE_GRAPH_EDGE_THRESHOLD) {
             log.debug("ImportPageRanker large graph: nodes={}, edges={}, seeds={}", n, edgeCount, positiveSeeds.size());
         }
 
