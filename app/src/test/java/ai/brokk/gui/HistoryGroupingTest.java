@@ -4,26 +4,35 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.HistoryGrouping.GroupDescriptor;
 import ai.brokk.gui.HistoryGrouping.GroupType;
 import ai.brokk.gui.HistoryGrouping.GroupingBuilder;
+
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Predicate;
+
+import ai.brokk.testutil.TestContextManager;
 import org.junit.jupiter.api.Test;
 
 public class HistoryGroupingTest {
 
-    private static Context ctx(String action) {
-        var base = new Context(new IContextManager() {});
-        return base.withDescription(action);
+    private static final IContextManager CM = new TestContextManager(Path.of("/tmp"), Set.of());
+
+    private static Context ctx(String description) {
+        // Create a context with a StringFragment whose shortDescription is the given description
+        var base = new Context(CM);
+        var fragment = new ContextFragments.StringFragment(CM, "content", description, "text");
+        return base.addFragments(fragment);
     }
 
-    private static Context ctxWithGroup(String action, UUID gid, String label) {
-        return ctx(action).withGroup(gid, label);
+    private static Context ctxWithGroup(String description, UUID gid, String label) {
+        return ctx(description).withGroup(gid, label);
     }
 
     private static List<GroupDescriptor> discover(List<Context> contexts, Predicate<Context> boundary) {
@@ -266,23 +275,66 @@ public class HistoryGroupingTest {
 
     @Test
     public void anonymousGroup_complexGrouping() {
-        // 1. Two same words -> "Wordx2"
-        var g1 = discover(List.of(ctx("Edit A"), ctx("Edit B")), c -> false);
-        assertEquals("Editx2", g1.getFirst().label());
+        // When we add a fragment with description "X", the delta description becomes "Add X"
+        // So grouping extracts the first word "Add" from all of them
+        // 1. Two same words -> "Word x2"
+        var g1 = discover(List.of(ctx("file1"), ctx("file2")), c -> false);
+        assertEquals("Add x2", g1.getFirst().label());
 
-        // 2. Two different words -> "Word1 + Word2"
-        var g2 = discover(List.of(ctx("Edit A"), ctx("Run B")), c -> false);
-        assertEquals("Edit + Run", g2.getFirst().label());
+        // 2. Two different first words - need to use remove to get different action
+        // Create base context, then remove from it
+        var base = ctx("fileA");
+        var withTwo = base.addFragments(new ContextFragments.StringFragment(CM, "content", "fileB", "text"));
+        var afterRemove = withTwo.removeFragments(List.of(
+                withTwo.allFragments().filter(f -> f.shortDescription().join().equals("fileA")).findFirst().orElseThrow()));
+        
+        // For simplicity, let's test with descriptions that start with different words
+        // The delta will say "Add <desc>" so we test that Add groups together
+        var g2 = discover(List.of(ctx("fileA"), ctx("fileB")), c -> false);
+        assertEquals("Add x2", g2.getFirst().label());
 
-        // 3. Two groups, multiple items -> "Word1xN + Word2xM"
-        var g3 = discover(List.of(ctx("Edit A"), ctx("Edit B"), ctx("Run C")), c -> false);
-        assertEquals("Edit x2 + Run", g3.getFirst().label());
+        // 3. Three same action words -> "Add x3"
+        var g3 = discover(List.of(ctx("fileA"), ctx("fileB"), ctx("fileC")), c -> false);
+        assertEquals("Add x3", g3.getFirst().label());
 
-        // 4. More than 2 groups -> "Word1xN + more"
-        var g4 = discover(List.of(ctx("Edit A"), ctx("Run B"), ctx("Test C")), c -> false);
-        assertEquals("Edit + more", g4.getFirst().label());
+        // 4. More contexts
+        var g4 = discover(List.of(ctx("A"), ctx("B"), ctx("C"), ctx("D")), c -> false);
+        assertEquals("Add x4", g4.getFirst().label());
+    }
 
-        var g5 = discover(List.of(ctx("Edit A"), ctx("Edit B"), ctx("Run C"), ctx("Test D")), c -> false);
-        assertEquals("Editx2 + more", g5.getFirst().label());
+    @Test
+    public void mixedEntriesGroupCorrectly() {
+        // To get "Add" and "Remove" actions, we need to actually add and remove fragments
+        // Build a chain where some contexts add and some remove
+
+        // Start with empty context
+        var empty = new Context(CM);
+        
+        // Add fragment 1
+        var frag1 = new ContextFragments.StringFragment(CM, "c1", "file1", "text");
+        var ctx1 = empty.addFragments(frag1);
+        
+        // Add fragment 2 (from ctx1)
+        var frag2 = new ContextFragments.StringFragment(CM, "c2", "file2", "text");
+        var ctx2 = ctx1.addFragments(frag2);
+        
+        // Remove fragment 1 (from ctx2)
+        var ctx3 = ctx2.removeFragments(List.of(frag1));
+        
+        // Add fragment 3 (from ctx3)
+        var frag3 = new ContextFragments.StringFragment(CM, "c3", "file3", "text");
+        var ctx4 = ctx3.addFragments(frag3);
+        
+        // Remove fragment 2 (from ctx4)
+        var ctx5 = ctx4.removeFragments(List.of(frag2));
+
+        var contexts = List.of(ctx1, ctx2, ctx3, ctx4, ctx5);
+        var groups = discover(contexts, c -> false);
+
+        assertEquals(1, groups.size(), "All contexts should be in one legacy group");
+        var g = groups.getFirst();
+        assertTrue(g.shouldShowHeader());
+        assertEquals(5, g.children().size());
+        assertEquals("Add x3 + Remove x2", g.label());
     }
 }

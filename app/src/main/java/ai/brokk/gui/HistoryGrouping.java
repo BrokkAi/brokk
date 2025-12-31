@@ -193,29 +193,29 @@ public final class HistoryGrouping {
                 }
             }
 
-            record Group(String word, int count) {
-                @Override
-                public String toString() {
-                    return count > 1 ? word + " x" + count : word;
-                }
-            }
-
-            List<Group> groups = new ArrayList<>();
+            // Collect first words from each context
+            List<String> words = new ArrayList<>();
             for (int k = i; k < j; k++) {
-                String word = safeFirstWord(getDescription(contexts, k, resetTargetIds));
-                if (!groups.isEmpty() && groups.getLast().word().equals(word)) {
-                    groups.set(groups.size() - 1, new Group(word, groups.getLast().count() + 1));
-                } else {
-                    groups.add(new Group(word, 1));
-                }
+                words.add(safeFirstWord(getDescription(contexts, k, resetTargetIds)));
             }
 
-            if (groups.size() == 1) {
-                return groups.getFirst().toString();
-            } else if (groups.size() == 2) {
-                return groups.get(0).toString() + " + " + groups.get(1).toString();
+            // Group by word and count occurrences (order-preserving)
+            Map<String, Long> counts = words.stream()
+                    .collect(java.util.stream.Collectors.groupingBy(
+                            w -> w,
+                            LinkedHashMap::new,
+                            java.util.stream.Collectors.counting()));
+
+            List<String> formatted = counts.entrySet().stream()
+                    .map(e -> e.getValue() > 1 ? e.getKey() + " x" + e.getValue() : e.getKey())
+                    .toList();
+
+            if (formatted.size() == 1) {
+                return formatted.getFirst();
+            } else if (formatted.size() == 2) {
+                return formatted.get(0) + " + " + formatted.get(1);
             } else {
-                return groups.get(0).toString() + " + more";
+                return formatted.get(0) + " + more";
             }
         }
 
@@ -224,8 +224,8 @@ public final class HistoryGrouping {
             if (resetTargetIds.contains(ctx.id())) {
                 return "Copy From History";
             }
-            int prev = index - 1;
-            return ctx.getDescription(prev >= 0 ? contexts.get(prev) : null);
+            Context prev = index > 0 ? contexts.get(index - 1) : null;
+            return ctx.getDescription(prev);
         }
 
         private static String safeFirstWord(String text) {
