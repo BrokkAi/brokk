@@ -138,12 +138,7 @@ public class PageRankBenchmark implements Callable<Integer> {
             java.util.Collections.shuffle(allPossiblePairs, random);
         }
 
-        System.out.println("=".repeat(60));
-        System.out.printf(Locale.ROOT, "SCENARIO: %s (Fraction: %.2f)%n",
-                config.name().toUpperCase(Locale.ROOT), config.edgeFraction());
-        System.out.printf(Locale.ROOT, "  Import Edges: %d | Git Co-change Pairs: %d%n",
-                targetImportEdges, targetGitPairs);
-        System.out.println("=".repeat(60));
+        printScenarioHeader(config, targetImportEdges, targetGitPairs);
 
         String firstFile = String.format("File%05d.java", 0);
         var builder = InlineTestProjectCreator.code(
@@ -211,8 +206,17 @@ public class PageRankBenchmark implements Callable<Integer> {
                         i + 1, formatDuration(res.analyzerNanos()), formatDuration(res.importNanos()), formatDuration(res.gitNanos()));
             }
 
-            printSummary(results);
+            printSummary(config, targetImportEdges, targetGitPairs, results);
         }
+    }
+
+    private void printScenarioHeader(ScenarioConfig config, int targetImportEdges, int targetGitPairs) {
+        System.out.println("=".repeat(60));
+        System.out.printf(Locale.ROOT, "SCENARIO: %s (Fraction: %.2f)%n",
+                config.name().toUpperCase(Locale.ROOT), config.edgeFraction());
+        System.out.printf(Locale.ROOT, "  Import Edges: %d | Git Co-change Pairs: %d%n",
+                targetImportEdges, targetGitPairs);
+        System.out.println("=".repeat(60));
     }
 
     private void printStartupBanner(long seed) {
@@ -223,7 +227,12 @@ public class PageRankBenchmark implements Callable<Integer> {
         System.out.println("--------------------------------------------------------------------------------");
     }
 
-    private void printSummary(List<IterationResult> results) {
+    private void printSummary(ScenarioConfig config, int targetImportEdges, int targetGitPairs, List<IterationResult> results) {
+        System.out.printf(Locale.ROOT, "SCENARIO SUMMARY: %s (Fraction: %.2f)%n",
+                config.name().toUpperCase(Locale.ROOT), config.edgeFraction());
+        System.out.printf(Locale.ROOT, "Import Edges: %d | Git Co-change Pairs: %d%n",
+                targetImportEdges, targetGitPairs);
+
         long analyzerMin = results.stream().mapToLong(IterationResult::analyzerNanos).min().orElse(0);
         long analyzerMax = results.stream().mapToLong(IterationResult::analyzerNanos).max().orElse(0);
         double analyzerMean = results.stream().mapToLong(IterationResult::analyzerNanos).average().orElse(0);
