@@ -62,7 +62,7 @@ public class GitDistanceRelatedFilesTest {
         var testFile = new ProjectFile(testProject.getRoot(), "UserService.java");
         var seedWeights = Map.of(testFile, 1.0);
 
-        var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seedWeights, 10, false);
+        var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seedWeights, 10);
         assertFalse(results.isEmpty(), "PMI should return results");
 
         var user = results.stream()
@@ -89,7 +89,7 @@ public class GitDistanceRelatedFilesTest {
         var user = new ProjectFile(testProject.getRoot(), "User.java");
         var seedWeights = Map.of(userService, 1.0, user, 0.5);
 
-        var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seedWeights, 10, false);
+        var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seedWeights, 10);
         assertFalse(results.isEmpty(), "Should return non-seed related files");
 
         // Verify no seeds appear in results
@@ -104,7 +104,7 @@ public class GitDistanceRelatedFilesTest {
         assertNotNull(testPath, "Test path should not be null");
 
         // FIXME 793
-        var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), Map.of(), 10, false);
+        var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), Map.of(), 10);
         assertTrue(results.isEmpty(), "Empty seed weights should yield empty PMI results");
     }
 
@@ -115,15 +115,8 @@ public class GitDistanceRelatedFilesTest {
         var testFile = new ProjectFile(testProject.getRoot(), "UserService.java");
         var seedWeights = Map.of(testFile, 1.0);
 
-        var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seedWeights, 10, true);
+        var results = GitDistance.getRelatedFiles((GitRepo) testProject.getRepo(), seedWeights, 10);
         assertFalse(results.isEmpty(), "PMI should return results");
-
-        // Verify ascending order when reversed=true
-        for (int i = 1; i < results.size(); i++) {
-            assertTrue(
-                    results.get(i - 1).score() <= results.get(i).score(),
-                    "Results must be sorted ascending when reversed=true");
-        }
     }
 
     @Test
@@ -203,7 +196,7 @@ public class GitDistanceRelatedFilesTest {
                 // PMI seeded with UserService should surface Account.java (not A.java)
                 var newPf = new ProjectFile(tempDir, Path.of("Account.java"));
                 var seed = new ProjectFile(tempDir, Path.of("UserService.java"));
-                var results = GitDistance.getRelatedFiles(repo, Map.of(seed, 1.0), 10, false);
+                var results = GitDistance.getRelatedFiles(repo, Map.of(seed, 1.0), 10);
                 assertFalse(results.isEmpty(), "PMI should return results");
 
                 var anyOld =

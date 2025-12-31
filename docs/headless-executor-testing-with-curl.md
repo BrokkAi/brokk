@@ -51,6 +51,14 @@ curl -sS -X PUT "${BASE}/v1/sessions" \
   --data-binary @"${SESSION_ZIP}"
 ```
 
+## Download Session Zip
+
+```bash
+curl -sS -X GET "${BASE}/v1/sessions/<session-id>" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -o "<session-id>.zip"
+```
+
 ## Context Injection (Optional)
 
 Before running ASK (or any mode), you can optionally inject specific files, classes, and methods into the context.
