@@ -225,8 +225,9 @@ public final class HeadlessExecutorMain {
         this.server.registerUnauthenticatedContext("/health/ready", this::handleHealthReady);
         this.server.registerUnauthenticatedContext("/v1/executor", this::handleExecutor);
         // Sessions router handles:
-        // - POST /v1/sessions  (create a new session by name)
-        // - PUT  /v1/sessions  (import/load an existing session from a zip)
+        // - POST /v1/sessions                 (create a new session by name)
+        // - PUT  /v1/sessions                 (import/load an existing session from a zip)
+        // - GET  /v1/sessions/{sessionId}     (download a session zip)
         this.server.registerAuthenticatedContext("/v1/sessions", this::handleSessionsRouter);
         this.server.registerAuthenticatedContext("/v1/jobs", this::handleJobsRouter);
         this.server.registerAuthenticatedContext("/v1/context/files", this::handlePostContextFiles);
@@ -478,15 +479,43 @@ public final class HeadlessExecutorMain {
      * Route requests to /v1/sessions based on HTTP method.
      * - POST: create a new session by name
      * - PUT: import/load an existing session zip
+     * - GET: download a session zip by session ID
      */
     void handleSessionsRouter(HttpExchange exchange) throws IOException {
         var method = exchange.getRequestMethod();
-        if (method.equals("POST")) {
+        var path = exchange.getRequestURI().getPath();
+        if (method.equals("POST") && path.equals("/v1/sessions")) {
             handleCreateSession(exchange);
             return;
         }
-        if (method.equals("PUT")) {
+        if (method.equals("PUT") && path.equals("/v1/sessions")) {
             handlePutSession(exchange);
+            return;
+        }
+        if (method.equals("GET")) {
+            var parts = Splitter.on('/').omitEmptyStrings().splitToList(path);
+            if (parts.size() >= 3 && "v1".equals(parts.get(0)) && "sessions".equals(parts.get(1))) {
+                var sessionIdText = parts.get(2);
+                boolean validPath = parts.size() == 3 || (parts.size() == 4 && "download".equals(parts.get(3)));
+                if (!validPath) {
+                    var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
+                    SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+                    return;
+                }
+                if (sessionIdText.isBlank()) {
+                    sendValidationError(exchange, "Session ID is required");
+                    return;
+                }
+                try {
+                    var sessionId = UUID.fromString(sessionIdText);
+                    handleGetSessionZip(exchange, sessionId);
+                } catch (IllegalArgumentException e) {
+                    sendValidationError(exchange, "Invalid session ID in path");
+                }
+                return;
+            }
+            var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
+            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
             return;
         }
         var error = ErrorPayload.of(ErrorPayload.Code.METHOD_NOT_ALLOWED, "Method not allowed");
@@ -702,6 +731,42 @@ public final class HeadlessExecutorMain {
         } catch (Exception e) {
             logger.error("Error handling PUT /v1/sessions", e);
             var error = ErrorPayload.internalError("Failed to process session upload", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
+     * GET /v1/sessions/{sessionId} - Download a session zip.
+     */
+    void handleGetSessionZip(HttpExchange exchange, UUID sessionId) throws IOException {
+        if (!exchange.getRequestMethod().equals("GET")) {
+            sendMethodNotAllowed(exchange);
+            return;
+        }
+
+        var sessionZipPath = contextManager.getProject()
+                .getSessionManager()
+                .getSessionsDir()
+                .resolve(sessionId + ".zip");
+        if (!Files.exists(sessionZipPath)) {
+            var error = ErrorPayload.of(
+                    ErrorPayload.Code.NOT_FOUND, "Session zip not found for session " + sessionId);
+            SimpleHttpServer.sendJsonResponse(exchange, 404, error);
+            return;
+        }
+
+        try {
+            long fileSize = Files.size(sessionZipPath);
+            var headers = exchange.getResponseHeaders();
+            headers.set("Content-Type", "application/zip");
+            headers.set("Content-Disposition", "attachment; filename=\"" + sessionId + ".zip\"");
+            exchange.sendResponseHeaders(200, fileSize);
+            try (var responseBody = exchange.getResponseBody()) {
+                Files.copy(sessionZipPath, responseBody);
+            }
+        } catch (IOException e) {
+            logger.error("Failed to stream session zip {}", sessionId, e);
+            var error = ErrorPayload.internalError("Failed to stream session zip", e);
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
         }
     }
@@ -1671,6 +1736,7 @@ public final class HeadlessExecutorMain {
             System.out.println("  Authenticated (require Authorization header):");
             System.out.println("    POST /v1/sessions                 - create a new session by name");
             System.out.println("    PUT  /v1/sessions                 - import/load a session from zip");
+            System.out.println("    GET  /v1/sessions/{sessionId}     - download a session zip");
             System.out.println("    POST /v1/jobs                     - create and start a job");
             System.out.println("    GET  /v1/jobs/{jobId}             - get job status");
             System.out.println("    GET  /v1/jobs/{jobId}/events      - stream job execution events");
