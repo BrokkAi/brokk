@@ -497,7 +497,7 @@ public final class HeadlessExecutorMain {
             var parts = Splitter.on('/').omitEmptyStrings().splitToList(normalizedPath);
             if (parts.size() >= 3 && "v1".equals(parts.get(0)) && "sessions".equals(parts.get(1))) {
                 var sessionIdText = parts.get(2);
-                boolean validPath = parts.size() == 3 || (parts.size() == 4 && "download".equals(parts.get(3)));
+                boolean validPath = parts.size() == 3;
                 if (!validPath) {
                     var error = ErrorPayload.of(ErrorPayload.Code.NOT_FOUND, "Not found");
                     SimpleHttpServer.sendJsonResponse(exchange, 404, error);
