@@ -56,9 +56,9 @@ public class PageRankBenchmark implements Callable<Integer> {
     @CommandLine.Option(names = "--scenario", description = "Scenario to run: sparse, normal, dense, all (default: all)")
     private String scenario = "all";
 
-    private static final double SPARSE_EDGE_FRACTION = 0.25;
-    private static final double NORMAL_EDGE_FRACTION = 0.50;
-    private static final double DENSE_EDGE_FRACTION = 0.75;
+    private static final double SPARSE_EDGE_FRACTION = 0.05;
+    private static final double NORMAL_EDGE_FRACTION = 0.15;
+    private static final double DENSE_EDGE_FRACTION = 0.25;
 
     public static void main(String[] args) {
         int exitCode = new CommandLine(new PageRankBenchmark()).execute(args);
