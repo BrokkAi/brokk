@@ -34,7 +34,7 @@ public class TaskListTest {
 
         // Create task items directly without calling ContextManager
         var items = tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items), "Task list created");
+        var result = context.withTaskList(new TaskList.TaskListData(items));
 
         // Verify fragment exists
         var fragment = result.getTaskListFragment();
@@ -60,13 +60,13 @@ public class TaskListTest {
                 new TaskList.TaskItem("Done 1", "First completed task", true),
                 new TaskList.TaskItem("Incomplete 1", "First incomplete task", false),
                 new TaskList.TaskItem("Done 2", "Second completed task", true)));
-        var contextWithInitial = context.withTaskList(initialData, "Initial setup");
+        var contextWithInitial = context.withTaskList(initialData);
 
         // Replace with new tasks (simulating replacement)
         var newTasks = List.of("New Task A", "New Task B");
         var newItems =
                 newTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = contextWithInitial.withTaskList(new TaskList.TaskListData(newItems), "Task list replaced");
+        var result = contextWithInitial.withTaskList(new TaskList.TaskListData(newItems));
 
         // Verify old tasks are gone and completed tasks dropped
         var data = result.getTaskListDataOrEmpty();
@@ -84,10 +84,10 @@ public class TaskListTest {
     void createOrReplaceTaskList_emptyTasksClears() throws Exception {
         // Start with some tasks
         var initialData = new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task", "Some task", false)));
-        var contextWithInitial = context.withTaskList(initialData, "Initial setup");
+        var contextWithInitial = context.withTaskList(initialData);
 
         // Replace with empty list (simulating clearing)
-        var result = contextWithInitial.withTaskList(new TaskList.TaskListData(List.of()), "Task list cleared");
+        var result = contextWithInitial.withTaskList(new TaskList.TaskListData(List.of()));
 
         // Task list fragment should be removed
         var fragment = result.getTaskListFragment();
@@ -103,7 +103,7 @@ public class TaskListTest {
                 tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
         var items =
                 validTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items), "Task list created");
+        var result = context.withTaskList(new TaskList.TaskListData(items));
 
         var data = result.getTaskListDataOrEmpty();
         assertEquals(1, data.tasks().size(), "Should filter out whitespace-only tasks");
@@ -118,7 +118,7 @@ public class TaskListTest {
         var tasks = List.of("This is a very long task description that should be summarized");
 
         var items = tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items), "Task list created");
+        var result = context.withTaskList(new TaskList.TaskListData(items));
 
         var data = result.getTaskListDataOrEmpty();
         assertEquals(1, data.tasks().size());
@@ -137,7 +137,7 @@ public class TaskListTest {
         var tasks = List.of("Simple task");
 
         var items = tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList();
-        var result = context.withTaskList(new TaskList.TaskListData(items), "Task list created");
+        var result = context.withTaskList(new TaskList.TaskListData(items));
 
         var data = result.getTaskListDataOrEmpty();
         var task = data.tasks().get(0);

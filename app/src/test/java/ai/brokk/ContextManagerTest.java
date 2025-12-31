@@ -122,7 +122,6 @@ class ContextManagerTest {
         assertEquals(1, after.getTaskHistory().size(), "Exactly one history entry should remain");
         assertTrue(
                 after.getTaskHistory().stream().noneMatch(te -> te.sequence() == 101), "Dropped entry must be absent");
-        assertEquals("Delete task from history", after.getAction());
     }
 
     @Test
@@ -187,7 +186,7 @@ class ContextManagerTest {
         // Create a task list with one task
         var taskItem = new TaskList.TaskItem("Test title", "Test task text", false);
         var taskListData = new TaskList.TaskListData(List.of(taskItem));
-        cm.pushContext(ctx -> ctx.withTaskList(taskListData, "Add task"));
+        cm.pushContext(ctx -> ctx.withTaskList(taskListData));
 
         // Define a group
         UUID groupId = UUID.randomUUID();
@@ -205,8 +204,8 @@ class ContextManagerTest {
 
         var updated = cm.deriveContextWithTaskList(
                         ctxBefore,
-                        new TaskList.TaskListData(List.of(new TaskList.TaskItem("Test title", "Test task text", true))),
-                        "Mark done")
+                        new TaskList.TaskListData(List.of(new TaskList.TaskItem("Test title", "Test task text", true)))
+                        )
                 .withGroup(groupId, groupLabel);
 
         assertEquals(groupId, updated.getGroupId(), "Group ID should be preserved after task list update");

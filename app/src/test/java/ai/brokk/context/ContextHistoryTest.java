@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -55,8 +56,8 @@ public class ContextHistoryTest {
                 contextManager,
                 List.of(initialFragment),
                 List.of(),
-                null,
-                CompletableFuture.completedFuture("Initial"));
+                null
+        );
 
         var history = new ContextHistory(initialContext);
 
@@ -67,8 +68,8 @@ public class ContextHistoryTest {
                 contextManager,
                 List.of(modifiedFragment),
                 List.of(),
-                null,
-                CompletableFuture.completedFuture("Modified"));
+                null
+        );
 
         history.pushContext(modifiedContext);
 
@@ -92,7 +93,12 @@ public class ContextHistoryTest {
     public void testDiffServiceDetectsAddedFragments() throws Exception {
         // Initial context with no files
         var initialContext =
-                new Context(contextManager, List.of(), List.of(), null, CompletableFuture.completedFuture("Initial"));
+                new Context(
+                        contextManager,
+                        List.of(),
+                        List.of(),
+                        null
+                );
         var history = new ContextHistory(initialContext);
 
         // Create new file and context that includes it
@@ -102,7 +108,11 @@ public class ContextHistoryTest {
 
         var projectFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var extendedContext = new Context(
-                contextManager, List.of(projectFrag), List.of(), null, CompletableFuture.completedFuture("Extended"));
+                contextManager,
+                List.of(projectFrag),
+                List.of(),
+                null
+        );
 
         history.pushContext(extendedContext);
 
@@ -128,13 +138,21 @@ public class ContextHistoryTest {
 
         var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx1 = new Context(
-                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action"));
+                contextManager,
+                List.of(frag1),
+                List.of(),
+                null
+        );
         var history = new ContextHistory(ctx1);
 
         // Create a second context with the same file content
         var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(
-                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action"));
+                contextManager,
+                List.of(frag2),
+                List.of(),
+                null
+        );
         history.pushContext(ctx2);
 
         var diffs = history.getDiffService().diff(ctx2).join();
@@ -157,13 +175,21 @@ public class ContextHistoryTest {
         // Seed computed text to snapshot original content for diff
         frag1.text().await(Duration.ofSeconds(2));
         var ctx1 = new Context(
-                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
+                contextManager,
+                List.of(frag1),
+                List.of(),
+                null
+        );
         var history = new ContextHistory(ctx1);
 
         Files.writeString(pf.absPath(), "Original content\nModified content with more text\n");
         var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(
-                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Modified"));
+                contextManager,
+                List.of(frag2),
+                List.of(),
+                null
+        );
         history.pushContext(ctx2);
 
         var diffs = history.getDiffService().diff(ctx2).join();
@@ -188,13 +214,21 @@ public class ContextHistoryTest {
         // Seed computed text to snapshot original content for diff
         frag1.text().await(Duration.ofSeconds(2));
         var ctx1 = new Context(
-                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
+                contextManager,
+                List.of(frag1),
+                List.of(),
+                null
+        );
         var history = new ContextHistory(ctx1);
 
         Files.writeString(pf.absPath(), "Modified content\n");
         var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(
-                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action 2"));
+                contextManager,
+                List.of(frag2),
+                List.of(),
+                null
+        );
         history.pushContext(ctx2);
 
         var diffService = history.getDiffService();
@@ -222,7 +256,11 @@ public class ContextHistoryTest {
 
         var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var initialContext = new Context(
-                contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
+                contextManager,
+                List.of(frag),
+                List.of(),
+                null
+        );
 
         var history = new ContextHistory(initialContext);
 
@@ -230,8 +268,9 @@ public class ContextHistoryTest {
         var taskFragment = new ContextFragments.TaskFragment(
                 contextManager, List.of(new UserMessage("Test task")), "Test Session");
         var taskEntry = new TaskEntry(1, taskFragment, null);
+        CompletableFuture.completedFuture("Action");
         var contextWithHistory =
-                initialContext.addHistoryEntry(taskEntry, null, CompletableFuture.completedFuture("Action"));
+                initialContext.addHistoryEntry(taskEntry, null);
         history.pushContext(contextWithHistory);
 
         var diffs = history.getDiffService().diff(contextWithHistory).join();
@@ -253,14 +292,22 @@ public class ContextHistoryTest {
 
         var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx1 = new Context(
-                contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("Action 1"));
+                contextManager,
+                List.of(frag1),
+                List.of(),
+                null
+        );
         var history = new ContextHistory(ctx1);
 
         // 2. Second state: file with "version 2"
         Files.writeString(pf.absPath(), "version 2");
         var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(
-                contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("Action 2"));
+                contextManager,
+                List.of(frag2),
+                List.of(),
+                null
+        );
         history.pushContext(ctx2); // This should trigger snapshot of ctx1
 
         // 3. External change: file is now "version 3"
@@ -288,7 +335,11 @@ public class ContextHistoryTest {
         frag.text().await(Duration.ofSeconds(2));
 
         var initialContext = new Context(
-                contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
+                contextManager,
+                List.of(frag),
+                List.of(),
+                null
+        );
         var history = new ContextHistory(initialContext);
 
         var initialSize = history.getHistory().size();
@@ -317,7 +368,11 @@ public class ContextHistoryTest {
         frag.text().await(Duration.ofSeconds(2));
 
         var initialContext = new Context(
-                contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
+                contextManager,
+                List.of(frag),
+                List.of(),
+                null
+        );
         var history = new ContextHistory(initialContext);
 
         Files.writeString(pf.absPath(), "v1\nv2\n");
@@ -350,7 +405,11 @@ public class ContextHistoryTest {
         frag.text().await(Duration.ofSeconds(2));
 
         var initialContext = new Context(
-                contextManager, List.of(frag), List.of(), null, CompletableFuture.completedFuture("Initial"));
+                contextManager,
+                List.of(frag),
+                List.of(),
+                null
+        );
         var history = new ContextHistory(initialContext);
 
         var sizeBefore = history.getHistory().size();
@@ -419,8 +478,8 @@ public class ContextHistoryTest {
                 contextManager,
                 List.of(projectFrag1, usageFrag1),
                 List.of(),
-                null,
-                CompletableFuture.completedFuture("Initial"));
+                null
+        );
         var history = new ContextHistory(initialContext);
 
         // Change the file on disk
@@ -470,8 +529,8 @@ public class ContextHistoryTest {
                 contextManager,
                 List.of(projectFrag, usageFrag),
                 List.of(),
-                null,
-                CompletableFuture.completedFuture("Initial"));
+                null
+        );
         var history = new ContextHistory(initialContext);
 
         var beforeSize = history.getHistory().size();
@@ -493,7 +552,11 @@ public class ContextHistoryTest {
     public void testDiffServiceIncludesUsageFragmentDiffWhenUsageContentChanges() {
         var usageFrag1 = new MockUsageFragment(contextManager, "U-usage", "alpha\n");
         var initialContext = new Context(
-                contextManager, List.of(usageFrag1), List.of(), null, CompletableFuture.completedFuture("Initial"));
+                contextManager,
+                List.of(usageFrag1),
+                List.of(),
+                null
+        );
         var history = new ContextHistory(initialContext);
 
         var usageFrag2 = new MockUsageFragment(contextManager, "U-usage", "alpha\nbeta\n");
@@ -501,8 +564,8 @@ public class ContextHistoryTest {
                 contextManager,
                 List.of(usageFrag2),
                 List.of(),
-                null,
-                CompletableFuture.completedFuture("Usage updated"));
+                null
+        );
         history.pushContext(updatedContext);
 
         var diffs = history.getDiffService().diff(updatedContext).join();

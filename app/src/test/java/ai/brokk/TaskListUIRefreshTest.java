@@ -30,7 +30,7 @@ public class TaskListUIRefreshTest {
                 new TaskList.TaskItem("Incomplete 1", "Incomplete task 1", false),
                 new TaskList.TaskItem("Done 2", "Another done", true),
                 new TaskList.TaskItem("Incomplete 2", "Incomplete task 2", false)));
-        var contextWithTasks = initial.withTaskList(existingData, "Initial setup");
+        var contextWithTasks = initial.withTaskList(existingData);
 
         // Capture pre-existing incomplete tasks by examining before replacement
         var preExistingIncompleteTasks = contextWithTasks.getTaskListDataOrEmpty().tasks().stream()
@@ -50,7 +50,7 @@ public class TaskListUIRefreshTest {
 
         // Scenario: User has incomplete tasks, then replaces list
         var existingData = new TaskList.TaskListData(List.of(new TaskList.TaskItem("Work", "Incomplete work", false)));
-        var contextWithTasks = initial.withTaskList(existingData, "Initial");
+        var contextWithTasks = initial.withTaskList(existingData);
 
         // Capture pre-existing incomplete
         var preExisting = contextWithTasks.getTaskListDataOrEmpty().tasks().stream()
@@ -63,8 +63,8 @@ public class TaskListUIRefreshTest {
         var result = contextWithTasks.withTaskList(
                 new TaskList.TaskListData(newTasks.stream()
                         .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList()),
-                "Task list replaced");
+                        .toList())
+        );
 
         // Verify new tasks were created
         var newData = result.getTaskListDataOrEmpty();
@@ -86,8 +86,8 @@ public class TaskListUIRefreshTest {
         var result = initial.withTaskList(
                 new TaskList.TaskListData(newTasks.stream()
                         .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList()),
-                "Task list created");
+                        .toList())
+        );
 
         // Verify new tasks exist
         var data = result.getTaskListDataOrEmpty();
@@ -103,8 +103,8 @@ public class TaskListUIRefreshTest {
         var initial = new Context(cm);
 
         var result = initial.withTaskList(
-                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),
-                "Task list created");
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false)))
+        );
 
         var frag = result.getTaskListFragment();
         assertTrue(frag.isPresent());
@@ -121,12 +121,12 @@ public class TaskListUIRefreshTest {
 
         // Create with tasks
         var c1 = initial.withTaskList(
-                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),
-                "Task list created");
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false)))
+        );
         assertTrue(c1.getTaskListFragment().isPresent());
 
         // Replace with empty (via withTaskList)
-        var c2 = c1.withTaskList(new TaskList.TaskListData(List.of()), "Task list cleared");
+        var c2 = c1.withTaskList(new TaskList.TaskListData(List.of()));
         assertFalse(c2.getTaskListFragment().isPresent(), "Fragment should be removed on empty replacement");
     }
 }

@@ -33,8 +33,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -54,10 +52,6 @@ public class Context {
 
     private static final String WELCOME_ACTION = "Session Start";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
-
-    /** @deprecated Action strings are no longer stored; descriptions are computed on-demand via getDescription(previous) */
-    @Deprecated
-    public static final String SUMMARIZING = "(Summarizing...)";
 
     /** @deprecated Action strings are no longer stored; use getDescription(previous) instead */
     @Deprecated
@@ -127,12 +121,7 @@ public class Context {
         this.groupId = groupId;
         this.groupLabel = groupLabel;
         this.descriptionOverride = descriptionOverride;
-        this.action = CompletableFuture.completedFuture(
-                descriptionOverride != null
-                        ? descriptionOverride
-                        : (parsedOutput != null
-                                ? SUMMARIZING
-                                : (fragments.isEmpty() && taskHistory.isEmpty() ? "" : WELCOME_ACTION)));
+        this.action = CompletableFuture.completedFuture("");
         this.markedReadonlyFragments = validateReadOnlyFragments(markedReadonlyFragments, fragments);
         this.pinnedFragments = validatePinnedFragments(pinnedFragments, fragments);
     }
@@ -154,28 +143,6 @@ public class Context {
                 Set.of(),
                 Set.of());
     }
-
-    /** @deprecated Use Context(IContextManager, List, List, TaskFragment) instead */
-    @Deprecated
-    public Context(
-            IContextManager contextManager,
-            List<ContextFragment> fragments,
-            List<TaskEntry> taskHistory,
-            @Nullable ContextFragments.TaskFragment parsedOutput,
-            CompletableFuture<String> action) {
-        this(
-                newContextId(),
-                contextManager,
-                fragments,
-                taskHistory,
-                parsedOutput,
-                null,
-                null,
-                action.isDone() ? action.join() : null,
-                Set.of(),
-                Set.of());
-    }
-
 
     public Map<ProjectFile, String> buildRelatedIdentifiers(int k) throws InterruptedException {
         var candidates = getMostRelevantFiles(k).stream().sorted().toList();
@@ -429,37 +396,6 @@ public class Context {
         return id;
     }
 
-    /** @deprecated Use getDescription(previousContext) instead */
-    @Deprecated
-    public String getAction() {
-        String desc = WELCOME_ACTION;
-        if (action.isDone()) {
-            try {
-                return action.get();
-            } catch (Exception e) {
-                return desc;
-            }
-        }
-        return desc;
-    }
-
-    /** @deprecated Use withDescription(String) instead */
-    @Deprecated
-    public Context withAction(Future<String> actionFuture) {
-        // Compatibility shim - extract the action string if available and use withDescription
-        try {
-            String actionStr = actionFuture.get(100, TimeUnit.MILLISECONDS);
-            return withDescription(actionStr);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return this;
-        } catch (Exception e) {
-            // For testing/compatibility, if the future isn't ready or fails, 
-            // we return a context that still shows SUMMARIZING via the action shim
-            return this;
-        }
-    }
-
     @Nullable
     public UUID getGroupId() {
         return groupId;
@@ -648,12 +584,6 @@ public class Context {
         return TaskEntry.fromSession(nextSequence, result);
     }
 
-    /** @deprecated Use addHistoryEntry(TaskEntry, TaskFragment) instead */
-    @Deprecated
-    public Context addHistoryEntry(TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed, CompletableFuture<String> actionFuture) {
-        return addHistoryEntry(taskEntry, parsed);
-    }
-
     public Context addHistoryEntry(
             TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed) {
         var newTaskHistory =
@@ -759,12 +689,6 @@ public class Context {
                 .toList());
 
         return result;
-    }
-
-    /** @deprecated Use withParsedOutput(TaskFragment) instead */
-    @Deprecated
-    public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput, String action) {
-        return withParsedOutput(parsedOutput);
     }
 
     public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput) {
@@ -1285,12 +1209,6 @@ public class Context {
      * Serializes and updates the Task List fragment using TaskList.TaskListData.
      * If the task list is empty, removes any existing Task List fragment instead of creating an empty one.
      */
-    /** @deprecated Use withTaskList(TaskListData) instead */
-    @Deprecated
-    public Context withTaskList(TaskList.TaskListData data, String action) {
-        return withTaskList(data);
-    }
-
     public Context withTaskList(TaskList.TaskListData data) {
         // If tasks are empty, remove the Task List fragment instead of creating an empty one
         if (data.tasks().isEmpty()) {

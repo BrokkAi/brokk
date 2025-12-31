@@ -78,7 +78,7 @@ public class TaskListWorkspaceToolsIntegrationTest {
 
         var mixed = new TaskList.TaskListData(List.of(
                 new TaskList.TaskItem("Done", "Completed", true), new TaskList.TaskItem("Todo", "Not done", false)));
-        var c1 = initial.withTaskList(mixed, "Mixed");
+        var c1 = initial.withTaskList(mixed);
 
         var wst = new WorkspaceTools(c1);
         wst.createOrReplaceTaskList("Fresh start", List.of("New task"));
