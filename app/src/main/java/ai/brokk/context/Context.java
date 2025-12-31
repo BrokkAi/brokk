@@ -280,13 +280,11 @@ public class Context {
         // Show up to 2 fragments, then indicate count
         var preview = added.stream().limit(2).toList();
 
-        var descriptionFutures = preview.stream()
-                .map(f -> f.shortDescription().future())
-                .toList();
+        var descriptionFutures =
+                preview.stream().map(f -> f.shortDescription().future()).toList();
 
-        var safeFutures = descriptionFutures.stream()
-                .map(f -> f.exceptionally(e -> null))
-                .toArray(CompletableFuture[]::new);
+        var safeFutures =
+                descriptionFutures.stream().map(f -> f.exceptionally(e -> null)).toArray(CompletableFuture[]::new);
 
         return CompletableFuture.allOf(safeFutures).thenApply(v -> {
             var descriptions = descriptionFutures.stream()
