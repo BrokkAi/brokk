@@ -241,8 +241,12 @@ public class PageRankBenchmark implements Callable<Integer> {
                 formatDuration(analyzerMin), formatDuration((long) analyzerMean), formatDuration(analyzerMax));
         System.out.printf(Locale.ROOT, "  ImportPageRanker:  [Min: %s, Mean: %s, Max: %s]%n",
                 formatDuration(importMin), formatDuration((long) importMean), formatDuration(importMax));
-        System.out.printf(Locale.ROOT, "  GitDistance:       [Min: %s, Mean: %s, Max: %s]%n",
-                formatDuration(gitMin), formatDuration((long) gitMean), formatDuration(gitMax));
+        if (results.stream().anyMatch(r -> r.gitNanos() > 0)) {
+            System.out.printf(Locale.ROOT, "  GitDistance:       [Min: %s, Mean: %s, Max: %s]%n",
+                    formatDuration(gitMin), formatDuration((long) gitMean), formatDuration(gitMax));
+        } else {
+            System.out.println("  GitDistance:       [Skipped - No GitRepo]");
+        }
         System.out.println();
     }
 
