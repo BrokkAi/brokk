@@ -484,16 +484,17 @@ public final class HeadlessExecutorMain {
     void handleSessionsRouter(HttpExchange exchange) throws IOException {
         var method = exchange.getRequestMethod();
         var path = exchange.getRequestURI().getPath();
-        if (method.equals("POST") && path.equals("/v1/sessions")) {
+        var normalizedPath = path.endsWith("/") && path.length() > 1 ? path.substring(0, path.length() - 1) : path;
+        if (method.equals("POST") && normalizedPath.equals("/v1/sessions")) {
             handleCreateSession(exchange);
             return;
         }
-        if (method.equals("PUT") && path.equals("/v1/sessions")) {
+        if (method.equals("PUT") && normalizedPath.equals("/v1/sessions")) {
             handlePutSession(exchange);
             return;
         }
         if (method.equals("GET")) {
-            var parts = Splitter.on('/').omitEmptyStrings().splitToList(path);
+            var parts = Splitter.on('/').omitEmptyStrings().splitToList(normalizedPath);
             if (parts.size() >= 3 && "v1".equals(parts.get(0)) && "sessions".equals(parts.get(1))) {
                 var sessionIdText = parts.get(2);
                 boolean validPath = parts.size() == 3 || (parts.size() == 4 && "download".equals(parts.get(3)));
