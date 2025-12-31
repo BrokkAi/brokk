@@ -149,8 +149,7 @@ public class ContextSerializationTest {
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, taskMessages, "Test Task");
         context2 = context2.addHistoryEntry(
                 new TaskEntry(1, taskFragment, null),
-                taskFragment,
-                CompletableFuture.completedFuture("Action for task"));
+                taskFragment);
 
         originalHistory.pushContext(context2);
 
@@ -483,55 +482,74 @@ public class ContextSerializationTest {
 
     @Test
     void testDescriptionComputedAfterSerializationRoundTrip() throws Exception {
+        // Initial state
         var context1 = new Context(mockContextManager);
+        var history = new ContextHistory(context1);
 
-        // Create context with a fragment - this is what should be preserved
+        // 1. Action: Add a fragment
         var projectFile = new ProjectFile(tempDir, "test.java");
         Files.createDirectories(projectFile.absPath().getParent());
         Files.writeString(projectFile.absPath(), "public class Test {}");
         var fragment = new ContextFragments.ProjectPathFragment(projectFile, mockContextManager);
-
-        var updatedContext1 = context1.addFragments(List.of(fragment));
-        var history = new ContextHistory(updatedContext1);
-
-        // Create additional contexts (previously used to test action futures)
-        var context2 = new Context(mockContextManager);
+        var context2 = context1.addFragments(List.of(fragment));
         history.pushContext(context2);
 
-        var context3 = new Context(mockContextManager);
+        // 2. Action: Task entry
+        var messages = List.<ChatMessage>of(UserMessage.from("Hello"), AiMessage.from("World"));
+        var taskFragment = new ContextFragments.TaskFragment(mockContextManager, messages, "Task 1");
+        var taskEntry = new TaskEntry(1, taskFragment, "Summary 1");
+        var context3 = context2.addHistoryEntry(taskEntry, taskFragment);
         history.pushContext(context3);
 
         // Serialize to ZIP
-        Path zipFile = tempDir.resolve("action_persistence_test.zip");
+        Path zipFile = tempDir.resolve("description_persistence_test.zip");
         HistoryIo.writeZip(history, zipFile);
 
         // Deserialize from ZIP
         ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
 
-        // Verify we have the same number of contexts
-        assertEquals(3, loadedHistory.getHistory().size());
+        // Verify descriptions are correctly re-computed against loaded history
+        List<Context> loadedContexts = loadedHistory.getHistory();
+        assertEquals(3, loadedContexts.size());
 
-        var loadedContext1 = loadedHistory.getHistory().get(0);
-        var loadedContext2 = loadedHistory.getHistory().get(1);
-        var loadedContext3 = loadedHistory.getHistory().get(2);
+        Context l1 = loadedContexts.get(0);
+        Context l2 = loadedContexts.get(1);
+        Context l3 = loadedContexts.get(2);
 
-        // Verify the actual content (fragments) is preserved - this is what matters
-        var loadedFragments = loadedContext1.allFragments().toList();
-        assertEquals(
-                1, loadedFragments.size(), "Fragment should be preserved across serialization");
-        assertTrue(
-                loadedFragments.get(0) instanceof ContextFragments.ProjectPathFragment,
-                "Fragment type should be preserved");
+        assertEquals("Session Start", l1.getDescription(null));
+        assertEquals("Added test.java", l2.getDescription(l1));
+        assertEquals("Summary 1", l3.getDescription(l2));
+    }
 
-        // Verify the deprecated action shim works (always returns completed future)
-        assertTrue(loadedContext1.action.isDone(), "Action shim should return completed future");
-        assertTrue(loadedContext2.action.isDone(), "Action shim should return completed future");
-        assertTrue(loadedContext3.action.isDone(), "Action shim should return completed future");
+    @Test
+    void testLegacyActionCompatibility() throws Exception {
+        // Create history where context has a description override (simulating legacy 'action' shim)
+        var ctx = new Context(mockContextManager).withDescription("Legacy Action String");
+        var history = new ContextHistory(ctx);
 
-        // Verify getAction() returns non-null (compatibility shim)
-        assertNotNull(loadedContext1.getAction(), "getAction() should return non-null");
-        assertNotNull(loadedContext2.getAction(), "getAction() should return non-null");
-        assertNotNull(loadedContext3.getAction(), "getAction() should return non-null");
+        Path zipFile = tempDir.resolve("legacy_action.zip");
+        HistoryIo.writeZip(history, zipFile);
+
+        // Verify that the ZIP contains descriptionOverride in the JSON
+        String json = extractContextsJsonFromZip(zipFile);
+        assertTrue(json.contains("\"descriptionOverride\":\"Legacy Action String\""), 
+                "Should preserve description override in serialization");
+
+        // Reload and verify
+        ContextHistory loaded = HistoryIo.readZip(zipFile, mockContextManager);
+        assertEquals("Legacy Action String", loaded.getHistory().getFirst().getDescription(null));
+    }
+
+    private String extractContextsJsonFromZip(Path zip) throws IOException {
+        try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
+            ZipEntry entry;
+            while ((entry = zis.getNextEntry()) != null) {
+                if ("contexts.jsonl".equals(entry.getName())) {
+                    return new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                }
+            }
+        }
+        throw new IOException("contexts.jsonl not found in zip");
     }
 
     @Test
@@ -631,11 +649,11 @@ public class ContextSerializationTest {
         var taskEntry = new TaskEntry(1, sharedTaskFragment, null);
 
         var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntry(
-                taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action1"));
+                taskEntry, sharedTaskFragment);
         var origHistoryWithTask = new ContextHistory(updatedCtxWithTask1);
 
         var ctxWithTask2 = new Context(mockContextManager)
-                .addHistoryEntry(taskEntry, sharedTaskFragment, CompletableFuture.completedFuture("action2"));
+                .addHistoryEntry(taskEntry, sharedTaskFragment);
         origHistoryWithTask.pushContext(ctxWithTask2);
 
         Path taskZipFile = tempDir.resolve("interning_task_history.zip");
@@ -1173,7 +1191,7 @@ public class ContextSerializationTest {
         var taskEntry = new TaskEntry(42, taskFragment, null, meta);
 
         var ctx = new Context(mockContextManager)
-                .addHistoryEntry(taskEntry, taskFragment, CompletableFuture.completedFuture("action"));
+                .addHistoryEntry(taskEntry, taskFragment);
         ContextHistory ch = new ContextHistory(ctx);
 
         Path zipFile = tempDir.resolve("meta_roundtrip.zip");
@@ -1615,17 +1633,17 @@ public class ContextSerializationTest {
         var msg1 = List.<ChatMessage>of(UserMessage.from("Query 1"), AiMessage.from("Response 1"));
         var tf1 = new ContextFragments.TaskFragment(mockContextManager, msg1, "Task 1");
         var entry1 = new TaskEntry(1, tf1, null);
-        ctx = ctx.addHistoryEntry(entry1, tf1, CompletableFuture.completedFuture("Action 1"));
+        ctx = ctx.addHistoryEntry(entry1, tf1);
 
         // Entry 2: Both log and summary
         var msg2 = List.<ChatMessage>of(UserMessage.from("Query 2"), AiMessage.from("Response 2"));
         var tf2 = new ContextFragments.TaskFragment(mockContextManager, msg2, "Task 2");
         var entry2 = new TaskEntry(2, tf2, "Summary of task 2");
-        ctx = ctx.addHistoryEntry(entry2, tf2, CompletableFuture.completedFuture("Action 2"));
+        ctx = ctx.addHistoryEntry(entry2, tf2);
 
         // Entry 3: Summary only (legacy compressed)
         var entry3 = new TaskEntry(3, null, "Summary of task 3 only");
-        ctx = ctx.addHistoryEntry(entry3, null, CompletableFuture.completedFuture("Action 3"));
+        ctx = ctx.addHistoryEntry(entry3, null);
 
         ContextHistory original = new ContextHistory(ctx);
 
