@@ -627,6 +627,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         }
 
         if (!treeNode.isDirectory()) {
+            treeNode.setLoading(false);
             return CompletableFuture.completedFuture(null);
         }
 
@@ -725,6 +726,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     SwingUtilities.invokeLater(() -> {
                         if (node.getUserObject() instanceof ProjectTreeNode ptn) {
                             ptn.setLoading(false);
+                            ptn.setLoadingFuture(null);
                         }
                         chrome.toolError("Failed to read directory: " + ex.getMessage());
                     });
@@ -779,7 +781,11 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         if (ptn.isDirectory()) {
             TreePath currentPath = new TreePath(node.getPath());
             if (isExpanded(currentPath)) {
-                expandedPaths.add(project.getRoot().relativize(ptn.getFile().toPath()));
+                var relativePath = project.getRoot().relativize(ptn.getFile().toPath());
+                // Skip empty paths (root node relativized against itself)
+                if (!relativePath.toString().isEmpty()) {
+                    expandedPaths.add(relativePath);
+                }
             }
         }
 
@@ -825,8 +831,8 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
         // Sort by depth (shortest first) and process sequentially to avoid race conditions.
         // Shorter paths (parents) must be expanded before longer paths (children) that depend on them.
+        // Note: empty paths are filtered at the persistence boundary in AbstractProject
         var sortedPaths = paths.stream()
-                .filter(p -> p.getNameCount() > 0 && !p.toString().isEmpty())
                 .sorted(Comparator.comparingInt(Path::getNameCount))
                 .toList();
         logger.trace("Restoring expansion state for paths: {}", sortedPaths);
@@ -834,11 +840,12 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (var relativePath : sortedPaths) {
             final Path pathForLambda = relativePath;
-            chain = chain.thenCompose(v -> findAndExpandNodeAsync(root, pathForLambda, 0).thenAccept(node -> {
-                if (node == null) {
-                    logger.trace("Could not restore expansion for path: {}", pathForLambda);
-                }
-            }));
+            chain = chain.thenCompose(
+                    v -> findAndExpandNodeAsync(root, pathForLambda, 0).thenAccept(node -> {
+                        if (node == null) {
+                            logger.trace("Could not restore expansion for path: {}", pathForLambda);
+                        }
+                    }));
         }
 
         // Clear the flag when restoration completes (success or failure)
@@ -893,10 +900,8 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                 .thenCompose(ignored -> {
                     // Restore expanded directories - process sequentially by depth to avoid race conditions.
                     // Shorter paths (parents) must be expanded before longer paths (children) that depend on them.
-                    // Also exclude empty paths - Path.of("").getNameCount() returns 1 but searching for "" never
-                    // matches
+                    // Note: empty paths are filtered at the source in collectExpandedDirectoryPathsRecursive
                     var sortedPaths = previouslyExpandedDirPaths.stream()
-                            .filter(p -> p.getNameCount() > 0 && !p.toString().isEmpty())
                             .sorted(Comparator.comparingInt(Path::getNameCount))
                             .toList();
 
