@@ -603,17 +603,6 @@ public class Context {
     }
 
     /**
-     * Computes the delta between this context and another (previous) context.
-     * Returns what changed from {@code other} to reach {@code this}.
-     *
-     * @param other the baseline context (typically the previous state)
-     * @return a ContextDelta describing added/removed fragments and task history changes
-     */
-    public ContextDelta delta(@Nullable Context other) {
-        return ContextDelta.between(other, this);
-    }
-
-    /**
      * Generates a descriptive string for the action that produced this context by comparing it to
      * a previous state.
      *
@@ -630,7 +619,7 @@ public class Context {
             return WELCOME_ACTION;
         }
 
-        return delta(previous).description();
+        return ContextDelta.between(previous, this).description();
     }
 
     public IContextManager getContextManager() {

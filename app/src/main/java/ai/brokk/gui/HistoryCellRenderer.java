@@ -205,24 +205,20 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
      * or the fragment's shortDescription() as a fallback.
      */
     private String computeBareName(DiffService.DiffEntry de) {
-        try {
-            var fragment = de.fragment();
-            Set<ProjectFile> files = Set.of();
-            var computedFilesOpt = fragment.files();
-            var filesOpt = computedFilesOpt.tryGet();
-            if (filesOpt.isPresent()) {
-                files = filesOpt.get();
-            }
-            // ComputedSubscription.bind has been moved to HistoryOutputPanel to avoid
-            // registering listeners from within the rendering path.
-            if (!files.isEmpty()) {
-                var pf = files.iterator().next();
-                return pf.getRelPath().getFileName().toString();
-            } else {
-                return fragment.shortDescription().renderNowOr("(Loading...)");
-            }
-        } catch (Exception ex) {
-            return de.fragment().shortDescription().renderNowOr("(Loading...)");
+        var fragment = de.fragment();
+        Set<ProjectFile> files = Set.of();
+        var computedFilesOpt = fragment.files();
+        var filesOpt = computedFilesOpt.tryGet();
+        if (filesOpt.isPresent()) {
+            files = filesOpt.get();
+        }
+        // ComputedSubscription.bind has been moved to HistoryOutputPanel to avoid
+        // registering listeners from within the rendering path.
+        if (!files.isEmpty()) {
+            var pf = files.iterator().next();
+            return pf.getRelPath().getFileName().toString();
+        } else {
+            return fragment.shortDescription().renderNowOr("(Loading...)");
         }
     }
 

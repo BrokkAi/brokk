@@ -1688,7 +1688,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var resultingCtx = cm.liveContext();
         return new TaskResult(
                 cm,
-                "Ask: " + question,
+                question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
                 resultingCtx, // Ask never changes files; use current live context
                 stop,

@@ -468,7 +468,7 @@ public class CodeAgent {
                 TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
 
         var tr = new TaskResult(
-                contextManager, "Code: " + finalActionDescription, finalMessages, context, stopDetails, meta);
+                contextManager, finalActionDescription, finalMessages, context, stopDetails, meta);
         logger.debug("Task result: {}", tr);
         return tr;
     }

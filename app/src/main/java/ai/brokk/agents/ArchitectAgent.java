@@ -311,7 +311,7 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-        context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal));
+        context = scope.append(resultWithMessages(StopReason.SUCCESS, goal));
     }
 
     @Tool(

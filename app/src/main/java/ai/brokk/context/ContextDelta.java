@@ -4,6 +4,8 @@ import ai.brokk.TaskEntry;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+
+import ai.brokk.TaskResult;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -119,7 +121,8 @@ public record ContextDelta(
 
             var log = latest.log();
             if (log != null) {
-                return log.shortDescription().join();
+                var typeText = latest.meta().type() == TaskResult.Type.CONTEXT ? "" : latest.meta().type().displayName();
+                return (typeText.isBlank() ? "" : typeText + ": ") + log.shortDescription().join();
             }
 
             String summary = latest.summary();
