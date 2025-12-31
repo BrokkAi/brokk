@@ -1,6 +1,7 @@
 package ai.brokk.context;
 
 import ai.brokk.Completions;
+import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -601,7 +602,7 @@ public class Context {
             return WELCOME_ACTION;
         }
 
-        return ContextDelta.between(previous, this).description();
+        return ContextDelta.between(previous, this).description(contextManager);
     }
 
     public IContextManager getContextManager() {

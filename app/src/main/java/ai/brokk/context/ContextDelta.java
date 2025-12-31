@@ -1,12 +1,23 @@
 package ai.brokk.context;
 
+import ai.brokk.ContextManager;
+import ai.brokk.IContextManager;
+import ai.brokk.Llm;
 import ai.brokk.TaskEntry;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Supplier;
 
 import ai.brokk.TaskResult;
 import org.jetbrains.annotations.Blocking;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Represents the delta between two Context states.
@@ -111,7 +122,8 @@ public record ContextDelta(
     /**
      * Returns a human-readable description of the changes in this delta.
      */
-    public String description() {
+    @Blocking
+    public String description(IContextManager icm) {
         if (sessionReset) {
             return DROPPED_ALL_CONTEXT;
         }
@@ -123,20 +135,32 @@ public record ContextDelta(
         // 1. Prioritize New Task History (User/AI turn)
         if (!addedTasks.isEmpty()) {
             TaskEntry latest = addedTasks.getLast();
-
-            var log = latest.log();
-            if (log != null) {
-                var typeText = (latest.meta() == null || latest.meta().type() == TaskResult.Type.CONTEXT) ? "" : latest.meta().type().displayName();
-                return (typeText.isBlank() ? "" : typeText + ": ") + log.shortDescription().join();
+            String typeText = (latest.meta() == null || latest.meta().type() == TaskResult.Type.CONTEXT) ? "" : latest.meta().type().displayName();
+            String taskText;
+            if (latest.isCompressed()) {
+                taskText = requireNonNull(latest.summary());
+            } else {
+                taskText = requireNonNull(latest.log()).shortDescription;
             }
 
-            String summary = latest.summary();
-            if (summary != null) {
-                return summary;
+            var cm = (ContextManager) icm;
+            String cacheKey;
+            try {
+                byte[] hash = MessageDigest.getInstance("SHA-256").digest(taskText.getBytes(StandardCharsets.UTF_8));
+                cacheKey = "Action-" + HexFormat.of().formatHex(hash);
+            } catch (NoSuchAlgorithmException e) {
+                throw new RuntimeException(e);
             }
 
-            // shouldn't happen
-            return "TaskEntry with neither log nor summary, report a bug";
+            var actionText = cm.getProject().getDiskCache().computeIfAbsent(cacheKey, () -> {
+                try {
+                    return cm.summarizeTaskForConversation(taskText).get();
+                } catch (InterruptedException | ExecutionException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+
+            return (typeText.isBlank() ? "" : typeText + ": ") + actionText;
         }
 
         // 2. Aggregate other changes
