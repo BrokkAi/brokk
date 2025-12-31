@@ -627,7 +627,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         }
 
         if (!treeNode.isDirectory()) {
-            treeNode.setLoading(false);
+            treeNode.clearLoadingState();
             return CompletableFuture.completedFuture(null);
         }
 
@@ -677,12 +677,12 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         try {
                             // Validate node still represents the same directory and is present in tree.
                             if (!(node.getUserObject() instanceof ProjectTreeNode currentTreeNode)) {
-                                treeNode.setLoadingFuture(null);
+                                treeNode.clearLoadingState();
                                 result.complete(null);
                                 return;
                             }
                             if (!currentTreeNode.getFile().equals(expectedDirectory)) {
-                                treeNode.setLoadingFuture(null);
+                                treeNode.clearLoadingState();
                                 result.complete(null);
                                 return;
                             }
@@ -702,8 +702,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                             }
 
                             currentTreeNode.setChildrenLoaded(true);
-                            currentTreeNode.setLoading(false);
-                            currentTreeNode.setLoadingFuture(null);
+                            currentTreeNode.clearLoadingState();
                             ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
 
                             // Attempt to auto-expand single-directory chains as before.
@@ -711,8 +710,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                             result.complete(null);
                         } catch (Exception ex) {
                             if (node.getUserObject() instanceof ProjectTreeNode ptn) {
-                                ptn.setLoading(false);
-                                ptn.setLoadingFuture(null);
+                                ptn.clearLoadingState();
                             }
                             logger.error("Error applying loaded children to tree node", ex);
                             SwingUtilities.invokeLater(
@@ -725,8 +723,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     logger.error("Error loading directory contents async for: " + expectedDirectory, ex);
                     SwingUtilities.invokeLater(() -> {
                         if (node.getUserObject() instanceof ProjectTreeNode ptn) {
-                            ptn.setLoading(false);
-                            ptn.setLoadingFuture(null);
+                            ptn.clearLoadingState();
                         }
                         chrome.toolError("Failed to read directory: " + ex.getMessage());
                     });
@@ -828,6 +825,10 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         isRestoringExpansion = true;
 
         var root = (DefaultMutableTreeNode) getModel().getRoot();
+        if (root == null) {
+            isRestoringExpansion = false;
+            return;
+        }
 
         // Sort by depth (shortest first) and process sequentially to avoid race conditions.
         // Shorter paths (parents) must be expanded before longer paths (children) that depend on them.
@@ -1527,6 +1528,12 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
         public void setLoadingFuture(@Nullable CompletableFuture<Void> future) {
             this.loadingFuture = future;
+        }
+
+        /** Clears both loading flag and future atomically to prevent inconsistent state. */
+        public void clearLoadingState() {
+            this.isLoading = false;
+            this.loadingFuture = null;
         }
 
         /** Returns cached excluded state, computing and caching if needed */
