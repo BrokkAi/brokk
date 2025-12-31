@@ -137,61 +137,6 @@ public class ContextNoGitFallbackTest {
         }
     }
 
-    @Test
-    public void testAreManySeedsNewBoundary() {
-        TestContextManager tcm = new TestContextManager(tempDir, Set.of());
-        Context ctx = new Context(tcm);
-
-        ProjectFile p1 = tcm.toFile("p1");
-        ProjectFile p2 = tcm.toFile("p2");
-        ProjectFile p3 = tcm.toFile("p3");
-        ProjectFile p4 = tcm.toFile("p4");
-        ProjectFile p5 = tcm.toFile("p5");
-        ProjectFile p6 = tcm.toFile("p6");
-        ProjectFile p7 = tcm.toFile("p7");
-        ProjectFile p8 = tcm.toFile("p8");
-        ProjectFile p9 = tcm.toFile("p9");
-        ProjectFile p10 = tcm.toFile("p10");
-
-        // Use an IGitRepo stub to control getTrackedFiles()
-        class StubGitRepo implements IGitRepo {
-            Set<ProjectFile> tracked = Set.of();
-
-            @Override
-            public Set<ProjectFile> getTrackedFiles() {
-                return tracked;
-            }
-
-            @Override
-            public Set<ModifiedFile> getModifiedFiles() {
-                return Set.of();
-            }
-
-            @Override
-            public void add(Collection<ProjectFile> files) {}
-
-            @Override
-            public void add(ProjectFile file) {}
-
-            @Override
-            public void remove(ProjectFile file) {}
-        }
-
-        StubGitRepo stubRepo = new StubGitRepo();
-
-        // Case 1: 2/7 are new (~28.5%). Should be FALSE (not "many" new seeds).
-        // New seeds: p1, p2. Tracked: p3, p4, p5, p6, p7.
-        stubRepo.tracked = Set.of(p3, p4, p5, p6, p7);
-        Map<ProjectFile, Double> seeds7 = Map.of(p1, 1.0, p2, 1.0, p3, 1.0, p4, 1.0, p5, 1.0, p6, 1.0, p7, 1.0);
-        assertFalse(ctx.areManySeedsNew(seeds7, stubRepo), "2/7 untracked is < 30%, should return false");
-
-        // Case 2: 3/10 are new (30%). Should be TRUE (meets threshold).
-        // New seeds: p1, p2, p3. Tracked: p4, p5, p6, p7, p8, p9, p10.
-        stubRepo.tracked = Set.of(p4, p5, p6, p7, p8, p9, p10);
-        Map<ProjectFile, Double> seeds10 =
-                Map.of(p1, 1.0, p2, 1.0, p3, 1.0, p4, 1.0, p5, 1.0, p6, 1.0, p7, 1.0, p8, 1.0, p9, 1.0, p10, 1.0);
-        assertTrue(ctx.areManySeedsNew(seeds10, stubRepo), "3/10 untracked is >= 30%, should return true");
-    }
 
     @Test
     public void testHybridGitAndImportResults() throws Exception {

@@ -55,7 +55,6 @@ public class Context {
 
     private static final String WELCOME_ACTION = "Session Start";
     public static final String SUMMARIZING = "(Summarizing)";
-    public static final double NEW_SEED_FILE_RATIO_THRESHOLD = 0.30;
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
     private final transient IContextManager contextManager;
@@ -346,9 +345,8 @@ public class Context {
         Set<ProjectFile> resultFiles = new LinkedHashSet<>();
         var repoObj = contextManager.getRepo();
 
-        // 1. Try Git-based distance first
-        if (repoObj instanceof GitRepo gr
-                && !areManySeedsNew(weightedSeeds, gr)) {
+        // 1. Try Git-based distance first if a real GitRepo is available
+        if (repoObj instanceof GitRepo gr) {
             try {
                 var gitResults = GitDistance.getRelatedFiles(gr, weightedSeeds, topK, false);
                 resultFiles.addAll(filterResults(gitResults, ineligibleSources));
@@ -371,30 +369,6 @@ public class Context {
         return List.copyOf(resultFiles);
     }
 
-    /**
-     * Checks if a significant portion of seed files are untracked in the Git repository.
-     * <p>
-     * This check is unweighted; it considers only the count of files. Even if the seeds
-     * have associated weights for ranking purposes, those weights are ignored here to
-     * ensure that a large number of new (untracked) files consistently triggers a
-     * fallback to import-based ranking.
-     *
-     * @param seedFiles a map of seed files (weights are ignored)
-     * @param repo the Git repository to check tracking status against
-     * @return true if the ratio of untracked seeds meets or exceeds {@link #NEW_SEED_FILE_RATIO_THRESHOLD}
-     */
-    public boolean areManySeedsNew(Map<ProjectFile, Double> seedFiles, IGitRepo repo) {
-        if (seedFiles.isEmpty()) {
-            return false;
-        }
-        var trackedFiles = repo.getTrackedFiles();
-        long newSeedsCount = seedFiles.keySet().stream()
-                .filter(f -> !trackedFiles.contains(f))
-                .count();
-
-        double ratio = (double) newSeedsCount / seedFiles.size();
-        return ratio >= NEW_SEED_FILE_RATIO_THRESHOLD;
-    }
 
     private List<ProjectFile> filterResults(List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
         return results.stream()

@@ -94,9 +94,8 @@ public class ImportPageRankerTest {
     }
 
     @Test
-    public void gitDisabledWhenManySeedsUntracked_usesImportRanking() throws Exception {
-        // We create 11 files. 10 will be seeds.
-        // 7 tracked seeds, 3 untracked seeds (3/10 = 30%).
+    public void gitInsufficientResults_usesImportRankingFallback() throws Exception {
+        // We create a project where Git signal might be insufficient for the requested topK.
         // File 'K1' is NOT a seed, but is imported by seed 'A1'.
         try (var project = InlineTestProjectCreator.code(
                         "package test; import test.K1; public class A1 {}", "test/A1.java")
@@ -106,18 +105,14 @@ public class ImportPageRankerTest {
                 .addFileContents("package test; public class E1 {}", "test/E1.java")
                 .addFileContents("package test; public class F1 {}", "test/F1.java")
                 .addFileContents("package test; public class G1 {}", "test/G1.java")
-                // Untracked seeds:
                 .addFileContents("package test; public class H1 {}", "test/H1.java")
                 .addFileContents("package test; public class I1 {}", "test/I1.java")
                 .addFileContents("package test; public class J1 {}", "test/J1.java")
-                // The target result (tracked):
+                // The target result:
                 .addFileContents("package test; public class K1 {}", "test/K1.java")
                 .withGit()
-                // Track 7 seeds + the target:
                 .addCommit("test/A1.java", "test/B1.java")
-                .addCommit("test/C1.java", "test/D1.java")
-                .addCommit("test/E1.java", "test/F1.java")
-                .addCommit("test/G1.java", "test/K1.java")
+                .addCommit("test/B1.java", "test/C1.java")
                 .build()) {
 
             assertTrue(project.hasGit(), "Project should have Git enabled");
@@ -151,7 +146,7 @@ public class ImportPageRankerTest {
                 }
             };
 
-            // Create context with 10 seed fragments (A1..J1)
+            // Create context with seed fragments
             Context ctx = new Context(cm);
             List<ContextFragment> fragments = new ArrayList<>();
             String[] seedPaths = {
@@ -164,9 +159,8 @@ public class ImportPageRankerTest {
             ctx = ctx.addFragments(fragments);
 
             // A1 imports K1.
-            // 3/10 seeds (H1, I1, J1) are untracked.
-            // This meets the 30% threshold, so Git ranking is disabled.
-            // getMostRelevantFiles should fall back to ImportPageRanker and find K1.
+            // Even if Git distance finds some files (like B1/C1 if they were not seeds), 
+            // the fallback to ImportPageRanker should ensure K1 is found.
             List<ProjectFile> results = ctx.getMostRelevantFiles(5);
 
             ProjectFile k1 = filesByRelPath.get("test/K1.java");
