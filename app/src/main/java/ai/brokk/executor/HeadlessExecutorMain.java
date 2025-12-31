@@ -755,11 +755,10 @@ public final class HeadlessExecutorMain {
         }
 
         try {
-            long fileSize = Files.size(sessionZipPath);
             var headers = exchange.getResponseHeaders();
             headers.set("Content-Type", "application/zip");
             headers.set("Content-Disposition", "attachment; filename=\"" + sessionId + ".zip\"");
-            exchange.sendResponseHeaders(200, fileSize);
+            exchange.sendResponseHeaders(200, 0);
             try (var responseBody = exchange.getResponseBody()) {
                 Files.copy(sessionZipPath, responseBody);
             }
