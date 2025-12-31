@@ -34,6 +34,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -53,6 +54,14 @@ public class Context {
 
     private static final String WELCOME_ACTION = "Session Start";
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
+
+    /** @deprecated Action strings are no longer stored; descriptions are computed on-demand via getDescription(previous) */
+    @Deprecated
+    public static final String SUMMARIZING = "(Summarizing...)";
+
+    /** @deprecated Action strings are no longer stored; use getDescription(previous) instead */
+    @Deprecated
+    public final transient CompletableFuture<String> action;
 
     private final transient IContextManager contextManager;
 
@@ -118,10 +127,10 @@ public class Context {
         this.groupId = groupId;
         this.groupLabel = groupLabel;
         this.descriptionOverride = descriptionOverride;
+        this.action = CompletableFuture.completedFuture(
+                descriptionOverride != null ? descriptionOverride : (parsedOutput != null ? SUMMARIZING : WELCOME_ACTION));
         this.markedReadonlyFragments = validateReadOnlyFragments(markedReadonlyFragments, fragments);
         this.pinnedFragments = validatePinnedFragments(pinnedFragments, fragments);
-        // Backward-compatibility: action field is always completed
-        this.action = CompletableFuture.completedFuture(descriptionOverride != null ? descriptionOverride : SUMMARIZING);
     }
 
     public Context(
@@ -142,16 +151,27 @@ public class Context {
                 Set.of());
     }
 
-    /** Compatibility constructor for tests */
-    @org.jetbrains.annotations.TestOnly
+    /** @deprecated Use Context(IContextManager, List, List, TaskFragment) instead */
+    @Deprecated
     public Context(
             IContextManager contextManager,
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
             @Nullable ContextFragments.TaskFragment parsedOutput,
-            @Nullable CompletableFuture<String> action) {
-        this(contextManager, fragments, taskHistory, parsedOutput);
+            CompletableFuture<String> action) {
+        this(
+                newContextId(),
+                contextManager,
+                fragments,
+                taskHistory,
+                parsedOutput,
+                null,
+                null,
+                action.isDone() ? action.join() : null,
+                Set.of(),
+                Set.of());
     }
+
 
     public Map<ProjectFile, String> buildRelatedIdentifiers(int k) throws InterruptedException {
         var candidates = getMostRelevantFiles(k).stream().sorted().toList();
@@ -407,6 +427,37 @@ public class Context {
         return id;
     }
 
+    /** @deprecated Use getDescription(previousContext) instead */
+    @Deprecated
+    public String getAction() {
+        String desc = getDescription(null);
+        if (WELCOME_ACTION.equals(desc) && action.isDone()) {
+            try {
+                return action.get();
+            } catch (Exception e) {
+                return desc;
+            }
+        }
+        return desc;
+    }
+
+    /** @deprecated Use withDescription(String) instead */
+    @Deprecated
+    public Context withAction(Future<String> actionFuture) {
+        // Compatibility shim - extract the action string if available and use withDescription
+        try {
+            String actionStr = actionFuture.get(100, TimeUnit.MILLISECONDS);
+            return withDescription(actionStr);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return this;
+        } catch (Exception e) {
+            // For testing/compatibility, if the future isn't ready or fails, 
+            // we return a context that still shows SUMMARIZING via the action shim
+            return this;
+        }
+    }
+
     @Nullable
     public UUID getGroupId() {
         return groupId;
@@ -595,6 +646,12 @@ public class Context {
         return TaskEntry.fromSession(nextSequence, result);
     }
 
+    /** @deprecated Use addHistoryEntry(TaskEntry, TaskFragment) instead */
+    @Deprecated
+    public Context addHistoryEntry(TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed, CompletableFuture<String> actionFuture) {
+        return addHistoryEntry(taskEntry, parsed);
+    }
+
     public Context addHistoryEntry(
             TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed) {
         var newTaskHistory =
@@ -613,14 +670,6 @@ public class Context {
                 this.pinnedFragments);
     }
 
-    /** Compatibility overload for tests */
-    @org.jetbrains.annotations.TestOnly
-    public Context addHistoryEntry(
-            TaskEntry taskEntry,
-            @Nullable ContextFragments.TaskFragment parsed,
-            @Nullable CompletableFuture<String> action) {
-        return addHistoryEntry(taskEntry, parsed);
-    }
 
     public Context clearHistory() {
         return new Context(
@@ -736,6 +785,12 @@ public class Context {
         return result;
     }
 
+    /** @deprecated Use withParsedOutput(TaskFragment) instead */
+    @Deprecated
+    public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput, String action) {
+        return withParsedOutput(parsedOutput);
+    }
+
     public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput) {
         // Clear grouping by default on derived contexts
         return new Context(
@@ -751,11 +806,6 @@ public class Context {
                 this.pinnedFragments);
     }
 
-    /** Compatibility overload for tests */
-    @org.jetbrains.annotations.TestOnly
-    public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput, @Nullable String action) {
-        return withParsedOutput(parsedOutput);
-    }
 
     public Context withGroup(@Nullable UUID groupId, @Nullable String groupLabel) {
         return new Context(
@@ -787,6 +837,25 @@ public class Context {
             Set<ContextFragment> pinnedFragments) {
         return new Context(
                 id, cm, fragments, history, parsed, groupId, groupLabel, null, readOnlyFragments, pinnedFragments);
+    }
+
+    /**
+     * Creates a Context with explicit control over all fields including description override.
+     * Used by DtoMapper during deserialization.
+     */
+    public static Context createWithId(
+            UUID id,
+            IContextManager cm,
+            List<ContextFragment> fragments,
+            List<TaskEntry> history,
+            @Nullable ContextFragments.TaskFragment parsed,
+            @Nullable UUID groupId,
+            @Nullable String groupLabel,
+            @Nullable String descriptionOverride,
+            Set<ContextFragment> readOnlyFragments,
+            Set<ContextFragment> pinnedFragments) {
+        return new Context(
+                id, cm, fragments, history, parsed, groupId, groupLabel, descriptionOverride, readOnlyFragments, pinnedFragments);
     }
 
     /**
@@ -854,41 +923,11 @@ public class Context {
         return id.hashCode();
     }
 
-    /** Constant for backward compatibility with tests checking incomplete action futures. */
-    @Deprecated
-    public static final String SUMMARIZING = "(summarizing...)";
 
-    /**
-     * Backward-compatibility field for tests that check action.isDone().
-     * Always completed since action strings are no longer async.
-     * @deprecated Action strings are now derived on-demand via getDescription()
-     */
-    @Deprecated
-    public final transient CompletableFuture<String> action;
-
-    /** Compatibility getter for tests. Returns the description relative to no previous state. */
-    public String getAction() {
-        return getDescription(null);
-    }
-
-    /**
-     * Backward-compatibility method for tests that previously used action futures.
-     * Maps to withDescription, resolving the future immediately or using SUMMARIZING placeholder.
-     * @deprecated Use withDescription(String) instead
-     */
-    @Deprecated
-    public Context withAction(Future<String> actionFuture) {
-        String desc;
-        if (actionFuture.isDone()) {
-            try {
-                desc = actionFuture.get();
-            } catch (Exception e) {
-                desc = SUMMARIZING;
-            }
-        } else {
-            desc = SUMMARIZING;
-        }
-        return withDescription(desc);
+    /** Returns the description override for this context, or null if not set. */
+    @Nullable
+    public String getDescriptionOverride() {
+        return descriptionOverride;
     }
 
     /** Sets a description override for this context (e.g., "Load external changes"). */
@@ -1272,28 +1311,17 @@ public class Context {
         return copyAndRefreshInternal(Set.copyOf(fragments));
     }
 
-    /** Compatibility overload for tests. */
-    @org.jetbrains.annotations.TestOnly
-    public Context copyAndRefresh(Set<ProjectFile> maybeChanged, String action) {
-        return copyAndRefresh(maybeChanged);
-    }
-
-    /** Compatibility overload for tests. No-op. */
-    @org.jetbrains.annotations.TestOnly
-    public Context copyAndRefresh(String action) {
-        return copyAndRefresh();
-    }
-
-    /** Compatibility overload for tests. No-op for the action string. */
-    @org.jetbrains.annotations.TestOnly
-    public Context withTaskList(TaskList.TaskListData data, String action) {
-        return withTaskList(data);
-    }
 
     /**
      * Serializes and updates the Task List fragment using TaskList.TaskListData.
      * If the task list is empty, removes any existing Task List fragment instead of creating an empty one.
      */
+    /** @deprecated Use withTaskList(TaskListData) instead */
+    @Deprecated
+    public Context withTaskList(TaskList.TaskListData data, String action) {
+        return withTaskList(data);
+    }
+
     public Context withTaskList(TaskList.TaskListData data) {
         // If tasks are empty, remove the Task List fragment instead of creating an empty one
         if (data.tasks().isEmpty()) {
@@ -1307,6 +1335,20 @@ public class Context {
         // Non-empty case: serialize and update normally
         String json = Json.toJson(data);
         return withTaskList(json);
+    }
+
+    /**
+     * Refreshes fragments whose source files intersect the provided set.
+     *
+     * @param maybeChanged     set of project files that may have changed
+     * @return a new context with refreshed fragments, or this context if no changes occurred
+     */
+    /**
+     * Refreshes fragments whose source files intersect the provided set, and sets an action description.
+     */
+    @Blocking
+    public Context copyAndRefresh(Set<ProjectFile> maybeChanged, String description) {
+        return copyAndRefresh(maybeChanged).withDescription(description);
     }
 
     /**

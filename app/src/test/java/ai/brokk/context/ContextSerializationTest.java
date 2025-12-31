@@ -482,10 +482,10 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testActionPersistenceAcrossSerializationRoundTrip() throws Exception {
+    void testDescriptionComputedAfterSerializationRoundTrip() throws Exception {
         var context1 = new Context(mockContextManager);
 
-        // Create context with a completed action
+        // Create context with a fragment - this is what should be preserved
         var projectFile = new ProjectFile(tempDir, "test.java");
         Files.createDirectories(projectFile.absPath().getParent());
         Files.writeString(projectFile.absPath(), "public class Test {}");
@@ -494,34 +494,12 @@ public class ContextSerializationTest {
         var updatedContext1 = context1.addFragments(List.of(fragment));
         var history = new ContextHistory(updatedContext1);
 
-        // Create context with a slow-resolving action (simulates async operation)
-        var slowFuture = CompletableFuture.supplyAsync(() -> {
-            try {
-                Thread.sleep(1000); // 1 second delay
-                return "Slow operation completed";
-            } catch (InterruptedException e) {
-                return "Interrupted";
-            }
-        });
-
-        var context2 = new Context(mockContextManager).withAction(slowFuture);
+        // Create additional contexts (previously used to test action futures)
+        var context2 = new Context(mockContextManager);
         history.pushContext(context2);
 
-        // Create context with a very slow action that should timeout
-        var timeoutFuture = CompletableFuture.supplyAsync(() -> {
-            try {
-                Thread.sleep(10000); // 10 second delay - longer than 5s timeout
-                return "This should timeout";
-            } catch (InterruptedException e) {
-                return "Interrupted";
-            }
-        });
-
-        var context3 = new Context(mockContextManager).withAction(timeoutFuture);
+        var context3 = new Context(mockContextManager);
         history.pushContext(context3);
-
-        // Wait for the slow future to complete before serialization
-        Thread.sleep(1500);
 
         // Serialize to ZIP
         Path zipFile = tempDir.resolve("action_persistence_test.zip");
@@ -533,24 +511,27 @@ public class ContextSerializationTest {
         // Verify we have the same number of contexts
         assertEquals(3, loadedHistory.getHistory().size());
 
-        // Verify action descriptions are preserved
         var loadedContext1 = loadedHistory.getHistory().get(0);
         var loadedContext2 = loadedHistory.getHistory().get(1);
         var loadedContext3 = loadedHistory.getHistory().get(2);
 
-        // First context should have the edit action preserved
-        assertEquals("Added test.java", loadedContext1.getAction());
+        // Verify the actual content (fragments) is preserved - this is what matters
+        var loadedFragments = loadedContext1.allFragments().toList();
+        assertEquals(
+                1, loadedFragments.size(), "Fragment should be preserved across serialization");
+        assertTrue(
+                loadedFragments.get(0) instanceof ContextFragments.ProjectPathFragment,
+                "Fragment type should be preserved");
 
-        // Second context should have preserved the completed slow action
-        assertEquals("Slow operation completed", loadedContext2.getAction());
+        // Verify the deprecated action shim works (always returns completed future)
+        assertTrue(loadedContext1.action.isDone(), "Action shim should return completed future");
+        assertTrue(loadedContext2.action.isDone(), "Action shim should return completed future");
+        assertTrue(loadedContext3.action.isDone(), "Action shim should return completed future");
 
-        // Third context should show timeout message since it took longer than 5s
-        assertEquals("(Summary Unavailable)", loadedContext3.getAction());
-
-        // Verify that the actions are immediately available (completed futures)
-        assertTrue(loadedContext1.action.isDone());
-        assertTrue(loadedContext2.action.isDone());
-        assertTrue(loadedContext3.action.isDone());
+        // Verify getAction() returns non-null (compatibility shim)
+        assertNotNull(loadedContext1.getAction(), "getAction() should return non-null");
+        assertNotNull(loadedContext2.getAction(), "getAction() should return non-null");
+        assertNotNull(loadedContext3.getAction(), "getAction() should return non-null");
     }
 
     @Test

@@ -144,6 +144,7 @@ public class DtoMapper {
                 parsedOutputFragment,
                 groupUuid,
                 dto.groupLabel(),
+                dto.descriptionOverride(),
                 readonlyFragments,
                 pinnedFragments);
     }
@@ -190,7 +191,7 @@ public class DtoMapper {
                 ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
                 ctx.getGroupId() != null ? ctx.getGroupId().toString() : null,
                 ctx.getGroupLabel(),
-                null); // Remove action from DTO construction
+                ctx.getDescriptionOverride());
     }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent

@@ -331,16 +331,30 @@ public class FragmentDtos {
             List<String> pinned,
             List<TaskEntryRefDto> tasks,
             @Nullable String parsedOutputId,
-            String action,
             @Nullable String groupId,
-            @Nullable String groupLabel) {
+            @Nullable String groupLabel,
+            @Nullable String descriptionOverride) {
         public CompactContextDto {
-            // No validation on id – null means “absent in V1 history”
+            // No validation on id - null means "absent in V1 history"
             editable = List.copyOf(editable);
             readonly = List.copyOf(readonly);
             virtuals = List.copyOf(virtuals);
             pinned = List.copyOf(requireNonNullElse(pinned, List.<String>of()));
             tasks = List.copyOf(tasks);
+        }
+
+        /** Backward-compatible constructor for older code that doesn't provide descriptionOverride. */
+        public CompactContextDto(
+                @Nullable String id,
+                List<String> editable,
+                List<String> readonly,
+                List<String> virtuals,
+                List<String> pinned,
+                List<TaskEntryRefDto> tasks,
+                @Nullable String parsedOutputId,
+                @Nullable String groupId,
+                @Nullable String groupLabel) {
+            this(id, editable, readonly, virtuals, pinned, tasks, parsedOutputId, groupId, groupLabel, null);
         }
     }
 
