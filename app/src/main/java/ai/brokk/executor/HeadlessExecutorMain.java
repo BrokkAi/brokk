@@ -745,10 +745,8 @@ public final class HeadlessExecutorMain {
             return;
         }
 
-        var sessionZipPath = contextManager.getProject()
-                .getSessionManager()
-                .getSessionsDir()
-                .resolve(sessionId + ".zip");
+        var sessionZipPath =
+                sessionManager.getSessionsDir().resolve(sessionId + ".zip");
         if (!Files.exists(sessionZipPath)) {
             var error = ErrorPayload.of(
                     ErrorPayload.Code.NOT_FOUND, "Session zip not found for session " + sessionId);
