@@ -38,8 +38,8 @@ public class PageRankBenchmark implements Callable<Integer> {
     @CommandLine.Option(names = {"-i", "--iterations"}, description = "Number of measured iterations (default: 5)")
     private int iterations = 5;
 
-    @CommandLine.Option(names = {"-f", "--files"}, description = "Number of files in the synthetic project (default: 500)")
-    private int fileCount = 500;
+    @CommandLine.Option(names = {"-n", "--nodes", "--files"}, description = "Number of nodes (files) in the synthetic project (default: 500)")
+    private int nodeCount = 500;
 
     @CommandLine.Option(names = "--seed", description = "Random seed for generation")
     private @Nullable Long seed;
@@ -53,26 +53,12 @@ public class PageRankBenchmark implements Callable<Integer> {
     @CommandLine.Option(names = "--reversed", description = "Whether to use reversed ranking logic")
     private boolean reversed = false;
 
-    @CommandLine.Option(names = "--sparse-import-prob", description = "Sparse scenario: probability of an import edge (default: 0.005)")
-    private double sparseImportProb = 0.005;
+    @CommandLine.Option(names = "--scenario", description = "Scenario to run: sparse, normal, dense, all (default: all)")
+    private String scenario = "all";
 
-    @CommandLine.Option(names = "--dense-import-prob", description = "Dense scenario: probability of an import edge (default: 0.05)")
-    private double denseImportProb = 0.05;
-
-    @CommandLine.Option(names = "--sparse-commit-density", description = "Sparse scenario: avg files per commit (default: 2.0)")
-    private double sparseCommitDensity = 2.0;
-
-    @CommandLine.Option(names = "--dense-commit-density", description = "Dense scenario: avg files per commit (default: 8.0)")
-    private double denseCommitDensity = 8.0;
-
-    @CommandLine.Option(names = "--sparse-commit-count", description = "Sparse scenario: number of commits (default: 50)")
-    private int sparseCommitCount = 50;
-
-    @CommandLine.Option(names = "--dense-commit-count", description = "Dense scenario: number of commits (default: 500)")
-    private int denseCommitCount = 500;
-
-    @CommandLine.Option(names = "--scenario", description = "Scenario to run: sparse, dense, both (default: both)")
-    private String scenario = "both";
+    private static final double SPARSE_EDGE_FRACTION = 0.25;
+    private static final double NORMAL_EDGE_FRACTION = 0.50;
+    private static final double DENSE_EDGE_FRACTION = 0.75;
 
     public static void main(String[] args) {
         int exitCode = new CommandLine(new PageRankBenchmark()).execute(args);
@@ -81,9 +67,22 @@ public class PageRankBenchmark implements Callable<Integer> {
 
     private record ScenarioConfig(
             String name,
-            double importProb,
-            double commitDensity,
-            int commitCount) {}
+            double edgeFraction) {
+
+        double importProb(int nodes) {
+            // We want the average degree to be proportional to edgeFraction * log(nodes) or similar.
+            // Simplified: edgeFraction / 10.0 provides a reasonable spread for benchmarking.
+            return (edgeFraction * 5.0) / nodes;
+        }
+
+        double commitDensity() {
+            return 2.0 + (edgeFraction * 10.0);
+        }
+
+        int commitCount(int nodes) {
+            return (int) (nodes * edgeFraction);
+        }
+    }
 
     private record IterationResult(long analyzerNanos, long importNanos, long gitNanos) {}
 
@@ -93,11 +92,15 @@ public class PageRankBenchmark implements Callable<Integer> {
         printStartupBanner(baseSeed);
 
         List<ScenarioConfig> scenarios = new ArrayList<>();
-        if ("sparse".equalsIgnoreCase(scenario) || "both".equalsIgnoreCase(scenario)) {
-            scenarios.add(new ScenarioConfig("sparse", sparseImportProb, sparseCommitDensity, sparseCommitCount));
+        boolean all = "all".equalsIgnoreCase(scenario);
+        if (all || "sparse".equalsIgnoreCase(scenario)) {
+            scenarios.add(new ScenarioConfig("sparse", SPARSE_EDGE_FRACTION));
         }
-        if ("dense".equalsIgnoreCase(scenario) || "both".equalsIgnoreCase(scenario)) {
-            scenarios.add(new ScenarioConfig("dense", denseImportProb, denseCommitDensity, denseCommitCount));
+        if (all || "normal".equalsIgnoreCase(scenario)) {
+            scenarios.add(new ScenarioConfig("normal", NORMAL_EDGE_FRACTION));
+        }
+        if (all || "dense".equalsIgnoreCase(scenario)) {
+            scenarios.add(new ScenarioConfig("dense", DENSE_EDGE_FRACTION));
         }
 
         for (ScenarioConfig config : scenarios) {
@@ -108,32 +111,36 @@ public class PageRankBenchmark implements Callable<Integer> {
     }
 
     private void runScenario(ScenarioConfig config, long baseSeed) throws Exception {
+        double importProb = config.importProb(nodeCount);
+        double commitDensity = config.commitDensity();
+        int commitCount = config.commitCount(nodeCount);
+
         System.out.println("=".repeat(60));
-        System.out.printf(Locale.ROOT, "SCENARIO: %s (Import Prob: %.3f, Commit Density: %.1f, Commits: %d)%n",
-                config.name().toUpperCase(Locale.ROOT), config.importProb(), config.commitDensity(), config.commitCount());
+        System.out.printf(Locale.ROOT, "SCENARIO: %s (Import Prob: %.4f, Commit Density: %.1f, Commits: %d)%n",
+                config.name().toUpperCase(Locale.ROOT), importProb, commitDensity, commitCount);
         System.out.println("=".repeat(60));
 
         long scenarioSeed = baseSeed ^ config.name().hashCode();
         Random random = new Random(scenarioSeed);
 
-        List<String> fileNames = IntStream.range(0, fileCount)
+        List<String> fileNames = IntStream.range(0, nodeCount)
                 .mapToObj(i -> String.format("File%05d", i))
                 .toList();
 
         String firstFile = String.format("File%05d.java", 0);
         var builder = InlineTestProjectCreator.code(
-                generateFileContent(0, fileNames, random, config.importProb()),
+                generateFileContent(0, fileNames, random, importProb),
                 firstFile).withGit();
 
-        for (int i = 1; i < fileCount; i++) {
+        for (int i = 1; i < nodeCount; i++) {
             builder.addFileContents(
-                    generateFileContent(i, fileNames, random, config.importProb()),
+                    generateFileContent(i, fileNames, random, importProb),
                     String.format("File%05d.java", i));
         }
 
-        for (int i = 0; i < config.commitCount(); i++) {
-            int filesInCommit = (int) Math.max(2, Math.round(config.commitDensity() + random.nextGaussian()));
-            List<String> commitFiles = random.ints(0, fileCount)
+        for (int i = 0; i < commitCount; i++) {
+            int filesInCommit = (int) Math.max(2, Math.round(commitDensity + random.nextGaussian()));
+            List<String> commitFiles = random.ints(0, nodeCount)
                     .distinct()
                     .limit(filesInCommit)
                     .mapToObj(idx -> String.format("File%05d.java", idx))
@@ -200,8 +207,8 @@ public class PageRankBenchmark implements Callable<Integer> {
     private void printStartupBanner(long seed) {
         System.out.println("--------------------------------------------------------------------------------");
         System.out.println("PageRank Benchmark Tool");
-        System.out.printf(Locale.ROOT, "Seed: %d | Files: %d | SeedCount: %d | TopK: %d | Reversed: %b%n",
-                seed, fileCount, seedCount, topK, reversed);
+        System.out.printf(Locale.ROOT, "Seed: %d | Nodes: %d | SeedCount: %d | TopK: %d | Reversed: %b%n",
+                seed, nodeCount, seedCount, topK, reversed);
         System.out.println("--------------------------------------------------------------------------------");
     }
 

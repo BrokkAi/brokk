@@ -42,21 +42,20 @@ class PageRankBenchmarkTest {
         assertTrue(output.contains("Usage: PageRankBenchmark"));
         assertTrue(output.contains("--warm-up-iterations"));
         assertTrue(output.contains("--iterations"));
-        assertTrue(output.contains("--files"));
+        assertTrue(output.contains("--nodes"));
+        assertTrue(output.contains("--scenario"));
     }
 
     @Test
     void minimalRun_executesWithoutException() {
-        // Run a tiny scenario to verify plumbing (1 file, no warmups, 1 iteration)
+        // Run a tiny scenario to verify plumbing (2 nodes, no warmups, 1 iteration)
         PageRankBenchmark benchmark = new PageRankBenchmark();
         CommandLine cmd = new CommandLine(benchmark);
 
         int exitCode = cmd.execute(
-                "--files", "2",
+                "--nodes", "2",
                 "--warm-up-iterations", "0",
                 "--iterations", "1",
-                "--sparse-commit-count", "1",
-                "--dense-commit-count", "1",
                 "--scenario", "sparse"
         );
 
