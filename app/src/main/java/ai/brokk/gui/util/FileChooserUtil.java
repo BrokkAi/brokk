@@ -1,5 +1,7 @@
 package ai.brokk.gui.util;
 
+import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
+
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
@@ -8,12 +10,15 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import javax.swing.*;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * Utility for showing file choosers with enhanced functionality.
  */
 public final class FileChooserUtil {
+    private static final Logger logger = LogManager.getLogger(FileChooserUtil.class);
 
     private FileChooserUtil() {}
 
@@ -45,7 +50,8 @@ public final class FileChooserUtil {
         var newFolderBtn = createNewFolderButton(chooser);
         addButtonToChooserButtonPanel(chooser, newFolderBtn);
 
-        var dialog = chooser.createDialog(parent);
+        // createDialog accepts null for unparented dialogs, but NullAway doesn't know
+        var dialog = chooser.createDialog(castNonNull(parent));
         dialog.setTitle(title);
 
         // Ensure ESC closes the dialog using KeyEventDispatcher for reliable capture
@@ -87,10 +93,11 @@ public final class FileChooserUtil {
                         Files.createDirectories(newFolder.toPath());
                         chooser.setCurrentDirectory(newFolder);
                     } catch (IOException ex) {
-                        JOptionPane.showMessageDialog(chooser,
-                                                      "Could not create folder: " + ex.getMessage(),
-                                                      "Error",
-                                                      JOptionPane.ERROR_MESSAGE);
+                        JOptionPane.showMessageDialog(
+                                chooser,
+                                "Could not create folder: " + ex.getMessage(),
+                                "Error",
+                                JOptionPane.ERROR_MESSAGE);
                     }
                 }
             }
@@ -100,7 +107,10 @@ public final class FileChooserUtil {
 
     private static void addButtonToChooserButtonPanel(JFileChooser chooser, JButton button) {
         var cancelText = UIManager.getString("FileChooser.cancelButtonText");
-        findButtonPanelAndAdd(chooser, button, cancelText);
+        boolean added = findButtonPanelAndAdd(chooser, button, cancelText);
+        if (!added) {
+            logger.warn("Could not find button panel in JFileChooser; New Folder button not added");
+        }
     }
 
     private static boolean findButtonPanelAndAdd(Container container, JButton button, @Nullable String cancelText) {

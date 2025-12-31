@@ -471,9 +471,7 @@ public class OpenProjectDialog extends BaseThemedDialog {
         chooseButton.addActionListener(e -> {
             var lastDir = new File(GlobalUiSettings.getLastCloneDirectory());
             var selected = FileChooserUtil.showDirectoryChooserWithNewFolder(
-                    getOwner() instanceof Frame f ? f : null,
-                    "Select Directory to Clone Into",
-                    lastDir.isDirectory() ? lastDir : null);
+                    OpenProjectDialog.this, "Select Directory to Clone Into", lastDir.isDirectory() ? lastDir : null);
             if (selected != null) {
                 dirField.setText(selected.getAbsolutePath());
             }
@@ -572,9 +570,7 @@ public class OpenProjectDialog extends BaseThemedDialog {
         chooseDirButton.addActionListener(e -> {
             var lastDir = new File(GlobalUiSettings.getLastCloneDirectory());
             var selected = FileChooserUtil.showDirectoryChooserWithNewFolder(
-                    getOwner() instanceof Frame f ? f : null,
-                    "Select Directory to Clone Into",
-                    lastDir.isDirectory() ? lastDir : null);
+                    OpenProjectDialog.this, "Select Directory to Clone Into", lastDir.isDirectory() ? lastDir : null);
             if (selected != null) {
                 dirField.setText(selected.getAbsolutePath());
             }
