@@ -21,6 +21,7 @@ import ai.brokk.gui.git.GitLogTab;
 import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.FileChooserUtil;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.project.MainProject;
@@ -150,19 +151,12 @@ public class MenuBar {
     private static void handleNewProject(Chrome chrome) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        var chooser = new JFileChooser();
-        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        chooser.setMultiSelectionEnabled(false);
-        chooser.setDialogTitle("New Project");
+        var lastDir = new File(GlobalUiSettings.getLastCloneDirectory());
+        var initialDir = lastDir.isDirectory() ? lastDir : null;
+        var selectedDir =
+                FileChooserUtil.showDirectoryChooserWithNewFolder(chrome.getFrame(), "New Project", initialDir);
 
-        int result = chooser.showSaveDialog(chrome.getFrame());
-        if (result != JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-
-        File selectedDir = chooser.getSelectedFile();
         if (selectedDir == null) {
-            chrome.toolError("No directory selected.", "New Project");
             return;
         }
 
