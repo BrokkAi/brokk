@@ -10,12 +10,6 @@ import org.jetbrains.annotations.Nullable;
  * Represents the delta between two Context states.
  * Unlike DiffService which tracks file content changes, this tracks workspace state changes
  * (fragments added/removed, task history changes).
- *
- * @param addedFragments fragments present in 'to' but not in 'from'
- * @param removedFragments fragments present in 'from' but not in 'to'
- * @param addedTasks tasks present in 'to' history that weren't in 'from'
- * @param clearedHistory true if 'to' history is empty while 'from' was not
- * @param descriptionOverride optional description for this transition
  */
 public record ContextDelta(
         List<ContextFragment> addedFragments,
@@ -26,6 +20,10 @@ public record ContextDelta(
         boolean externalChanges,
         boolean sessionReset,
         List<ContextFragments.StringFragment> updatedSpecialFragments) {
+
+    // leaving these past tense for compatibility with old sessions
+    public static final String CLEARED_TASK_HISTORY = "Cleared Task History";
+    public static final String DROPPED_ALL_CONTEXT = "Dropped all Context";
 
     public boolean isEmpty() {
         return addedFragments.isEmpty()
@@ -108,7 +106,7 @@ public record ContextDelta(
      */
     public String description() {
         if (sessionReset) {
-            return "Reset Session";
+            return DROPPED_ALL_CONTEXT;
         }
 
         if (isEmpty()) {
@@ -118,42 +116,46 @@ public record ContextDelta(
         // 1. Prioritize New Task History (User/AI turn)
         if (!addedTasks.isEmpty()) {
             TaskEntry latest = addedTasks.getLast();
+
             var log = latest.log();
             if (log != null) {
                 return log.shortDescription().join();
             }
+
             String summary = latest.summary();
             if (summary != null) {
                 return summary;
             }
-            return "Task Added";
+
+            // shouldn't happen
+            return "TaskEntry with neither log nor summary, report a bug";
         }
 
         // 2. Aggregate other changes
         List<String> parts = new ArrayList<>();
 
         if (compressedHistory) {
-            parts.add("Compressed History");
+            parts.add("Compress History");
         }
 
         if (clearedHistory) {
-            parts.add("Cleared Conversation");
+            parts.add(CLEARED_TASK_HISTORY);
         }
 
         if (!addedFragments.isEmpty()) {
-            parts.add(buildAction("Added", addedFragments));
+            parts.add(buildAction("Add", addedFragments));
         }
 
         if (!removedFragments.isEmpty()) {
-            parts.add(buildAction("Removed", removedFragments));
+            parts.add(buildAction("Remove", removedFragments));
         }
 
         for (var sf : updatedSpecialFragments) {
-            parts.add("Updated " + sf.specialType().get().description());
+            parts.add("Update " + sf.specialType().get().description());
         }
 
         if (parts.isEmpty() && externalChanges) {
-            parts.add("Loaded External Changes");
+            parts.add("Load External Changes");
         }
 
         if (parts.isEmpty()) {

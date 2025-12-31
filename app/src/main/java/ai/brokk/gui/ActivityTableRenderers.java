@@ -4,6 +4,8 @@ import java.awt.*;
 import java.awt.geom.Path2D;
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
+
+import ai.brokk.context.ContextDelta;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -11,10 +13,6 @@ import org.jetbrains.annotations.Nullable;
  * HistoryOutputPanel and SessionsDialog.
  */
 public final class ActivityTableRenderers {
-    // leaving these past tense for compatibility with old sessions
-    public static final String CLEARED_TASK_HISTORY = "Cleared Task History";
-    public static final String DROPPED_ALL_CONTEXT = "Dropped all Context";
-
     private ActivityTableRenderers() {
         // Prevent instantiation
     }
@@ -24,7 +22,7 @@ public final class ActivityTableRenderers {
             return false;
         }
         String action = actionValue.toString().trim();
-        return CLEARED_TASK_HISTORY.equalsIgnoreCase(action) || DROPPED_ALL_CONTEXT.equalsIgnoreCase(action);
+        return ContextDelta.CLEARED_TASK_HISTORY.equalsIgnoreCase(action) || ContextDelta.DROPPED_ALL_CONTEXT.equalsIgnoreCase(action);
     }
 
     public static String normalizedAction(@Nullable Object actionValue) {
@@ -166,9 +164,9 @@ public final class ActivityTableRenderers {
                     y = getInsets().top + fm.getAscent() + fm.getDescent() + 1;
                 }
 
-                if (CLEARED_TASK_HISTORY.equalsIgnoreCase(action)) {
+                if (ContextDelta.CLEARED_TASK_HISTORY.equalsIgnoreCase(action)) {
                     g2.drawLine(drawStart, y, drawEnd, y);
-                } else if (DROPPED_ALL_CONTEXT.equalsIgnoreCase(action)) {
+                } else if (ContextDelta.DROPPED_ALL_CONTEXT.equalsIgnoreCase(action)) {
                     int lineWidth = ruleEndX - ruleStartX;
                     if (lineWidth <= 0) {
                         return;

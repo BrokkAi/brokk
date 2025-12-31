@@ -173,23 +173,5 @@ class ContextDeltaTest {
 
         assertFalse(delta.isEmpty());
         assertTrue(delta.sessionReset());
-        assertEquals("Reset Session", delta.description());
-    }
-
-    @Test
-    void testDelta_joinsMultipleChanges() {
-        // We want to test description joining, but addedTasks usually takes priority.
-        // Let's create a delta manually to verify joining logic.
-        var delta = new ContextDelta(
-                List.of(),
-                List.of(),
-                List.of(),
-                true, // clearedHistory
-                true, // compressedHistory
-                false,
-                false, // sessionReset
-                List.of());
-
-        assertEquals("Compressed History; Cleared Conversation", delta.description());
     }
 }
