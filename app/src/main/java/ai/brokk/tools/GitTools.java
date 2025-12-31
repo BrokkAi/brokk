@@ -7,7 +7,7 @@ import ai.brokk.prompts.CommitPrompts;
 import ai.brokk.prompts.MergePrompts;
 import ai.brokk.prompts.SummarizerPrompts;
 import ai.brokk.util.Messages;
-import com.jakewharton.disklrucache.DiskLruCache;
+import ai.brokk.util.StringDiskCache;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.exception.ContextTooLargeException;
@@ -58,60 +58,30 @@ public class GitTools {
         var shortHash = repo.shortHash(revision);
         var cacheKey = (detailed ? "explain-" : "summarize-") + shortHash;
 
-        DiskLruCache cache = cm.getProject().getDiskCache();
-        try (var snapshot = cache.get(cacheKey)) {
-            if (snapshot != null) {
-                try (var is = snapshot.getInputStream(0)) {
-                    var bytes = is.readAllBytes();
-                    return new String(bytes, StandardCharsets.UTF_8);
-                }
+        StringDiskCache cache = cm.getProject().getDiskCache();
+
+        return cache.computeIfAbsent(cacheKey, () -> {
+            // Compute explanation
+            String diff;
+            try {
+                diff = getDiffForRevision(repo, revision);
+            } catch (GitAPIException e) {
+                throw new RuntimeException("Failed to get diff for revision " + revision, e);
             }
-        } catch (IOException e) {
-            logger.warn("Disk cache read failed for {}: {}", cacheKey, e.toString());
-            // fallthrough to compute explanation
-        }
 
-        // Compute explanation
-        String diff;
-        try {
-            diff = getDiffForRevision(repo, revision);
-        } catch (GitAPIException e) {
-            throw new RuntimeException("Failed to get diff for revision " + revision, e);
-        }
-
-        if (diff.isBlank()) {
-            return "No changes detected for %s.".formatted(shortHash);
-        }
-
-        StreamingChatModel modelToUse = cm.getService().getScanModel();
-        Llm llm = cm.getLlm(modelToUse, (detailed ? "Explain commit " : "Summarize commit ") + shortHash);
-        String explanation = explainWithHalving(diff, detailed, revision, llm);
-
-        // Try to write into cache (best-effort)
-        DiskLruCache.Editor editor = null;
-        boolean editorCommitted = false;
-        try {
-            editor = cache.edit(cacheKey);
-            if (editor != null) {
-                try (var os = editor.newOutputStream(0)) {
-                    os.write(explanation.getBytes(StandardCharsets.UTF_8));
-                }
-                editor.commit();
-                editorCommitted = true;
+            if (diff.isBlank()) {
+                return "No changes detected for %s.".formatted(shortHash);
             }
-        } catch (IOException e) {
-            logger.warn("Disk cache write failed for {}: {}", cacheKey, e.toString());
-        } finally {
-            if (editor != null && !editorCommitted) {
-                try {
-                    editor.abort();
-                } catch (IOException ignored) {
-                    // Best-effort: ignore abort failures
-                }
-            }
-        }
 
-        return explanation;
+            StreamingChatModel modelToUse = cm.getService().getScanModel();
+            Llm llm = cm.getLlm(modelToUse, (detailed ? "Explain commit " : "Summarize commit ") + shortHash);
+            try {
+                return explainWithHalving(diff, detailed, revision, llm);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     private static String explainWithHalving(String diff, boolean detailed, String revision, Llm llm)
