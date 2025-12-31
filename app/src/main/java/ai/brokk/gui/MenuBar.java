@@ -152,7 +152,8 @@ public class MenuBar {
     private static void handleNewProject(Chrome chrome) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        var initialDir = new File(GlobalUiSettings.getLastCloneDirectory());
+        var lastDir = new File(GlobalUiSettings.getLastCloneDirectory());
+        var initialDir = lastDir.isDirectory() ? lastDir : null;
         var selectedDir =
                 FileChooserUtil.showDirectoryChooserWithNewFolder(chrome.getFrame(), "New Project", initialDir);
 
