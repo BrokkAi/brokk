@@ -10,7 +10,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.ranking.ImportPageRanker;
@@ -368,7 +367,6 @@ public class Context {
 
         return List.copyOf(resultFiles);
     }
-
 
     private List<ProjectFile> filterResults(List<IAnalyzer.FileRelevance> results, Set<ProjectFile> ineligibleSources) {
         return results.stream()

@@ -15,7 +15,6 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.AnalyzerCreator;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -137,7 +136,6 @@ public class ContextNoGitFallbackTest {
             assertFalse(repoInvoked.get(), "IGitRepo should not be invoked when hasGit() is false");
         }
     }
-
 
     @Test
     public void testHybridGitAndImportResults() throws Exception {
@@ -286,7 +284,8 @@ public class ContextNoGitFallbackTest {
 
             IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
             Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
-                    .map(CodeUnit::source).distinct()
+                    .map(CodeUnit::source)
+                    .distinct()
                     .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
 
             ProjectFile a = files.get("A.java");
@@ -294,9 +293,20 @@ public class ContextNoGitFallbackTest {
             ProjectFile c = files.get("C.java");
 
             IContextManager cm = new IContextManager() {
-                @Override public IAnalyzer getAnalyzer() { return analyzer; }
-                @Override public IProject getProject() { return project; }
-                @Override public IGitRepo getRepo() { return project.getRepo(); }
+                @Override
+                public IAnalyzer getAnalyzer() {
+                    return analyzer;
+                }
+
+                @Override
+                public IProject getProject() {
+                    return project;
+                }
+
+                @Override
+                public IGitRepo getRepo() {
+                    return project.getRepo();
+                }
             };
             Context ctx = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(a, cm));
 

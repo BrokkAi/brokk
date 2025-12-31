@@ -160,7 +160,7 @@ public class ImportPageRankerTest {
             ctx = ctx.addFragments(fragments);
 
             // A1 imports K1.
-            // Even if Git distance finds some files (like B1/C1 if they were not seeds), 
+            // Even if Git distance finds some files (like B1/C1 if they were not seeds),
             // the fallback to ImportPageRanker should ensure K1 is found.
             List<ProjectFile> results = ctx.getMostRelevantFiles(5);
 
@@ -187,7 +187,8 @@ public class ImportPageRankerTest {
 
             IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
             Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
-                    .map(CodeUnit::source).distinct()
+                    .map(CodeUnit::source)
+                    .distinct()
                     .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
 
             ProjectFile hub = files.get("Hub.java");
@@ -207,7 +208,8 @@ public class ImportPageRankerTest {
     public void testRankFlowsThroughChain() throws Exception {
         // A -> B -> C -> D. Seed is A.
         // With IMPORT_DEPTH=2, it should reach C.
-        try (var project = InlineTestProjectCreator.code("package test; import test.B; public class A {}", "test/A.java")
+        try (var project = InlineTestProjectCreator.code(
+                        "package test; import test.B; public class A {}", "test/A.java")
                 .addFileContents("package test; import test.C; public class B {}", "test/B.java")
                 .addFileContents("package test; import test.D; public class C {}", "test/C.java")
                 .addFileContents("package test; public class D {}", "test/D.java")
@@ -215,7 +217,8 @@ public class ImportPageRankerTest {
 
             IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
             Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
-                    .map(CodeUnit::source).distinct()
+                    .map(CodeUnit::source)
+                    .distinct()
                     .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
 
             ProjectFile a = files.get("A.java");
@@ -225,7 +228,8 @@ public class ImportPageRankerTest {
             List<IAnalyzer.FileRelevance> results =
                     ImportPageRanker.getRelatedFilesByImports(analyzer, Map.of(a, 1.0), 10, false);
 
-            List<ProjectFile> resultFiles = results.stream().map(IAnalyzer.FileRelevance::file).toList();
+            List<ProjectFile> resultFiles =
+                    results.stream().map(IAnalyzer.FileRelevance::file).toList();
 
             assertTrue(resultFiles.contains(b), "Direct import B should be present");
             assertTrue(resultFiles.contains(c), "Indirect import C (2 hops) should be present");
@@ -249,7 +253,8 @@ public class ImportPageRankerTest {
 
             IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
             Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
-                    .map(CodeUnit::source).distinct()
+                    .map(CodeUnit::source)
+                    .distinct()
                     .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
 
             ProjectFile a = files.get("A.java");
@@ -261,7 +266,8 @@ public class ImportPageRankerTest {
             List<IAnalyzer.FileRelevance> results =
                     ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, false);
 
-            List<ProjectFile> resultFiles = results.stream().map(IAnalyzer.FileRelevance::file).toList();
+            List<ProjectFile> resultFiles =
+                    results.stream().map(IAnalyzer.FileRelevance::file).toList();
 
             // Should contain B and C, but not A (the seed)
             assertFalse(resultFiles.contains(a), "Seed A should be excluded");
