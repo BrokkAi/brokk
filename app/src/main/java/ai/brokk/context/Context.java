@@ -79,9 +79,6 @@ public class Context {
     @Nullable
     private final String groupLabel;
 
-    @Nullable
-    private final String descriptionOverride;
-
     private final Set<ContextFragment> markedReadonlyFragments;
     private final Set<ContextFragment> pinnedFragments;
 
@@ -97,7 +94,6 @@ public class Context {
                 null,
                 null,
                 null,
-                null,
                 Set.of(),
                 Set.of());
     }
@@ -110,7 +106,6 @@ public class Context {
             @Nullable ContextFragments.TaskFragment parsedOutput,
             @Nullable UUID groupId,
             @Nullable String groupLabel,
-            @Nullable String descriptionOverride,
             Set<ContextFragment> markedReadonlyFragments,
             Set<ContextFragment> pinnedFragments) {
         this.id = id;
@@ -120,7 +115,6 @@ public class Context {
         this.parsedOutput = parsedOutput;
         this.groupId = groupId;
         this.groupLabel = groupLabel;
-        this.descriptionOverride = descriptionOverride;
         this.action = CompletableFuture.completedFuture("");
         this.markedReadonlyFragments = validateReadOnlyFragments(markedReadonlyFragments, fragments);
         this.pinnedFragments = validatePinnedFragments(pinnedFragments, fragments);
@@ -137,7 +131,6 @@ public class Context {
                 fragments,
                 taskHistory,
                 parsedOutput,
-                null,
                 null,
                 null,
                 Set.of(),
@@ -265,7 +258,6 @@ public class Context {
                 contextManager,
                 newFragments,
                 taskHistory,
-                null,
                 null,
                 null,
                 null,
@@ -478,7 +470,6 @@ public class Context {
                 null,
                 null,
                 null,
-                null,
                 newReadOnly,
                 newPinned);
     }
@@ -489,7 +480,6 @@ public class Context {
                 contextManager,
                 List.of(),
                 List.of(),
-                null,
                 null,
                 null,
                 null,
@@ -515,7 +505,6 @@ public class Context {
                 parsedOutput,
                 null,
                 null,
-                null,
                 this.markedReadonlyFragments,
                 newPinned);
     }
@@ -537,7 +526,6 @@ public class Context {
                 contextManager,
                 fragments,
                 taskHistory,
-                null,
                 null,
                 null,
                 null,
@@ -575,7 +563,6 @@ public class Context {
                 parsed,
                 null,
                 null,
-                null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
     }
@@ -587,7 +574,6 @@ public class Context {
                 contextManager,
                 fragments,
                 List.of(),
-                null,
                 null,
                 null,
                 null,
@@ -664,7 +650,6 @@ public class Context {
                 parsedOutput,
                 null,
                 null,
-                null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
     }
@@ -679,27 +664,8 @@ public class Context {
                 parsedOutput,
                 groupId,
                 groupLabel,
-                null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
-    }
-
-    /**
-     * Creates a Context with explicit control over the read-only and pinned fragment tracking.
-     * Prefer this when deriving a new Context from an existing one to preserve tracking state.
-     */
-    public static Context createWithId(
-            UUID id,
-            IContextManager cm,
-            List<ContextFragment> fragments,
-            List<TaskEntry> history,
-            @Nullable ContextFragments.TaskFragment parsed,
-            @Nullable UUID groupId,
-            @Nullable String groupLabel,
-            Set<ContextFragment> readOnlyFragments,
-            Set<ContextFragment> pinnedFragments) {
-        return new Context(
-                id, cm, fragments, history, parsed, groupId, groupLabel, null, readOnlyFragments, pinnedFragments);
     }
 
     /**
@@ -714,11 +680,10 @@ public class Context {
             @Nullable ContextFragments.TaskFragment parsed,
             @Nullable UUID groupId,
             @Nullable String groupLabel,
-            @Nullable String descriptionOverride,
             Set<ContextFragment> readOnlyFragments,
             Set<ContextFragment> pinnedFragments) {
         return new Context(
-                id, cm, fragments, history, parsed, groupId, groupLabel, descriptionOverride, readOnlyFragments, pinnedFragments);
+                id, cm, fragments, history, parsed, groupId, groupLabel, readOnlyFragments, pinnedFragments);
     }
 
     /**
@@ -730,7 +695,6 @@ public class Context {
                 contextManager,
                 fragments,
                 newHistory,
-                null,
                 null,
                 null,
                 null,
@@ -769,7 +733,6 @@ public class Context {
                 null,
                 sourceContext.getGroupId(),
                 sourceContext.getGroupLabel(),
-                null,
                 sourceContext.markedReadonlyFragments,
                 sourceContext.pinnedFragments);
     }
@@ -784,21 +747,6 @@ public class Context {
     @Override
     public int hashCode() {
         return id.hashCode();
-    }
-
-    /** Sets a description override for this context (e.g., "Load external changes"). */
-    public Context withDescription(String description) {
-        return new Context(
-                id,
-                contextManager,
-                fragments,
-                taskHistory,
-                parsedOutput,
-                groupId,
-                groupLabel,
-                description,
-                markedReadonlyFragments,
-                pinnedFragments);
     }
 
     /**
@@ -871,7 +819,6 @@ public class Context {
                 newFragments,
                 afterClear.taskHistory,
                 afterClear.parsedOutput,
-                null,
                 null,
                 null,
                 afterClear.markedReadonlyFragments,
@@ -1198,7 +1145,7 @@ public class Context {
      */
     @Blocking
     public Context copyAndRefresh(Set<ProjectFile> maybeChanged, String description) {
-        return copyAndRefresh(maybeChanged).withDescription(description);
+        return copyAndRefresh(maybeChanged);
     }
 
     /**
@@ -1294,7 +1241,6 @@ public class Context {
                 parsedOutput,
                 this.groupId,
                 this.groupLabel,
-                this.descriptionOverride,
                 newReadOnly,
                 newPinned);
     }

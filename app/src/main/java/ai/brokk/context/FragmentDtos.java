@@ -36,19 +36,19 @@ public class FragmentDtos {
     // this specific list purpose
     public sealed interface VirtualFragmentDto
             permits TaskFragmentDto,
-                    StringFragmentDto,
-                    SearchFragmentDto,
-                    SkeletonFragmentDto,
-                    SummaryFragmentDto,
-                    UsageFragmentDto,
-                    PasteTextFragmentDto,
-                    PasteImageFragmentDto,
-                    StacktraceFragmentDto,
-                    CallGraphFragmentDto,
-                    CodeFragmentDto,
-                    HistoryFragmentDto,
-                    BuildFragmentDto,
-                    FrozenFragmentDto {
+            StringFragmentDto,
+            SearchFragmentDto,
+            SkeletonFragmentDto,
+            SummaryFragmentDto,
+            UsageFragmentDto,
+            PasteTextFragmentDto,
+            PasteImageFragmentDto,
+            StacktraceFragmentDto,
+            CallGraphFragmentDto,
+            CodeFragmentDto,
+            HistoryFragmentDto,
+            BuildFragmentDto,
+            FrozenFragmentDto {
         String id();
     }
 
@@ -331,30 +331,16 @@ public class FragmentDtos {
             List<String> pinned,
             List<TaskEntryRefDto> tasks,
             @Nullable String parsedOutputId,
+            String actionUnused,
             @Nullable String groupId,
-            @Nullable String groupLabel,
-            @Nullable String descriptionOverride) {
+            @Nullable String groupLabel) {
         public CompactContextDto {
-            // No validation on id - null means "absent in V1 history"
+            // No validation on id – null means “absent in V1 history”
             editable = List.copyOf(editable);
             readonly = List.copyOf(readonly);
             virtuals = List.copyOf(virtuals);
             pinned = List.copyOf(requireNonNullElse(pinned, List.<String>of()));
             tasks = List.copyOf(tasks);
-        }
-
-        /** Backward-compatible constructor for older code that doesn't provide descriptionOverride. */
-        public CompactContextDto(
-                @Nullable String id,
-                List<String> editable,
-                List<String> readonly,
-                List<String> virtuals,
-                List<String> pinned,
-                List<TaskEntryRefDto> tasks,
-                @Nullable String parsedOutputId,
-                @Nullable String groupId,
-                @Nullable String groupLabel) {
-            this(id, editable, readonly, virtuals, pinned, tasks, parsedOutputId, groupId, groupLabel, null);
         }
     }
 

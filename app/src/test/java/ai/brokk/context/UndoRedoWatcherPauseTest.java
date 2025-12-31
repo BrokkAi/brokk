@@ -32,8 +32,8 @@ public class UndoRedoWatcherPauseTest {
         var ch = cm.getContextHistory();
 
         // Build two contexts so that undo is possible
-        ch.push(ctx -> ctx.withDescription("first change"));
-        ch.push(ctx -> ctx.withDescription("second change"));
+        ch.push(ctx -> ctx.addFragments(new ContextFragments.StringFragment(cm, "first", "first change", "text")));
+        ch.push(ctx -> ctx.addFragments(new ContextFragments.StringFragment(cm, "second", "second change", "text")));
 
         // Perform undo while pausing file change notifications
         var undoResult = cm.withFileChangeNotificationsPaused(() -> ch.undo(1, cm.getIo(), project));

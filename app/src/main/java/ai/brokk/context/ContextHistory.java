@@ -204,19 +204,8 @@ public class ContextHistory {
         // Maintain continuation semantics for rapid external changes.
         boolean isContinuation = Objects.equals(base.id(), lastExternalChangeId);
 
-        String description;
-        if (isContinuation) {
-            externalChangeContinuationCount++;
-            description = externalChangeContinuationCount > 1
-                    ? "Load external changes (" + externalChangeContinuationCount + ")"
-                    : "Load external changes";
-        } else {
-            externalChangeContinuationCount = 1;
-            description = "Load external changes";
-        }
-
         // parsedOutput == null indicates no AI result (render no icon in activity)
-        var updatedLive = merged.withParsedOutput(null).withDescription(description);
+        var updatedLive = merged.withParsedOutput(null);
 
         if (isContinuation) {
             replaceTopInternal(updatedLive);

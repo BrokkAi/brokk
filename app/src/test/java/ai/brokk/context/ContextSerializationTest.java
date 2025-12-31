@@ -521,25 +521,6 @@ public class ContextSerializationTest {
         assertEquals("Summary 1", l3.getDescription(l2));
     }
 
-    @Test
-    void testLegacyActionCompatibility() throws Exception {
-        // Create history where context has a description override (simulating legacy 'action' shim)
-        var ctx = new Context(mockContextManager).withDescription("Legacy Action String");
-        var history = new ContextHistory(ctx);
-
-        Path zipFile = tempDir.resolve("legacy_action.zip");
-        HistoryIo.writeZip(history, zipFile);
-
-        // Verify that the ZIP contains descriptionOverride in the JSON
-        String json = extractContextsJsonFromZip(zipFile);
-        assertTrue(json.contains("\"descriptionOverride\":\"Legacy Action String\""), 
-                "Should preserve description override in serialization");
-
-        // Reload and verify
-        ContextHistory loaded = HistoryIo.readZip(zipFile, mockContextManager);
-        assertEquals("Legacy Action String", loaded.getHistory().getFirst().getDescription(null));
-    }
-
     private String extractContextsJsonFromZip(Path zip) throws IOException {
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
