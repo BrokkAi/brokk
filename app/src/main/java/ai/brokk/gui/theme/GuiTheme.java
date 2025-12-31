@@ -587,9 +587,8 @@ public class GuiTheme {
     }
 
     /**
-     * Gets the primary icon directory for the given theme name
+     * Gets the primary icon directory for the application.
      *
-     * @param themeName the theme name
      * @return the icon directory path
      */
     private String getIconDirectoryForTheme() {
@@ -597,9 +596,8 @@ public class GuiTheme {
     }
 
     /**
-     * Gets the fallback icon directory for the given theme name (or null if no fallback)
+     * Gets the fallback icon directory (or null if no fallback).
      *
-     * @param themeName the theme name
      * @return the fallback icon directory path, or null if no fallback
      */
     private @Nullable String getIconFallbackDirectoryForTheme() {
