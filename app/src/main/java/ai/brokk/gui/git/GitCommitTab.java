@@ -663,6 +663,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
     /**
      * Rollback selected files to their HEAD state with undo support via ContextHistory. Snapshots the workspace before
      * rollback to enable undo.
+     *
+     * FIXME: this is mostly broken, we shouldn't be adding arbitrary shit to Context like this
      */
     private void rollbackChangesWithUndo(List<ProjectFile> selectedFiles) {
         if (selectedFiles.isEmpty()) {
