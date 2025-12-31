@@ -2224,7 +2224,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             assert !closed.get() : "TaskScope already closed";
             var updated = context.withGroup(groupId, groupLabel);
             pushContext(currentLiveCtx -> updated);
-            io.prepareOutputForNextStream(updated.getTaskHistory()); // is this necessary?
         }
 
         @Override
