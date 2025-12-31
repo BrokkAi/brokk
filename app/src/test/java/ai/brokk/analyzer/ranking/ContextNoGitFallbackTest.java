@@ -10,6 +10,8 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.git.CommitInfo;
+import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
@@ -19,6 +21,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -319,6 +322,83 @@ public class ContextNoGitFallbackTest {
 
             // Verify uniqueness
             assertEquals(2, new HashSet<>(results).size(), "Results should be unique");
+        }
+    }
+
+    @Test
+    public void testGitPresentButSeedUntrackedFallback() throws Exception {
+        // A imports B, B imports C.
+        // Git is present, but only B and C are committed. A is untracked.
+        // Seeding with A should trigger fallback to ImportPageRanker.
+        try (var project = InlineTestProjectCreator.code(
+                        "package test; import test.B; public class A { }", "test/A.java")
+                .addFileContents("package test; import test.C; public class B { }", "test/B.java")
+                .addFileContents("package test; public class C { }", "test/C.java")
+                .withGit()
+                .addCommit("test/B.java", "test/C.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
+                    .map(CodeUnit::source)
+                    .distinct()
+                    .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
+
+            ProjectFile a = files.get("A.java");
+            ProjectFile b = files.get("B.java");
+            ProjectFile c = files.get("C.java");
+
+            IContextManager cm = new IContextManager() {
+                @Override
+                public IAnalyzer getAnalyzer() {
+                    return analyzer;
+                }
+
+                @Override
+                public IProject getProject() {
+                    return project;
+                }
+
+                @Override
+                public IGitRepo getRepo() {
+                    return project.getRepo();
+                }
+            };
+
+            Context ctx = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(a, cm));
+
+            // A is untracked, so GitDistance returns empty.
+            // ImportPageRanker should find B and C.
+            List<ProjectFile> results = ctx.getMostRelevantFiles(2);
+
+            assertFalse(results.contains(a), "Seed A should be excluded");
+            assertTrue(results.contains(b), "B should be found via imports");
+            assertTrue(results.contains(c), "C should be found via imports");
+            assertEquals(2, results.size());
+        }
+    }
+
+    @Test
+    public void testGitDistanceFastPathForUntrackedSeeds() throws Exception {
+        try (var project = InlineTestProjectCreator.code("public class A {}", "A.java").withGit().build()) {
+            ProjectFile a = project.getAllFiles().iterator().next();
+
+            // Create a stub that claims nothing is tracked
+            GitRepo fakeRepo = new GitRepo(project.getRoot()) {
+                @Override
+                public synchronized boolean isTracked(Path relativePath) {
+                    return false;
+                }
+
+                @Override
+                public List<CommitInfo> listCommitsDetailed(String branchName, int maxResults) {
+                    throw new AssertionError("should not be called - history processing should be skipped");
+                }
+            };
+
+            // Should return empty without calling listCommitsDetailed
+            List<IAnalyzer.FileRelevance> results = GitDistance.getRelatedFiles(fakeRepo, Map.of(a, 1.0), 5);
+            assertTrue(results.isEmpty(), "Results should be empty for untracked seeds");
         }
     }
 

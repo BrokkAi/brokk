@@ -185,7 +185,7 @@ public class PageRankBenchmark implements Callable<Integer> {
                     IAnalyzer analyzer = Languages.JAVA.createAnalyzer(project);
                     ImportPageRanker.getRelatedFilesByImports(analyzer, seedWeights, topK, reversed);
                     if (repo != null) {
-                        GitDistance.getRelatedFiles(repo, seedWeights, topK, reversed);
+                        GitDistance.getRelatedFiles(repo, seedWeights, topK);
                     }
                 }
             }
@@ -201,7 +201,7 @@ public class PageRankBenchmark implements Callable<Integer> {
                 long t2 = System.nanoTime();
 
                 if (repo != null) {
-                    GitDistance.getRelatedFiles(repo, seedWeights, topK, reversed);
+                    GitDistance.getRelatedFiles(repo, seedWeights, topK);
                 }
                 long t3 = System.nanoTime();
 
