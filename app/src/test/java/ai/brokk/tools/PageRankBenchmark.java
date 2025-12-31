@@ -67,22 +67,7 @@ public class PageRankBenchmark implements Callable<Integer> {
 
     private record ScenarioConfig(
             String name,
-            double edgeFraction) {
-
-        double importProb(int nodes) {
-            // We want the average degree to be proportional to edgeFraction * log(nodes) or similar.
-            // Simplified: edgeFraction / 10.0 provides a reasonable spread for benchmarking.
-            return (edgeFraction * 5.0) / nodes;
-        }
-
-        double commitDensity() {
-            return 2.0 + (edgeFraction * 10.0);
-        }
-
-        int commitCount(int nodes) {
-            return (int) (nodes * edgeFraction);
-        }
-    }
+            double edgeFraction) {}
 
     private record IterationResult(long analyzerNanos, long importNanos, long gitNanos) {}
 
@@ -111,14 +96,6 @@ public class PageRankBenchmark implements Callable<Integer> {
     }
 
     private void runScenario(ScenarioConfig config, long baseSeed) throws Exception {
-        double commitDensity = config.commitDensity();
-        int commitCount = config.commitCount(nodeCount);
-
-        System.out.println("=".repeat(60));
-        System.out.printf(Locale.ROOT, "SCENARIO: %s (Fraction: %.2f, Commit Density: %.1f, Commits: %d)%n",
-                config.name().toUpperCase(Locale.ROOT), config.edgeFraction(), commitDensity, commitCount);
-        System.out.println("=".repeat(60));
-
         long scenarioSeed = baseSeed ^ config.name().hashCode();
         Random random = new Random(scenarioSeed);
 
@@ -126,7 +103,7 @@ public class PageRankBenchmark implements Callable<Integer> {
                 .mapToObj(i -> String.format("File%05d", i))
                 .toList();
 
-        // Sample distinct directed edges (src != dst)
+        // 1) Import Edges: Sample distinct directed edges (src != dst)
         long maxImportEdges = (long) nodeCount * (nodeCount - 1);
         int targetImportEdges = (int) Math.round(maxImportEdges * config.edgeFraction());
 
@@ -147,6 +124,27 @@ public class PageRankBenchmark implements Callable<Integer> {
             });
         }
 
+        // 2) Git Co-change Edges: Sample distinct unordered file pairs {a, b}
+        long maxGitPairs = (long) nodeCount * (nodeCount - 1) / 2;
+        int targetGitPairs = (int) Math.round(maxGitPairs * config.edgeFraction());
+
+        List<Long> allPossiblePairs = new ArrayList<>();
+        if (nodeCount > 1) {
+            for (int i = 0; i < nodeCount; i++) {
+                for (int j = i + 1; j < nodeCount; j++) {
+                    allPossiblePairs.add(((long) i << 32) | (j & 0xffffffffL));
+                }
+            }
+            java.util.Collections.shuffle(allPossiblePairs, random);
+        }
+
+        System.out.println("=".repeat(60));
+        System.out.printf(Locale.ROOT, "SCENARIO: %s (Fraction: %.2f)%n",
+                config.name().toUpperCase(Locale.ROOT), config.edgeFraction());
+        System.out.printf(Locale.ROOT, "  Import Edges: %d | Git Co-change Pairs: %d%n",
+                targetImportEdges, targetGitPairs);
+        System.out.println("=".repeat(60));
+
         String firstFile = String.format("File%05d.java", 0);
         var builder = InlineTestProjectCreator.code(
                 generateFileContent(0, fileNames, adjacencyList.getOrDefault(0, List.of())),
@@ -158,18 +156,11 @@ public class PageRankBenchmark implements Callable<Integer> {
                     String.format("File%05d.java", i));
         }
 
-        for (int i = 0; i < commitCount; i++) {
-            int filesInCommit = (int) Math.max(2, Math.round(commitDensity + random.nextGaussian()));
-            List<String> commitFiles = random.ints(0, nodeCount)
-                    .distinct()
-                    .limit(filesInCommit)
-                    .mapToObj(idx -> String.format("File%05d.java", idx))
-                    .toList();
-
-            for (int j = 0; j < commitFiles.size() - 1; j++) {
-                builder.addCommit(commitFiles.get(j), commitFiles.get(j + 1));
-            }
-        }
+        allPossiblePairs.stream().limit(targetGitPairs).forEach(pair -> {
+            int a = (int) (pair >> 32);
+            int b = (int) (pair.longValue());
+            builder.addCommit(String.format("File%05d.java", a), String.format("File%05d.java", b));
+        });
 
         try (var project = builder.build()) {
             IGitRepo iRepo = project.getRepo();
