@@ -5,6 +5,8 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
@@ -81,11 +83,14 @@ public final class FileChooserUtil {
                         chooser, "Enter folder name:", "New Folder", JOptionPane.PLAIN_MESSAGE);
                 if (name != null && !name.isBlank()) {
                     var newFolder = new File(currentDir, name.trim());
-                    if (newFolder.mkdir()) {
+                    try {
+                        Files.createDirectories(newFolder.toPath());
                         chooser.setCurrentDirectory(newFolder);
-                    } else {
-                        JOptionPane.showMessageDialog(
-                                chooser, "Could not create folder", "Error", JOptionPane.ERROR_MESSAGE);
+                    } catch (IOException ex) {
+                        JOptionPane.showMessageDialog(chooser,
+                                                      "Could not create folder: " + ex.getMessage(),
+                                                      "Error",
+                                                      JOptionPane.ERROR_MESSAGE);
                     }
                 }
             }
