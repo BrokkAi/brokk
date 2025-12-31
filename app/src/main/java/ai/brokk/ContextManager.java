@@ -865,6 +865,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .withTaskList(new TaskList.TaskListData(List.of()), "Clear task history and tasks"));
     }
 
+    /** Clear conversation history only, preserving the task list. */
+    public void clearHistoryOnly() {
+        pushContext(Context::clearHistory);
+    }
+
     /**
      * Drops fragments with HISTORY-aware semantics: - If selection is empty: drop all and reset selected context to the
      * latest (top) context. - If selection includes HISTORY: clear history, then drop only non-HISTORY fragments. -
@@ -2696,6 +2701,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     @Blocking
     public void compressHistory() throws InterruptedException {
+        compressHistory(null, null);
+    }
+
+    @Override
+    @Blocking
+    public void compressHistory(@Nullable UUID groupId, @Nullable String groupLabel) throws InterruptedException {
         io.disableHistoryPanel();
         try {
             // Operate on the task history
@@ -2748,10 +2759,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return;
                 }
 
-                // pushContext will update liveContext with the compressed history
-                // and add a frozen version to contextHistory.
-                // Entries now have both log and summary, so AI uses summary while UI can show either
-                pushContext(currentLiveCtx -> currentLiveCtx.withHistory(compressedTaskEntries));
+                if (groupId != null) {
+                    pushContext(currentLiveCtx ->
+                            currentLiveCtx.withHistory(compressedTaskEntries).withGroup(groupId, groupLabel));
+                } else {
+                    pushContext(currentLiveCtx -> currentLiveCtx.withHistory(compressedTaskEntries));
+                }
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
             }
         } finally {
