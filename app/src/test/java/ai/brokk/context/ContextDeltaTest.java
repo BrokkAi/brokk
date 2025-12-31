@@ -160,24 +160,35 @@ class ContextDeltaTest {
     }
 
     @Test
+    void testDelta_detectsResetSession() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Main.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("content");
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        var ctx1 = new Context(contextManager).addFragments(List.of(frag));
+        var ctx2 = Context.EMPTY;
+
+        var delta = ContextDelta.between(ctx1, ctx2);
+
+        assertFalse(delta.isEmpty());
+        assertTrue(delta.sessionReset());
+        assertEquals("Reset Session", delta.description());
+    }
+
+    @Test
     void testDelta_joinsMultipleChanges() {
-        var ctx1 = new Context(contextManager);
-
-        var ctx2 = ctx1.withSpecial(SpecialTextType.SEARCH_NOTES, "Notes")
-                       .addHistoryEntry(new TaskEntry(1, null, "Summary"), null);
-
         // We want to test description joining, but addedTasks usually takes priority.
         // Let's create a delta manually to verify joining logic.
         var delta = new ContextDelta(
-            List.of(),
-            List.of(),
-            List.of(),
-            true, // clearedHistory
-            true, // compressedHistory
-            false,
-            List.of(),
-            null
-        );
+                List.of(),
+                List.of(),
+                List.of(),
+                true, // clearedHistory
+                true, // compressedHistory
+                false,
+                false, // sessionReset
+                List.of());
 
         assertEquals("Compressed History; Cleared Conversation", delta.description());
     }

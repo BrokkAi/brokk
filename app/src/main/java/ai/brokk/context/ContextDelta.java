@@ -24,8 +24,8 @@ public record ContextDelta(
         boolean clearedHistory,
         boolean compressedHistory,
         boolean externalChanges,
-        List<ContextFragments.StringFragment> updatedSpecialFragments,
-        @Nullable String descriptionOverride) {
+        boolean sessionReset,
+        List<ContextFragments.StringFragment> updatedSpecialFragments) {
 
     public boolean isEmpty() {
         return addedFragments.isEmpty()
@@ -34,8 +34,8 @@ public record ContextDelta(
                 && !clearedHistory
                 && !compressedHistory
                 && !externalChanges
-                && updatedSpecialFragments.isEmpty()
-                && descriptionOverride == null;
+                && !sessionReset
+                && updatedSpecialFragments.isEmpty();
     }
 
     /**
@@ -46,10 +46,8 @@ public record ContextDelta(
      * @param to   the target context (typically the current state)
      * @return a ContextDelta describing the changes
      */
-    public static ContextDelta between(@Nullable Context from, Context to) {
-        if (from == null) {
-            return new ContextDelta(to.fragments, List.of(), to.taskHistory, false, false, false, List.of(), null);
-        }
+    public static ContextDelta between(Context from, Context to) {
+        boolean sessionReset = !from.isEmpty() && to.isEmpty();
 
         var added = to.fragments.stream()
                 .filter(f -> !from.containsWithSameSource(f))
@@ -101,16 +99,16 @@ public record ContextDelta(
                 clearedHistory,
                 compressedHistory,
                 externalChanges,
-                updatedSpecials,
-                descriptionOverride);
+                sessionReset,
+                updatedSpecials);
     }
 
     /**
      * Returns a human-readable description of the changes in this delta.
      */
     public String description() {
-        if (descriptionOverride != null && !descriptionOverride.isBlank()) {
-            return descriptionOverride;
+        if (sessionReset) {
+            return "Reset Session";
         }
 
         if (isEmpty()) {
