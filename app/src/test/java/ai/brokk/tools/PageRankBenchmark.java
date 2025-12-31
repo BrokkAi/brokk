@@ -52,11 +52,11 @@ public class PageRankBenchmark implements Callable<Integer> {
     @CommandLine.Option(names = "--reversed", description = "Whether to use reversed ranking logic")
     private boolean reversed = false;
 
-    @CommandLine.Option(names = "--sparse-import-density", description = "Sparse scenario: avg imports per file (default: 2.0)")
-    private double sparseImportDensity = 2.0;
+    @CommandLine.Option(names = "--sparse-import-prob", description = "Sparse scenario: probability of an import edge (default: 0.005)")
+    private double sparseImportProb = 0.005;
 
-    @CommandLine.Option(names = "--dense-import-density", description = "Dense scenario: avg imports per file (default: 15.0)")
-    private double denseImportDensity = 15.0;
+    @CommandLine.Option(names = "--dense-import-prob", description = "Dense scenario: probability of an import edge (default: 0.05)")
+    private double denseImportProb = 0.05;
 
     @CommandLine.Option(names = "--sparse-commit-density", description = "Sparse scenario: avg files per commit (default: 2.0)")
     private double sparseCommitDensity = 2.0;
@@ -80,7 +80,7 @@ public class PageRankBenchmark implements Callable<Integer> {
 
     private record ScenarioConfig(
             String name,
-            double importDensity,
+            double importProb,
             double commitDensity,
             int commitCount) {}
 
@@ -93,10 +93,10 @@ public class PageRankBenchmark implements Callable<Integer> {
 
         List<ScenarioConfig> scenarios = new ArrayList<>();
         if ("sparse".equalsIgnoreCase(scenario) || "both".equalsIgnoreCase(scenario)) {
-            scenarios.add(new ScenarioConfig("sparse", sparseImportDensity, sparseCommitDensity, sparseCommitCount));
+            scenarios.add(new ScenarioConfig("sparse", sparseImportProb, sparseCommitDensity, sparseCommitCount));
         }
         if ("dense".equalsIgnoreCase(scenario) || "both".equalsIgnoreCase(scenario)) {
-            scenarios.add(new ScenarioConfig("dense", denseImportDensity, denseCommitDensity, denseCommitCount));
+            scenarios.add(new ScenarioConfig("dense", denseImportProb, sparseCommitDensity, denseCommitCount));
         }
 
         for (ScenarioConfig config : scenarios) {
@@ -108,8 +108,8 @@ public class PageRankBenchmark implements Callable<Integer> {
 
     private void runScenario(ScenarioConfig config, long baseSeed) throws Exception {
         System.out.println("=".repeat(60));
-        System.out.printf(Locale.ROOT, "SCENARIO: %s (Import Density: %.1f, Commit Density: %.1f, Commits: %d)%n",
-                config.name().toUpperCase(Locale.ROOT), config.importDensity(), config.commitDensity(), config.commitCount());
+        System.out.printf(Locale.ROOT, "SCENARIO: %s (Import Prob: %.3f, Commit Density: %.1f, Commits: %d)%n",
+                config.name().toUpperCase(Locale.ROOT), config.importProb(), config.commitDensity(), config.commitCount());
         System.out.println("=".repeat(60));
 
         long scenarioSeed = baseSeed ^ config.name().hashCode();
@@ -119,13 +119,14 @@ public class PageRankBenchmark implements Callable<Integer> {
                 .mapToObj(i -> String.format("File%05d", i))
                 .toList();
 
+        String firstFile = String.format("File%05d.java", 0);
         var builder = InlineTestProjectCreator.code(
-                generateFileContent(0, fileNames, random, config.importDensity()),
-                "File00000.java").withGit();
+                generateFileContent(0, fileNames, random, config.importProb()),
+                firstFile).withGit();
 
         for (int i = 1; i < fileCount; i++) {
             builder.addFileContents(
-                    generateFileContent(i, fileNames, random, config.importDensity()),
+                    generateFileContent(i, fileNames, random, config.importProb()),
                     String.format("File%05d.java", i));
         }
 
@@ -199,17 +200,13 @@ public class PageRankBenchmark implements Callable<Integer> {
         System.out.println();
     }
 
-    private String generateFileContent(int index, List<String> allFileNames, Random random, double avgImports) {
+    private String generateFileContent(int index, List<String> allFileNames, Random random, double edgeProb) {
         int pkgIdx = index % 10;
         String className = allFileNames.get(index);
-        int numImports = (int) Math.max(0, random.nextGaussian() + avgImports);
 
-        String imports = IntStream.range(0, numImports)
-                .mapToObj(_i -> {
-                    int targetIdx = random.nextInt(allFileNames.size());
-                    return String.format("import p%d.%s;", targetIdx % 10, allFileNames.get(targetIdx));
-                })
-                .distinct()
+        String imports = IntStream.range(0, allFileNames.size())
+                .filter(i -> i != index && random.nextDouble() < edgeProb)
+                .mapToObj(targetIdx -> String.format("import p%d.%s;", targetIdx % 10, allFileNames.get(targetIdx)))
                 .sorted()
                 .collect(java.util.stream.Collectors.joining("\n"));
 
