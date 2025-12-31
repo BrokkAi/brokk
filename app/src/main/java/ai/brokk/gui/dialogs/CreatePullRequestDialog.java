@@ -2,7 +2,6 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
-import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -953,7 +952,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void updateReviewTabContent(
-            DiffService.CumulativeChanges res, List<Map.Entry<String, Context.DiffEntry>> prepared) {
+            DiffService.CumulativeChanges res, List<Map.Entry<String, DiffService.DiffEntry>> prepared) {
         assert SwingUtilities.isEventDispatchThread() : "updateReviewTabContent must run on EDT";
 
         // Dispose any previous diff panel
@@ -1021,7 +1020,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
     }
 
-    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, Context.DiffEntry>> prepared) {
+    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, DiffService.DiffEntry>> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header
@@ -1045,7 +1044,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         // Use precomputed list in stable order; do not call Context.DiffEntry::title here
         for (var entry : prepared) {
             String title = entry.getKey();
-            Context.DiffEntry de = entry.getValue();
+            DiffService.DiffEntry de = entry.getValue();
             var left = new BufferSource.StringSource(de.oldContent(), title + " (base)");
             var right = new BufferSource.StringSource(de.newContent(), title);
             builder.leftSource(left).rightSource(right);

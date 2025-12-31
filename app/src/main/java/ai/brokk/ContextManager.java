@@ -20,6 +20,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextFragments.PathFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
+import ai.brokk.context.DiffService;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
@@ -2193,7 +2194,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // If there is literally nothing to record (no messages and no content changes), skip
             if (result.output().messages().isEmpty()) {
                 // Treat result.context() as new (right) and current topContext() as old (left)
-                var diffs = result.context().getDiff(liveContext());
+                Context other = liveContext();
+                var diffs = DiffService.computeDiff(result.context(), other);
                 if (diffs.isEmpty()) {
                     logger.debug("Empty TaskResult (no messages and no content changes)");
                     return result.context();

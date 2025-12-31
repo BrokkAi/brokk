@@ -8,6 +8,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -2224,7 +2225,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         ds.diff(ctx).thenAccept(diffs -> SwingUtilities.invokeLater(() -> showDiffWindow(ctx, diffs)));
     }
 
-    private void showDiffWindow(Context ctx, List<Context.DiffEntry> diffs) {
+    private void showDiffWindow(Context ctx, List<DiffService.DiffEntry> diffs) {
 
         record BufferedSourcePair(BufferSource left, BufferSource right) {}
 
@@ -2289,7 +2290,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     @Blocking
-    private static String safeFragmentText(Context.DiffEntry de) {
+    private static String safeFragmentText(DiffService.DiffEntry de) {
         try {
             return de.fragment().text().join();
         } catch (Throwable t) {

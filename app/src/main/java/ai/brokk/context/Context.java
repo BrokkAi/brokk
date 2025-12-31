@@ -182,27 +182,6 @@ public class Context {
         return sb.toString().stripTrailing();
     }
 
-    /**
-     * Per-fragment diff entry between two contexts.
-     */
-    public record DiffEntry(
-            ContextFragment fragment,
-            String diff,
-            int linesAdded,
-            int linesDeleted,
-            String oldContent,
-            String newContent) {
-        @Blocking
-        public String title() {
-            var files = fragment.files().join();
-            if (files != null && !files.isEmpty()) {
-                var pf = files.iterator().next();
-                return pf.getRelPath().toString();
-            }
-            return fragment.shortDescription().join();
-        }
-    }
-
     public static UUID newContextId() {
         return UuidCreator.getTimeOrderedEpoch();
     }
@@ -274,7 +253,6 @@ public class Context {
     public boolean containsWithSameSource(ContextFragment fragment) {
         return fragments.stream().anyMatch(f -> f.hasSameSource(fragment));
     }
-
 
     public Context addFragments(ContextFragment fragment) {
         return addFragments(List.of(fragment));
@@ -1334,24 +1312,6 @@ public class Context {
                 this.descriptionOverride,
                 newReadOnly,
                 newPinned);
-    }
-
-    /**
-     * Compute per-fragment diffs between this (right/new) and the other (left/old) context. Results are cached per other.id().
-     * This method awaits all async computations (e.g., ComputedValue) before returning the final diff list.
-     */
-    public List<DiffEntry> getDiff(Context other) {
-        return DiffService.computeDiff(this, other);
-    }
-
-    /**
-     * Compute the set of ProjectFile objects that differ between this (new/right) context and {@code other} (old/left).
-     * This is a convenience wrapper around {@link #getDiff(Context)} which returns per-fragment diffs.
-     * <p>
-     * Note: Both contexts should be frozen (no dynamic fragments) for reliable results.
-     */
-    public Set<ProjectFile> getChangedFiles(Context other) {
-        return DiffService.getChangedFiles(this, other);
     }
 
     /**

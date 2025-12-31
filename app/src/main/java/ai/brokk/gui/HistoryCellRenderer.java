@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.DiffService;
 import ai.brokk.gui.mop.ThemeColors;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -146,7 +147,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         // Ensure tooltip is visible even though we return a composite panel.
         outerPanel.setToolTipText(historyOutputPanel.buildTooltipWithModel(ctx, actionText));
 
-        List<Context.DiffEntry> diffs = cachedOpt.orElseGet(List::of);
+        List<DiffService.DiffEntry> diffs = cachedOpt.orElseGet(List::of);
         if (!diffs.isEmpty()) {
             boolean isDark = chrome.getTheme().isDarkTheme();
             Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
@@ -157,7 +158,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
             for (int i = 0; i < diffRows.size(); i++) {
                 DiffRow dr = diffRows.get(i);
                 if (i < diffs.size()) {
-                    Context.DiffEntry de = diffs.get(i);
+                    DiffService.DiffEntry de = diffs.get(i);
                     String bareName = computeBareName(de);
 
                     dr.nameLabel.setText(bareName + " ");
@@ -203,7 +204,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
      * Computes a short display name for a diff entry: preferably the filename of the first ProjectFile,
      * or the fragment's shortDescription() as a fallback.
      */
-    private String computeBareName(Context.DiffEntry de) {
+    private String computeBareName(DiffService.DiffEntry de) {
         try {
             var fragment = de.fragment();
             Set<ProjectFile> files = Set.of();

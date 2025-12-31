@@ -386,7 +386,7 @@ public class ContextHistoryTest {
         var prev = history.previousOf(updated);
         assertNotNull(prev, "There must be a previous context to diff against");
 
-        var changedFiles = updated.getChangedFiles(prev);
+        var changedFiles = DiffService.getChangedFiles(updated, prev);
         assertFalse(changedFiles.isEmpty(), "Changed files should not be empty");
         assertTrue(changedFiles.contains(pf), "Changed files should include the modified ProjectFile");
 
@@ -438,7 +438,7 @@ public class ContextHistoryTest {
                 prevOfSecond.id(),
                 "Previous of second should still be the original context (top replaced)");
 
-        var changed = second.getChangedFiles(prevOfSecond);
+        var changed = DiffService.getChangedFiles(second, prevOfSecond);
         assertTrue(changed.contains(pf), "Changed files should include the modified ProjectFile");
     }
 
@@ -492,7 +492,7 @@ public class ContextHistoryTest {
 
         var prev = history.previousOf(updated);
         assertNotNull(prev, "There must be a previous context to diff against");
-        var changed = updated.getChangedFiles(prev);
+        var changed = DiffService.getChangedFiles(updated, prev);
         assertFalse(changed.isEmpty(), "Changed files should not be empty");
         assertTrue(changed.contains(pf), "Changed files should include the modified ProjectFile");
 

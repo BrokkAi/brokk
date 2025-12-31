@@ -5,7 +5,6 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
@@ -287,7 +286,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public void updateContent(
             DiffService.CumulativeChanges res,
-            List<Map.Entry<String, Context.DiffEntry>> prepared,
+            List<Map.Entry<String, DiffService.DiffEntry>> prepared,
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 

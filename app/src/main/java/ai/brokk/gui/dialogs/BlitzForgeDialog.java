@@ -16,6 +16,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
@@ -1701,7 +1702,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 dialogIo.toolError(errorMessage, "Agent Processing Error");
             }
 
-            boolean edited = !tr.context().getChangedFiles(initialContext).isEmpty();
+            boolean edited = !DiffService.getChangedFiles(tr.context(), initialContext).isEmpty();
             String llmOutput = dialogIo.getLlmOutput();
 
             // Optional context filtering

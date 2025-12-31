@@ -9,9 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -200,7 +198,7 @@ public class ContextHistory {
         // "Load external changes" entry to history. This addresses Issue #2062 where
         // Activity showed external-change events with no changed filenames.
         // Note: this may block briefly while diffs are computed; this method is @Blocking.
-        var changedFilesBetween = merged.getChangedFiles(base);
+        var changedFilesBetween = DiffService.getChangedFiles(merged, base);
         if (changedFilesBetween.isEmpty()) {
             return null; // nothing meaningful changed; do not push/replace
         }
