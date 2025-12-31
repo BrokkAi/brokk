@@ -228,7 +228,7 @@ public class PageRankBenchmark implements Callable<Integer> {
         System.out.println();
     }
 
-    private String generateFileContent(int index, List<String> allFileNames, Random random, double edgeProb) {
+    static String generateFileContent(int index, List<String> allFileNames, Random random, double edgeProb) {
         int pkgIdx = index % 10;
         String className = allFileNames.get(index);
 
