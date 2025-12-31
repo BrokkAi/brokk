@@ -10,7 +10,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments.HistoryFragment;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
-import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.WorkspaceTools;
@@ -743,7 +742,14 @@ public class Context {
                 .toList();
 
         if (!removed.isEmpty()) {
+            if (this.fragments.isEmpty()) {
+                return "Dropped all Context";
+            }
             return buildRemoveFragmentsAction(removed);
+        }
+
+        if (previous.taskHistory.size() > this.taskHistory.size() && this.taskHistory.isEmpty()) {
+            return "Cleared Task History";
         }
 
         return "(No changes detected)";
