@@ -22,6 +22,9 @@ public record ContextDelta(
         List<ContextFragment> removedFragments,
         List<TaskEntry> addedTasks,
         boolean clearedHistory,
+        boolean compressedHistory,
+        boolean externalChanges,
+        List<ContextFragments.StringFragment> updatedSpecialFragments,
         @Nullable String descriptionOverride) {
 
     public boolean isEmpty() {
@@ -29,6 +32,9 @@ public record ContextDelta(
                 && removedFragments.isEmpty()
                 && addedTasks.isEmpty()
                 && !clearedHistory
+                && !compressedHistory
+                && !externalChanges
+                && updatedSpecialFragments.isEmpty()
                 && descriptionOverride == null;
     }
 
@@ -42,37 +48,68 @@ public record ContextDelta(
      */
     public static ContextDelta between(@Nullable Context from, Context to) {
         if (from == null) {
-            return new ContextDelta(to.fragments, List.of(), to.taskHistory, false, "");
+            return new ContextDelta(to.fragments, List.of(), to.taskHistory, false, false, false, List.of(), null);
         }
 
-        var previousFragments = Set.copyOf(from.fragments);
-        var currentFragments = Set.copyOf(to.fragments);
-
         var added = to.fragments.stream()
-                .filter(f -> !previousFragments.contains(f))
+                .filter(f -> !from.containsWithSameSource(f))
                 .toList();
 
         var removed = from.fragments.stream()
-                .filter(f -> !currentFragments.contains(f))
+                .filter(f -> !to.containsWithSameSource(f))
                 .toList();
 
         // Task history changes
         var addedTasks = new ArrayList<TaskEntry>();
+        boolean compressedHistory = false;
         if (to.taskHistory.size() > from.taskHistory.size()) {
-            // New tasks were added
             addedTasks.addAll(to.taskHistory.subList(from.taskHistory.size(), to.taskHistory.size()));
+        } else if (to.taskHistory.size() == from.taskHistory.size() && !to.taskHistory.isEmpty()) {
+            // Check if any entries were compressed (isCompressed() is on TaskEntry)
+            for (int i = 0; i < to.taskHistory.size(); i++) {
+                if (to.taskHistory.get(i).isCompressed() && !from.taskHistory.get(i).isCompressed()) {
+                    compressedHistory = true;
+                    break;
+                }
+            }
         }
 
         boolean clearedHistory = from.taskHistory.size() > to.taskHistory.size() && to.taskHistory.isEmpty();
 
-        return new ContextDelta(added, removed, addedTasks, clearedHistory, "");
+        // Check for content changes in existing fragments
+        var updatedSpecials = new ArrayList<ContextFragments.StringFragment>();
+        boolean externalChanges = false;
+        if (added.isEmpty() && removed.isEmpty() && !to.fragments.equals(from.fragments)) {
+            // All fragments have same sources, but contents differ.
+            for (int i = 0; i < to.fragments.size(); i++) {
+                var fTo = to.fragments.get(i);
+                var fFrom = from.fragments.get(i);
+                if (!fTo.equals(fFrom)) {
+                    if (fTo instanceof ContextFragments.StringFragment sf && sf.specialType().isPresent()) {
+                        updatedSpecials.add(sf);
+                    } else {
+                        externalChanges = true;
+                    }
+                }
+            }
+        }
+
+        return new ContextDelta(
+                added,
+                removed,
+                addedTasks,
+                clearedHistory,
+                compressedHistory,
+                externalChanges,
+                updatedSpecials,
+                descriptionOverride);
     }
 
     /**
      * Returns a human-readable description of the changes in this delta.
      */
     public String description() {
-        if (descriptionOverride != null) {
+        if (descriptionOverride != null && !descriptionOverride.isBlank()) {
             return descriptionOverride;
         }
 
@@ -80,44 +117,52 @@ public record ContextDelta(
             return "(No changes)";
         }
 
-        // 1. Prioritize Task History changes
+        // 1. Prioritize New Task History (User/AI turn)
         if (!addedTasks.isEmpty()) {
             TaskEntry latest = addedTasks.getLast();
-            String summary = latest.summary();
-            if (summary != null && !summary.isBlank()) {
-                return summary;
-            }
             var log = latest.log();
             if (log != null) {
                 return log.shortDescription().join();
             }
-        }
-
-        // 2. Fragment delta logic
-        if (!addedFragments.isEmpty()) {
-            return buildAction("Added", addedFragments);
-        }
-
-        if (!removedFragments.isEmpty()) {
-            if (addedFragments.isEmpty() && addedTasks.isEmpty() && !clearedHistory && removedFragments.size() > 0 && isAllFragmentsRemoved()) {
-                return "Dropped all Context";
+            String summary = latest.summary();
+            if (summary != null) {
+                return summary;
             }
-            return buildAction("Removed", removedFragments);
+            return "Task Added";
+        }
+
+        // 2. Aggregate other changes
+        List<String> parts = new ArrayList<>();
+
+        if (compressedHistory) {
+            parts.add("Compressed History");
         }
 
         if (clearedHistory) {
-            return "Cleared Task History";
+            parts.add("Cleared Conversation");
         }
 
-        return "(No changes detected)";
-    }
+        if (!addedFragments.isEmpty()) {
+            parts.add(buildAction("Added", addedFragments));
+        }
 
-    private boolean isAllFragmentsRemoved() {
-        // This is a bit of a hack since we don't have the final size here,
-        // but if the delta says we removed items and didn't add any, and it matches 
-        // a "clear" intent. 
-        // In Context.getDescription it checked if this.fragments.isEmpty().
-        return false; 
+        if (!removedFragments.isEmpty()) {
+            parts.add(buildAction("Removed", removedFragments));
+        }
+
+        for (var sf : updatedSpecialFragments) {
+            parts.add("Updated " + sf.specialType().get().description());
+        }
+
+        if (parts.isEmpty() && externalChanges) {
+            parts.add("Loaded External Changes");
+        }
+
+        if (parts.isEmpty()) {
+            return "(No changes detected)";
+        }
+
+        return String.join("; ", parts);
     }
 
     private String buildAction(String verb, List<ContextFragment> items) {

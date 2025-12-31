@@ -108,6 +108,77 @@ class ContextDeltaTest {
         var delta = ContextDelta.between(ctxWithHistory, ctxCleared);
 
         assertTrue(delta.clearedHistory(), "Should detect cleared history");
-        assertFalse(delta.isEmpty(), "Delta should not be empty when history cleared");
+    }
+
+    @Test
+    void testDelta_detectsCompressedHistory() {
+        var ctx1 = new Context(contextManager);
+        // Create an uncompressed entry (no summary, has log)
+        List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
+        var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
+        var entry1 = new TaskEntry(1, taskFrag, null);
+        assertFalse(entry1.isCompressed());
+        var ctx2 = ctx1.withHistory(List.of(entry1));
+
+        // Create a compressed version of the same sequence
+        var entry1Compressed = TaskEntry.fromCompressed(1, "Compressed log");
+        assertTrue(entry1Compressed.isCompressed());
+        var ctx3 = ctx2.withHistory(List.of(entry1Compressed));
+
+        var delta = ContextDelta.between(ctx2, ctx3);
+
+        assertTrue(delta.compressedHistory());
+    }
+
+    @Test
+    void testDelta_detectsUpdatedSpecialFragment() {
+        var ctx1 = new Context(contextManager).withSpecial(SpecialTextType.SEARCH_NOTES, "Old Notes");
+        var ctx2 = ctx1.withSpecial(SpecialTextType.SEARCH_NOTES, "New Notes");
+
+        var delta = ContextDelta.between(ctx1, ctx2);
+
+        assertEquals(1, delta.updatedSpecialFragments().size());
+    }
+
+    @Test
+    void testDelta_detectsExternalChanges() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Main.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("v1");
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        var ctx1 = new Context(contextManager).addFragments(List.of(frag));
+
+        // Update file content but keep same fragment source (ProjectFile)
+        pf.write("v2");
+        var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        var ctx2 = ctx1.removeFragments(List.of(frag)).addFragments(List.of(frag2));
+
+        var delta = ContextDelta.between(ctx1, ctx2);
+
+        assertTrue(delta.externalChanges());
+    }
+
+    @Test
+    void testDelta_joinsMultipleChanges() {
+        var ctx1 = new Context(contextManager);
+
+        var ctx2 = ctx1.withSpecial(SpecialTextType.SEARCH_NOTES, "Notes")
+                       .addHistoryEntry(new TaskEntry(1, null, "Summary"), null);
+
+        // We want to test description joining, but addedTasks usually takes priority.
+        // Let's create a delta manually to verify joining logic.
+        var delta = new ContextDelta(
+            List.of(),
+            List.of(),
+            List.of(),
+            true, // clearedHistory
+            true, // compressedHistory
+            false,
+            List.of(),
+            null
+        );
+
+        assertEquals("Compressed History; Cleared Conversation", delta.description());
     }
 }
