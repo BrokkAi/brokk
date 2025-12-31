@@ -642,6 +642,19 @@ tasks.register<JavaExec>("runTreeSitterRepoRunner") {
     }
 }
 
+tasks.register<JavaExec>("runPageRankBenchmark") {
+    group = "application"
+    description = "Runs the PageRankBenchmark tool"
+    mainClass.set("ai.brokk.tools.PageRankBenchmark")
+    classpath = sourceSets.test.get().runtimeClasspath
+    jvmArgumentProviders.add(object : CommandLineArgumentProvider {
+        override fun asArguments(): Iterable<String> = listOf("-Xmx4g", "-XX:+UseG1GC")
+    })
+    if (project.hasProperty("args")) {
+        args((project.property("args") as String).split(" "))
+    }
+}
+
 tasks.shadowJar {
     archiveBaseName.set("brokk")
     archiveClassifier.set("")

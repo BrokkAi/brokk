@@ -1525,23 +1525,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
         try (var scope = beginTask(prompt, false, "Task: " + title)) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithScan();
+
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                new GitWorkflow(this).performAutoCommit(prompt);
+                compressHistory(scope.groupId(), scope.groupLabel()); // synchronous
+                var ctx = markTaskDone(result.context(), task, scope.groupId(), scope.groupLabel());
+                pushContext(currentLiveCtx -> ctx);
+                result = result.withContext(ctx);
+            }
         } finally {
             // mirror panel behavior
             checkBalanceAndNotify();
-        }
-
-        if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-            new GitWorkflow(this).performAutoCommit(prompt);
-            compressHistory(); // synchronous
-            var ctx = markTaskDone(result.context(), task);
-            result = result.withContext(ctx);
         }
 
         return result;
     }
 
     /** Replace the given task with its 'done=true' variant. */
-    private Context markTaskDone(Context context, TaskList.TaskItem task) {
+    private Context markTaskDone(
+            Context context, TaskList.TaskItem task, @Nullable UUID groupId, @Nullable String groupLabel) {
         var tasks = context.getTaskListDataOrEmpty().tasks();
 
         // Find index: prefer exact match, fall back to first incomplete task with matching text
@@ -1560,7 +1562,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var updated = new ArrayList<>(tasks);
         updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
         return deriveContextWithTaskList(
-                context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done");
+                        context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done")
+                .withGroup(groupId, groupLabel);
     }
 
     private void captureGitState(Context frozenContext) {
@@ -2163,6 +2166,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
             taskScopeInProgress.set(true);
         }
 
+        public @Nullable UUID groupId() {
+            return groupId;
+        }
+
+        public @Nullable String groupLabel() {
+            return groupLabel;
+        }
+
         /**
          * Appends a TaskResult to the context history and returns updated local context, optionally attaching metadata.
          * If meta is provided and the TaskResult does not already carry metadata, the metadata is attached before
@@ -2224,7 +2235,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             assert !closed.get() : "TaskScope already closed";
             var updated = context.withGroup(groupId, groupLabel);
             pushContext(currentLiveCtx -> updated);
-            io.prepareOutputForNextStream(updated.getTaskHistory()); // is this necessary?
         }
 
         @Override
