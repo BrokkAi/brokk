@@ -195,11 +195,9 @@ public class ContextHistory {
         Context merged = base.removeFragments(toReplace).addFragments(replacements);
 
         // Guard: if refresh produced no actual content differences, avoid adding a no-op
-        // "Load external changes" entry to history. This addresses Issue #2062 where
-        // Activity showed external-change events with no changed filenames.
         // Note: this may block briefly while diffs are computed; this method is @Blocking.
-        var changedFilesBetween = DiffService.getChangedFiles(merged, base);
-        if (changedFilesBetween.isEmpty()) {
+        var delta = ContextDelta.between(base, merged);
+        if (delta.isEmpty()) {
             return null; // nothing meaningful changed; do not push/replace
         }
 

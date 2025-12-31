@@ -13,25 +13,36 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 import java.util.function.Predicate;
 
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.testutil.TestProject;
+import org.jspecify.annotations.NullMarked;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+@NullMarked
 public class HistoryGroupingTest {
+    private IContextManager cm;
 
-    private static final IContextManager CM = new TestContextManager(Path.of("/tmp"), Set.of());
+    @TempDir
+    Path tmpDir;
 
-    private static Context ctx(String description) {
+    @BeforeEach
+    void setUp() {
+        cm = new TestContextManager(new TestProject(tmpDir));
+    }
+
+    private Context ctx(String description) {
         // Create a context with a StringFragment whose shortDescription is the given description
-        var base = new Context(CM);
-        var fragment = new ContextFragments.StringFragment(CM, "content", description, "text");
+        var base = new Context(cm);
+        var fragment = new ContextFragments.StringFragment(cm, "content", description, "text");
         return base.addFragments(fragment);
     }
 
-    private static Context ctxWithGroup(String description, UUID gid, String label) {
+    private Context ctxWithGroup(String description, UUID gid, String label) {
         return ctx(description).withGroup(gid, label);
     }
 
@@ -275,59 +286,53 @@ public class HistoryGroupingTest {
 
     @Test
     public void anonymousGroup_complexGrouping() {
-        // When we add a fragment with description "X", the delta description becomes "Add X"
-        // So grouping extracts the first word "Add" from all of them
-        // 1. Two same words -> "Word x2"
-        var g1 = discover(List.of(ctx("file1"), ctx("file2")), c -> false);
-        assertEquals("Add x2", g1.getFirst().label());
-
-        // 2. Two different first words - need to use remove to get different action
-        // Create base context, then remove from it
-        var base = ctx("fileA");
-        var withTwo = base.addFragments(new ContextFragments.StringFragment(CM, "content", "fileB", "text"));
-        var afterRemove = withTwo.removeFragments(List.of(
-                withTwo.allFragments().filter(f -> f.shortDescription().join().equals("fileA")).findFirst().orElseThrow()));
+        // Build proper chains where each context builds on the previous
+        // Note: The first context (index 0) is skipped as "session start"
         
-        // For simplicity, let's test with descriptions that start with different words
-        // The delta will say "Add <desc>" so we test that Add groups together
-        var g2 = discover(List.of(ctx("fileA"), ctx("fileB")), c -> false);
+        // 1. Two adds -> only 1 description after skipping first, returns just that description
+        var empty1 = new Context(cm);
+        var frag1 = new ContextFragments.StringFragment(cm, "c1", "file1", "text");
+        var c1 = empty1.addFragments(frag1);
+        var frag2 = new ContextFragments.StringFragment(cm, "c2", "file2", "text");
+        var c2 = c1.addFragments(frag2);
+        var g1 = discover(List.of(c1, c2), c -> false);
+        assertEquals("Add file2", g1.getFirst().label());
+
+        // 2. Three adds -> 2 descriptions after skipping first -> "Add x2"
+        var frag3 = new ContextFragments.StringFragment(cm, "c3", "file3", "text");
+        var c3 = c2.addFragments(frag3);
+        var g2 = discover(List.of(c1, c2, c3), c -> false);
         assertEquals("Add x2", g2.getFirst().label());
 
-        // 3. Three same action words -> "Add x3"
-        var g3 = discover(List.of(ctx("fileA"), ctx("fileB"), ctx("fileC")), c -> false);
+        // 3. Four adds -> 3 descriptions after skipping first -> "Add x3"
+        var frag4 = new ContextFragments.StringFragment(cm, "c4", "file4", "text");
+        var c4 = c3.addFragments(frag4);
+        var g3 = discover(List.of(c1, c2, c3, c4), c -> false);
         assertEquals("Add x3", g3.getFirst().label());
-
-        // 4. More contexts
-        var g4 = discover(List.of(ctx("A"), ctx("B"), ctx("C"), ctx("D")), c -> false);
-        assertEquals("Add x4", g4.getFirst().label());
     }
 
     @Test
     public void mixedEntriesGroupCorrectly() {
-        // To get "Add" and "Remove" actions, we need to actually add and remove fragments
         // Build a chain where some contexts add and some remove
+        // The label computation skips index 0 (session start), so we need 4 real actions
 
-        // Start with empty context
-        var empty = new Context(CM);
+        var empty = new Context(cm);
         
-        // Add fragment 1
-        var frag1 = new ContextFragments.StringFragment(CM, "c1", "file1", "text");
+        var frag1 = new ContextFragments.StringFragment(cm, "c1", "file1", "text");
         var ctx1 = empty.addFragments(frag1);
         
-        // Add fragment 2 (from ctx1)
-        var frag2 = new ContextFragments.StringFragment(CM, "c2", "file2", "text");
+        var frag2 = new ContextFragments.StringFragment(cm, "c2", "file2", "text");
         var ctx2 = ctx1.addFragments(frag2);
         
-        // Remove fragment 1 (from ctx2)
         var ctx3 = ctx2.removeFragments(List.of(frag1));
         
-        // Add fragment 3 (from ctx3)
-        var frag3 = new ContextFragments.StringFragment(CM, "c3", "file3", "text");
+        var frag3 = new ContextFragments.StringFragment(cm, "c3", "file3", "text");
         var ctx4 = ctx3.addFragments(frag3);
         
-        // Remove fragment 2 (from ctx4)
         var ctx5 = ctx4.removeFragments(List.of(frag2));
 
+        // ctx1 is at index 0 and gets skipped in label computation
+        // Remaining: ctx2=Add, ctx3=Remove, ctx4=Add, ctx5=Remove -> "Add x2 + Remove x2"
         var contexts = List.of(ctx1, ctx2, ctx3, ctx4, ctx5);
         var groups = discover(contexts, c -> false);
 
@@ -335,6 +340,6 @@ public class HistoryGroupingTest {
         var g = groups.getFirst();
         assertTrue(g.shouldShowHeader());
         assertEquals(5, g.children().size());
-        assertEquals("Add x3 + Remove x2", g.label());
+        assertEquals("Add x2 + Remove x2", g.label());
     }
 }
