@@ -160,7 +160,7 @@ public class ContextHistory {
     }
 
     /**
-     * Push {@code ctx}, select it, and clear redo stack.
+     * Push {@code ctx}, select it, wait some time for async fragments computation to complete, and clear redo stack.
      */
     public synchronized void pushContext(Context ctx) {
         pushContextInternal(ctx, true);
