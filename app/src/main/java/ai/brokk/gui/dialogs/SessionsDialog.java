@@ -5,6 +5,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ContextManager;
 import ai.brokk.SessionRegistry;
+import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -440,7 +441,7 @@ public class SessionsDialog extends BaseThemedDialog {
             Icon iconEmoji = hasAiMessages ? Icons.CHAT_BUBBLE : null;
 
             var actionCv = ctx.getAction(previous);
-            ai.brokk.context.ComputedSubscription.bind(actionCv, activityTable, activityTable::repaint);
+            ComputedSubscription.bind(actionCv, activityTable, activityTable::repaint);
 
             var actionVal = new ai.brokk.gui.HistoryOutputPanel.ActionText(actionCv, 0);
 

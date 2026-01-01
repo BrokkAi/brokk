@@ -25,6 +25,7 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.GlobalUiSettings;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.ChatMessage;
@@ -637,12 +638,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             var contexts = contextManager.getContextHistoryList();
 
-            // (Re)bind computed subscriptions for all contexts and their actions shown in the table.
-            ComputedSubscription.disposeAll(historyTable);
-            for (var ctx1 : contexts) {
-                ctx1.allFragments().forEach(f -> ComputedSubscription.bind(f, historyTable, historyTable::repaint));
-            }
-
             // Diff warm-up is deferred; request diffs only for visible rows and current selection.
             var diffService = contextManager.getContextHistory().getDiffService();
             var resetEdges = contextManager.getContextHistory().getResetEdges();
@@ -664,11 +659,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     Context prev = contextManager.getContextHistory().previousOf(ctx);
                     Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
 
-                    ai.brokk.util.ComputedValue<String> description = resetTargetIds.contains(ctx.id())
+                    ComputedValue<String> description = resetTargetIds.contains(ctx.id())
                             ? ai.brokk.util.ComputedValue.completed("Copy From History")
                             : ctx.getAction(prev);
 
-                    ComputedSubscription.bind(description, historyTable, historyTable::repaint);
+                    ComputedSubscription.bind(description, historyTable, () -> {
+                        historyTable.repaint();
+                    });
                     var actionVal = new ActionText(description, 0);
                     historyModel.addRow(new Object[] {icon, actionVal, ctx});
                     if (ctx.equals(contextToSelect)) {
@@ -1754,6 +1751,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public void showSessionSwitchSpinner() {
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
+            ComputedSubscription.disposeAll(historyTable);
 
             JPanel ssp = sessionSwitchPanel;
             if (ssp == null) {
@@ -2466,7 +2464,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Structural action text + indent data for history table rendering.
      */
-    public record ActionText(ai.brokk.util.ComputedValue<String> text, int indentLevel) {}
+    public record ActionText(ComputedValue<String> text, int indentLevel) {}
 
     private enum PendingSelectionType {
         NONE,
