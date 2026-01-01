@@ -20,6 +20,8 @@ import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableCellRenderer;
+
+import ai.brokk.util.ComputedValue;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -86,6 +88,11 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         if (value instanceof HistoryOutputPanel.ActionText at) {
             actionText = at.text().renderNowOr(Context.SUMMARIZING);
             indentLevel = Math.max(0, at.indentLevel());
+        } else if (value instanceof ComputedValue<?> cv) {
+            @SuppressWarnings("unchecked")
+            var castCv = (ai.brokk.util.ComputedValue<Object>) cv;
+            Object result = castCv.renderNowOr(Context.SUMMARIZING);
+            actionText = result != null ? result.toString() : "";
         } else {
             actionText = value != null ? value.toString() : "";
         }

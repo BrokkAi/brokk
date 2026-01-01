@@ -141,11 +141,8 @@ public final class ComputedValue<T> {
      * Await the value with a bounded timeout. If called on the Swing EDT, returns Optional.empty() immediately.
      * May block the calling thread.
      */
+    @Blocking
     public Optional<T> await(Duration timeout) {
-        if (SwingUtilities.isEventDispatchThread()) {
-            logger.warn("ComputedValue.await() called on Swing EDT for {}", name);
-            return Optional.empty();
-        }
         try {
             var v = futureRef.get(Math.max(0, timeout.toMillis()), TimeUnit.MILLISECONDS);
             //noinspection OptionalOfNullableMisuse (this may in fact be null)

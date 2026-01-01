@@ -688,7 +688,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         });
 
                 var groupRow = new GroupRow(uuidKey, expanded, containsClearHistory);
-                historyModel.addRow(new Object[] {new TriangleIcon(expanded), descriptor.label(), groupRow});
+                var headerLabel = descriptor.label();
+                ComputedSubscription.bind(headerLabel, historyTable, historyTable::repaint);
+
+                historyModel.addRow(new Object[] {new TriangleIcon(expanded), headerLabel, groupRow});
                 currentRow++;
 
                 if (expanded) {

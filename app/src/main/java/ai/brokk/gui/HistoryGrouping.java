@@ -4,6 +4,7 @@ import ai.brokk.context.Context;
 import java.util.*;
 import java.util.function.Predicate;
 
+import ai.brokk.util.ComputedValue;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -55,7 +56,7 @@ public final class HistoryGrouping {
     public record GroupDescriptor(
             GroupType type,
             String key,
-            String label,
+            ComputedValue<String> label,
             List<Context> children,
             boolean shouldShowHeader,
             boolean isLastGroup) {}
@@ -136,20 +137,23 @@ public final class HistoryGrouping {
                             .findFirst()
                             .orElse(null);
 
+                    ComputedValue<String> labelVal = ComputedValue.completed(
+                            preferredLabel != null ? preferredLabel : groupId.toString());
+
                     out.add(new GroupDescriptor(
-                            GroupType.GROUP_BY_ID,
-                            groupId.toString(),
-                            preferredLabel != null ? preferredLabel : groupId.toString(),
-                            children,
-                            true,
-                            false));
+                            GroupType.GROUP_BY_ID, groupId.toString(), labelVal, children, true, false));
                     i = j;
                 } else {
                     // If this item is a boundary and ungrouped, it must not be absorbed into a legacy run.
                     if (isBoundary.test(ctx)) {
                         List<Context> single = List.of(ctx);
                         out.add(new GroupDescriptor(
-                                GroupType.GROUP_BY_ACTION, ctx.id().toString(), "", single, false, false));
+                                GroupType.GROUP_BY_ACTION,
+                                ctx.id().toString(),
+                                ComputedValue.completed(""),
+                                single,
+                                false,
+                                false));
                         i = i + 1;
                         continue;
                     }
@@ -162,72 +166,85 @@ public final class HistoryGrouping {
                     int len = j - i;
                     if (len >= 2) {
                         List<Context> children = contexts.subList(i, j);
-                        String label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
+                        var label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
                         String key = children.get(0).id().toString();
                         out.add(new GroupDescriptor(GroupType.GROUP_BY_ACTION, key, label, children, true, false));
                     } else {
                         // Singleton legacy (no header)
                         List<Context> single = List.of(ctx);
                         out.add(new GroupDescriptor(
-                                GroupType.GROUP_BY_ACTION, ctx.id().toString(), "", single, false, false));
+                                GroupType.GROUP_BY_ACTION,
+                                ctx.id().toString(),
+                                ComputedValue.completed(""),
+                                single,
+                                false,
+                                false));
                     }
                     i = j;
                 }
             }
         }
 
-        private static String computeHeaderLabelFor(List<Context> contexts, int i, int j, Set<UUID> resetTargetIds) {
+        private static ComputedValue<String> computeHeaderLabelFor(
+                List<Context> contexts, int i, int j, Set<UUID> resetTargetIds) {
             int size = j - i;
             assert size > 0 : "%d <= %d".formatted(j, i);
 
+            // If it's a single relevant action, just return that CV directly.
             if (size == 1) {
                 return getDescription(contexts, i, resetTargetIds);
             }
 
-            // skip "session start" in larger list
+            // Skip "session start" in larger list if it's the first item
+            int effectiveStart = i;
+            int effectiveEnd = j;
             if (i == 0) {
-                i++;
-                size--;
-                if (size == 1) {
-                    return getDescription(contexts, i, resetTargetIds);
+                effectiveStart++;
+                if (effectiveEnd - effectiveStart == 1) {
+                    return getDescription(contexts, effectiveStart, resetTargetIds);
                 }
             }
 
-            // Collect first words from each context
-            List<String> words = new ArrayList<>();
-            for (int k = i; k < j; k++) {
-                words.add(safeFirstWord(getDescription(contexts, k, resetTargetIds)));
+            // Map all child descriptions into a single aggregate CV.
+            List<ComputedValue<String>> cvs = new ArrayList<>();
+            for (int k = effectiveStart; k < effectiveEnd; k++) {
+                cvs.add(getDescription(contexts, k, resetTargetIds));
             }
 
-            // Group by word and count occurrences (order-preserving)
-            Map<String, Long> counts = words.stream()
-                    .collect(java.util.stream.Collectors.groupingBy(
-                            w -> w,
-                            LinkedHashMap::new,
-                            java.util.stream.Collectors.counting()));
+            // We combine the futures of all child actions.
+            var futures = cvs.stream().map(ComputedValue::future).toArray(java.util.concurrent.CompletableFuture[]::new);
 
-            List<String> formatted = counts.entrySet().stream()
-                    .map(e -> e.getValue() > 1 ? e.getKey() + " x" + e.getValue() : e.getKey())
-                    .toList();
+            return new ai.brokk.util.ComputedValue<>(
+                    "header-aggregate", java.util.concurrent.CompletableFuture.allOf(futures).thenApply(v -> {
+                        // All are done now. Re-calculate the label using completed strings.
+                        List<String> words = cvs.stream()
+                                .map(cv -> safeFirstWord(cv.renderNowOr(Context.SUMMARIZING)))
+                                .toList();
 
-            if (formatted.size() == 1) {
-                return formatted.getFirst();
-            } else if (formatted.size() == 2) {
-                return formatted.get(0) + " + " + formatted.get(1);
-            } else {
-                return formatted.get(0) + " + more";
-            }
+                        Map<String, Long> counts = words.stream()
+                                .collect(java.util.stream.Collectors.groupingBy(
+                                        w -> w,
+                                        LinkedHashMap::new,
+                                        java.util.stream.Collectors.counting()));
+
+                        List<String> formatted = counts.entrySet().stream()
+                                .map(e -> e.getValue() > 1 ? e.getKey() + " x" + e.getValue() : e.getKey())
+                                .toList();
+
+                        if (formatted.size() == 1) return formatted.getFirst();
+                        if (formatted.size() == 2) return formatted.get(0) + " + " + formatted.get(1);
+                        return formatted.get(0) + " + more";
+                    }));
         }
 
-        private static String getDescription(List<Context> contexts, int index, Set<UUID> resetTargetIds) {
+        private static ComputedValue<String> getDescription(
+                List<Context> contexts, int index, Set<UUID> resetTargetIds) {
             Context ctx = contexts.get(index);
             if (resetTargetIds.contains(ctx.id())) {
-                return "Copy From History";
+                return ComputedValue.completed("Copy From History");
             }
             Context prev = index > 0 ? contexts.get(index - 1) : null;
-            return ctx.getAction(prev)
-                    .await(java.time.Duration.ofSeconds(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS))
-                    .orElse(Context.SUMMARIZING);
+            return ctx.getAction(prev);
         }
 
         private static String safeFirstWord(String text) {
