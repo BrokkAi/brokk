@@ -17,6 +17,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletionException;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -190,41 +192,49 @@ class SessionSynchronizer {
             for (SyncAction action : actions) {
                 UUID id = action.sessionId();
                 try {
-                    switch (action.type()) {
-                        case DELETE_REMOTE -> {
-                            callbacks.deleteRemoteSession(id);
-                            // Delete tombstone after successful remote delete
-                            Path tombstone = sessionsDir.resolve(id + ".tombstone");
-                            Files.deleteIfExists(tombstone);
-                            result.succeeded.add(id);
-                            logger.debug("Deleted session {} from remote via tombstone", id);
-                        }
-                        case DELETE_LOCAL -> {
-                            if (isLocalModified(action, result)) continue;
-                            
-                            ContextManager cm = openContextManagers.get(id);
-                            deleteLocalSession(id);
-                            if (cm != null) {
-                                cm.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).join();
+                    sessionManager.getSessionExecutorByKey().submit(id.toString(), (Callable<Void>) () -> {
+                        switch (action.type()) {
+                            case DELETE_REMOTE -> {
+                                callbacks.deleteRemoteSession(id);
+                                // Delete tombstone after successful remote delete
+                                Path tombstone = sessionsDir.resolve(id + ".tombstone");
+                                Files.deleteIfExists(tombstone);
+                                result.succeeded.add(id);
+                                logger.debug("Deleted session {} from remote via tombstone", id);
                             }
-                            result.succeeded.add(id);
-                        }
-                        case DOWNLOAD -> {
-                            if (isLocalModified(action, result)) continue;
+                            case DELETE_LOCAL -> {
+                                if (isLocalModified(action, result)) return null;
 
-                            downloadSession(id, callbacks);
-                            ContextManager cm = openContextManagers.get(id);
-                            if (cm != null) {
-                                cm.reloadCurrentSessionAsync();
+                                ContextManager cm = openContextManagers.get(id);
+                                deleteLocalSession(id);
+                                if (cm != null) {
+                                    cm.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).join();
+                                }
+                                result.succeeded.add(id);
                             }
-                            result.succeeded.add(id);
+                            case DOWNLOAD -> {
+                                if (isLocalModified(action, result)) return null;
+
+                                downloadSession(id, callbacks);
+                                ContextManager cm = openContextManagers.get(id);
+                                if (cm != null) {
+                                    cm.reloadCurrentSessionAsync();
+                                }
+                                result.succeeded.add(id);
+                            }
+                            case UPLOAD -> {
+                                uploadSession(id, remoteProject, callbacks);
+                                result.succeeded.add(id);
+                            }
+                            case NO_OP -> {}
                         }
-                        case UPLOAD -> {
-                            uploadSession(id, remoteProject, callbacks);
-                            result.succeeded.add(id);
-                        }
-                        case NO_OP -> {}
-                    }
+                        return null;
+                    }).join();
+                } catch (CompletionException e) {
+                    Throwable cause = e.getCause();
+                    Exception ex = (cause instanceof Exception) ? (Exception) cause : new Exception(cause);
+                    result.failed.put(id, ex);
+                    logger.warn("Action {} failed for session {}: {}", action.type(), id, ex.getMessage());
                 } catch (Exception e) {
                     result.failed.put(id, e);
                     logger.warn("Action {} failed for session {}: {}", action.type(), id, e.getMessage());
