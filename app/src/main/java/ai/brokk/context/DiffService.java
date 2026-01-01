@@ -23,6 +23,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Computes and caches diffs between consecutive history entries using a live-context, non-blocking async model.
+ * This is *only* suitable for displaying diffs of files changed on disk! If you want instead to answer the question of
+ * "did *anything* change between these two Contexts" then you should use ContextDelta instead.
  *
  * <p>Uses a global bounded cache of (prev, curr) context pairs to avoid redundant computations across sessions.
  * This service materializes computed values asynchronously as needed via
