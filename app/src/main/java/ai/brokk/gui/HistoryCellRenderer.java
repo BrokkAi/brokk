@@ -84,7 +84,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         int indentLevel = 0;
         String actionText;
         if (value instanceof HistoryOutputPanel.ActionText at) {
-            actionText = at.text();
+            actionText = at.text().renderNowOr(Context.SUMMARIZING);
             indentLevel = Math.max(0, at.indentLevel());
         } else {
             actionText = value != null ? value.toString() : "";

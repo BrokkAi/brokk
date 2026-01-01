@@ -637,7 +637,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             var contexts = contextManager.getContextHistoryList();
 
-            // (Re)bind computed fragment subscriptions for all contexts shown in the table.
+            // (Re)bind computed subscriptions for all contexts and their actions shown in the table.
             ComputedSubscription.disposeAll(historyTable);
             for (var ctx1 : contexts) {
                 ctx1.allFragments().forEach(f -> ComputedSubscription.bind(f, historyTable, historyTable::repaint));
@@ -664,10 +664,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     Context prev = contextManager.getContextHistory().previousOf(ctx);
                     Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
 
-                    String description = resetTargetIds.contains(ctx.id())
-                            ? "Copy From History"
-                            : ctx.getAction(prev);
+                    ai.brokk.util.ComputedValue<String> description = resetTargetIds.contains(ctx.id())
+                            ? ai.brokk.util.ComputedValue.completed("Copy From History")
+                            : ctx.getActionComputed(prev);
 
+                    ComputedSubscription.bind(description, historyTable, historyTable::repaint);
                     var actionVal = new ActionText(description, 0);
                     historyModel.addRow(new Object[] {icon, actionVal, ctx});
                     if (ctx.equals(contextToSelect)) {
@@ -696,7 +697,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 if (expanded) {
                     for (Context child : children) {
                         Context prev = contextManager.getContextHistory().previousOf(child);
-                        var childAction = new ActionText(child.getAction(prev), 1);
+                        var childDesc = child.getActionComputed(prev);
+                        ComputedSubscription.bind(childDesc, historyTable, historyTable::repaint);
+                        var childAction = new ActionText(childDesc, 1);
                         Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
                         historyModel.addRow(new Object[] {childIcon, childAction, child});
                         if (child.equals(contextToSelect)) {
@@ -2129,7 +2132,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             // Retrieve the action value from column 1; derive indent level from ActionText if present
             Object actionVal = table.getModel().getValueAt(row, 1);
-            Object actionForCheck = (actionVal instanceof ActionText atTmp) ? atTmp.text() : actionVal;
+            Object actionForCheck = (actionVal instanceof ActionText atTmp)
+                    ? atTmp.text().renderNowOr(Context.SUMMARIZING)
+                    : actionVal;
 
             // Detect group header rows from column 2
             Object contextCol2 = table.getModel().getValueAt(row, 2);
@@ -2163,7 +2168,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     String actionText;
                     Object col1 = table.getModel().getValueAt(row, 1);
                     if (col1 instanceof ActionText at2) {
-                        actionText = at2.text();
+                        actionText = at2.text().renderNowOr(Context.SUMMARIZING);
                     } else {
                         actionText = (col1 != null) ? col1.toString() : "";
                     }
@@ -2458,7 +2463,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
 
     // Structural action text + indent data for column 1 (Option A)
-    record ActionText(String text, int indentLevel) {}
+    record ActionText(ai.brokk.util.ComputedValue<String> text, int indentLevel) {}
 
     private enum PendingSelectionType {
         NONE,
