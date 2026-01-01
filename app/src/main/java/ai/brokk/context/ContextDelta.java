@@ -126,121 +126,88 @@ public record ContextDelta(
         if (sessionReset) {
             return ComputedValue.completed(DROPPED_ALL_CONTEXT);
         }
-
         if (isEmpty()) {
             return ComputedValue.completed("(No changes)");
         }
 
-        // 1. Prioritize New Task History (User/AI turn)
-        if (!addedTasks.isEmpty()) {
-            TaskEntry latest = addedTasks.getLast();
-            String prefix = (latest.meta() == null || latest.meta().type() == TaskResult.Type.CONTEXT)
-                    ? "" : latest.meta().type().displayName() + ": ";
-            String taskText;
-            if (latest.isCompressed()) {
-                taskText = requireNonNull(latest.summary());
-            } else {
-                taskText = requireNonNull(latest.log()).shortDescription;
-            }
-
-            String cacheKey;
-            try {
-                byte[] hash = MessageDigest.getInstance("SHA-256").digest(taskText.getBytes(StandardCharsets.UTF_8));
-                cacheKey = "action_" + HexFormat.of().formatHex(hash);
-            } catch (NoSuchAlgorithmException e) {
-                throw new RuntimeException(e);
-            }
-
-            var cache = icm.getProject().getDiskCache();
-            var executor = ExecutorServiceUtil.newVirtualThreadExecutor("delta-cache-", 1);
-            return new ComputedValue<>(CompletableFuture.supplyAsync(() -> cache.get(cacheKey), executor)
-                    .thenApply(cachedOpt -> {
-                        if (cachedOpt.isPresent()) {
-                            return prefix + cachedOpt.get();
-                        }
-                        // Truncate task text as a simple summary fallback
-                        String summary = taskText.length() > 80 
-                                ? taskText.substring(0, 77) + "..." 
-                                : taskText;
-                        // Remove newlines for single-line display
-                        summary = summary.replace('\n', ' ').replace('\r', ' ');
-                        cache.put(cacheKey, summary);
-                        return prefix + summary;
-                    })
-                    .whenComplete((r, e) -> executor.shutdown()));
-        }
-
-        // 2. Aggregate other changes asynchronously
-        var executor = ai.brokk.util.ExecutorServiceUtil.newVirtualThreadExecutor("delta-desc-", 4);
-
-        List<CompletableFuture<String>> futures = new ArrayList<>();
-
-        if (compressedHistory) {
-            futures.add(CompletableFuture.completedFuture("Compress History"));
-        }
-
-        if (clearedHistory) {
-            futures.add(CompletableFuture.completedFuture(CLEARED_TASK_HISTORY));
-        }
-
-        if (!addedFragments.isEmpty()) {
-            futures.add(buildActionAsync("Add", addedFragments).future());
-        }
-
-        if (!removedFragments.isEmpty()) {
-            futures.add(buildActionAsync("Remove", removedFragments).future());
-        }
-
-        for (var sf : updatedSpecialFragments) {
-            String desc = sf.specialType().get().description();
-            futures.add(CompletableFuture.completedFuture("Update " + desc));
-        }
-
-        if (futures.isEmpty() && contentsChanged) {
-            futures.add(CompletableFuture.completedFuture("Load External Changes"));
-        }
-
-        if (futures.isEmpty()) {
-            executor.shutdown();
-            return ComputedValue.completed("(No changes detected)");
-        }
-
-        CompletableFuture<String> combined = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .thenApplyAsync(v -> {
-                    List<String> results = futures.stream()
-                            .map(f -> f.getNow(null))
-                            .toList();
-                    return String.join("; ", results);
-                }, executor)
-                .whenComplete((r, e) -> executor.shutdown());
-
-        return new ComputedValue<>(combined);
+        var executor = ExecutorServiceUtil.newVirtualThreadExecutor("delta-desc-", 1);
+        return new ComputedValue<>(
+                CompletableFuture.supplyAsync(() -> descriptionInternal(icm), executor)
+                        .whenComplete((r, e) -> executor.shutdown()));
     }
 
-    private ComputedValue<String> buildActionAsync(String verb, List<ContextFragment> items) {
-        int count = items.size();
-        List<CompletableFuture<String>> shortDescFutures = items.stream()
+    @Blocking
+    private String descriptionInternal(IContextManager icm) {
+        // Prioritize task history (user/AI turn)
+        if (!addedTasks.isEmpty()) {
+            return buildTaskDescription(addedTasks.getLast(), icm);
+        }
+
+        // Aggregate other changes
+        var parts = new ArrayList<String>();
+
+        if (compressedHistory) {
+            parts.add("Compress History");
+        }
+        if (clearedHistory) {
+            parts.add(CLEARED_TASK_HISTORY);
+        }
+        if (!addedFragments.isEmpty()) {
+            parts.add(buildActionDescription("Add", addedFragments));
+        }
+        if (!removedFragments.isEmpty()) {
+            parts.add(buildActionDescription("Remove", removedFragments));
+        }
+        for (var sf : updatedSpecialFragments) {
+            parts.add("Update " + sf.specialType().get().description());
+        }
+        if (parts.isEmpty() && contentsChanged) {
+            parts.add("Load External Changes");
+        }
+
+        return parts.isEmpty() ? "(No changes detected)" : String.join("; ", parts);
+    }
+
+    @Blocking
+    private String buildTaskDescription(TaskEntry entry, IContextManager icm) {
+        String prefix = (entry.meta() == null || entry.meta().type() == TaskResult.Type.CONTEXT)
+                ? "" : entry.meta().type().displayName() + ": ";
+
+        String taskText = entry.isCompressed()
+                ? requireNonNull(entry.summary())
+                : requireNonNull(entry.log()).shortDescription;
+
+        String cacheKey;
+        try {
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(taskText.getBytes(StandardCharsets.UTF_8));
+            cacheKey = "action_" + HexFormat.of().formatHex(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+
+        return icm.getProject().getDiskCache().computeIfAbsent(cacheKey, () -> {
+            String summary = taskText.length() > 80
+                    ? taskText.substring(0, 77) + "..."
+                    : taskText;
+            return prefix + summary.replace('\n', ' ').replace('\r', ' ');
+        });
+    }
+
+    @Blocking
+    private String buildActionDescription(String verb, List<ContextFragment> items) {
+        var descriptions = items.stream()
                 .limit(2)
-                .map(f -> f.shortDescription().future())
+                .map(f -> f.shortDescription().join())
                 .toList();
 
-        CompletableFuture<String> result = CompletableFuture.allOf(shortDescFutures.toArray(new CompletableFuture[0]))
-                .thenApply(v -> {
-                    var descriptions = shortDescFutures.stream()
-                            .map(f -> f.getNow(null))
-                            .toList();
+        if (items.size() == 1) {
+            return verb + " " + descriptions.getFirst();
+        }
 
-                    if (count == 1) {
-                        return verb + " " + descriptions.getFirst();
-                    }
-
-                    var message = verb + " " + String.join(", ", descriptions);
-                    if (count > 2) {
-                        message += ", " + (count - 2) + " more";
-                    }
-                    return message;
-                });
-
-        return new ComputedValue<>(result);
+        String message = verb + " " + String.join(", ", descriptions);
+        if (items.size() > 2) {
+            message += ", " + (items.size() - 2) + " more";
+        }
+        return message;
     }
 }
