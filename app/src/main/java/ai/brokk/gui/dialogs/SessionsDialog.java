@@ -438,9 +438,13 @@ public class SessionsDialog extends BaseThemedDialog {
                     && ctx.getParsedOutput().messages().stream()
                             .anyMatch(chatMessage -> chatMessage.type() == ChatMessageType.AI);
             Icon iconEmoji = hasAiMessages ? Icons.CHAT_BUBBLE : null;
+
+            var actionCv = ctx.getActionComputed(previous);
+            ai.brokk.context.ComputedSubscription.bind(actionCv, activityTable, activityTable::repaint);
+
             activityTableModel.addRow(new Object[] {
                 iconEmoji,
-                ctx.getAction(previous),
+                actionCv.renderNowOr(Context.SUMMARIZING),
                 ctx // Store the actual context object in hidden column
             });
             previous = ctx;
