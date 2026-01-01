@@ -87,9 +87,10 @@ public final class ContextExplorer extends JFrame {
         sessionsTable.setBorder(new EmptyBorder(5, 5, 5, 5));
         sessionsTable.setRowSorter(sessionsSorter);
         // Configure sorting: numeric for task count, by distinct type count for types
-        sessionsSorter.setComparator(1, Comparator.comparingInt(o -> (Integer) o));
-        sessionsSorter.setComparator(0, Comparator.comparing(String::valueOf));
-        sessionsSorter.setComparator(2, Comparator.comparingInt(o -> {
+        sessionsSorter.setComparator(0, Comparator.comparing(String::valueOf)); // Name
+        sessionsSorter.setComparator(1, Comparator.comparing(String::valueOf)); // ID
+        sessionsSorter.setComparator(2, Comparator.comparingInt(o -> (Integer) o)); // Task Count
+        sessionsSorter.setComparator(3, Comparator.comparingInt(o -> {
             String types = (String) o;
             return types.isEmpty()
                     ? 0
@@ -98,9 +99,10 @@ public final class ContextExplorer extends JFrame {
         sessionsTable.getTableHeader().setReorderingAllowed(false);
         // Column widths
         var colModel = sessionsTable.getColumnModel();
-        colModel.getColumn(0).setPreferredWidth(140); // ID
-        colModel.getColumn(1).setPreferredWidth(80); // Task Count
-        colModel.getColumn(2).setPreferredWidth(220); // Types
+        colModel.getColumn(0).setPreferredWidth(120); // Name
+        colModel.getColumn(1).setPreferredWidth(100); // ID
+        colModel.getColumn(2).setPreferredWidth(80); // Task Count
+        colModel.getColumn(3).setPreferredWidth(200); // Types
         var leftScroll = new JScrollPane(sessionsTable);
         leftScroll.setMinimumSize(new Dimension(300, 0));
 
@@ -313,10 +315,12 @@ public final class ContextExplorer extends JFrame {
 
                 List<TableRow> rows = new ArrayList<>();
                 int contextIndex = 1;
+                Context previous = null;
                 for (var ctx : ch.getHistory()) {
                     int historyEntries = ctx.getTaskHistory().size();
                     int historyLines = countTaskHistoryLines(ctx);
-                    var header = new HeaderRow(contextIndex, ctx.id(), safeAction(ctx), historyEntries, historyLines);
+                    var header = new HeaderRow(
+                            contextIndex, ctx.id(), safeAction(ctx, previous), historyEntries, historyLines);
                     rows.add(header);
 
                     for (var fragment : ctx.allFragments().toList()) {
@@ -332,6 +336,7 @@ public final class ContextExplorer extends JFrame {
                         rows.add(new FragmentRow(ctx.id(), parsed, lines));
                     }
 
+                    previous = ctx;
                     contextIndex++;
                 }
                 return rows;
@@ -363,14 +368,8 @@ public final class ContextExplorer extends JFrame {
         }.execute();
     }
 
-    private static String safeAction(Context ctx) {
-        try {
-            // Context.getAction() already handles Future completion with a timeout
-            return ctx.getAction();
-        } catch (Exception e) {
-            logger.warn("Error getting action for context {}: {}", ctx.id(), e.getMessage());
-            return "(Summary Unavailable)";
-        }
+    private static String safeAction(Context ctx, @Nullable Context previous) {
+        return ctx.getAction(previous).join();
     }
 
     private static boolean safeIsText(ContextFragment f) {
@@ -756,7 +755,7 @@ public final class ContextExplorer extends JFrame {
 
     private static final class SessionTableModel extends AbstractTableModel {
         private final List<SessionRow> rows = new ArrayList<>();
-        private static final String[] COLUMN_NAMES = {"ID", "Task Count", "Types"};
+        private static final String[] COLUMN_NAMES = {"Name", "ID", "Task Count", "Types"};
 
         public void setSessions(List<SessionManager.SessionInfo> sessions) {
             rows.clear();
@@ -808,8 +807,9 @@ public final class ContextExplorer extends JFrame {
         public Class<?> getColumnClass(int columnIndex) {
             return switch (columnIndex) {
                 case 0 -> String.class;
-                case 1 -> Integer.class;
-                case 2 -> String.class;
+                case 1 -> String.class;
+                case 2 -> Integer.class;
+                case 3 -> String.class;
                 default -> Object.class;
             };
         }
@@ -823,9 +823,10 @@ public final class ContextExplorer extends JFrame {
         public Object getValueAt(int rowIndex, int columnIndex) {
             var row = rows.get(rowIndex);
             return switch (columnIndex) {
-                case 0 -> row.info().id().toString();
-                case 1 -> row.taskCount();
-                case 2 -> row.types();
+                case 0 -> row.info().name();
+                case 1 -> row.info().id().toString();
+                case 2 -> row.taskCount();
+                case 3 -> row.types();
                 default -> "";
             };
         }

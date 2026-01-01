@@ -25,6 +25,7 @@ import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.PathNormalizer;
+import ai.brokk.util.StringDiskCache;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
@@ -71,7 +72,7 @@ public final class MainProject extends AbstractProject {
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     @Nullable
-    private volatile DiskLruCache diskCache = null;
+    private volatile StringDiskCache diskCache = null;
 
     private final DependencyUpdateScheduler dependencyUpdateScheduler;
 
@@ -228,14 +229,15 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public synchronized DiskLruCache getDiskCache() {
+    public synchronized StringDiskCache getDiskCache() {
         if (diskCache != null) {
             return diskCache;
         }
         var cacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve("cache");
         try {
             Files.createDirectories(cacheDir);
-            diskCache = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+            DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+            diskCache = new StringDiskCache(dlc);
             logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
             return diskCache;
         } catch (IOException e) {

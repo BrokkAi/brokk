@@ -13,6 +13,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -184,7 +185,7 @@ public class ArchitectAgent {
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
         context = scope.append(result);
-        var changedFiles = context.getChangedFiles(initialContext);
+        var changedFiles = DiffService.getChangedFiles(context, initialContext);
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
             var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
@@ -310,7 +311,7 @@ public class ArchitectAgent {
         if (messages.isEmpty()) {
             return;
         }
-        context = scope.append(resultWithMessages(StopReason.SUCCESS, "Architect planned for: " + goal));
+        context = scope.append(resultWithMessages(StopReason.SUCCESS, goal));
     }
 
     @Tool(

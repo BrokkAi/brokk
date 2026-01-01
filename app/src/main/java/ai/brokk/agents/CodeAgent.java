@@ -178,7 +178,7 @@ public class CodeAgent {
 
         // Create Coder instance with the user's input as the task description
         var coder = contextManager.getLlm(
-                new Llm.Options(model, "Code: " + userInput).withEcho().withPartialResponses());
+                new Llm.Options(model, userInput).withEcho().withPartialResponses());
         coder.setOutput(io);
 
         // Track changed files
@@ -467,8 +467,7 @@ public class CodeAgent {
         var meta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
 
-        var tr = new TaskResult(
-                contextManager, "Code: " + finalActionDescription, finalMessages, context, stopDetails, meta);
+        var tr = new TaskResult(contextManager, finalActionDescription, finalMessages, context, stopDetails, meta);
         logger.debug("Task result: {}", tr);
         return tr;
     }

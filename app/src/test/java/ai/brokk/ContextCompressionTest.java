@@ -279,7 +279,7 @@ public class ContextCompressionTest {
 
         var taskItem = new TaskList.TaskItem("Test title", "Test task text", false);
         var taskListData = new TaskList.TaskListData(List.of(taskItem));
-        cm.pushContext(ctx -> ctx.withTaskList(taskListData, "Add task"));
+        cm.pushContext(ctx -> ctx.withTaskList(taskListData));
 
         // Add an UNCOMPRESSED entry so compressHistory must do work and push a new context.
         List<ChatMessage> msgs = List.of(UserMessage.from("test request"), AiMessage.from("test response"));
@@ -324,7 +324,7 @@ public class ContextCompressionTest {
 
         var taskItem = new TaskList.TaskItem("Test title", "Test task text", false);
         var taskListData = new TaskList.TaskListData(List.of(taskItem));
-        cm.pushContext(ctx -> ctx.withTaskList(taskListData, "Add task"));
+        cm.pushContext(ctx -> ctx.withTaskList(taskListData));
 
         UUID groupId = UUID.randomUUID();
         String groupLabel = "Task Execution Group";
@@ -340,8 +340,7 @@ public class ContextCompressionTest {
                 groupLabel, ctxBeforeMarkDone.getGroupLabel(), "Context should have groupLabel before markTaskDone");
 
         var updatedTasks = List.of(new TaskList.TaskItem("Test title", "Test task text", true));
-        var updatedCtx = cm.deriveContextWithTaskList(
-                        ctxBeforeMarkDone, new TaskList.TaskListData(updatedTasks), "Mark task done")
+        var updatedCtx = cm.deriveContextWithTaskList(ctxBeforeMarkDone, new TaskList.TaskListData(updatedTasks))
                 .withGroup(groupId, groupLabel);
         cm.pushContext(currentLiveCtx -> updatedCtx);
 

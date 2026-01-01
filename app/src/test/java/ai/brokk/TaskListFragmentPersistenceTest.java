@@ -33,7 +33,7 @@ public class TaskListFragmentPersistenceTest {
                 List.of(new TaskList.TaskItem("Do A", "Do A", false), new TaskList.TaskItem("Do B", "Do B", true)));
 
         // When: we apply the Task List via Context API and push into history
-        var after = initial.withTaskList(data, "Task list created");
+        var after = initial.withTaskList(data);
 
         // Then: Top context should include a Task List StringFragment with JSON content
         Optional<ContextFragments.StringFragment> fragOpt = after.getTaskListFragment();
@@ -45,10 +45,6 @@ public class TaskListFragmentPersistenceTest {
 
         var expectedJson = Json.getMapper().writeValueAsString(data);
         assertEquals(expectedJson, frag.text().join(), "Fragment JSON should match serialized TaskListData");
-
-        // And: the action should contain "Task list"
-        String action = after.getAction();
-        assertTrue(action.toLowerCase().contains("task list"), "Action string should contain 'Task list'");
 
         // And: Context.getTaskListDataOrEmpty should deserialize the same structure
         var parsed = after.getTaskListDataOrEmpty();

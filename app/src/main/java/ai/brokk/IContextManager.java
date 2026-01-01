@@ -266,4 +266,9 @@ public interface IContextManager {
     default void compressHistory(@Nullable UUID groupId, @Nullable String groupLabel) throws InterruptedException {
         compressHistory();
     }
+
+    @Blocking
+    default CompletableFuture<String> summarizeTaskForConversation(String taskText) {
+        throw new UnsupportedOperationException();
+    }
 }

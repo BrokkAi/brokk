@@ -24,6 +24,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.imageio.ImageIO;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -449,11 +450,9 @@ public class SessionManagerTest {
                     dev.langchain4j.data.message.UserMessage.from("Query " + i),
                     dev.langchain4j.data.message.AiMessage.from("Response " + i));
             var tf = new ContextFragments.TaskFragment(mockContextManager, msgs, "Task " + i);
-            var ctx = new Context(mockContextManager)
-                    .addHistoryEntry(
-                            new TaskEntry(i + 1, tf, null),
-                            tf,
-                            java.util.concurrent.CompletableFuture.completedFuture("action" + i));
+            Context context = new Context(mockContextManager);
+            CompletableFuture.completedFuture("action" + i);
+            var ctx = context.addHistoryEntry(new TaskEntry(i + 1, tf, null), tf);
             history.pushContext(ctx);
         }
 

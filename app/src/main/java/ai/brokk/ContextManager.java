@@ -20,6 +20,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextFragments.PathFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
+import ai.brokk.context.DiffService;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
@@ -860,9 +861,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Clear conversation history and task list. */
     public void clearHistory() {
-        pushContext(currentLiveCtx -> currentLiveCtx
-                .clearHistory()
-                .withTaskList(new TaskList.TaskListData(List.of()), "Clear task history and tasks"));
+        pushContext(currentLiveCtx -> currentLiveCtx.clearHistory().withTaskList(new TaskList.TaskListData(List.of())));
     }
 
     /** Clear conversation history only, preserving the task list. */
@@ -905,8 +904,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Drops a single history entry by its sequence number. If the sequence is not found in the current top context's
      * history, this is a no-op.
      *
-     * <p>Creates a new context state with: - updated task history (with the entry removed), - null parsedOutput, - and
-     * action set to "Dropped message".
+     * <p>Creates a new context state with: - updated task history (with the entry removed), and - null parsedOutput.
      *
      * <p>Special behavior: - sequence == -1 means "drop the last item of the history"
      *
@@ -930,9 +928,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        // Push an updated context with the modified history and a "Delete message" action
-        pushContext(currentLiveCtx ->
-                currentLiveCtx.withHistory(newHistory).withParsedOutput(null, "Delete task from history"));
+        // Push an updated context with the modified history
+        pushContext(currentLiveCtx -> currentLiveCtx.withHistory(newHistory).withParsedOutput(null));
 
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + seqToDrop);
     }
@@ -1017,7 +1014,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return submitExclusiveAction(() -> {
             var newLive = Context.createFrom(
                             targetContext, liveContext(), liveContext().getTaskHistory())
-                    .copyAndRefresh("Copy from History");
+                    .copyAndRefresh();
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
@@ -1033,7 +1030,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToIncludingHistoryAsync(Context targetContext) {
         return submitExclusiveAction(() -> {
             var newLive = Context.createFrom(targetContext, liveContext(), targetContext.getTaskHistory())
-                    .copyAndRefresh("Copy from History");
+                    .copyAndRefresh();
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
@@ -1425,23 +1422,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (items.isEmpty()) {
             // If no valid tasks provided, clear the task list
             var newData = new TaskList.TaskListData(List.of());
-            return deriveContextWithTaskList(context, newData, "Task list cleared");
+            return deriveContextWithTaskList(context, newData);
         }
 
         var newData = new TaskList.TaskListData(List.copyOf(items));
-        return deriveContextWithTaskList(context, newData, "Task list replaced");
+        return deriveContextWithTaskList(context, newData);
     }
 
     /**
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    public Context setTaskList(TaskList.TaskListData data, String action) {
-        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
+    public Context setTaskList(TaskList.TaskListData data) {
+        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
     }
 
-    public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data, String action) {
-        return context.withTaskList(data, action);
+    public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data) {
+        return context.withTaskList(data);
     }
 
     private void finalizeSessionActivation(UUID sessionId) {
@@ -1488,7 +1485,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // if not, migrate from legacy tasklist.json
             var legacy = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
             if (!legacy.tasks().isEmpty()) {
-                pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(legacy, "Task list migrated"));
+                pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(legacy));
                 // Migration succeeded: drop legacy tasklist.json and log
                 logger.debug("Migrated task list from legacy storage for session {}", sessionId);
                 project.getSessionManager().deleteTaskList(sessionId);
@@ -1561,8 +1558,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var updated = new ArrayList<>(tasks);
         updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
-        return deriveContextWithTaskList(
-                        context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done")
+        return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)))
                 .withGroup(groupId, groupLabel);
     }
 
@@ -1678,6 +1674,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private final ConcurrentMap<Callable<?>, String> taskDescriptions = new ConcurrentHashMap<>();
 
+    @Override
     public CompletableFuture<String> summarizeTaskForConversation(String input) {
         var future = new CompletableFuture<String>();
 
@@ -2194,20 +2191,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // If there is literally nothing to record (no messages and no content changes), skip
             if (result.output().messages().isEmpty()) {
                 // Treat result.context() as new (right) and current topContext() as old (left)
-                var diffs = result.context().getDiff(liveContext());
+                Context other = liveContext();
+                var diffs = DiffService.computeDiff(result.context(), other);
                 if (diffs.isEmpty()) {
                     logger.debug("Empty TaskResult (no messages and no content changes)");
                     return result.context();
                 }
             }
 
-            var action = result.actionDescription();
-            logger.debug("Adding session result to history. Action: '{}', Reason: {}", action, result.stopDetails());
-
-            var actionFuture = summarizeTaskForConversation(action).thenApply(r -> {
-                io.postSummarize();
-                return r;
-            });
+            logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
 
             // optionally compress
             var updated = result.context().withGroup(groupId, groupLabel);
@@ -2216,8 +2208,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(finalEntry, result.output(), actionFuture)
-                        .withGroup(groupId, groupLabel);
+                return updated.addHistoryEntry(finalEntry, result.output()).withGroup(groupId, groupLabel);
             });
 
             // prepare MOP to display new history with the next streamed message
@@ -2349,7 +2340,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = newContextFrom(sourceContext).copyAndRefresh("Load External Changes");
+        var ctx = newContextFrom(sourceContext).copyAndRefresh();
 
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
@@ -2370,7 +2361,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     logger.debug(
                             "Attempting to create and switch to new session '{}' from workspace of context '{}'",
                             newSessionName,
-                            sourceContext.getAction());
+                            sourceContext.id());
 
                     var sessionManager = project.getSessionManager();
                     // 1. Create new session info
@@ -2381,7 +2372,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // 2. Create the initial context for the new session.
                     // Only its top-level action/parsedOutput will be changed to reflect it's a new session.
                     var initialContextForNewSession =
-                            newContextFrom(sourceContext).copyAndRefresh("Load External Changes");
+                            newContextFrom(sourceContext).copyAndRefresh();
 
                     // 3. Initialize the ContextManager's history for the new session with this single context.
                     // Context should already be live from migration logic
@@ -2403,11 +2394,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** returns a new Context based on the source one */
     private Context newContextFrom(Context sourceContext) {
-        var newActionDescription = "New session (from: " + sourceContext.getAction() + ")";
-        var newActionFuture = CompletableFuture.completedFuture(newActionDescription);
+        var newActionDescription = "New Session";
         var newParsedOutputFragment = new ContextFragments.TaskFragment(
                 this, List.of(SystemMessage.from(newActionDescription)), newActionDescription);
-        return sourceContext.withParsedOutput(newParsedOutputFragment, newActionFuture);
+        return sourceContext.withParsedOutput(newParsedOutputFragment);
     }
 
     /**

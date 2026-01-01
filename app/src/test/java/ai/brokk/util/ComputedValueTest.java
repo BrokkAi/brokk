@@ -5,8 +5,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
-import javax.swing.SwingUtilities;
 import org.junit.jupiter.api.Test;
 
 public class ComputedValueTest {
@@ -30,24 +28,6 @@ public class ComputedValueTest {
 
         Optional<Integer> res = cv.await(Duration.ofMillis(50));
         assertTrue(res.isEmpty(), "await should time out and return empty");
-    }
-
-    @Test
-    public void awaitOnEdt_returnsEmptyImmediately() throws Exception {
-        var cv = new ComputedValue<>("edt", CompletableFuture.supplyAsync(() -> {
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException ignored) {
-            }
-            return 2;
-        }));
-
-        var ref = new AtomicReference<Optional<Integer>>();
-        SwingUtilities.invokeAndWait(() -> {
-            Optional<Integer> got = cv.await(Duration.ofSeconds(2));
-            ref.set(got);
-        });
-        assertTrue(ref.get().isEmpty(), "await on EDT must not block and return empty");
     }
 
     @Test

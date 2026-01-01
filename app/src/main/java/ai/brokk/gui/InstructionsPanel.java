@@ -1688,7 +1688,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var resultingCtx = cm.liveContext();
         return new TaskResult(
                 cm,
-                "Ask: " + question,
+                question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
                 resultingCtx, // Ask never changes files; use current live context
                 stop,
@@ -1849,12 +1849,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             // Append: concatenate both lists
                             var combined = new ArrayList<>(beforeTasks.tasks());
                             combined.addAll(agentTasks.tasks());
-                            context = cm.deriveContextWithTaskList(
-                                    context, new TaskList.TaskListData(combined), "Appended new tasks");
+                            context = cm.deriveContextWithTaskList(context, new TaskList.TaskListData(combined));
                         } else {
                             // Replace: already the state of 'context' from result, but we ensure it is set in CM
-                            context = cm.deriveContextWithTaskList(
-                                    context, agentTasks, "Replaced task list with new tasks");
+                            context = cm.deriveContextWithTaskList(context, agentTasks);
                         }
                     }
 
@@ -3216,7 +3214,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // If any tasks were removed, update the task list and refresh UI
         if (filtered.size() < originalTasks.size()) {
-            cm.setTaskList(new TaskList.TaskListData(filtered), "Auto-cleared completed tasks");
+            cm.setTaskList(new TaskList.TaskListData(filtered));
         }
     }
 

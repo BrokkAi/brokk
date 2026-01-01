@@ -126,7 +126,6 @@ public class DtoMapper {
                 ? (ContextFragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
                 : null;
 
-        var actionFuture = CompletableFuture.completedFuture(dto.action());
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(editableFragments.stream(), virtualFragments.stream())
@@ -143,7 +142,6 @@ public class DtoMapper {
                 combined,
                 taskHistory,
                 parsedOutputFragment,
-                actionFuture,
                 groupUuid,
                 dto.groupLabel(),
                 readonlyFragments,
@@ -155,7 +153,7 @@ public class DtoMapper {
     /**
      * Build a CompactContextDto for serialization, including marked read-only fragment IDs.
      */
-    public static CompactContextDto toCompactDto(Context ctx, ContentWriter writer, String action) {
+    public static CompactContextDto toCompactDto(Context ctx, ContentWriter writer) {
         var taskEntryRefs = ctx.getTaskHistory().stream()
                 .map(te -> {
                     String type = te.meta() != null ? te.meta().type().name() : null;
@@ -190,7 +188,7 @@ public class DtoMapper {
                 pinnedIds,
                 taskEntryRefs,
                 ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
-                action,
+                "",
                 ctx.getGroupId() != null ? ctx.getGroupId().toString() : null,
                 ctx.getGroupLabel());
     }
