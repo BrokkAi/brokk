@@ -598,6 +598,17 @@ public class Context {
         return ContextDelta.between(previous, this).description(contextManager).join();
     }
 
+    /**
+     * Non-blocking version of {@link #getAction(Context)}.
+     */
+    public ComputedValue<String> getActionComputed(@Nullable Context previous) {
+        if (previous == null) {
+            return ComputedValue.completed(WELCOME_ACTION);
+        }
+
+        return ContextDelta.between(previous, this).description(contextManager);
+    }
+
     public IContextManager getContextManager() {
         return contextManager;
     }
