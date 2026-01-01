@@ -393,6 +393,46 @@ class ContextDeltaTest {
     }
 
     @Test
+    void testDelta_detectsPinUnpin() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Pin.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("class Pin {}");
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        var ctx1 = new Context(contextManager).addFragments(List.of(frag));
+        var ctx2 = ctx1.withPinned(frag, true);
+        var ctx3 = ctx2.withPinned(frag, false);
+
+        var deltaPin = ContextDelta.between(ctx1, ctx2);
+        assertEquals(1, deltaPin.pinnedFragments().size());
+        assertEquals("Pin Pin.java", deltaPin.description(contextManager).join());
+
+        var deltaUnpin = ContextDelta.between(ctx2, ctx3);
+        assertEquals(1, deltaUnpin.unpinnedFragments().size());
+        assertEquals("Unpin Pin.java", deltaUnpin.description(contextManager).join());
+    }
+
+    @Test
+    void testDelta_detectsProtectUnprotect() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Protect.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("class Protect {}");
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        var ctx1 = new Context(contextManager).addFragments(List.of(frag));
+        var ctx2 = ctx1.setReadonly(frag, true);
+        var ctx3 = ctx2.setReadonly(frag, false);
+
+        var deltaProtect = ContextDelta.between(ctx1, ctx2);
+        assertEquals(1, deltaProtect.protectedFragments().size());
+        assertEquals("Protect Protect.java", deltaProtect.description(contextManager).join());
+
+        var deltaUnprotect = ContextDelta.between(ctx2, ctx3);
+        assertEquals(1, deltaUnprotect.unprotectedFragments().size());
+        assertEquals("Unprotect Protect.java", deltaUnprotect.description(contextManager).join());
+    }
+
+    @Test
     void testDelta_contentsUnchanged_sameSourceSameText() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Stable.java");
         Files.createDirectories(pf.absPath().getParent());

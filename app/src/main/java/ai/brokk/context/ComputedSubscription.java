@@ -86,6 +86,11 @@ public final class ComputedSubscription {
      * @param uiUpdate a runnable to execute on the EDT when the value completes
      */
     public static void bind(ComputedValue<?> cv, JComponent owner, Runnable uiUpdate) {
+        if (cv.future().isDone()) {
+            SwingUtilities.invokeLater(uiUpdate);
+            return;
+        }
+
         synchronized (owner) {
             @SuppressWarnings("unchecked")
             java.util.Set<ComputedValue<?>> bound =

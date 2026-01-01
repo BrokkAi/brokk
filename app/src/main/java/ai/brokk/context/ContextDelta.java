@@ -30,7 +30,11 @@ public record ContextDelta(
         boolean compressedHistory,
         boolean contentsChanged,
         boolean sessionReset,
-        List<ContextFragments.StringFragment> updatedSpecialFragments) {
+        List<ContextFragments.StringFragment> updatedSpecialFragments,
+        List<ContextFragment> pinnedFragments,
+        List<ContextFragment> unpinnedFragments,
+        List<ContextFragment> protectedFragments,
+        List<ContextFragment> unprotectedFragments) {
 
     // leaving these past tense for compatibility with old sessions
     public static final String CLEARED_TASK_HISTORY = "Cleared Task History";
@@ -44,7 +48,11 @@ public record ContextDelta(
                 && !compressedHistory
                 && !contentsChanged
                 && !sessionReset
-                && updatedSpecialFragments.isEmpty();
+                && updatedSpecialFragments.isEmpty()
+                && pinnedFragments.isEmpty()
+                && unpinnedFragments.isEmpty()
+                && protectedFragments.isEmpty()
+                && unprotectedFragments.isEmpty();
     }
 
     /**
@@ -104,6 +112,21 @@ public record ContextDelta(
                         .map(fromFrag -> !fromFrag.contentEquals(toFrag))
                         .orElse(false));
 
+        // 3. Check for pin/protect status changes
+        var pinned = new ArrayList<ContextFragment>();
+        var unpinned = new ArrayList<ContextFragment>();
+        var protectedFrags = new ArrayList<ContextFragment>();
+        var unprotectedFrags = new ArrayList<ContextFragment>();
+
+        for (var toFrag : to.fragments) {
+            from.findWithSameSource(toFrag).ifPresent(fromFrag -> {
+                if (to.isPinned(toFrag) && !from.isPinned(fromFrag)) pinned.add(toFrag);
+                if (!to.isPinned(toFrag) && from.isPinned(fromFrag)) unpinned.add(toFrag);
+                if (to.isMarkedReadonly(toFrag) && !from.isMarkedReadonly(fromFrag)) protectedFrags.add(toFrag);
+                if (!to.isMarkedReadonly(toFrag) && from.isMarkedReadonly(fromFrag)) unprotectedFrags.add(toFrag);
+            });
+        }
+
         return new ContextDelta(
                 added,
                 removed,
@@ -112,7 +135,11 @@ public record ContextDelta(
                 compressedHistory,
                 contentsChanged,
                 sessionReset,
-                updatedSpecials);
+                updatedSpecials,
+                pinned,
+                unpinned,
+                protectedFrags,
+                unprotectedFrags);
     }
 
     /**
@@ -152,6 +179,18 @@ public record ContextDelta(
         }
         if (!removedFragments.isEmpty()) {
             parts.add(buildActionDescription("Remove", removedFragments));
+        }
+        if (!pinnedFragments.isEmpty()) {
+            parts.add(buildActionDescription("Pin", pinnedFragments));
+        }
+        if (!unpinnedFragments.isEmpty()) {
+            parts.add(buildActionDescription("Unpin", unpinnedFragments));
+        }
+        if (!protectedFragments.isEmpty()) {
+            parts.add(buildActionDescription("Protect", protectedFragments));
+        }
+        if (!unprotectedFragments.isEmpty()) {
+            parts.add(buildActionDescription("Unprotect", unprotectedFragments));
         }
         for (var sf : updatedSpecialFragments) {
             parts.add("Update " + sf.specialType().orElseThrow().description());
