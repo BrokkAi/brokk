@@ -44,6 +44,7 @@ class ContextDeltaTest {
         assertTrue(delta.addedTasks().isEmpty(), "No tasks should be added for identical contexts");
         assertFalse(delta.clearedHistory(), "History was not cleared");
         assertTrue(delta.isEmpty(), "Delta should be empty for identical contexts");
+        assertEquals("(No changes)", delta.description(contextManager).join(), "Description should be (No changes) for identical contexts");
     }
 
     @Test
@@ -61,23 +62,29 @@ class ContextDeltaTest {
         assertEquals(1, delta.addedFragments().size(), "Should identify added fragment");
         assertTrue(delta.removedFragments().isEmpty(), "No fragments should be removed");
         assertFalse(delta.isEmpty(), "Delta should not be empty");
+        assertEquals("Add Added.java", delta.description(contextManager).join());
     }
 
     @Test
     void testDelta_identifiesRemovedFragments() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/Removed.java");
-        Files.createDirectories(pf.absPath().getParent());
-        pf.write("class Removed {}");
-        var ppf = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        var pf1 = new ProjectFile(tempDir, "src/Keep.java");
+        var pf2 = new ProjectFile(tempDir, "src/Removed.java");
+        Files.createDirectories(pf1.absPath().getParent());
+        pf1.write("class Keep {}");
+        pf2.write("class Removed {}");
+        var ppf1 = new ContextFragments.ProjectPathFragment(pf1, contextManager);
+        var ppf2 = new ContextFragments.ProjectPathFragment(pf2, contextManager);
 
-        var ctx1 = new Context(contextManager).addFragments(List.of(ppf));
-        var ctx2 = ctx1.removeFragments(List.of(ppf));
+        // Include another fragment so it's not a total reset to empty
+        var ctx1 = new Context(contextManager).addFragments(List.of(ppf1, ppf2));
+        var ctx2 = ctx1.removeFragments(List.of(ppf2));
 
         var delta = ContextDelta.between(ctx1, ctx2);
 
         assertTrue(delta.addedFragments().isEmpty(), "No fragments should be added");
         assertEquals(1, delta.removedFragments().size(), "Should identify removed fragment");
         assertFalse(delta.isEmpty(), "Delta should not be empty");
+        assertEquals("Remove Removed.java", delta.description(contextManager).join());
     }
 
     @Test
@@ -96,8 +103,14 @@ class ContextDeltaTest {
     }
 
     @Test
-    void testDelta_detectsClearedHistory() {
-        var ctx1 = new Context(contextManager);
+    void testDelta_detectsClearedHistory() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Main.java");
+        Files.createDirectories(pf.absPath().getParent());
+        pf.write("content");
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
+
+        // Add a fragment so the context isn't empty after clearing history
+        var ctx1 = new Context(contextManager).addFragments(List.of(frag));
 
         List<ChatMessage> msgs = List.of(UserMessage.from("User"), AiMessage.from("AI"));
         var taskFrag = new ContextFragments.TaskFragment(contextManager, msgs, "task");
@@ -108,6 +121,7 @@ class ContextDeltaTest {
         var delta = ContextDelta.between(ctxWithHistory, ctxCleared);
 
         assertTrue(delta.clearedHistory(), "Should detect cleared history");
+        assertEquals(ContextDelta.CLEARED_TASK_HISTORY, delta.description(contextManager).join());
     }
 
     @Test
@@ -173,6 +187,7 @@ class ContextDeltaTest {
 
         assertFalse(delta.isEmpty());
         assertTrue(delta.sessionReset());
+        assertEquals(ContextDelta.DROPPED_ALL_CONTEXT, delta.description(contextManager).join());
     }
 
     @Test
