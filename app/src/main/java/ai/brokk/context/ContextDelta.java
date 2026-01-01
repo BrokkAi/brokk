@@ -15,6 +15,7 @@ import java.util.concurrent.CompletableFuture;
 
 import ai.brokk.TaskResult;
 import ai.brokk.util.ComputedValue;
+import ai.brokk.util.ExecutorServiceUtil;
 import org.jetbrains.annotations.Blocking;
 
 import static java.util.Objects.requireNonNull;
@@ -92,8 +93,8 @@ public record ContextDelta(
             var toSpecial = to.getSpecial(type.description());
 
             if (fromSpecial.isPresent() && toSpecial.isPresent()) {
-                String fromText = fromSpecial.get().text().join();
-                String toText = toSpecial.get().text().join();
+                String fromText = fromSpecial.get().text().renderNowOr("");
+                String toText = toSpecial.get().text().renderNowOr("");
                 if (!fromText.equals(toText)) {
                     updatedSpecials.add(toSpecial.get());
                 }
@@ -104,7 +105,7 @@ public record ContextDelta(
         boolean contentsChanged = to.fragments.stream()
                 .filter(toFrag -> !(toFrag instanceof ContextFragments.StringFragment sf && sf.specialType().isPresent()))
                 .anyMatch(toFrag -> from.findWithSameSource(toFrag)
-                        .map(fromFrag -> !fromFrag.text().join().equals(toFrag.text().join()))
+                        .map(fromFrag -> !fromFrag.text().renderNowOr("").equals(toFrag.text().renderNowOr("")))
                         .orElse(false));
 
         return new ContextDelta(
@@ -123,11 +124,11 @@ public record ContextDelta(
      */
     public ComputedValue<String> description(IContextManager icm) {
         if (sessionReset) {
-            return CompletableFuture.completedFuture(DROPPED_ALL_CONTEXT);
+            return ComputedValue.completed(DROPPED_ALL_CONTEXT);
         }
 
         if (isEmpty()) {
-            return CompletableFuture.completedFuture("(No changes)");
+            return ComputedValue.completed("(No changes)");
         }
 
         // 1. Prioritize New Task History (User/AI turn)
@@ -142,7 +143,6 @@ public record ContextDelta(
                 taskText = requireNonNull(latest.log()).shortDescription;
             }
 
-            var cm = (ContextManager) icm;
             String cacheKey;
             try {
                 byte[] hash = MessageDigest.getInstance("SHA-256").digest(taskText.getBytes(StandardCharsets.UTF_8));
@@ -151,67 +151,96 @@ public record ContextDelta(
                 throw new RuntimeException(e);
             }
 
-            Optional<String> cached = cm.getProject().getDiskCache().get(cacheKey);
-            if (cached.isPresent()) {
-                return CompletableFuture.completedFuture(prefix + cached.get());
-            }
-
-            return cm.summarizeTaskForConversation(taskText)
-                    .thenApply(summary -> {
-                        cm.getProject().getDiskCache().put(cacheKey, summary);
+            var cache = icm.getProject().getDiskCache();
+            var executor = ExecutorServiceUtil.newVirtualThreadExecutor("delta-cache-", 1);
+            return new ComputedValue<>(CompletableFuture.supplyAsync(() -> cache.get(cacheKey), executor)
+                    .thenApply(cachedOpt -> {
+                        if (cachedOpt.isPresent()) {
+                            return prefix + cachedOpt.get();
+                        }
+                        // Truncate task text as a simple summary fallback
+                        String summary = taskText.length() > 80 
+                                ? taskText.substring(0, 77) + "..." 
+                                : taskText;
+                        // Remove newlines for single-line display
+                        summary = summary.replace('\n', ' ').replace('\r', ' ');
+                        cache.put(cacheKey, summary);
                         return prefix + summary;
-                    });
+                    })
+                    .whenComplete((r, e) -> executor.shutdown()));
         }
 
-        // 2. Aggregate other changes
-        List<String> parts = new ArrayList<>();
+        // 2. Aggregate other changes asynchronously
+        var executor = ai.brokk.util.ExecutorServiceUtil.newVirtualThreadExecutor("delta-desc-", 4);
+
+        List<CompletableFuture<String>> futures = new ArrayList<>();
 
         if (compressedHistory) {
-            parts.add("Compress History");
+            futures.add(CompletableFuture.completedFuture("Compress History"));
         }
 
         if (clearedHistory) {
-            parts.add(CLEARED_TASK_HISTORY);
+            futures.add(CompletableFuture.completedFuture(CLEARED_TASK_HISTORY));
         }
 
         if (!addedFragments.isEmpty()) {
-            parts.add(buildAction("Add", addedFragments));
+            futures.add(buildActionAsync("Add", addedFragments).future());
         }
 
         if (!removedFragments.isEmpty()) {
-            parts.add(buildAction("Remove", removedFragments));
+            futures.add(buildActionAsync("Remove", removedFragments).future());
         }
 
         for (var sf : updatedSpecialFragments) {
-            parts.add("Update " + sf.specialType().get().description());
+            String desc = sf.specialType().get().description();
+            futures.add(CompletableFuture.completedFuture("Update " + desc));
         }
 
-        if (parts.isEmpty() && contentsChanged) {
-            parts.add("Load External Changes");
+        if (futures.isEmpty() && contentsChanged) {
+            futures.add(CompletableFuture.completedFuture("Load External Changes"));
         }
 
-        if (parts.isEmpty()) {
-            return CompletableFuture.completedFuture("(No changes detected)");
+        if (futures.isEmpty()) {
+            executor.shutdown();
+            return ComputedValue.completed("(No changes detected)");
         }
 
-        return CompletableFuture.completedFuture(String.join("; ", parts));
+        CompletableFuture<String> combined = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                .thenApplyAsync(v -> {
+                    List<String> results = futures.stream()
+                            .map(f -> f.getNow(null))
+                            .toList();
+                    return String.join("; ", results);
+                }, executor)
+                .whenComplete((r, e) -> executor.shutdown());
+
+        return new ComputedValue<>(combined);
     }
 
-    private String buildAction(String verb, List<ContextFragment> items) {
+    private ComputedValue<String> buildActionAsync(String verb, List<ContextFragment> items) {
         int count = items.size();
-        if (count == 1) {
-            var shortDesc = items.getFirst().shortDescription().join();
-            return verb + " " + shortDesc;
-        }
+        List<CompletableFuture<String>> shortDescFutures = items.stream()
+                .limit(2)
+                .map(f -> f.shortDescription().future())
+                .toList();
 
-        // Show up to 2 fragments, then indicate count
-        var descriptions =
-                items.stream().limit(2).map(f -> f.shortDescription().join()).toList();
+        CompletableFuture<String> result = CompletableFuture.allOf(shortDescFutures.toArray(new CompletableFuture[0]))
+                .thenApply(v -> {
+                    var descriptions = shortDescFutures.stream()
+                            .map(f -> f.getNow(null))
+                            .toList();
 
-        var message = verb + " " + String.join(", ", descriptions);
-        if (count > 2) {
-            message += ", " + (count - 2) + " more";
-        }
-        return message;
+                    if (count == 1) {
+                        return verb + " " + descriptions.getFirst();
+                    }
+
+                    var message = verb + " " + String.join(", ", descriptions);
+                    if (count > 2) {
+                        message += ", " + (count - 2) + " more";
+                    }
+                    return message;
+                });
+
+        return new ComputedValue<>(result);
     }
 }
