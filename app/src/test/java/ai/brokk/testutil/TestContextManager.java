@@ -85,11 +85,7 @@ public final class TestContextManager implements IContextManager {
     }
 
     public TestContextManager(IProject project) {
-        this(
-                project,
-                new TestConsoleIO(),
-Set.of(),
-                new TestAnalyzer());
+        this(project, new TestConsoleIO(), Set.of(), new TestAnalyzer());
     }
 
     public TestContextManager(Path projectRoot, Set<String> editableFiles) {

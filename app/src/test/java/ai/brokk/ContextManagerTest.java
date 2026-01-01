@@ -204,8 +204,7 @@ class ContextManagerTest {
 
         var updated = cm.deriveContextWithTaskList(
                         ctxBefore,
-                        new TaskList.TaskListData(List.of(new TaskList.TaskItem("Test title", "Test task text", true)))
-                        )
+                        new TaskList.TaskListData(List.of(new TaskList.TaskItem("Test title", "Test task text", true))))
                 .withGroup(groupId, groupLabel);
 
         assertEquals(groupId, updated.getGroupId(), "Group ID should be preserved after task list update");

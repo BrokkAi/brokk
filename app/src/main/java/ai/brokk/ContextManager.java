@@ -861,9 +861,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Clear conversation history and task list. */
     public void clearHistory() {
-        pushContext(currentLiveCtx -> currentLiveCtx
-                .clearHistory()
-                .withTaskList(new TaskList.TaskListData(List.of())));
+        pushContext(currentLiveCtx -> currentLiveCtx.clearHistory().withTaskList(new TaskList.TaskListData(List.of())));
     }
 
     /** Clear conversation history only, preserving the task list. */
@@ -931,8 +929,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // Push an updated context with the modified history
-        pushContext(currentLiveCtx ->
-                currentLiveCtx.withHistory(newHistory).withParsedOutput(null));
+        pushContext(currentLiveCtx -> currentLiveCtx.withHistory(newHistory).withParsedOutput(null));
 
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + seqToDrop);
     }
@@ -1561,8 +1558,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var updated = new ArrayList<>(tasks);
         updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
-        return deriveContextWithTaskList(
-                        context, new TaskList.TaskListData(List.copyOf(updated)))
+        return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)))
                 .withGroup(groupId, groupLabel);
     }
 
@@ -2211,8 +2207,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(finalEntry, result.output())
-                        .withGroup(groupId, groupLabel);
+                return updated.addHistoryEntry(finalEntry, result.output()).withGroup(groupId, groupLabel);
             });
 
             // prepare MOP to display new history with the next streamed message

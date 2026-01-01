@@ -195,8 +195,7 @@ public final class DiffService {
                 if (result.diff().isEmpty()) {
                     return null;
                 }
-                return new DiffEntry(
-                        newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+                return new DiffEntry(newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
             });
         }
 
@@ -237,8 +236,7 @@ public final class DiffService {
                 return null;
             }
 
-            return new DiffEntry(
-                    newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+            return new DiffEntry(newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
         });
     }
 
@@ -423,8 +421,8 @@ public final class DiffService {
      */
     @Blocking
     public static List<Map.Entry<String, DiffEntry>> preparePerFileSummaries(CumulativeChanges res) {
-        var list = new ArrayList<Map.Entry<String, DiffEntry>>(
-                res.perFileChanges().size());
+        var list =
+                new ArrayList<Map.Entry<String, DiffEntry>>(res.perFileChanges().size());
         var seen = new HashSet<String>();
         for (var de : res.perFileChanges()) {
             String title = de.title();
@@ -447,8 +445,7 @@ public final class DiffService {
             @Nullable GitWorkflow.PushPullState pushPullState) {
 
         /** Convenience constructor without pushPullState. */
-        public CumulativeChanges(
-                int filesChanged, int totalAdded, int totalDeleted, List<DiffEntry> perFileChanges) {
+        public CumulativeChanges(int filesChanged, int totalAdded, int totalDeleted, List<DiffEntry> perFileChanges) {
             this(filesChanged, totalAdded, totalDeleted, perFileChanges, null);
         }
     }

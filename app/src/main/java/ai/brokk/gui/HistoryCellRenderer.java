@@ -5,6 +5,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.util.ComputedValue;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -20,8 +21,6 @@ import javax.swing.JTable;
 import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import javax.swing.table.DefaultTableCellRenderer;
-
-import ai.brokk.util.ComputedValue;
 import org.jetbrains.annotations.Nullable;
 
 /**

@@ -60,11 +60,8 @@ public class TaskListUIRefreshTest {
 
         // Now replace the list
         var newTasks = List.of("New task A", "New task B");
-        var result = contextWithTasks.withTaskList(
-                new TaskList.TaskListData(newTasks.stream()
-                        .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList())
-        );
+        var result = contextWithTasks.withTaskList(new TaskList.TaskListData(
+                newTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList()));
 
         // Verify new tasks were created
         var newData = result.getTaskListDataOrEmpty();
@@ -83,11 +80,8 @@ public class TaskListUIRefreshTest {
 
         // Scenario: No existing tasks, user creates new list -> autoplay should be allowed
         var newTasks = List.of("Task 1", "Task 2");
-        var result = initial.withTaskList(
-                new TaskList.TaskListData(newTasks.stream()
-                        .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList())
-        );
+        var result = initial.withTaskList(new TaskList.TaskListData(
+                newTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList()));
 
         // Verify new tasks exist
         var data = result.getTaskListDataOrEmpty();
@@ -103,8 +97,7 @@ public class TaskListUIRefreshTest {
         var initial = new Context(cm);
 
         var result = initial.withTaskList(
-                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false)))
-        );
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))));
 
         var frag = result.getTaskListFragment();
         assertTrue(frag.isPresent());
@@ -121,8 +114,7 @@ public class TaskListUIRefreshTest {
 
         // Create with tasks
         var c1 = initial.withTaskList(
-                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false)))
-        );
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))));
         assertTrue(c1.getTaskListFragment().isPresent());
 
         // Replace with empty (via withTaskList)

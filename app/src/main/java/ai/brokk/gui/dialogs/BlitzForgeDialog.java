@@ -1702,7 +1702,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 dialogIo.toolError(errorMessage, "Agent Processing Error");
             }
 
-            boolean edited = !DiffService.getChangedFiles(tr.context(), initialContext).isEmpty();
+            boolean edited =
+                    !DiffService.getChangedFiles(tr.context(), initialContext).isEmpty();
             String llmOutput = dialogIo.getLlmOutput();
 
             // Optional context filtering

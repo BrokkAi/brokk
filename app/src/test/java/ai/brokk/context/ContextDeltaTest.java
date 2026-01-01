@@ -15,7 +15,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -44,7 +43,10 @@ class ContextDeltaTest {
         assertTrue(delta.addedTasks().isEmpty(), "No tasks should be added for identical contexts");
         assertFalse(delta.clearedHistory(), "History was not cleared");
         assertTrue(delta.isEmpty(), "Delta should be empty for identical contexts");
-        assertEquals("(No changes)", delta.description(contextManager).join(), "Description should be (No changes) for identical contexts");
+        assertEquals(
+                "(No changes)",
+                delta.description(contextManager).join(),
+                "Description should be (No changes) for identical contexts");
     }
 
     @Test
@@ -121,7 +123,9 @@ class ContextDeltaTest {
         var delta = ContextDelta.between(ctxWithHistory, ctxCleared);
 
         assertTrue(delta.clearedHistory(), "Should detect cleared history");
-        assertEquals(ContextDelta.CLEARED_TASK_HISTORY, delta.description(contextManager).join());
+        assertEquals(
+                ContextDelta.CLEARED_TASK_HISTORY,
+                delta.description(contextManager).join());
     }
 
     @Test
@@ -187,7 +191,9 @@ class ContextDeltaTest {
 
         assertFalse(delta.isEmpty());
         assertTrue(delta.sessionReset());
-        assertEquals(ContextDelta.DROPPED_ALL_CONTEXT, delta.description(contextManager).join());
+        assertEquals(
+                ContextDelta.DROPPED_ALL_CONTEXT,
+                delta.description(contextManager).join());
     }
 
     @Test
@@ -205,7 +211,8 @@ class ContextDeltaTest {
     @Test
     void testDelta_detectsRemovedSpecialFragment() {
         var ctx1 = new Context(contextManager).withSpecial(SpecialTextType.SEARCH_NOTES, "Notes");
-        var specialFrag = ctx1.getSpecial(SpecialTextType.SEARCH_NOTES.description()).orElseThrow();
+        var specialFrag =
+                ctx1.getSpecial(SpecialTextType.SEARCH_NOTES.description()).orElseThrow();
         var ctx2 = ctx1.removeFragments(List.of(specialFrag));
 
         var delta = ContextDelta.between(ctx1, ctx2);

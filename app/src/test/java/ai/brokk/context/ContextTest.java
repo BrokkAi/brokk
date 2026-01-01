@@ -17,7 +17,6 @@ import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -68,7 +67,9 @@ class ContextTest {
         var p2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
 
         // Start with a non-empty context so getDescription doesn't hit the empty check if we had one
-        var originalCtx = new Context(contextManager).addFragments(new ContextFragments.StringFragment(contextManager, "base", "base", SyntaxConstants.SYNTAX_STYLE_NONE));
+        var originalCtx = new Context(contextManager)
+                .addFragments(new ContextFragments.StringFragment(
+                        contextManager, "base", "base", SyntaxConstants.SYNTAX_STYLE_NONE));
         var ctx = originalCtx.addFragments(List.of(p1, p2));
 
         // Dedup: only one path fragment
@@ -402,5 +403,4 @@ class ContextTest {
         assertFalse(
                 ctx.isFileContentEmpty(), "Context with mixed fragments including file content should return false");
     }
-
 }

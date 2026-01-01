@@ -29,11 +29,8 @@ public class TaskListPersistenceTest {
                 new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         var tasks = List.of("Build feature X", "Add unit tests", "Write documentation");
-        var afterCreate = initial.withTaskList(
-                new TaskList.TaskListData(tasks.stream()
-                        .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList())
-        );
+        var afterCreate = initial.withTaskList(new TaskList.TaskListData(
+                tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList()));
 
         // Verify fragment exists and is JSON
         Optional<ContextFragments.StringFragment> fragOpt = afterCreate.getTaskListFragment();
@@ -98,8 +95,7 @@ public class TaskListPersistenceTest {
                 new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         var result = initial.withTaskList(
-                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false)))
-        );
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))));
 
         var frag = result.getTaskListFragment();
         assertTrue(frag.isPresent());

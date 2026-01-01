@@ -340,8 +340,7 @@ public class ContextCompressionTest {
                 groupLabel, ctxBeforeMarkDone.getGroupLabel(), "Context should have groupLabel before markTaskDone");
 
         var updatedTasks = List.of(new TaskList.TaskItem("Test title", "Test task text", true));
-        var updatedCtx = cm.deriveContextWithTaskList(
-                        ctxBeforeMarkDone, new TaskList.TaskListData(updatedTasks))
+        var updatedCtx = cm.deriveContextWithTaskList(ctxBeforeMarkDone, new TaskList.TaskListData(updatedTasks))
                 .withGroup(groupId, groupLabel);
         cm.pushContext(currentLiveCtx -> updatedCtx);
 

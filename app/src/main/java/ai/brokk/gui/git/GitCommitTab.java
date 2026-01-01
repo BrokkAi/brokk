@@ -765,9 +765,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 }
 
                 // 10. Update UI on EDT.
-                var fileList = selectedFiles.stream()
-                        .map(pf -> pf.getFileName())
-                        .collect(Collectors.joining(", "));
+                var fileList =
+                        selectedFiles.stream().map(pf -> pf.getFileName()).collect(Collectors.joining(", "));
                 SwingUtilities.invokeLater(() -> {
                     String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMessage);

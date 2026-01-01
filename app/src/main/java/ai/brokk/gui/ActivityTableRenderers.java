@@ -1,11 +1,10 @@
 package ai.brokk.gui;
 
+import ai.brokk.context.ContextDelta;
 import java.awt.*;
 import java.awt.geom.Path2D;
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
-
-import ai.brokk.context.ContextDelta;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -22,7 +21,8 @@ public final class ActivityTableRenderers {
             return false;
         }
         String action = actionValue.toString().trim();
-        return ContextDelta.CLEARED_TASK_HISTORY.equalsIgnoreCase(action) || ContextDelta.DROPPED_ALL_CONTEXT.equalsIgnoreCase(action);
+        return ContextDelta.CLEARED_TASK_HISTORY.equalsIgnoreCase(action)
+                || ContextDelta.DROPPED_ALL_CONTEXT.equalsIgnoreCase(action);
     }
 
     public static String normalizedAction(@Nullable Object actionValue) {

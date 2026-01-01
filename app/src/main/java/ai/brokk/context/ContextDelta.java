@@ -1,25 +1,22 @@
 package ai.brokk.context;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
-import ai.brokk.Llm;
 import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
+import ai.brokk.util.ComputedValue;
+import ai.brokk.util.ExecutorServiceUtil;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-
-import ai.brokk.TaskResult;
-import ai.brokk.util.ComputedValue;
-import ai.brokk.util.ExecutorServiceUtil;
 import org.jetbrains.annotations.Blocking;
-
-import static java.util.Objects.requireNonNull;
 
 /**
  * Represents the delta between two Context states.
@@ -102,7 +99,8 @@ public record ContextDelta(
 
         // 2. Check for content changes in any overlapping non-special fragments
         boolean contentsChanged = to.fragments.stream()
-                .filter(toFrag -> !(toFrag instanceof ContextFragments.StringFragment sf && sf.specialType().isPresent()))
+                .filter(toFrag -> !(toFrag instanceof ContextFragments.StringFragment sf
+                        && sf.specialType().isPresent()))
                 .anyMatch(toFrag -> from.findWithSameSource(toFrag)
                         .map(fromFrag -> !fromFrag.contentEquals(toFrag))
                         .orElse(false));
@@ -130,9 +128,8 @@ public record ContextDelta(
         }
 
         var executor = ExecutorServiceUtil.newVirtualThreadExecutor("delta-desc-", 1);
-        return new ComputedValue<>(
-                CompletableFuture.supplyAsync(() -> descriptionInternal(icm), executor)
-                        .whenComplete((r, e) -> executor.shutdown()));
+        return new ComputedValue<>(CompletableFuture.supplyAsync(() -> descriptionInternal(icm), executor)
+                .whenComplete((r, e) -> executor.shutdown()));
     }
 
     @Blocking
@@ -170,11 +167,11 @@ public record ContextDelta(
     @Blocking
     private String buildTaskDescription(TaskEntry entry, IContextManager icm) {
         String prefix = (entry.meta() == null || entry.meta().type() == TaskResult.Type.CONTEXT)
-                ? "" : entry.meta().type().displayName() + ": ";
+                ? ""
+                : entry.meta().type().displayName() + ": ";
 
-        String taskText = entry.isCompressed()
-                ? requireNonNull(entry.summary())
-                : requireNonNull(entry.log()).shortDescription;
+        String taskText =
+                entry.isCompressed() ? requireNonNull(entry.summary()) : requireNonNull(entry.log()).shortDescription;
 
         String cacheKey;
         try {
@@ -198,10 +195,8 @@ public record ContextDelta(
 
     @Blocking
     private String buildActionDescription(String verb, List<ContextFragment> items) {
-        var descriptions = items.stream()
-                .limit(2)
-                .map(f -> f.shortDescription().join())
-                .toList();
+        var descriptions =
+                items.stream().limit(2).map(f -> f.shortDescription().join()).toList();
 
         if (items.size() == 1) {
             return verb + " " + descriptions.getFirst();

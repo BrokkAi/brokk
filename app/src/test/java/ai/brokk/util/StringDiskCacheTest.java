@@ -1,7 +1,6 @@
 package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.IOException;

@@ -8,16 +8,14 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.HistoryGrouping.GroupDescriptor;
 import ai.brokk.gui.HistoryGrouping.GroupType;
 import ai.brokk.gui.HistoryGrouping.GroupingBuilder;
-
+import ai.brokk.testutil.TestContextManager;
+import ai.brokk.testutil.TestProject;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.function.Predicate;
-
-import ai.brokk.testutil.TestContextManager;
-import ai.brokk.testutil.TestProject;
 import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -288,7 +286,7 @@ public class HistoryGroupingTest {
     public void anonymousGroup_complexGrouping() {
         // Build proper chains where each context builds on the previous
         // Note: The first context (index 0) is skipped as "session start"
-        
+
         // 1. Two adds -> only 1 description after skipping first, returns just that description
         var empty1 = new Context(cm);
         var frag1 = new ContextFragments.StringFragment(cm, "c1", "file1", "text");
@@ -317,18 +315,18 @@ public class HistoryGroupingTest {
         // The label computation skips index 0 (session start), so we need 4 real actions
 
         var empty = new Context(cm);
-        
+
         var frag1 = new ContextFragments.StringFragment(cm, "c1", "file1", "text");
         var ctx1 = empty.addFragments(frag1);
-        
+
         var frag2 = new ContextFragments.StringFragment(cm, "c2", "file2", "text");
         var ctx2 = ctx1.addFragments(frag2);
-        
+
         var ctx3 = ctx2.removeFragments(List.of(frag1));
-        
+
         var frag3 = new ContextFragments.StringFragment(cm, "c3", "file3", "text");
         var ctx4 = ctx3.addFragments(frag3);
-        
+
         var ctx5 = ctx4.removeFragments(List.of(frag2));
 
         // ctx1 is at index 0 and gets skipped in label computation

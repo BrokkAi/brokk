@@ -1,5 +1,7 @@
 package ai.brokk.context;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
@@ -15,8 +17,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
-
-import static java.util.Objects.requireNonNull;
 
 /**
  * Asynchronous ContextFragment API.
@@ -42,7 +42,9 @@ public interface ContextFragment {
             return text().join().equals(other.text().join());
         }
 
-        return Arrays.equals(requireNonNull(imageBytes()).join(), requireNonNull(other.imageBytes()).join());
+        return Arrays.equals(
+                requireNonNull(imageBytes()).join(),
+                requireNonNull(other.imageBytes()).join());
     }
 
     /**

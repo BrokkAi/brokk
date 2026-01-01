@@ -147,9 +147,7 @@ public class ContextSerializationTest {
 
         List<ChatMessage> taskMessages = List.of(UserMessage.from("User query"), AiMessage.from("AI response"));
         var taskFragment = new ContextFragments.TaskFragment(mockContextManager, taskMessages, "Test Task");
-        context2 = context2.addHistoryEntry(
-                new TaskEntry(1, taskFragment, null),
-                taskFragment);
+        context2 = context2.addHistoryEntry(new TaskEntry(1, taskFragment, null), taskFragment);
 
         originalHistory.pushContext(context2);
 
@@ -629,12 +627,10 @@ public class ContextSerializationTest {
         var ctxWithTask1 = new Context(mockContextManager);
         var taskEntry = new TaskEntry(1, sharedTaskFragment, null);
 
-        var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntry(
-                taskEntry, sharedTaskFragment);
+        var updatedCtxWithTask1 = ctxWithTask1.addHistoryEntry(taskEntry, sharedTaskFragment);
         var origHistoryWithTask = new ContextHistory(updatedCtxWithTask1);
 
-        var ctxWithTask2 = new Context(mockContextManager)
-                .addHistoryEntry(taskEntry, sharedTaskFragment);
+        var ctxWithTask2 = new Context(mockContextManager).addHistoryEntry(taskEntry, sharedTaskFragment);
         origHistoryWithTask.pushContext(ctxWithTask2);
 
         Path taskZipFile = tempDir.resolve("interning_task_history.zip");
@@ -1171,8 +1167,7 @@ public class ContextSerializationTest {
                 new Service.ModelConfig("test-model", Service.ReasoningLevel.DEFAULT, Service.ProcessingTier.DEFAULT));
         var taskEntry = new TaskEntry(42, taskFragment, null, meta);
 
-        var ctx = new Context(mockContextManager)
-                .addHistoryEntry(taskEntry, taskFragment);
+        var ctx = new Context(mockContextManager).addHistoryEntry(taskEntry, taskFragment);
         ContextHistory ch = new ContextHistory(ctx);
 
         Path zipFile = tempDir.resolve("meta_roundtrip.zip");

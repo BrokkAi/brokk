@@ -1,10 +1,9 @@
 package ai.brokk.gui;
 
 import ai.brokk.context.Context;
+import ai.brokk.util.ComputedValue;
 import java.util.*;
 import java.util.function.Predicate;
-
-import ai.brokk.util.ComputedValue;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -137,8 +136,8 @@ public final class HistoryGrouping {
                             .findFirst()
                             .orElse(null);
 
-                    ComputedValue<String> labelVal = ComputedValue.completed(
-                            preferredLabel != null ? preferredLabel : groupId.toString());
+                    ComputedValue<String> labelVal =
+                            ComputedValue.completed(preferredLabel != null ? preferredLabel : groupId.toString());
 
                     out.add(new GroupDescriptor(
                             GroupType.GROUP_BY_ID, groupId.toString(), labelVal, children, true, false));
@@ -212,10 +211,12 @@ public final class HistoryGrouping {
             }
 
             // We combine the futures of all child actions.
-            var futures = cvs.stream().map(ComputedValue::future).toArray(java.util.concurrent.CompletableFuture[]::new);
+            var futures =
+                    cvs.stream().map(ComputedValue::future).toArray(java.util.concurrent.CompletableFuture[]::new);
 
             return new ai.brokk.util.ComputedValue<>(
-                    "header-aggregate", java.util.concurrent.CompletableFuture.allOf(futures).thenApply(v -> {
+                    "header-aggregate",
+                    java.util.concurrent.CompletableFuture.allOf(futures).thenApply(v -> {
                         // All are done now. Re-calculate the label using completed strings.
                         List<String> words = cvs.stream()
                                 .map(cv -> safeFirstWord(cv.renderNowOr(Context.SUMMARIZING)))
@@ -223,9 +224,7 @@ public final class HistoryGrouping {
 
                         Map<String, Long> counts = words.stream()
                                 .collect(java.util.stream.Collectors.groupingBy(
-                                        w -> w,
-                                        LinkedHashMap::new,
-                                        java.util.stream.Collectors.counting()));
+                                        w -> w, LinkedHashMap::new, java.util.stream.Collectors.counting()));
 
                         List<String> formatted = counts.entrySet().stream()
                                 .map(e -> e.getValue() > 1 ? e.getKey() + " x" + e.getValue() : e.getKey())

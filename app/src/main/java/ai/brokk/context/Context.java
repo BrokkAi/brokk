@@ -82,16 +82,7 @@ public class Context {
      * Constructor for initial empty context
      */
     public Context(IContextManager contextManager) {
-        this(
-                newContextId(),
-                contextManager,
-                List.of(),
-                List.of(),
-                null,
-                null,
-                null,
-                Set.of(),
-                Set.of());
+        this(newContextId(), contextManager, List.of(), List.of(), null, null, null, Set.of(), Set.of());
     }
 
     private Context(
@@ -120,16 +111,7 @@ public class Context {
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
             @Nullable ContextFragments.TaskFragment parsedOutput) {
-        this(
-                newContextId(),
-                contextManager,
-                fragments,
-                taskHistory,
-                parsedOutput,
-                null,
-                null,
-                Set.of(),
-                Set.of());
+        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, null, null, Set.of(), Set.of());
     }
 
     public Map<ProjectFile, String> buildRelatedIdentifiers(int k) throws InterruptedException {
@@ -459,28 +441,11 @@ public class Context {
                 .collect(Collectors.toSet());
 
         return new Context(
-                newContextId(),
-                contextManager,
-                newFragments,
-                taskHistory,
-                null,
-                null,
-                null,
-                newReadOnly,
-                newPinned);
+                newContextId(), contextManager, newFragments, taskHistory, null, null, null, newReadOnly, newPinned);
     }
 
     public Context removeAll() {
-        return new Context(
-                newContextId(),
-                contextManager,
-                List.of(),
-                List.of(),
-                null,
-                null,
-                null,
-                Set.of(),
-                Set.of());
+        return new Context(newContextId(), contextManager, List.of(), List.of(), null, null, null, Set.of(), Set.of());
     }
 
     public Context withPinned(ContextFragment fragment, boolean pinned) {
@@ -546,8 +511,7 @@ public class Context {
         return TaskEntry.fromSession(nextSequence, result);
     }
 
-    public Context addHistoryEntry(
-            TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed) {
+    public Context addHistoryEntry(TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
         // Do not inherit grouping on derived contexts; grouping is explicit
@@ -562,7 +526,6 @@ public class Context {
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
     }
-
 
     public Context clearHistory() {
         return new Context(
@@ -647,7 +610,6 @@ public class Context {
                 this.pinnedFragments);
     }
 
-
     public Context withGroup(@Nullable UUID groupId, @Nullable String groupLabel) {
         return new Context(
                 newContextId(),
@@ -675,8 +637,7 @@ public class Context {
             @Nullable String groupLabel,
             Set<ContextFragment> readOnlyFragments,
             Set<ContextFragment> pinnedFragments) {
-        return new Context(
-                id, cm, fragments, history, parsed, groupId, groupLabel, readOnlyFragments, pinnedFragments);
+        return new Context(id, cm, fragments, history, parsed, groupId, groupLabel, readOnlyFragments, pinnedFragments);
     }
 
     /**
@@ -776,7 +737,6 @@ public class Context {
                 .map(ContextFragments.StringFragment.class::cast)
                 .findFirst();
     }
-
 
     @Blocking
     public Context withSpecial(SpecialTextType type, String content) {
@@ -1056,9 +1016,7 @@ public class Context {
             return removeFragmentsByIds(List.of(existing.get().id()));
         }
 
-        return withSpecial(
-                SpecialTextType.BUILD_RESULTS,
-                processedOutput);
+        return withSpecial(SpecialTextType.BUILD_RESULTS, processedOutput);
     }
 
     /**
@@ -1106,7 +1064,6 @@ public class Context {
     public Context copyAndRefresh() {
         return copyAndRefreshInternal(Set.copyOf(fragments));
     }
-
 
     /**
      * Serializes and updates the Task List fragment using TaskList.TaskListData.

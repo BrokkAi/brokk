@@ -36,19 +36,19 @@ public class FragmentDtos {
     // this specific list purpose
     public sealed interface VirtualFragmentDto
             permits TaskFragmentDto,
-            StringFragmentDto,
-            SearchFragmentDto,
-            SkeletonFragmentDto,
-            SummaryFragmentDto,
-            UsageFragmentDto,
-            PasteTextFragmentDto,
-            PasteImageFragmentDto,
-            StacktraceFragmentDto,
-            CallGraphFragmentDto,
-            CodeFragmentDto,
-            HistoryFragmentDto,
-            BuildFragmentDto,
-            FrozenFragmentDto {
+                    StringFragmentDto,
+                    SearchFragmentDto,
+                    SkeletonFragmentDto,
+                    SummaryFragmentDto,
+                    UsageFragmentDto,
+                    PasteTextFragmentDto,
+                    PasteImageFragmentDto,
+                    StacktraceFragmentDto,
+                    CallGraphFragmentDto,
+                    CodeFragmentDto,
+                    HistoryFragmentDto,
+                    BuildFragmentDto,
+                    FrozenFragmentDto {
         String id();
     }
 

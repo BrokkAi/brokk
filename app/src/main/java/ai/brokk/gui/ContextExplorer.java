@@ -101,7 +101,7 @@ public final class ContextExplorer extends JFrame {
         var colModel = sessionsTable.getColumnModel();
         colModel.getColumn(0).setPreferredWidth(120); // Name
         colModel.getColumn(1).setPreferredWidth(100); // ID
-        colModel.getColumn(2).setPreferredWidth(80);  // Task Count
+        colModel.getColumn(2).setPreferredWidth(80); // Task Count
         colModel.getColumn(3).setPreferredWidth(200); // Types
         var leftScroll = new JScrollPane(sessionsTable);
         leftScroll.setMinimumSize(new Dimension(300, 0));
@@ -319,8 +319,8 @@ public final class ContextExplorer extends JFrame {
                 for (var ctx : ch.getHistory()) {
                     int historyEntries = ctx.getTaskHistory().size();
                     int historyLines = countTaskHistoryLines(ctx);
-                    var header =
-                            new HeaderRow(contextIndex, ctx.id(), safeAction(ctx, previous), historyEntries, historyLines);
+                    var header = new HeaderRow(
+                            contextIndex, ctx.id(), safeAction(ctx, previous), historyEntries, historyLines);
                     rows.add(header);
 
                     for (var fragment : ctx.allFragments().toList()) {

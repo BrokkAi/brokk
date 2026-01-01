@@ -445,11 +445,9 @@ public class SessionsDialog extends BaseThemedDialog {
 
             var actionVal = new ai.brokk.gui.HistoryOutputPanel.ActionText(actionCv, 0);
 
-            activityTableModel.addRow(new Object[] {
-                iconEmoji,
-                actionVal,
-                ctx // Store the actual context object in hidden column
-            });
+            activityTableModel.addRow(
+                    new Object[] {iconEmoji, actionVal, ctx // Store the actual context object in hidden column
+                    });
             previous = ctx;
         }
 

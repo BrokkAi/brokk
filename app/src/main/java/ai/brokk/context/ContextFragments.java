@@ -897,9 +897,7 @@ public class ContextFragments {
         }
 
         public String previewSyntaxStyle() {
-            return specialType()
-                    .map(SpecialTextType::previewSyntaxStyle)
-                    .orElse(syntaxStyle);
+            return specialType().map(SpecialTextType::previewSyntaxStyle).orElse(syntaxStyle);
         }
 
         public String previewText() {
@@ -921,8 +919,7 @@ public class ContextFragments {
                 return true;
             }
             return Objects.equals(this.description, that.description)
-                    && Objects.equals(
-                            this.syntaxStyle, that.syntaxStyle)
+                    && Objects.equals(this.syntaxStyle, that.syntaxStyle)
                     && Objects.equals(this.snapshot, that.snapshot);
         }
     }

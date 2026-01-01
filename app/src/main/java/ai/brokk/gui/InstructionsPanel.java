@@ -1849,12 +1849,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             // Append: concatenate both lists
                             var combined = new ArrayList<>(beforeTasks.tasks());
                             combined.addAll(agentTasks.tasks());
-                            context = cm.deriveContextWithTaskList(
-                                    context, new TaskList.TaskListData(combined));
+                            context = cm.deriveContextWithTaskList(context, new TaskList.TaskListData(combined));
                         } else {
                             // Replace: already the state of 'context' from result, but we ensure it is set in CM
-                            context = cm.deriveContextWithTaskList(
-                                    context, agentTasks);
+                            context = cm.deriveContextWithTaskList(context, agentTasks);
                         }
                     }
 

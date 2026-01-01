@@ -681,11 +681,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 boolean expanded = groupExpandedState.computeIfAbsent(uuidKey, k -> expandedDefault);
 
                 // Boundary detection for visual grouping: check if this group contains a state reset
-                boolean containsClearHistory = children.stream()
-                        .anyMatch(c -> {
-                            var prev = contextManager.getContextHistory().previousOf(c);
-                            return prev != null && !prev.getTaskHistory().isEmpty() && c.getTaskHistory().isEmpty();
-                        });
+                boolean containsClearHistory = children.stream().anyMatch(c -> {
+                    var prev = contextManager.getContextHistory().previousOf(c);
+                    return prev != null
+                            && !prev.getTaskHistory().isEmpty()
+                            && c.getTaskHistory().isEmpty();
+                });
 
                 var groupRow = new GroupRow(uuidKey, expanded, containsClearHistory);
                 var headerLabel = descriptor.label();
@@ -2133,9 +2134,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             // Retrieve the action value from column 1; derive indent level from ActionText if present
             Object actionVal = table.getModel().getValueAt(row, 1);
-            Object actionForCheck = (actionVal instanceof ActionText atTmp)
-                    ? atTmp.text().renderNowOr(Context.SUMMARIZING)
-                    : actionVal;
+            Object actionForCheck =
+                    (actionVal instanceof ActionText atTmp) ? atTmp.text().renderNowOr(Context.SUMMARIZING) : actionVal;
 
             // Detect group header rows from column 2
             Object contextCol2 = table.getModel().getValueAt(row, 2);
@@ -2548,7 +2548,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         // Dropped all context: fragments became empty
-        if (prev.allFragments().findAny().isPresent() && ctx.allFragments().findAny().isEmpty()) {
+        if (prev.allFragments().findAny().isPresent()
+                && ctx.allFragments().findAny().isEmpty()) {
             return true;
         }
 
