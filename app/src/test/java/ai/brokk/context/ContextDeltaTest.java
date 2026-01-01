@@ -425,11 +425,14 @@ class ContextDeltaTest {
 
         var deltaProtect = ContextDelta.between(ctx1, ctx2);
         assertEquals(1, deltaProtect.protectedFragments().size());
-        assertEquals("Protect Protect.java", deltaProtect.description(contextManager).join());
+        assertEquals(
+                "Protect Protect.java", deltaProtect.description(contextManager).join());
 
         var deltaUnprotect = ContextDelta.between(ctx2, ctx3);
         assertEquals(1, deltaUnprotect.unprotectedFragments().size());
-        assertEquals("Unprotect Protect.java", deltaUnprotect.description(contextManager).join());
+        assertEquals(
+                "Unprotect Protect.java",
+                deltaUnprotect.description(contextManager).join());
     }
 
     @Test

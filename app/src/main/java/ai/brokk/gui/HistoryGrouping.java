@@ -191,19 +191,9 @@ public final class HistoryGrouping {
                 return getDescription(contexts, i, resetTargetIds);
             }
 
-            // Skip "session start" in larger list if it's the first item
-            int effectiveStart = i;
-            int effectiveEnd = j;
-            if (i == 0) {
-                effectiveStart++;
-                if (effectiveEnd - effectiveStart == 1) {
-                    return getDescription(contexts, effectiveStart, resetTargetIds);
-                }
-            }
-
             // Map all child descriptions into a single aggregate CV.
             List<ComputedValue<String>> cvs = new ArrayList<>();
-            for (int k = effectiveStart; k < effectiveEnd; k++) {
+            for (int k = i; k < j; k++) {
                 cvs.add(getDescription(contexts, k, resetTargetIds));
             }
 

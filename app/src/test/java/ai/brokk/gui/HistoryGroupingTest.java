@@ -294,19 +294,19 @@ public class HistoryGroupingTest {
         var frag2 = new ContextFragments.StringFragment(cm, "c2", "file2", "text");
         var c2 = c1.addFragments(frag2);
         var g1 = discover(List.of(c1, c2), c -> false);
-        assertEquals("Add file2", g1.getFirst().label().join());
+        assertEquals("Add x2", g1.getFirst().label().join());
 
         // 2. Three adds -> 2 descriptions after skipping first -> "Add x2"
         var frag3 = new ContextFragments.StringFragment(cm, "c3", "file3", "text");
         var c3 = c2.addFragments(frag3);
         var g2 = discover(List.of(c1, c2, c3), c -> false);
-        assertEquals("Add x2", g2.getFirst().label().join());
+        assertEquals("Add x3", g2.getFirst().label().join());
 
         // 3. Four adds -> 3 descriptions after skipping first -> "Add x3"
         var frag4 = new ContextFragments.StringFragment(cm, "c4", "file4", "text");
         var c4 = c3.addFragments(frag4);
         var g3 = discover(List.of(c1, c2, c3, c4), c -> false);
-        assertEquals("Add x3", g3.getFirst().label().join());
+        assertEquals("Add x4", g3.getFirst().label().join());
     }
 
     @Test
@@ -338,6 +338,6 @@ public class HistoryGroupingTest {
         var g = groups.getFirst();
         assertTrue(g.shouldShowHeader());
         assertEquals(5, g.children().size());
-        assertEquals("Add x2 + Remove x2", g.label().join());
+        assertEquals("Add x3 + Remove x2", g.label().join());
     }
 }

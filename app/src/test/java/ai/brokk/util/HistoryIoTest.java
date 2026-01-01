@@ -17,7 +17,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,7 +46,6 @@ public class HistoryIoTest {
             var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
             var taskFragment = new ContextFragments.TaskFragment(contextManager, msgs, "Task " + i);
             Context context = new Context(contextManager);
-            CompletableFuture.completedFuture("action" + i);
             var ctx = context.addHistoryEntry(new TaskEntry(i + 1, taskFragment, null), taskFragment);
             history.pushContext(ctx);
         }
