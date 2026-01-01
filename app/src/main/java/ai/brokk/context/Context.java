@@ -586,10 +586,15 @@ public class Context {
 
     public ComputedValue<String> getAction(@Nullable Context previous) {
         if (previous == null) {
+            previous = EMPTY;
+        }
+
+        var delta = ContextDelta.between(previous, this);
+        if (delta.isEmpty() && isEmpty()) {
             return ComputedValue.completed(WELCOME_ACTION);
         }
 
-        return ContextDelta.between(previous, this).description(contextManager);
+        return delta.description(contextManager);
     }
 
     public IContextManager getContextManager() {
