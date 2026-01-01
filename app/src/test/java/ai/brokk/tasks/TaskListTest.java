@@ -8,6 +8,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
 import java.util.List;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -155,7 +156,7 @@ public class TaskListTest {
         var result = context.withTaskList(new TaskList.TaskListData(items));
 
         // The description should indicate that something changed (task list added)
-        var description = result.getAction(context);
+        var description = result.getAction(context).join();
         assertFalse(description.isEmpty(), "Description should not be empty after adding task list");
     }
 }

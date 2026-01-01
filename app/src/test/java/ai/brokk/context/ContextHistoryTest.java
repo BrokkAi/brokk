@@ -353,8 +353,9 @@ public class ContextHistoryTest {
         assertNull(updated, "No new context should be created for no-op content changes");
         assertEquals(initialSize, history.getHistory().size(), "History size should remain unchanged");
         assertEquals(initialId, history.liveContext().id(), "Live context should remain the initial one");
+        Context context = history.liveContext();
         assertFalse(
-                history.liveContext().getAction(initialContext).startsWith("Load external changes"),
+                context.getAction(initialContext).join().startsWith("Load external changes"),
                 "Action should not be an external-changes label for no-op changes");
     }
 
@@ -381,7 +382,7 @@ public class ContextHistoryTest {
 
         assertNotNull(updated, "A context should be returned when content changes");
         assertEquals(updated.id(), history.liveContext().id(), "Returned context should be the new live context");
-        assertTrue(updated.getAction(initialContext).startsWith("Load External Changes"), "Action should indicate external changes");
+        assertTrue(updated.getAction(initialContext).join().startsWith("Load External Changes"), "Action should indicate external changes");
 
         var prev = history.previousOf(updated);
         assertNotNull(prev, "There must be a previous context to diff against");
@@ -419,7 +420,7 @@ public class ContextHistoryTest {
         var first = history.processExternalFileChangesIfNeeded(Set.of(pf));
         assertNotNull(first, "First external change should produce a new context");
         assertEquals(sizeBefore + 1, history.getHistory().size(), "History should grow by one on first change");
-        assertEquals("Load External Changes", first.getAction(initialContext), "First change has no counter suffix");
+        assertEquals("Load External Changes", first.getAction(initialContext).join(), "First change has no counter suffix");
 
         var prevOfFirst = history.previousOf(first);
         assertNotNull(prevOfFirst, "Previous of first should be the original context");
@@ -429,7 +430,7 @@ public class ContextHistoryTest {
         var second = history.processExternalFileChangesIfNeeded(Set.of(pf));
         assertNotNull(second, "Second external change should produce an updated context");
         assertEquals(sizeBefore + 1, history.getHistory().size(), "Second change should replace the top (no growth)");
-        assertEquals("Load External Changes", second.getAction(initialContext));
+        assertEquals("Load External Changes", second.getAction(initialContext).join());
 
         var prevOfSecond = history.previousOf(second);
         assertNotNull(prevOfSecond, "Previous of second should exist");
@@ -489,7 +490,7 @@ public class ContextHistoryTest {
         assertNotNull(updated, "Expected a new context for actual content change");
         assertEquals(updated.id(), history.liveContext().id(), "Returned context should be live");
         assertNotEquals(initialContext, updated);
-        assertTrue(updated.getAction(initialContext).startsWith("Load External Changes"), "Action should indicate external change");
+        assertTrue(updated.getAction(initialContext).join().startsWith("Load External Changes"), "Action should indicate external change");
 
         var prev = history.previousOf(updated);
         assertNotNull(prev, "There must be a previous context to diff against");
@@ -544,8 +545,9 @@ public class ContextHistoryTest {
         assertNull(updated, "No content change => no new context");
         assertEquals(beforeSize, history.getHistory().size(), "History size should be unchanged");
         assertEquals(beforeId, history.liveContext().id(), "Live context should remain the same");
+        Context context = history.liveContext();
         assertFalse(
-                history.liveContext().getAction(initialContext).startsWith("Load external changes"),
+                context.getAction(initialContext).join().startsWith("Load external changes"),
                 "Action should not indicate external changes");
     }
 

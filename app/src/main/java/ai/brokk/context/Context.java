@@ -583,25 +583,7 @@ public class Context {
         return taskHistory;
     }
 
-    /**
-     * Generates a descriptive string for the action that produced this context by comparing it to
-     * a previous state.
-     *
-     * @param previous the baseline context to compare against
-     * @return a human-readable description of the change
-     */
-    public String getAction(@Nullable Context previous) {
-        if (previous == null) {
-            return WELCOME_ACTION;
-        }
-
-        return ContextDelta.between(previous, this).description(contextManager).join();
-    }
-
-    /**
-     * Non-blocking version of {@link #getAction(Context)}.
-     */
-    public ComputedValue<String> getActionComputed(@Nullable Context previous) {
+    public ComputedValue<String> getAction(@Nullable Context previous) {
         if (previous == null) {
             return ComputedValue.completed(WELCOME_ACTION);
         }

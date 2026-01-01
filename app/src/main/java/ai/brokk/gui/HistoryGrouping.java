@@ -225,7 +225,7 @@ public final class HistoryGrouping {
                 return "Copy From History";
             }
             Context prev = index > 0 ? contexts.get(index - 1) : null;
-            return ctx.getActionComputed(prev)
+            return ctx.getAction(prev)
                     .await(java.time.Duration.ofSeconds(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS))
                     .orElse(Context.SUMMARIZING);
         }

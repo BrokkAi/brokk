@@ -666,7 +666,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     ai.brokk.util.ComputedValue<String> description = resetTargetIds.contains(ctx.id())
                             ? ai.brokk.util.ComputedValue.completed("Copy From History")
-                            : ctx.getActionComputed(prev);
+                            : ctx.getAction(prev);
 
                     ComputedSubscription.bind(description, historyTable, historyTable::repaint);
                     var actionVal = new ActionText(description, 0);
@@ -697,7 +697,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 if (expanded) {
                     for (Context child : children) {
                         Context prev = contextManager.getContextHistory().previousOf(child);
-                        var childDesc = child.getActionComputed(prev);
+                        var childDesc = child.getAction(prev);
                         ComputedSubscription.bind(childDesc, historyTable, historyTable::repaint);
                         var childAction = new ActionText(childDesc, 1);
                         Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
@@ -2252,11 +2252,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         contextManager.submitBackgroundTask("Compute diff window entries", () -> {
             // Build a multi-file BrokkDiffPanel like showFileHistoryDiff, but with our per-file old/new buffers
             var prevOfCtx = contextManager.getContextHistory().previousOf(ctx);
+            String actionDesc = ctx.getAction(prevOfCtx).renderNowOr(Context.SUMMARIZING);
             var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                     .setMultipleCommitsContext(false)
-                    .setRootTitle("Diff: " + ctx.getAction(prevOfCtx))
+                    .setRootTitle("Diff: " + actionDesc)
                     .setInitialFileIndex(0);
-            String tabTitle = "Diff: " + ctx.getAction(prevOfCtx);
+            String tabTitle = "Diff: " + actionDesc;
             if (diffs.size() == 1) {
                 var files = diffs.getFirst().fragment().files().join();
                 if (!files.isEmpty()) {
@@ -2462,8 +2463,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
 
-    // Structural action text + indent data for column 1 (Option A)
-    record ActionText(ai.brokk.util.ComputedValue<String> text, int indentLevel) {}
+    /**
+     * Structural action text + indent data for history table rendering.
+     */
+    public record ActionText(ai.brokk.util.ComputedValue<String> text, int indentLevel) {}
 
     private enum PendingSelectionType {
         NONE,

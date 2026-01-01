@@ -516,9 +516,9 @@ public class ContextSerializationTest {
         Context l2 = loadedContexts.get(1);
         Context l3 = loadedContexts.get(2);
 
-        assertEquals("Session Start", l1.getAction(null));
-        assertEquals("Add test.java", l2.getAction(l1));
-        assertEquals("Summary 1", l3.getAction(l2));
+        assertEquals("Session Start", l1.getAction(null).join());
+        assertEquals("Add test.java", l2.getAction(l1).join());
+        assertEquals("Summary 1", l3.getAction(l2).join());
     }
 
     private String extractContextsJsonFromZip(Path zip) throws IOException {
