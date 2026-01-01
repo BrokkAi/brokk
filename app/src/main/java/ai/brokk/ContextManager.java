@@ -1674,6 +1674,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private final ConcurrentMap<Callable<?>, String> taskDescriptions = new ConcurrentHashMap<>();
 
+    @Override
     public CompletableFuture<String> summarizeTaskForConversation(String input) {
         var future = new CompletableFuture<String>();
 

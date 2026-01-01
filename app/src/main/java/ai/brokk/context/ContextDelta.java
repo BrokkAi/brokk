@@ -2,7 +2,6 @@ package ai.brokk.context;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
@@ -181,14 +180,15 @@ public record ContextDelta(
             throw new RuntimeException(e);
         }
 
-        var cm = (ContextManager) icm;
-        var actionText = cm.getProject().getDiskCache().computeIfAbsent(cacheKey, () -> {
-            try {
-                return cm.summarizeTaskForConversation(taskText).get();
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
-            }
-        });
+        var actionText = taskText.split("\\s+").length <= 7
+                ? taskText
+                : icm.getProject().getDiskCache().computeIfAbsent(cacheKey, () -> {
+                    try {
+                        return icm.summarizeTaskForConversation(taskText).get();
+                    } catch (InterruptedException | ExecutionException e) {
+                        throw new RuntimeException(e);
+                    }
+                });
 
         return prefix + actionText;
     }
