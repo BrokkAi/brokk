@@ -12,6 +12,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 import ai.brokk.TaskResult;
 import ai.brokk.util.ComputedValue;
@@ -183,12 +184,16 @@ public record ContextDelta(
             throw new RuntimeException(e);
         }
 
-        return icm.getProject().getDiskCache().computeIfAbsent(cacheKey, () -> {
-            String summary = taskText.length() > 80
-                    ? taskText.substring(0, 77) + "..."
-                    : taskText;
-            return prefix + summary.replace('\n', ' ').replace('\r', ' ');
+        var cm = (ContextManager) icm;
+        var actionText = cm.getProject().getDiskCache().computeIfAbsent(cacheKey, () -> {
+            try {
+                return cm.summarizeTaskForConversation(taskText).get();
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
+            }
         });
+
+        return prefix + actionText;
     }
 
     @Blocking
