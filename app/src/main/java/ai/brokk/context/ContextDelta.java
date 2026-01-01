@@ -155,7 +155,7 @@ public record ContextDelta(
             parts.add(buildActionDescription("Remove", removedFragments));
         }
         for (var sf : updatedSpecialFragments) {
-            parts.add("Update " + sf.specialType().get().description());
+            parts.add("Update " + sf.specialType().orElseThrow().description());
         }
         if (parts.isEmpty() && contentsChanged) {
             parts.add("Load External Changes");

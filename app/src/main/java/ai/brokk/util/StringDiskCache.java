@@ -2,7 +2,6 @@ package ai.brokk.util;
 
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.IOException;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.apache.logging.log4j.LogManager;
@@ -18,7 +17,7 @@ public final class StringDiskCache implements AutoCloseable {
     private final DiskLruCache cache;
 
     public StringDiskCache(DiskLruCache cache) {
-        this.cache = Objects.requireNonNull(cache);
+        this.cache = cache;
     }
 
     /**
@@ -57,7 +56,8 @@ public final class StringDiskCache implements AutoCloseable {
             if (editor != null) {
                 try {
                     editor.abort();
-                } catch (IOException ignored) {
+                } catch (IOException e2) {
+                    logger.warn("Cache abort failed", e2);
                 }
             }
         }

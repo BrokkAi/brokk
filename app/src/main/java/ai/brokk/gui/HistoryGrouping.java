@@ -4,9 +4,6 @@ import ai.brokk.context.Context;
 import ai.brokk.util.ComputedValue;
 import java.util.*;
 import java.util.function.Predicate;
-import org.jspecify.annotations.NullMarked;
-
-@NullMarked
 
 /**
  * Unified grouping model for context history rendering.

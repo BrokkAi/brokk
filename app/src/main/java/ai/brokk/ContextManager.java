@@ -2357,11 +2357,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public CompletableFuture<Void> createSessionFromContextAsync(Context sourceContext, String newSessionName) {
         return submitExclusiveAction(() -> {
-                    var prev = contextHistory.previousOf(sourceContext);
                     logger.debug(
                             "Attempting to create and switch to new session '{}' from workspace of context '{}'",
                             newSessionName,
-                            prev.id());
+                            sourceContext.id());
 
                     var sessionManager = project.getSessionManager();
                     // 1. Create new session info

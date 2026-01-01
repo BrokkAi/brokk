@@ -51,8 +51,6 @@ public class ContextHistory {
      */
     private @Nullable UUID lastExternalChangeId;
 
-    private int externalChangeContinuationCount = 0;
-
     /**
      * UI-selection; never {@code null} once an initial context is set.
      */
