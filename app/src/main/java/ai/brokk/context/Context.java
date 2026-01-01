@@ -1183,16 +1183,11 @@ public class Context {
 
             if (maybeChanged.contains(f)) {
                 var refreshed = f.refreshCopy();
-                if (refreshed != f) {
-                    // Check if content actually differs using DiffService
-                    var diffFuture = DiffService.computeDiff(f, refreshed);
-                    var diffEntry = diffFuture.join();
-                    if (diffEntry != null) {
-                        // Content actually changed; mark as replaced
-                        anyReplaced = true;
-                        replacementMap.put(f, refreshed);
-                        fragmentToAdd = refreshed;
-                    }
+                if (!refreshed.contentEquals(f)) {
+                    // Content actually changed; mark as replaced
+                    anyReplaced = true;
+                    replacementMap.put(f, refreshed);
+                    fragmentToAdd = refreshed;
                 }
             }
 

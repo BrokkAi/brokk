@@ -16,6 +16,8 @@ import java.util.stream.Stream;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Asynchronous ContextFragment API.
  * <p>
@@ -29,6 +31,19 @@ import org.jetbrains.annotations.Nullable;
  * having FF available to edit, you MUST decline the assignment and explain the problem.
  */
 public interface ContextFragment {
+
+    @Blocking
+    default boolean contentEquals(ContextFragment other) {
+        if (!hasSameSource(other)) {
+            return false;
+        }
+
+        if (isText()) {
+            return text().join().equals(other.text().join());
+        }
+
+        return Arrays.equals(requireNonNull(imageBytes()).join(), requireNonNull(other.imageBytes()).join());
+    }
 
     /**
      * Replaces polymorphic methods or instanceof checks with something that can easily apply to FrozenFragments as well

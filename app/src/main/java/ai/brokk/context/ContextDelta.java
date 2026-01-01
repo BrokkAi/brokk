@@ -93,9 +93,7 @@ public record ContextDelta(
             var toSpecial = to.getSpecial(type.description());
 
             if (fromSpecial.isPresent() && toSpecial.isPresent()) {
-                String fromText = fromSpecial.get().text().renderNowOr("");
-                String toText = toSpecial.get().text().renderNowOr("");
-                if (!fromText.equals(toText)) {
+                if (!fromSpecial.get().contentEquals(toSpecial.get())) {
                     updatedSpecials.add(toSpecial.get());
                 }
             }
@@ -105,7 +103,7 @@ public record ContextDelta(
         boolean contentsChanged = to.fragments.stream()
                 .filter(toFrag -> !(toFrag instanceof ContextFragments.StringFragment sf && sf.specialType().isPresent()))
                 .anyMatch(toFrag -> from.findWithSameSource(toFrag)
-                        .map(fromFrag -> !fromFrag.text().renderNowOr("").equals(toFrag.text().renderNowOr("")))
+                        .map(fromFrag -> !fromFrag.contentEquals(toFrag))
                         .orElse(false));
 
         return new ContextDelta(
