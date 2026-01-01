@@ -9,9 +9,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -47,6 +45,11 @@ public class ContextHistory {
     private final List<ResetEdge> resetEdges = new ArrayList<>();
     private final Map<UUID, GitState> gitStates = new HashMap<>();
     private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
+
+    /**
+     * Tracks the ID of the last context created by an external file change to handle continuations.
+     */
+    private @Nullable UUID lastExternalChangeId;
 
     /**
      * UI-selection; never {@code null} once an initial context is set.
@@ -190,43 +193,24 @@ public class ContextHistory {
         Context merged = base.removeFragments(toReplace).addFragments(replacements);
 
         // Guard: if refresh produced no actual content differences, avoid adding a no-op
-        // "Load external changes" entry to history. This addresses Issue #2062 where
-        // Activity showed external-change events with no changed filenames.
         // Note: this may block briefly while diffs are computed; this method is @Blocking.
-        var changedFilesBetween = merged.getChangedFiles(base);
-        if (changedFilesBetween.isEmpty()) {
+        var delta = ContextDelta.between(base, merged);
+        if (delta.isEmpty()) {
             return null; // nothing meaningful changed; do not push/replace
         }
 
-        // Maintain "Load external changes (n)" semantics.
-        var previousAction = base.getAction();
-        boolean isContinuation = previousAction.startsWith("Load external changes");
+        // Maintain continuation semantics for rapid external changes.
+        boolean isContinuation = Objects.equals(base.id(), lastExternalChangeId);
 
-        String newAction = "Load external changes";
-        if (isContinuation) {
-            var pattern = Pattern.compile("Load external changes(?: \\((\\d+)\\))?");
-            var matcher = pattern.matcher(previousAction);
-            int newCount;
-            if (matcher.matches() && matcher.group(1) != null) {
-                try {
-                    newCount = Integer.parseInt(matcher.group(1)) + 1;
-                } catch (NumberFormatException e) {
-                    newCount = 2;
-                }
-            } else {
-                newCount = 2;
-            }
-            newAction = "Load external changes (%d)".formatted(newCount);
-        }
-
-        // parsedOutout == null indicated no AI result (render no icon in activity)
-        var updatedLive = merged.withParsedOutput(null, CompletableFuture.completedFuture(newAction));
+        // parsedOutput == null indicates no AI result (render no icon in activity)
+        var updatedLive = merged.withParsedOutput(null);
 
         if (isContinuation) {
             replaceTopInternal(updatedLive);
         } else {
             pushContextInternal(updatedLive, false);
         }
+        lastExternalChangeId = updatedLive.id();
         return updatedLive;
     }
 
@@ -438,14 +422,10 @@ public class ContextHistory {
      * Performs synchronous snapshotting of the given context to ensure stable, historical restoration.
      */
     private void snapshotContext(Context ctx) {
-        for (var fragment : ctx.allFragments().toList()) {
-            try {
-                if (fragment instanceof ContextFragments.AbstractComputedFragment cf) {
-                    cf.await(SNAPSHOT_AWAIT_TIMEOUT);
-                }
-            } catch (Exception e) {
-                logger.warn("Snapshot task failed for fragment {}: {}", fragment.id(), e.toString());
-            }
+        try {
+            ctx.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
         }
     }
 

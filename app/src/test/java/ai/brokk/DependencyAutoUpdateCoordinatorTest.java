@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitTestCleanupUtil;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.DependencyUpdater;
@@ -18,7 +20,6 @@ import java.util.stream.Collectors;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -89,10 +90,12 @@ class DependencyAutoUpdateCoordinatorTest {
         String remoteUrl = remoteRepoDir.toUri().toString();
         String branch = remoteGit.getRepository().getBranch();
 
-        ai.brokk.git.GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch);
+        try (var ignored = ai.brokk.git.GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch)) {
+            // Close GitRepo to release file handles
+        }
         Path gitDir = depDir.resolve(".git");
         if (Files.exists(gitDir)) {
-            FileUtil.deleteRecursively(gitDir);
+            GitTestCleanupUtil.forceDeleteDirectory(gitDir);
         }
         DependencyUpdater.writeGitDependencyMetadata(depDir, remoteUrl, branch, null);
     }
@@ -134,10 +137,11 @@ class DependencyAutoUpdateCoordinatorTest {
                 "Dependency contents should remain unchanged when auto-update is disabled");
     }
 
-    @Disabled
     @Test
     void autoUpdateDependenciesOnce_shouldUpdateOnlyLocalWhenGitDisabled() throws Exception {
         var project = new MainProject(tempRoot);
+        // Explicitly set analyzer languages to ensure .java files are copied during local dependency update
+        project.setAnalyzerLanguages(Set.of(Languages.JAVA));
 
         Path localDepDir = dependenciesRoot.resolve("local-dep");
         seedLocalDependency(localDepDir);

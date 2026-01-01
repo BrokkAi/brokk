@@ -74,7 +74,6 @@ public class V3_DtoMapper {
                 ? (ContextFragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
                 : null;
 
-        var actionFuture = CompletableFuture.completedFuture(dto.action());
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(
@@ -82,7 +81,8 @@ public class V3_DtoMapper {
                         virtualFragments.stream().map(v -> (ContextFragment) v))
                 .toList();
 
-        return Context.createWithId(ctxId, mgr, combined, taskHistory, parsedOutputFragment, actionFuture);
+        return Context.createWithId(
+                ctxId, mgr, combined, taskHistory, parsedOutputFragment, null, null, Set.of(), Set.of());
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}

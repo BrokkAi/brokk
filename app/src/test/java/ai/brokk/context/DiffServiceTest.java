@@ -7,6 +7,7 @@ import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.util.ComputedValue;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -35,13 +36,11 @@ class DiffServiceTest {
 
         var oldFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
         oldFrag.text().await(Duration.ofSeconds(2));
-        var oldCtx = new Context(
-                contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx = new Context(contextManager, List.of(oldFrag), List.of(), null);
 
         Files.writeString(pf.absPath(), "a\nb\n");
         var newFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
-        var newCtx = new Context(
-                contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx = new Context(contextManager, List.of(newFrag), List.of(), null);
 
         var history = new ContextHistory(oldCtx);
         history.pushContext(newCtx);
@@ -77,15 +76,13 @@ class DiffServiceTest {
         // Pre-compute and cache old content
         oldFrag.text().await(Duration.ofSeconds(2));
 
-        var oldCtx = new Context(
-                contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx = new Context(contextManager, List.of(oldFrag), List.of(), null);
 
         // Mutate file for new context
         Files.writeString(pf.absPath(), "line1\nline2\n");
 
         var newFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
-        var newCtx = new Context(
-                contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx = new Context(contextManager, List.of(newFrag), List.of(), null);
 
         // Act
         var diffs = DiffService.computeDiff(newCtx, oldCtx);
@@ -101,13 +98,11 @@ class DiffServiceTest {
     void virtual_fragments_are_excluded_from_diff() {
         var sfOld = new ContextFragments.StringFragment(
                 contextManager, "old text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-        var oldCtx =
-                new Context(contextManager, List.of(sfOld), List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx = new Context(contextManager, List.of(sfOld), List.of(), null);
 
         var sfNew = new ContextFragments.StringFragment(
                 contextManager, "new text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-        var newCtx =
-                new Context(contextManager, List.of(sfNew), List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx = new Context(contextManager, List.of(sfNew), List.of(), null);
 
         var diffs = DiffService.computeDiff(newCtx, oldCtx);
         assertEquals(0, diffs.size(), "Virtual fragments (StringFragment) should be excluded from diffs");
@@ -120,13 +115,11 @@ class DiffServiceTest {
         var extFile = new ExternalFile(extPath);
 
         var oldFrag = new ContextFragments.ExternalPathFragment(extFile, contextManager);
-        var oldCtx = new Context(
-                contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx = new Context(contextManager, List.of(oldFrag), List.of(), null);
 
         Files.writeString(extPath, "v2");
         var newFrag = new ContextFragments.ExternalPathFragment(extFile, contextManager);
-        var newCtx = new Context(
-                contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx = new Context(contextManager, List.of(newFrag), List.of(), null);
 
         var diffs = DiffService.computeDiff(newCtx, oldCtx);
         assertEquals(
@@ -144,15 +137,13 @@ class DiffServiceTest {
         // Seed cache for old content
         oldFrag.text().await(Duration.ofSeconds(2));
 
-        var oldCtx = new Context(
-                contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx = new Context(contextManager, List.of(oldFrag), List.of(), null);
 
         // Mutate file for new context
         Files.writeString(pf.absPath(), "class A {}\nclass B {}\n");
 
         var newFrag = new ContextFragments.ProjectPathFragment(pf, contextManager);
-        var newCtx = new Context(
-                contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx = new Context(contextManager, List.of(newFrag), List.of(), null);
 
         // Mark the new fragment as read-only in the new context
         newCtx = newCtx.setReadonly(newFrag, true);
@@ -168,13 +159,11 @@ class DiffServiceTest {
         writeImage(imgFile, Color.RED);
 
         var oldImgFrag = new ContextFragments.ImageFileFragment(imgFile, contextManager);
-        var oldCtx = new Context(
-                contextManager, List.of(oldImgFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx = new Context(contextManager, List.of(oldImgFrag), List.of(), null);
 
         // No change to image
         var newImgFrag = new ContextFragments.ImageFileFragment(imgFile, contextManager);
-        var newCtx = new Context(
-                contextManager, List.of(newImgFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx = new Context(contextManager, List.of(newImgFrag), List.of(), null);
 
         var diffs = DiffService.computeDiff(newCtx, oldCtx);
         assertEquals(0, diffs.size(), "Equal images must not produce a diff entry");
@@ -189,15 +178,13 @@ class DiffServiceTest {
         var oldImgFrag = new ContextFragments.ImageFileFragment(imgFile, contextManager);
         // Ensure old fragment's async computation completes before mutating the file
         oldImgFrag.await(Duration.ofSeconds(2));
-        var oldCtx = new Context(
-                contextManager, List.of(oldImgFrag), List.of(), null, CompletableFuture.completedFuture("old"));
+        var oldCtx = new Context(contextManager, List.of(oldImgFrag), List.of(), null);
 
         // Change image bytes
         writeImage(imgFile, Color.GREEN);
 
         var newImgFrag = new ContextFragments.ImageFileFragment(imgFile, contextManager);
-        var newCtx = new Context(
-                contextManager, List.of(newImgFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var newCtx = new Context(contextManager, List.of(newImgFrag), List.of(), null);
 
         var diffs = DiffService.computeDiff(newCtx, oldCtx);
         assertEquals(1, diffs.size(), "Byte-different images should produce a placeholder diff");
@@ -209,17 +196,23 @@ class DiffServiceTest {
 
     @Test
     void text_diff_falls_back_when_new_text_not_computed() {
-        class SlowFragment extends ContextFragments.AbstractComputedFragment
-                implements ContextFragment.DynamicIdentity {
+        class SlowFragment extends ContextFragments.AbstractComputedFragment {
             private final ContextFragment.FragmentType type;
 
             SlowFragment(
                     String id,
                     IContextManager cm,
-                    @Nullable ContextFragments.FragmentSnapshot snapshot,
-                    @Nullable Callable<ContextFragments.FragmentSnapshot> task,
+                    @Nullable ContextFragments.ContentSnapshot snapshot,
+                    @Nullable Callable<ContextFragments.ContentSnapshot> task,
                     ContextFragment.FragmentType type) {
-                super(id, cm, snapshot, task);
+                super(
+                        id,
+                        cm,
+                        ComputedValue.completed("Slow Fragment"),
+                        ComputedValue.completed("Slow"),
+                        ComputedValue.completed(SyntaxConstants.SYNTAX_STYLE_NONE),
+                        snapshot,
+                        task);
                 this.type = type;
             }
 
@@ -263,10 +256,8 @@ class DiffServiceTest {
                 },
                 ContextFragment.FragmentType.PROJECT_PATH);
 
-        var oldCtx = new Context(
-                contextManager, List.of(oldFrag), List.of(), null, CompletableFuture.completedFuture("old"));
-        var newCtx = new Context(
-                contextManager, List.of(newFrag), List.of(), null, CompletableFuture.completedFuture("new"));
+        var oldCtx = new Context(contextManager, List.of(oldFrag), List.of(), null);
+        var newCtx = new Context(contextManager, List.of(newFrag), List.of(), null);
 
         var diffs = DiffService.computeDiff(newCtx, oldCtx);
         assertEquals(1, diffs.size(), "Should produce a fallback diff even if new text is unresolved");
@@ -279,22 +270,13 @@ class DiffServiceTest {
                 "New content should fall back to error message on timeout");
     }
 
-    private static ContextFragments.FragmentSnapshot snapshot(
+    private static ContextFragments.ContentSnapshot snapshot(
             String description, String shortDescription, String text, boolean isValid) {
-        return new ContextFragments.FragmentSnapshot(
-                description,
-                shortDescription,
-                text,
-                SyntaxConstants.SYNTAX_STYLE_NONE,
-                Set.of(),
-                Set.of(),
-                (List<Byte>) null,
-                isValid);
+        return new ContextFragments.ContentSnapshot(text, Set.of(), Set.of(), (List<Byte>) null, isValid);
     }
 
-    private static ContextFragments.FragmentSnapshot snapshot(
-            String description, String shortDescription, String text) {
-        return snapshot(description, shortDescription, text, true);
+    private static ContextFragments.ContentSnapshot snapshot(String description, String shortDescription, String text) {
+        return ContextFragments.ContentSnapshot.textSnapshot(text, Set.of(), Set.of());
     }
 
     private static void writeImage(ProjectFile file, Color color) throws Exception {
@@ -332,11 +314,11 @@ class DiffServiceTest {
 
         var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         frag1.text().await(Duration.ofSeconds(2));
-        var ctx1 = new Context(contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("1"));
+        var ctx1 = new Context(contextManager, List.of(frag1), List.of(), null);
 
         Files.writeString(pf.absPath(), "v2\n");
         var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
-        var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("2"));
+        var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null);
 
         var history = new ContextHistory(ctx1);
         history.pushContext(ctx2);
@@ -358,29 +340,17 @@ class DiffServiceTest {
 
         Files.writeString(pf.absPath(), "v1\n");
         var ctx1 = new Context(
-                contextManager,
-                List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)),
-                List.of(),
-                null,
-                CompletableFuture.completedFuture("1"));
+                contextManager, List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)), List.of(), null);
         ctx1.allFragments().forEach(f -> f.text().await(Duration.ofSeconds(1)));
 
         Files.writeString(pf.absPath(), "v2\n");
         var ctx2 = new Context(
-                contextManager,
-                List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)),
-                List.of(),
-                null,
-                CompletableFuture.completedFuture("2"));
+                contextManager, List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)), List.of(), null);
         ctx2.allFragments().forEach(f -> f.text().await(Duration.ofSeconds(1)));
 
         Files.writeString(pf.absPath(), "v3\n");
         var ctx3 = new Context(
-                contextManager,
-                List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)),
-                List.of(),
-                null,
-                CompletableFuture.completedFuture("3"));
+                contextManager, List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)), List.of(), null);
 
         var history = new ContextHistory(List.of(ctx1, ctx2, ctx3));
         var ds = history.getDiffService();
@@ -399,17 +369,9 @@ class DiffServiceTest {
         Files.writeString(pf.absPath(), "v1\n");
 
         var ctx1 = new Context(
-                contextManager,
-                List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)),
-                List.of(),
-                null,
-                CompletableFuture.completedFuture("1"));
+                contextManager, List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)), List.of(), null);
         var ctx2 = new Context(
-                contextManager,
-                List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)),
-                List.of(),
-                null,
-                CompletableFuture.completedFuture("2"));
+                contextManager, List.of(new ContextFragments.ProjectPathFragment(pf, contextManager)), List.of(), null);
 
         var history = new ContextHistory(List.of(ctx1, ctx2));
         var ds = history.getDiffService();
@@ -452,12 +414,12 @@ class DiffServiceTest {
 
         var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         frag1.text().await(Duration.ofSeconds(1));
-        var ctx1 = new Context(contextManager, List.of(frag1), List.of(), null, CompletableFuture.completedFuture("1"));
+        var ctx1 = new Context(contextManager, List.of(frag1), List.of(), null);
 
         Files.writeString(pf.absPath(), "v2");
         var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         frag2.text().await(Duration.ofSeconds(1));
-        var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null, CompletableFuture.completedFuture("2"));
+        var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null);
 
         var history = new ContextHistory(List.of(ctx1, ctx2));
         var ds = history.getDiffService();

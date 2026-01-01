@@ -8,6 +8,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -24,6 +25,7 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ComputedValue;
 import ai.brokk.util.GlobalUiSettings;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.ChatMessage;
@@ -623,7 +625,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public void updateHistoryTable(@Nullable Context contextToSelect) {
         logger.debug(
                 "Updating context history table with context {}",
-                contextToSelect != null ? contextToSelect.getAction() : "null");
+                contextToSelect != null ? contextToSelect.id() : "null");
 
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
@@ -636,15 +638,15 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             var contexts = contextManager.getContextHistoryList();
 
-            // (Re)bind computed fragment subscriptions for all contexts shown in the table.
-            ComputedSubscription.disposeAll(historyTable);
-            for (var ctx1 : contexts) {
-                ctx1.allFragments().forEach(f -> ComputedSubscription.bind(f, historyTable, historyTable::repaint));
-            }
-
             // Diff warm-up is deferred; request diffs only for visible rows and current selection.
             var diffService = contextManager.getContextHistory().getDiffService();
-            var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary);
+            var resetEdges = contextManager.getContextHistory().getResetEdges();
+            var resetTargetIds = resetEdges.stream()
+                    .map(ai.brokk.context.ContextHistory.ResetEdge::targetId)
+                    .collect(java.util.stream.Collectors.toSet());
+
+            var descriptors =
+                    HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary, resetTargetIds);
             latestDescriptors = descriptors;
 
             for (var descriptor : descriptors) {
@@ -654,8 +656,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     // Render singleton (no header)
                     assert children.size() == 1 : "Descriptor without header must be singleton";
                     var ctx = children.getFirst();
+                    Context prev = contextManager.getContextHistory().previousOf(ctx);
                     Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                    var actionVal = new ActionText(ctx.getAction(), 0);
+
+                    ComputedValue<String> description = resetTargetIds.contains(ctx.id())
+                            ? ai.brokk.util.ComputedValue.completed("Copy From History")
+                            : ctx.getAction(prev);
+
+                    ComputedSubscription.bind(description, historyTable, () -> {
+                        historyTable.repaint();
+                    });
+                    var actionVal = new ActionText(description, 0);
                     historyModel.addRow(new Object[] {icon, actionVal, ctx});
                     if (ctx.equals(contextToSelect)) {
                         rowToSelect = currentRow;
@@ -669,16 +680,27 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 boolean expandedDefault = descriptor.isLastGroup();
                 boolean expanded = groupExpandedState.computeIfAbsent(uuidKey, k -> expandedDefault);
 
-                boolean containsClearHistory = children.stream()
-                        .anyMatch(c -> ActivityTableRenderers.CLEARED_TASK_HISTORY.equalsIgnoreCase(c.getAction()));
+                // Boundary detection for visual grouping: check if this group contains a state reset
+                boolean containsClearHistory = children.stream().anyMatch(c -> {
+                    var prev = contextManager.getContextHistory().previousOf(c);
+                    return prev != null
+                            && !prev.getTaskHistory().isEmpty()
+                            && c.getTaskHistory().isEmpty();
+                });
 
                 var groupRow = new GroupRow(uuidKey, expanded, containsClearHistory);
-                historyModel.addRow(new Object[] {new TriangleIcon(expanded), descriptor.label(), groupRow});
+                var headerLabel = descriptor.label();
+                ComputedSubscription.bind(headerLabel, historyTable, historyTable::repaint);
+
+                historyModel.addRow(new Object[] {new TriangleIcon(expanded), headerLabel, groupRow});
                 currentRow++;
 
                 if (expanded) {
-                    for (var child : children) {
-                        var childAction = new ActionText(child.getAction(), 1);
+                    for (Context child : children) {
+                        Context prev = contextManager.getContextHistory().previousOf(child);
+                        var childDesc = child.getAction(prev);
+                        ComputedSubscription.bind(childDesc, historyTable, historyTable::repaint);
+                        var childAction = new ActionText(childDesc, 1);
                         Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
                         historyModel.addRow(new Object[] {childIcon, childAction, child});
                         if (child.equals(contextToSelect)) {
@@ -747,7 +769,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             requestVisibleDiffs();
 
             contextManager.getProject().getMainProject().sessionsListChanged();
-            var resetEdges = contextManager.getContextHistory().getResetEdges();
             arrowLayerUI.setResetEdges(resetEdges);
             updateUndoRedoButtonStates();
         });
@@ -904,7 +925,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                 var copyItem = new JMenuItem("Copy Output");
                 copyItem.addActionListener(event -> performContextActionOnLatestHistoryFragment(
-                        WorkspacePanel.ContextAction.COPY, "No active context to copy from."));
+                        ContextActionsHandler.ContextAction.COPY, "No active context to copy from."));
                 copyItem.setEnabled(copyButton.isEnabled());
                 popup.add(copyItem);
 
@@ -917,7 +938,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                 var clearItem = new JMenuItem("Clear Output");
                 clearItem.addActionListener(event -> performContextActionOnLatestHistoryFragment(
-                        WorkspacePanel.ContextAction.DROP, "No active context to clear from."));
+                        ContextActionsHandler.ContextAction.DROP, "No active context to clear from."));
                 clearItem.setEnabled(clearButton.isEnabled());
                 popup.add(clearItem);
 
@@ -957,7 +978,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * context. Shows appropriate user feedback if there is no active context or no history fragment.
      */
     private void performContextActionOnLatestHistoryFragment(
-            WorkspacePanel.ContextAction action, String noContextMessage) {
+            ContextActionsHandler.ContextAction action, String noContextMessage) {
         var ctx = contextManager.selectedContext();
         if (ctx == null) {
             chrome.showNotification(IConsoleIO.NotificationRole.INFO, noContextMessage);
@@ -975,7 +996,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
 
         var historyFrag = historyOpt.get();
-        chrome.getContextPanel().performContextActionAsync(action, List.of(historyFrag));
+        chrome.getContextActionsHandler().performContextActionAsync(action, List.of(historyFrag));
     }
 
     // Notification API
@@ -1734,6 +1755,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public void showSessionSwitchSpinner() {
         SwingUtilities.invokeLater(() -> {
             historyModel.setRowCount(0);
+            ComputedSubscription.disposeAll(historyTable);
 
             JPanel ssp = sessionSwitchPanel;
             if (ssp == null) {
@@ -1945,8 +1967,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                             if (ter.status() != ToolExecutionResult.Status.SUCCESS) {
                                 chrome.toolError("Failed to create task list: " + ter.resultText(), "Task List");
                             } else {
-                                this.contextManager.pushContext(ctx -> ws.getContext()
-                                        .withAction(CompletableFuture.completedFuture("Task List created")));
+                                this.contextManager.pushContext(ctx -> ws.getContext());
                             }
                         }
                     }
@@ -2113,7 +2134,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
             // Retrieve the action value from column 1; derive indent level from ActionText if present
             Object actionVal = table.getModel().getValueAt(row, 1);
-            Object actionForCheck = (actionVal instanceof ActionText atTmp) ? atTmp.text() : actionVal;
+            Object actionForCheck =
+                    (actionVal instanceof ActionText atTmp) ? atTmp.text().renderNowOr(Context.SUMMARIZING) : actionVal;
 
             // Detect group header rows from column 2
             Object contextCol2 = table.getModel().getValueAt(row, 2);
@@ -2147,7 +2169,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     String actionText;
                     Object col1 = table.getModel().getValueAt(row, 1);
                     if (col1 instanceof ActionText at2) {
-                        actionText = at2.text();
+                        actionText = at2.text().renderNowOr(Context.SUMMARIZING);
                     } else {
                         actionText = (col1 != null) ? col1.toString() : "";
                     }
@@ -2219,7 +2241,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         ds.diff(ctx).thenAccept(diffs -> SwingUtilities.invokeLater(() -> showDiffWindow(ctx, diffs)));
     }
 
-    private void showDiffWindow(Context ctx, List<Context.DiffEntry> diffs) {
+    private void showDiffWindow(Context ctx, List<DiffService.DiffEntry> diffs) {
 
         record BufferedSourcePair(BufferSource left, BufferSource right) {}
 
@@ -2230,12 +2252,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         contextManager.submitBackgroundTask("Compute diff window entries", () -> {
             // Build a multi-file BrokkDiffPanel like showFileHistoryDiff, but with our per-file old/new buffers
+            var prevOfCtx = contextManager.getContextHistory().previousOf(ctx);
+            String actionDesc = ctx.getAction(prevOfCtx).renderNowOr(Context.SUMMARIZING);
             var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                     .setMultipleCommitsContext(false)
-                    .setRootTitle("Diff: " + ctx.getAction())
+                    .setRootTitle("Diff: " + actionDesc)
                     .setInitialFileIndex(0);
-
-            String tabTitle = "Diff: " + ctx.getAction();
+            String tabTitle = "Diff: " + actionDesc;
             if (diffs.size() == 1) {
                 var files = diffs.getFirst().fragment().files().join();
                 if (!files.isEmpty()) {
@@ -2284,7 +2307,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     @Blocking
-    private static String safeFragmentText(Context.DiffEntry de) {
+    private static String safeFragmentText(DiffService.DiffEntry de) {
         try {
             return de.fragment().text().join();
         } catch (Throwable t) {
@@ -2441,8 +2464,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     public record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
 
-    // Structural action text + indent data for column 1 (Option A)
-    record ActionText(String text, int indentLevel) {}
+    /**
+     * Structural action text + indent data for history table rendering.
+     */
+    public record ActionText(ComputedValue<String> text, int indentLevel) {}
 
     private enum PendingSelectionType {
         NONE,
@@ -2511,10 +2536,29 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private boolean isGroupingBoundary(Context ctx) {
         // Grouping boundaries are independent of diff presence.
-        // Boundary when this is an AI result WITHOUT a groupId, or an explicit "dropped all context" separator.
+        // Boundary when this is an AI result WITHOUT a groupId, or a state reset (empty fragments or history cleared).
         // Note: AI results that carry a groupId are NOT boundaries and may merge into a single GROUP_BY_ID run.
-        return (ctx.isAiResult() && ctx.getGroupId() == null)
-                || ActivityTableRenderers.DROPPED_ALL_CONTEXT.equals(ctx.getAction());
+        if (ctx.isAiResult() && ctx.getGroupId() == null) {
+            return true;
+        }
+
+        Context prev = contextManager.getContextHistory().previousOf(ctx);
+        if (prev == null) {
+            return false;
+        }
+
+        // Dropped all context: fragments became empty
+        if (prev.allFragments().findAny().isPresent()
+                && ctx.allFragments().findAny().isEmpty()) {
+            return true;
+        }
+
+        // Cleared task history: history became empty
+        if (!prev.getTaskHistory().isEmpty() && ctx.getTaskHistory().isEmpty()) {
+            return true;
+        }
+
+        return false;
     }
 
     private void toggleGroupRow(int row) {

@@ -29,11 +29,8 @@ public class TaskListPersistenceTest {
                 new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         var tasks = List.of("Build feature X", "Add unit tests", "Write documentation");
-        var afterCreate = initial.withTaskList(
-                new TaskList.TaskListData(tasks.stream()
-                        .map(t -> new TaskList.TaskItem(t, t, false))
-                        .toList()),
-                "Task list created");
+        var afterCreate = initial.withTaskList(new TaskList.TaskListData(
+                tasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList()));
 
         // Verify fragment exists and is JSON
         Optional<ContextFragments.StringFragment> fragOpt = afterCreate.getTaskListFragment();
@@ -70,13 +67,13 @@ public class TaskListPersistenceTest {
                 new TaskList.TaskItem("Done 1", "Completed", true),
                 new TaskList.TaskItem("Incomplete", "To do", false),
                 new TaskList.TaskItem("Done 2", "Also done", true)));
-        var contextWithMixed = initial.withTaskList(mixed, "Mixed initial");
+        var contextWithMixed = initial.withTaskList(mixed);
 
         // Replace with new tasks (simulating replacement by creating new data)
         var newTasks = List.of("Fresh task 1", "Fresh task 2");
         var newData = new TaskList.TaskListData(
                 newTasks.stream().map(t -> new TaskList.TaskItem(t, t, false)).toList());
-        var afterReplace = contextWithMixed.withTaskList(newData, "Task list replaced");
+        var afterReplace = contextWithMixed.withTaskList(newData);
 
         // Verify replacement in persistent storage
         var frag = afterReplace.getTaskListFragment();
@@ -98,8 +95,7 @@ public class TaskListPersistenceTest {
                 new Context(new TestContextManager(Path.of(".").toAbsolutePath().normalize(), new TestConsoleIO()));
 
         var result = initial.withTaskList(
-                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))),
-                "Task list created");
+                new TaskList.TaskListData(List.of(new TaskList.TaskItem("Task 1", "Task 1", false))));
 
         var frag = result.getTaskListFragment();
         assertTrue(frag.isPresent());

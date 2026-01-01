@@ -7,7 +7,6 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
-import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -15,10 +14,11 @@ import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ViewingPolicy;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
-import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.AdaptiveExecutor;
 import ai.brokk.util.Messages;
 import dev.langchain4j.agent.tool.P;
@@ -211,7 +211,7 @@ public class ContextAgent {
     @Blocking
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
         var workspaceRepresentation =
-                CodePrompts.instance.getWorkspaceContentsMessages(context, new ViewingPolicy(TaskResult.Type.CONTEXT));
+                WorkspacePrompts.getMessagesInAddedOrder(context, java.util.EnumSet.of(SpecialTextType.TASK_LIST));
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);
@@ -274,8 +274,6 @@ public class ContextAgent {
                 .toList();
         logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
 
-        // GPT-5 Nano is currently the best combination of smart + low price. (Smarter than Flash 2.0 or Flash 2.5
-        // lite.)  We don't care as much about speed here, so 5 Nano gets the nod.
         var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
 
         // Create Llm instances - only analyzed group streams to UI
@@ -614,13 +612,6 @@ public class ContextAgent {
             List<String> filenames, Collection<ChatMessage> workspaceRepresentation, Llm filesLlm)
             throws InterruptedException {
 
-        var systemPrompt =
-                """
-                You are an assistant that performs a first pass of identifying relevant files based on a goal and the existing Workspace contents.
-                A second pass will be made using your recommended files, so the top priority is to make sure you
-                identify ALL potentially relevant files without leaving any out, even at the cost of some false positives.
-                You MUST ONLY select files from the provided <filenames> list. Do NOT invent or include any file that is not exactly present in <filenames>.
-                """;
         var filenamePrompt =
                 """
                 <instructions>
@@ -654,7 +645,6 @@ public class ContextAgent {
                 """
                         .formatted(String.join("\n", filenames));
 
-        var finalSystemMessage = new SystemMessage(systemPrompt);
         var discardedNote = getDiscardedContextNote();
         var userPrompt = new StringBuilder().append("<goal>\n").append(goal).append("\n</goal>\n\n");
         if (!discardedNote.isEmpty()) {
@@ -662,8 +652,9 @@ public class ContextAgent {
         }
         userPrompt.append(filenamePrompt);
 
+        var sys = new SystemMessage(SearchPrompts.instance.searchAgentIdentity());
         List<ChatMessage> messages = Stream.concat(
-                        Stream.of(finalSystemMessage),
+                        Stream.of(sys),
                         Stream.concat(
                                 workspaceRepresentation.stream(), Stream.of(new UserMessage(userPrompt.toString()))))
                 .toList();

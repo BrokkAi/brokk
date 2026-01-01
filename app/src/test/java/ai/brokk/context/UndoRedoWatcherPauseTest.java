@@ -6,7 +6,6 @@ import ai.brokk.testutil.TestAnalyzerWrapper;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -32,8 +31,8 @@ public class UndoRedoWatcherPauseTest {
         var ch = cm.getContextHistory();
 
         // Build two contexts so that undo is possible
-        ch.push(ctx -> ctx.withAction(CompletableFuture.completedFuture("first change")));
-        ch.push(ctx -> ctx.withAction(CompletableFuture.completedFuture("second change")));
+        ch.push(ctx -> ctx.addFragments(new ContextFragments.StringFragment(cm, "first", "first change", "text")));
+        ch.push(ctx -> ctx.addFragments(new ContextFragments.StringFragment(cm, "second", "second change", "text")));
 
         // Perform undo while pausing file change notifications
         var undoResult = cm.withFileChangeNotificationsPaused(() -> ch.undo(1, cm.getIo(), project));

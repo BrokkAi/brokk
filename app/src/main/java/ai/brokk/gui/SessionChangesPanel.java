@@ -1,11 +1,15 @@
 package ai.brokk.gui;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ContextManager;
-import ai.brokk.context.Context;
+import ai.brokk.IConsoleIO;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -17,8 +21,11 @@ import ai.brokk.gui.theme.ThemeAware;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
@@ -36,11 +43,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SessionChangesPanel.class);
     private final Chrome chrome;
     private final ContextManager contextManager;
+    private final GitRepo repo;
     private final DeferredUpdateHelper deferredUpdateHelper;
     private final TabTitleUpdater tabTitleUpdater;
 
     @Nullable
     private DiffService.CumulativeChanges lastCumulativeChanges = null;
+
+    @Nullable
+    private String lastBaselineLabel = null;
+
+    @Nullable
+    private BaselineMode lastBaselineMode = null;
 
     @Nullable
     private BrokkDiffPanel diffPanel;
@@ -55,8 +69,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.tabTitleUpdater = tabTitleUpdater;
-        setOpaque(false);
 
+        var maybeRepo = contextManager.getProject().getRepo();
+        if (!(maybeRepo instanceof GitRepo gr)) {
+            // parent should show a placeholder instead
+            throw new IllegalStateException("SessionChangesPanel requires a GitRepo");
+        }
+        this.repo = gr;
+
+        setOpaque(false);
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
     }
 
@@ -96,53 +117,39 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private record BaselineState(BaselineMode baselineMode, String baselineLabel) {}
 
     private @Nullable BaselineState resolveBaselineState() {
-        var repoOpt = repo();
-        if (repoOpt.isEmpty()) {
-            tabTitleUpdater.updateTitleAndTooltip("Review", "No Git repository");
-            return null;
-        }
-
-        var repo = repoOpt.get();
-        String currentBranch;
         try {
-            currentBranch = repo.getCurrentBranch();
-        } catch (Exception e) {
-            logger.warn("Failed to get current branch", e);
-            tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to get branch");
-            return null;
-        }
+            String defaultBranch = repo.getDefaultBranch();
+            String currentBranch = repo.getCurrentBranch();
 
-        BaselineMode baselineMode;
-        String baselineLabel;
-        String defaultBranch;
-        try {
-            defaultBranch = repo.getDefaultBranch();
-        } catch (Exception e) {
-            defaultBranch = "main";
-        }
+            boolean isDetached = !repo.listLocalBranches().contains(currentBranch);
 
-        if (RightPanel.isLikelyCommitHash(currentBranch)) {
-            baselineMode = BaselineMode.DETACHED;
-            baselineLabel = "detached HEAD";
-        } else if (!currentBranch.equals(defaultBranch)) {
-            baselineMode = BaselineMode.NON_DEFAULT_BRANCH;
-            baselineLabel = defaultBranch;
-        } else {
-            var remoteUrl = repo.getRemoteUrl();
-            if (remoteUrl != null && !remoteUrl.isEmpty()) {
-                baselineMode = BaselineMode.DEFAULT_WITH_UPSTREAM;
-                baselineLabel = "origin/" + defaultBranch;
-            } else {
-                baselineMode = BaselineMode.DEFAULT_LOCAL_ONLY;
-                baselineLabel = "";
+            if (isDetached) {
+                return new BaselineState(BaselineMode.DETACHED, "detached HEAD");
             }
+
+            if (!currentBranch.equals(defaultBranch)) {
+                return new BaselineState(BaselineMode.NON_DEFAULT_BRANCH, defaultBranch);
+            }
+
+            var remoteBranches = repo.listRemoteBranches();
+            String upstreamRef = "origin/" + defaultBranch;
+            if (remoteBranches.contains(upstreamRef)) {
+                return new BaselineState(BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRef);
+            }
+
+            return new BaselineState(BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD");
+        } catch (GitAPIException e) {
+            logger.warn("Failed to compute baseline for changes", e);
+            return new BaselineState(BaselineMode.NO_BASELINE, "Error: " + e.getMessage());
         }
-        return new BaselineState(baselineMode, baselineLabel);
     }
 
     private void performRefresh() {
         var state = resolveBaselineState();
         if (state == null) return;
+
+        lastBaselineLabel = state.baselineLabel();
+        lastBaselineMode = state.baselineMode();
 
         // Set loading state
         tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
@@ -165,41 +172,82 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 });
     }
 
-    private java.util.Optional<ai.brokk.git.IGitRepo> repo() {
-        try {
-            return java.util.Optional.of(contextManager.getProject().getRepo());
-        } catch (Exception e) {
-            return java.util.Optional.empty();
-        }
-    }
-
     private DiffService.CumulativeChanges computeCumulativeChanges(String baselineLabel, BaselineMode baselineMode)
-            throws Exception {
-        var repo = contextManager.getProject().getRepo();
-
-        String leftRef;
-        String rightRef = "HEAD";
-
-        if (baselineMode == BaselineMode.DETACHED) {
-            // For detached HEAD, compare against empty (show all changes in current commit)
-            leftRef = rightRef + "^";
-        } else if (baselineMode == BaselineMode.NON_DEFAULT_BRANCH) {
-            // Compare current branch against default branch
-            leftRef = baselineLabel;
-        } else if (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM) {
-            // Compare local default against remote
-            leftRef = baselineLabel;
-        } else {
-            // DEFAULT_LOCAL_ONLY - no meaningful comparison
-            return new DiffService.CumulativeChanges(0, 0, 0, java.util.List.of());
+            throws GitAPIException {
+        if (baselineMode == BaselineMode.DETACHED || baselineMode == BaselineMode.NO_BASELINE) {
+            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
         }
 
-        var modifiedFiles = repo.listFilesChangedBetweenCommits(rightRef, leftRef);
-        var modifiedSet = new java.util.HashSet<>(modifiedFiles.stream()
-                .map(mf -> new ai.brokk.git.IGitRepo.ModifiedFile(mf.file(), mf.status()))
-                .toList());
+        Map<ProjectFile, GitRepo.ModifiedFile> fileMap = new HashMap<>();
+        String leftCommitSha = null;
+        String currentBranch = repo.getCurrentBranch();
 
-        return DiffService.summarizeDiff(repo, leftRef, rightRef, modifiedSet);
+        switch (baselineMode) {
+            case NON_DEFAULT_BRANCH -> {
+                String defaultBranch = baselineLabel;
+                String defaultBranchRef = "refs/heads/" + defaultBranch;
+                leftCommitSha = repo.getMergeBase(currentBranch, defaultBranchRef);
+                if (leftCommitSha != null) {
+                    var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                    for (var mf : myChanges) {
+                        fileMap.putIfAbsent(mf.file(), mf);
+                    }
+                } else {
+                    leftCommitSha = "HEAD";
+                }
+                for (var mf : repo.getModifiedFiles()) {
+                    fileMap.put(mf.file(), mf);
+                }
+            }
+            case DEFAULT_WITH_UPSTREAM -> {
+                String upstreamRef = baselineLabel;
+                leftCommitSha = repo.getMergeBase("HEAD", upstreamRef);
+                if (leftCommitSha != null) {
+                    var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                    for (var mf : myChanges) {
+                        fileMap.putIfAbsent(mf.file(), mf);
+                    }
+                } else {
+                    leftCommitSha = "HEAD";
+                }
+                for (var mf : repo.getModifiedFiles()) {
+                    fileMap.put(mf.file(), mf);
+                }
+            }
+            case DEFAULT_LOCAL_ONLY -> {
+                for (var mf : repo.getModifiedFiles()) {
+                    fileMap.put(mf.file(), mf);
+                }
+                leftCommitSha = "HEAD";
+            }
+            default -> throw new AssertionError();
+        }
+
+        var fileSet = new HashSet<>(fileMap.values());
+        var summarizedChanges = DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
+
+        GitWorkflow.PushPullState pushPullState = null;
+        try {
+            boolean hasUpstream = repo.hasUpstreamBranch(currentBranch);
+            boolean canPush;
+            Set<String> unpushedCommitIds = new HashSet<>();
+            if (hasUpstream) {
+                unpushedCommitIds.addAll(repo.remote().getUnpushedCommitIds(currentBranch));
+                canPush = !unpushedCommitIds.isEmpty();
+            } else {
+                canPush = true;
+            }
+            pushPullState = new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
+        } catch (Exception e) {
+            logger.debug("Failed to evaluate push/pull state for branch {}", currentBranch, e);
+        }
+
+        return new DiffService.CumulativeChanges(
+                summarizedChanges.filesChanged(),
+                summarizedChanges.totalAdded(),
+                summarizedChanges.totalDeleted(),
+                summarizedChanges.perFileChanges(),
+                pushPullState);
     }
 
     private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync(
@@ -238,7 +286,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public void updateContent(
             DiffService.CumulativeChanges res,
-            List<Map.Entry<String, Context.DiffEntry>> prepared,
+            List<Map.Entry<String, DiffService.DiffEntry>> prepared,
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
@@ -247,6 +295,28 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         removeAll();
+
+        if (res.filesChanged() == 0) {
+            String message;
+            if (BaselineMode.DETACHED == lastBaselineMode) {
+                message = "Detached HEAD \u2014 no changes to review";
+            } else if (BaselineMode.NO_BASELINE == lastBaselineMode) {
+                message = "No baseline to compare";
+            } else if ("HEAD".equals(lastBaselineLabel)) {
+                message = "Working tree is clean (no uncommitted changes).";
+            } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
+                message = "No changes vs " + lastBaselineLabel + ".";
+            } else {
+                message = "No changes to review.";
+            }
+            var none = new JLabel(message, SwingConstants.CENTER);
+            none.setBorder(new EmptyBorder(20, 0, 20, 0));
+            setLayout(new BorderLayout());
+            add(none, BorderLayout.CENTER);
+            revalidate();
+            repaint();
+            return;
+        }
 
         var headerPanel = new JPanel(new BorderLayout(8, 0));
         headerPanel.setOpaque(false);
@@ -262,11 +332,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         buttonPanel.setOpaque(false);
 
         boolean hasUncommittedChanges = false;
-        var repo = contextManager.getProject().getRepo();
         try {
             hasUncommittedChanges = !repo.getModifiedFiles().isEmpty();
         } catch (GitAPIException e) {
-            throw new RuntimeException(e);
+            logger.debug("Unable to determine uncommitted changes state", e);
         }
 
         if (hasUncommittedChanges) {
@@ -359,18 +428,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void performPull() {
         contextManager.submitExclusiveAction(() -> {
             try {
-                String branch = contextManager.getProject().getRepo().getCurrentBranch();
+                String branch = repo.getCurrentBranch();
                 chrome.showOutputSpinner("Pulling " + branch + "...");
-                new GitWorkflow(contextManager).pull(branch);
+                var result = new GitWorkflow(contextManager).pull(branch);
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
-                    chrome.getRightPanel().requestReviewUpdate();
+                    if (result.isEmpty()) {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull completed successfully.");
+                    } else {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull: " + result);
+                    }
+                    requestUpdate();
                     chrome.updateGitRepo();
                 });
-            } catch (Exception e) {
+            } catch (GitAPIException e) {
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
-                    chrome.toolError("Pull failed: " + e.getMessage());
+                    chrome.toolError("Pull failed: " + e.getMessage(), "Pull Error");
                 });
             }
             return null;
@@ -380,18 +454,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void performPush() {
         contextManager.submitExclusiveAction(() -> {
             try {
-                String branch = contextManager.getProject().getRepo().getCurrentBranch();
+                String branch = repo.getCurrentBranch();
                 chrome.showOutputSpinner("Pushing " + branch + "...");
-                new GitWorkflow(contextManager).push(branch);
+                var result = new GitWorkflow(contextManager).push(branch);
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
-                    chrome.getRightPanel().requestReviewUpdate();
+                    if (result.isEmpty()) {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push completed successfully.");
+                    } else {
+                        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push: " + result);
+                    }
+                    requestUpdate();
                     chrome.updateGitRepo();
                 });
-            } catch (Exception e) {
+            } catch (GitAPIException e) {
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
-                    chrome.toolError("Push failed: " + e.getMessage());
+                    chrome.toolError("Push failed: " + e.getMessage(), "Push Error");
                 });
             }
             return null;

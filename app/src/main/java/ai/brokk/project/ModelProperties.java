@@ -34,7 +34,7 @@ public final class ModelProperties {
 
     // Common configurations. Note that we override thinking levels in some cases for speed.
     private static final ModelConfig gpt5Nano = new ModelConfig(GPT_5_NANO);
-    private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.DISABLE);
+    private static final ModelConfig gpt5Mini = new ModelConfig(GPT_5_MINI, ReasoningLevel.LOW);
     private static final ModelConfig gpt5_2 = new ModelConfig(GPT_5_2, ReasoningLevel.MEDIUM);
 
     private static final ModelConfig haiku3 = new ModelConfig(HAIKU_3);
@@ -87,7 +87,7 @@ public final class ModelProperties {
         SUMMARIZE("quickConfig", gpt5Mini, gcf1),
         QUICK_EDIT("quickEditConfig", flash3, gcf1),
         QUICKEST("quickestConfig", flash2Lite),
-        COMMIT_MESSAGE("commitMessageConfig", gpt5Mini, flash2),
+        COMMIT_MESSAGE("commitMessageConfig", flash3, flash2),
         SCAN("scanConfig", flash3, gcf1),
         ARCHITECT_FALLBACK("architectFallbackConfig", gp3, gcf1),
         BUILD_PROCESSOR("buildProcessorConfig", gpt5Mini, gpt5Nano);

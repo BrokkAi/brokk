@@ -8,7 +8,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.MainProject.DataRetentionPolicy;
-import com.jakewharton.disklrucache.DiskLruCache;
+import ai.brokk.util.StringDiskCache;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -149,7 +149,7 @@ public final class WorktreeProject extends AbstractProject {
     }
 
     @Override
-    public DiskLruCache getDiskCache() {
+    public StringDiskCache getDiskCache() {
         return parent.getDiskCache();
     }
 

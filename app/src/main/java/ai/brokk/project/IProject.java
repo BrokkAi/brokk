@@ -13,7 +13,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.Environment;
-import com.jakewharton.disklrucache.DiskLruCache;
+import ai.brokk.util.StringDiskCache;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -38,12 +38,12 @@ public interface IProject extends AutoCloseable {
     }
 
     /**
-     * Provides a DiskLruCache instance scoped to this project.
+     * Provides a string-specialized disk cache instance scoped to this project.
      *
-     * <p>Implementations (MainProject) should return a properly initialized DiskLruCache. WorktreeProject will forward
-     * to its MainProject parent.
+     * <p>Implementations (MainProject) should return a properly initialized StringDiskCache.
+     * WorktreeProject will forward to its MainProject parent.
      */
-    default DiskLruCache getDiskCache() {
+    default StringDiskCache getDiskCache() {
         throw new UnsupportedOperationException();
     }
 
@@ -63,6 +63,18 @@ public interface IProject extends AutoCloseable {
     /** All files in the project, including decompiled dependencies that are not in the git repo. */
     default Set<ProjectFile> getAllFiles() {
         return Set.of();
+    }
+
+    /**
+     * Returns true if this project contains no analyzable source files.
+     * A project is considered "empty" when none of its files have extensions
+     * matching any language in Languages.ALL_LANGUAGES (excluding NONE).
+     *
+     * This intentionally ignores configuration files like AGENTS.md, .brokk/**,
+     * .gitignore, etc. since those don't have analyzable extensions.
+     */
+    default boolean isEmptyProject() {
+        return false;
     }
 
     /**

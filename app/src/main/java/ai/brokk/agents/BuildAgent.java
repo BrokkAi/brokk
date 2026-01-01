@@ -408,12 +408,12 @@ public class BuildAgent {
                 | Build tool        | One-liner a user could write
                 | ----------------- | ------------------------------------------------------------------------
                 | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
-                | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^-last}},{{/-last}}{{/classes}}`
+                | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
                 | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
-                | **Go**            | `go test -run '{{#classes}}{{value}}{{^-last}} | {{/-last}}{{/classes}}`
-                | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^-last}} | {{/-last}}{{/classes}}"`
-                | **pytest**        | `uv sync && pytest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
-                | **Jest**          | `jest {{#files}}{{value}}{{^-last}} {{/-last}}{{/files}}`
+                | **Go**            | `go test -run '{{#classes}}{{value}}{{^last}} | {{/last}}{{/classes}}`
+                | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}} | {{/last}}{{/classes}}"`
+                | **pytest**        | `uv sync && pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **Jest**          | `jest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
 
                 %s
                 Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
@@ -1168,7 +1168,7 @@ public class BuildAgent {
 
             String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
-            return ctx.withBuildResult(false, "Build output:\n" + processed);
+            return ctx.withBuildResult(false, processed);
         }
     }
 

@@ -8,6 +8,7 @@ import ai.brokk.Service;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.dialogs.AboutDialog;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.BlitzForgeDialog;
@@ -20,6 +21,7 @@ import ai.brokk.gui.git.GitLogTab;
 import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.FileChooserUtil;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.project.MainProject;
@@ -29,7 +31,6 @@ import java.awt.*;
 import java.awt.Desktop;
 import java.awt.desktop.PreferencesEvent;
 import java.awt.desktop.PreferencesHandler;
-import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
@@ -147,6 +148,41 @@ public class MenuBar {
         }
     }
 
+    private static void handleNewProject(Chrome chrome) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
+        var lastDir = new File(GlobalUiSettings.getLastCloneDirectory());
+        var initialDir = lastDir.isDirectory() ? lastDir : null;
+        var selectedDir =
+                FileChooserUtil.showDirectoryChooserWithNewFolder(chrome.getFrame(), "New Project", initialDir);
+
+        if (selectedDir == null) {
+            return;
+        }
+
+        Path projectPath = selectedDir.toPath().toAbsolutePath().normalize();
+
+        Thread.ofPlatform().start(() -> {
+            try {
+                Files.createDirectories(projectPath);
+                GitRepoFactory.initRepo(projectPath);
+                SwingUtilities.invokeLater(
+                        () -> new Brokk.OpenProjectBuilder(projectPath).open().exceptionally(ex -> {
+                            chrome.toolError(
+                                    "Failed to open project: "
+                                            + (ex.getMessage() == null ? ex.toString() : ex.getMessage()),
+                                    "New Project");
+                            return false;
+                        }));
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> chrome.toolError(
+                        "Failed to create new project at " + projectPath + ": "
+                                + (ex.getMessage() == null ? ex.toString() : ex.getMessage()),
+                        "New Project"));
+            }
+        });
+    }
+
     /**
      * Builds the menu bar
      *
@@ -157,6 +193,10 @@ public class MenuBar {
 
         // File menu
         var fileMenu = new JMenu("File");
+
+        var newProjectItem = new JMenuItem("New Project...");
+        newProjectItem.addActionListener(e -> SwingUtilities.invokeLater(() -> handleNewProject(chrome)));
+        fileMenu.add(newProjectItem);
 
         var openProjectItem = new JMenuItem("Open Project...");
         openProjectItem.addActionListener(e -> Brokk.promptAndOpenProject(chrome.frame)); // No need to block on EDT
@@ -197,30 +237,15 @@ public class MenuBar {
         });
 
         // Use platform conventions on macOS: Preferences live in the application menu.
-        // Also ensure Cmd+, opens Settings as a fallback by registering a key binding.
+        // Global Cmd+, binding is handled in Chrome.setupKeyBindings()
         boolean isMac = Environment.instance.isMacOs();
-        // Accelerator uses current binding; action also available via Chrome root pane binding
         settingsItem.setAccelerator(GlobalUiSettings.getKeybinding(
                 "global.openSettings",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx())));
 
-        if (isMac) {
-            // Ensure Cmd+, opens settings even if the system does not dispatch the shortcut to the handler.
-            var rootPane = chrome.getFrame().getRootPane();
-            var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-            var am = rootPane.getActionMap();
-            var ks = KeyStroke.getKeyStroke(
-                    KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-            im.put(ks, "open-settings");
-            am.put("open-settings", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    SwingUtilities.invokeLater(() -> openSettingsDialog(chrome));
-                }
-            });
-        } else {
-            // Non-macOS: place Settings in File menu as before.
+        if (!isMac) {
+            // Non-macOS: place Settings in File menu
             fileMenu.add(settingsItem);
         }
 
@@ -340,7 +365,7 @@ public class MenuBar {
         attachContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_E, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         attachContextItem.addActionListener(e -> {
-            chrome.getContextPanel().attachContextViaDialog();
+            chrome.getContextActionsHandler().attachContextViaDialog();
         });
         attachContextItem.setEnabled(true);
         contextMenu.add(attachContextItem);
@@ -349,7 +374,7 @@ public class MenuBar {
         summarizeContextItem.setAccelerator(KeyStroke.getKeyStroke(
                 KeyEvent.VK_I, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx()));
         summarizeContextItem.addActionListener(e -> {
-            chrome.getContextPanel().attachContextViaDialog(true);
+            chrome.getContextActionsHandler().attachContextViaDialog(true);
         });
         contextMenu.add(summarizeContextItem);
 
@@ -462,14 +487,12 @@ public class MenuBar {
                 KeyEvent.VK_P, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() | InputEvent.SHIFT_DOWN_MASK));
         dropAllItem.addActionListener(e -> runWithRefocus(chrome, () -> {
             chrome.getContextManager().submitContextTask(() -> {
-                chrome.getContextPanel().performContextActionAsync(WorkspacePanel.ContextAction.DROP, List.of());
+                chrome.getContextActionsHandler()
+                        .performContextActionAsync(ContextActionsHandler.ContextAction.DROP, List.of());
             });
         }));
         dropAllItem.setEnabled(true);
         contextMenu.add(dropAllItem);
-
-        // Store reference in WorkspacePanel for dynamic state updates
-        chrome.getContextPanel().setDropAllMenuItem(dropAllItem);
 
         menuBar.add(contextMenu);
 

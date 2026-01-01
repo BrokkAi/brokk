@@ -41,10 +41,10 @@ public class RightPanel extends JPanel implements ThemeAware {
     private @Nullable JSplitPane verticalActivityCombinedPanel = null;
 
     // Review tab infrastructure
-    private final SessionChangesPanel sessionChangesPanel;
+    private final JComponent reviewTabComponent;
 
     private int getReviewTabIndex() {
-        return buildReviewTabs.indexOfComponent(sessionChangesPanel);
+        return buildReviewTabs.indexOfComponent(reviewTabComponent);
     }
 
     private final ContextManager contextManager;
@@ -110,13 +110,21 @@ public class RightPanel extends JPanel implements ThemeAware {
                 () -> {} // Don't close main UI tab when empty
                 );
 
-        // Review Tab Setup
-        sessionChangesPanel = new SessionChangesPanel(chrome, contextManager, this::updateReviewTabTitleAndTooltip);
+        // Review Tab Setup - show placeholder if no Git repo
+        if (chrome.getProject().hasGit()) {
+            var sessionChangesPanel =
+                    new SessionChangesPanel(chrome, contextManager, this::updateReviewTabTitleAndTooltip);
+            reviewTabComponent = sessionChangesPanel;
+        } else {
+            var placeholder = new JLabel("Git repository required for Review", SwingConstants.CENTER);
+            placeholder.setEnabled(false);
+            reviewTabComponent = placeholder;
+        }
 
         // Build | Review | Preview | Terminal Tabs
         buildReviewTabs = new JTabbedPane(JTabbedPane.TOP);
-        buildReviewTabs.addTab("Build", Icons.SCIENCE, buildSplitPane);
-        buildReviewTabs.addTab("Review", Icons.FLOWSHEET, sessionChangesPanel);
+        buildReviewTabs.addTab("Build", Icons.HANDYMAN, buildSplitPane);
+        buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewTabComponent);
 
         buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
         buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
@@ -551,8 +559,10 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void requestReviewUpdate() {
-        sessionChangesPanel.refreshTitleAsync();
-        sessionChangesPanel.requestUpdate();
+        if (reviewTabComponent instanceof SessionChangesPanel scp) {
+            scp.refreshTitleAsync();
+            scp.requestUpdate();
+        }
     }
 
     public void selectPreviewTab() {
@@ -591,7 +601,9 @@ public class RightPanel extends JPanel implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         historyOutputPanel.applyTheme(guiTheme);
-        sessionChangesPanel.applyTheme(guiTheme);
+        if (reviewTabComponent instanceof ThemeAware scp) {
+            scp.applyTheme(guiTheme);
+        }
         SwingUtilities.updateComponentTreeUI(this);
     }
 }

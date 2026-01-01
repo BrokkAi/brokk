@@ -24,6 +24,7 @@ import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Insets;
+import java.awt.Point;
 import java.awt.Toolkit;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
@@ -33,7 +34,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -239,66 +239,94 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         captureButton.setMargin(new Insets(0, 0, 0, 0));
         captureButton.setToolTipText(
                 "<html><p width='280'>Capture the terminal's current output into a new text fragment in your workspace context. This action appends to your context and does not replace or update any previous terminal captures.</p></html>");
-        captureButton.addActionListener(e -> SwingUtilities.invokeLater(() -> {
-            try {
-                var w = widget;
-                if (w == null) {
-                    console.systemNotify(
-                            "No terminal available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
-                    return;
-                }
+        captureButton.addActionListener(e -> {
+            var w = widget;
+            if (w == null) {
+                console.systemNotify(
+                        "No terminal available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
 
-                var buffer = w.getTerminalTextBuffer();
-                if (buffer == null) {
+            if (!(console instanceof Chrome c)) {
+                // Should not happen in normal usage, but safe guard
+                console.systemNotify(
+                        "Cannot capture: ContextManager unavailable", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            Point selStart = null;
+            Point selEnd = null;
+            BrokkJediTermPanel displayPanel = null;
+            if (w.getTerminalDisplay() instanceof BrokkJediTermPanel display) {
+                displayPanel = display;
+                var selection = display.getSelection();
+                if (selection != null) {
+                    var s = selection.getStart();
+                    var endPt = selection.getEnd();
+                    selStart = new Point(s.x, s.y);
+                    selEnd = new Point(endPt.x, endPt.y);
+                }
+            }
+
+            CompletableFuture<String> future;
+            if (selStart != null && selEnd != null && displayPanel != null) {
+                final var finalDisplay = displayPanel;
+                final var p1 = selStart;
+                final var p2 = selEnd;
+                future = c.getContextManager()
+                        .submitBackgroundTask(
+                                "Capturing terminal selection", () -> finalDisplay.getSelectionText(p1, p2));
+            } else {
+                if (displayPanel == null) {
                     console.systemNotify(
                             "No terminal buffer available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
                     return;
                 }
 
-                var lines = new ArrayList<String>();
-                for (int i = 0; i < buffer.getHeight(); i++) {
-                    var line = buffer.getLine(i);
-                    lines.add(line.getText());
-                }
-
-                String content =
-                        lines.stream().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
-
-                if (content.isBlank()) {
-                    console.systemNotify(
-                            "No terminal content available to capture",
-                            "Terminal Capture",
-                            JOptionPane.WARNING_MESSAGE);
-                    return;
-                }
-
-                if (console instanceof Chrome c) {
-                    c.getContextManager().submitContextTask(() -> {
-                        try {
-                            c.getContextManager().addPastedTextFragment(content);
-                            SwingUtilities.invokeLater(() -> {
-                                console.showNotification(
-                                        IConsoleIO.NotificationRole.INFO, "Terminal content captured to workspace");
-                            });
-                        } catch (Exception ex) {
-                            logger.error("Error adding terminal content to workspace", ex);
-                            SwingUtilities.invokeLater(() -> {
-                                console.toolError(
-                                        "Failed to add terminal content to workspace: " + ex.getMessage(),
-                                        "Terminal Capture Failed");
-                            });
-                        }
-                    });
-                }
-            } catch (Exception ex) {
-                logger.error("Error capturing terminal output", ex);
-                console.toolError("Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture Failed");
+                final var finalDisplay = displayPanel;
+                future = c.getContextManager()
+                        .submitBackgroundTask("Capturing terminal buffer", finalDisplay::getFullBufferText);
             }
-        }));
+
+            future.thenAcceptAsync(this::submitCapturedContent, SwingUtilities::invokeLater)
+                    .exceptionally(ex -> {
+                        logger.error("Error capturing terminal output", ex);
+                        SwingUtilities.invokeLater(() -> console.toolError(
+                                "Failed to capture terminal output: " + ex.getMessage(), "Terminal Capture Failed"));
+                        return null;
+                    });
+        });
 
         panel.add(tabPanel, BorderLayout.WEST);
         panel.add(captureButton, BorderLayout.EAST);
         return panel;
+    }
+
+    private void submitCapturedContent(@Nullable String content) {
+        if (content == null || content.isBlank()) {
+            console.systemNotify(
+                    "No terminal content available to capture", "Terminal Capture", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        if (console instanceof Chrome c) {
+            c.getContextManager().submitContextTask(() -> {
+                try {
+                    c.getContextManager().addPastedTextFragment(trimTrailingFromLines(content));
+                    SwingUtilities.invokeLater(() -> {
+                        console.showNotification(
+                                IConsoleIO.NotificationRole.INFO, "Terminal content captured to workspace");
+                    });
+                } catch (Exception ex) {
+                    logger.error("Error adding terminal content to workspace", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        console.toolError(
+                                "Failed to add terminal content to workspace: " + ex.getMessage(),
+                                "Terminal Capture Failed");
+                    });
+                }
+            });
+        }
     }
 
     private void startProcessAsync(String[] cmd) {
@@ -463,6 +491,10 @@ public class TerminalPanel extends JPanel implements ThemeAware {
             w.getTerminalPanel().setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
             w.repaint();
         }
+    }
+
+    private static String trimTrailingFromLines(String text) {
+        return text.lines().map(s -> s.replaceAll("\\s+$", "")).collect(Collectors.joining("\n"));
     }
 
     public void dispose() {

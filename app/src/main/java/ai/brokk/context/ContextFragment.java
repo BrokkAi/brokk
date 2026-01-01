@@ -7,15 +7,14 @@ import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.*;
+import java.time.Duration;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,6 +31,21 @@ import org.jetbrains.annotations.Nullable;
  * having FF available to edit, you MUST decline the assignment and explain the problem.
  */
 public interface ContextFragment {
+
+    @Blocking
+    default boolean contentEquals(ContextFragment other) {
+        if (!hasSameSource(other)) {
+            return false;
+        }
+
+        if (isText()) {
+            return text().join().equals(other.text().join());
+        }
+
+        return Arrays.equals(
+                requireNonNull(imageBytes()).join(),
+                requireNonNull(other.imageBytes()).join());
+    }
 
     /**
      * Replaces polymorphic methods or instanceof checks with something that can easily apply to FrozenFragments as well
@@ -61,6 +75,8 @@ public interface ContextFragment {
 
         private static final EnumSet<FragmentType> EDITABLE_TYPES = EnumSet.of(PROJECT_PATH, USAGE, CODE);
 
+        private static final EnumSet<FragmentType> PROJECT_GUIDE_TYPES = EnumSet.of(PROJECT_PATH, CODE, SKELETON);
+
         public boolean isPath() {
             return PATH_TYPES.contains(this);
         }
@@ -71,6 +87,10 @@ public interface ContextFragment {
 
         public boolean isEditable() {
             return EDITABLE_TYPES.contains(this);
+        }
+
+        public boolean includeInProjectGuide() {
+            return PROJECT_GUIDE_TYPES.contains(this);
         }
     }
 
@@ -135,19 +155,14 @@ public interface ContextFragment {
     ComputedValue<String> text();
 
     /**
-     * content formatted for LLM
-     */
-    ComputedValue<String> format();
-
-    /**
      * fragment toc entry, usually id + description
      */
-    default String formatToc() {
+    default String formatToc(boolean isPinned) {
         // Non-blocking best-effort rendering
+        String idOrPinned = isPinned ? "pinned=\"true\"" : "fragmentid=\"%s\"".formatted(id());
         return """
-                <fragment-toc description="%s" fragmentid="%s" />
-                """
-                .formatted(description().renderNowOr(""), id());
+                <fragment-toc description="%s" %s />"""
+                .formatted(description().renderNowOr(""), idOrPinned);
     }
 
     default boolean isText() {
@@ -198,36 +213,17 @@ public interface ContextFragment {
     }
 
     /**
-     * Retrieves the {@link IContextManager} associated with this fragment.
-     *
-     * @return The context manager instance, or {@code null} if not applicable or available.
-     */
-    @Nullable
-    IContextManager getContextManager();
-
-    /**
      * For live fragments ONLY, isValid reflects current external state (a file fragment whose file is missing is invalid);
-     * historical/frozen fragments have already snapshotted their state and are always valid. However, if
-     * a fragment is unable to snapshot its content before the source is removed out from under it, it will also
-     * end up invalid.
+     * historical/frozen fragments have already snapshotted their state and are always valid.
+     *
+     * In-progress-of-snapshotting fragments are treated as valid to avoid @Blocking, but this means that it's
+     * possible for it to flip from valid to invalid if it is unable to snapshot its content
+     * before the source is removed out from under it.
      *
      * @return true if the fragment is valid, false otherwise
      */
-    @Blocking
     default boolean isValid() {
         return true;
-    }
-
-    /**
-     * Convenience method to get the analyzer in a non-blocking way using the fragment's context manager.
-     *
-     * @return The IAnalyzer instance if available, or null if it's not ready yet or if the context manager is not
-     * available.
-     */
-    default IAnalyzer getAnalyzer() {
-        var cm = getContextManager();
-        requireNonNull(cm);
-        return cm.getAnalyzerUninterrupted();
     }
 
     /**
@@ -243,10 +239,20 @@ public interface ContextFragment {
     ContextFragment refreshCopy();
 
     /**
-     * Marker for fragments whose identity is dynamic (numeric, session-local).
-     * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
+     * Interface for fragments that involve asynchronous computation.
      */
-    interface DynamicIdentity {}
+    interface ComputedFragment extends ContextFragment {
+        /**
+         * Blocks until the fragment's computation is complete or the timeout expires.
+         */
+        boolean await(Duration timeout) throws InterruptedException;
+
+        /**
+         * Registers a callback to be executed when the fragment's computation completes.
+         */
+        @Nullable
+        ComputedValue.Subscription onComplete(Runnable runnable);
+    }
 
     /**
      * Marker interface for fragments that provide image content.
@@ -268,21 +274,6 @@ public interface ContextFragment {
         }
         throw new IllegalArgumentException(
                 "Unsupported BrokkFile subtype: " + bf.getClass().getName());
-    }
-
-    ContextFragments.StringFragmentType BUILD_RESULTS =
-            new ContextFragments.StringFragmentType("Latest Build Results", SyntaxConstants.SYNTAX_STYLE_NONE);
-    ContextFragments.StringFragmentType SEARCH_NOTES =
-            new ContextFragments.StringFragmentType("Code Notes", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
-    ContextFragments.StringFragmentType DISCARDED_CONTEXT =
-            new ContextFragments.StringFragmentType("Discarded Context", SyntaxConstants.SYNTAX_STYLE_JSON);
-
-    static @Nullable ContextFragments.StringFragmentType getStringFragmentType(String description) {
-        if (description.isBlank()) return null;
-        if (BUILD_RESULTS.description().equals(description)) return BUILD_RESULTS;
-        if (SEARCH_NOTES.description().equals(description)) return SEARCH_NOTES;
-        if (DISCARDED_CONTEXT.description().equals(description)) return DISCARDED_CONTEXT;
-        return null;
     }
 
     enum SummaryType {

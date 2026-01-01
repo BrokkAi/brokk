@@ -1,5 +1,7 @@
 package ai.brokk.context;
 
+import static java.util.Objects.requireNonNullElse;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.util.List;
@@ -326,9 +328,10 @@ public class FragmentDtos {
             List<String> editable,
             List<String> readonly,
             List<String> virtuals,
+            List<String> pinned,
             List<TaskEntryRefDto> tasks,
             @Nullable String parsedOutputId,
-            String action,
+            String actionUnused,
             @Nullable String groupId,
             @Nullable String groupLabel) {
         public CompactContextDto {
@@ -336,6 +339,7 @@ public class FragmentDtos {
             editable = List.copyOf(editable);
             readonly = List.copyOf(readonly);
             virtuals = List.copyOf(virtuals);
+            pinned = List.copyOf(requireNonNullElse(pinned, List.<String>of()));
             tasks = List.copyOf(tasks);
         }
     }

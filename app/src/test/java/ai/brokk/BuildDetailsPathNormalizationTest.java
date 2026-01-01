@@ -190,4 +190,46 @@ public class BuildDetailsPathNormalizationTest {
         assertTrue(filteredNoSlash.contains(pfSrc), "src/Main.java should remain");
         assertFalse(filteredNoSlash.contains(pfBuild), "build/Generated.java should be excluded by 'build'");
     }
+
+    /**
+     * Verify that path-based exclusion patterns (containing /) match both the directory
+     * and all files/subdirectories underneath it.
+     */
+    @Test
+    void testApplyFiltering_pathPrefixMatchesSubdirectories(@TempDir Path root) throws Exception {
+        // Initialize a real Git repo so filtering path is exercised
+        Git.init().setDirectory(root.toFile()).call();
+
+        // Create files in app/src/test/resources hierarchy
+        Path resourcesDir = root.resolve("app/src/test/resources");
+        Files.createDirectories(resourcesDir);
+        Path resourceFile = resourcesDir.resolve("test-data.json");
+        Files.writeString(resourceFile, "{}");
+
+        Path nestedDir = resourcesDir.resolve("testcode-java");
+        Files.createDirectories(nestedDir);
+        Path nestedFile = nestedDir.resolve("Sample.java");
+        Files.writeString(nestedFile, "class Sample {}");
+
+        Path srcFile = root.resolve("app/src/main/java/Main.java");
+        Files.createDirectories(srcFile.getParent());
+        Files.writeString(srcFile, "class Main {}");
+
+        var project = new MainProject(root);
+
+        // Create ProjectFile instances
+        var pfResources = new ProjectFile(root, Path.of("app/src/test/resources/test-data.json"));
+        var pfNested = new ProjectFile(root, Path.of("app/src/test/resources/testcode-java/Sample.java"));
+        var pfMain = new ProjectFile(root, Path.of("app/src/main/java/Main.java"));
+        var files = Set.of(pfResources, pfNested, pfMain);
+
+        // Exclude "app/src/test/resources" - should exclude both files under it
+        var details = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("app/src/test/resources")));
+        project.saveBuildDetails(details);
+        var filtered = project.applyFiltering(files);
+
+        assertTrue(filtered.contains(pfMain), "Main.java should remain");
+        assertFalse(filtered.contains(pfResources), "test-data.json should be excluded by path prefix");
+        assertFalse(filtered.contains(pfNested), "testcode-java/Sample.java should be excluded by path prefix");
+    }
 }

@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.BorderFactory;
@@ -350,16 +351,10 @@ public class PreviewManager {
             RightPanel rightPanel = chrome.getRightPanel();
             PreviewTabbedPane tabs = rightPanel.getPreviewTabbedPane();
 
-            BrokkDiffPanel existing = findExistingDiffTab(tabs, leftSources, rightSources);
-            if (existing != null) {
-                int index = tabs.indexOfComponent(existing);
-                if (index >= 0) {
-                    tabs.setSelectedIndex(index);
-                    if (tabs == rightPanel.getPreviewTabbedPane()) {
-                        rightPanel.selectPreviewTab();
-                    }
-                    return;
-                }
+            var existing = findExistingDiffTab(tabs, leftSources, rightSources);
+            if (existing.isPresent() && tabs.selectTab(existing.get())) {
+                rightPanel.selectPreviewTab();
+                return;
             }
 
             // 3. Not found, show it as a new tab
@@ -385,16 +380,11 @@ public class PreviewManager {
         return false;
     }
 
-    @Nullable
-    private BrokkDiffPanel findExistingDiffTab(
+    private Optional<BrokkDiffPanel> findExistingDiffTab(
             PreviewTabbedPane tabs, List<BufferSource> leftSources, List<BufferSource> rightSources) {
-        for (int i = 0; i < tabs.getTabCount(); i++) {
-            Component comp = tabs.getComponentAt(i);
-            if (comp instanceof BrokkDiffPanel panel && panel.matchesContent(leftSources, rightSources)) {
-                return panel;
-            }
-        }
-        return null;
+        return tabs.findTab(
+                        comp -> comp instanceof BrokkDiffPanel panel && panel.matchesContent(leftSources, rightSources))
+                .map(c -> (BrokkDiffPanel) c);
     }
 
     @Nullable

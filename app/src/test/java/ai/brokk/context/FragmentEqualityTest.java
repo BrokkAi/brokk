@@ -6,7 +6,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.context.ContextFragments.AbstractComputedFragment;
+import ai.brokk.context.ContextFragment.ComputedFragment;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.AiMessage;
@@ -51,7 +51,7 @@ class FragmentEqualityTest {
 
     private ai.brokk.IContextManager contextManager;
 
-    private final List<AbstractComputedFragment> trackedFragments = new ArrayList<>();
+    private final List<ComputedFragment> trackedFragments = new ArrayList<>();
 
     @BeforeEach
     void setup() {
@@ -59,7 +59,7 @@ class FragmentEqualityTest {
         ContextFragments.setMinimumId(1);
     }
 
-    private <T extends AbstractComputedFragment> T track(T fragment) {
+    private <T extends ComputedFragment> T track(T fragment) {
         trackedFragments.add(fragment);
         return fragment;
     }
@@ -280,10 +280,8 @@ class FragmentEqualityTest {
             var sf2 = new ContextFragments.StringFragment(
                     contextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-            // Identity-based: different instances are NOT equal()
-            assertNotEquals(sf1, sf2);
-            // But they have the same content source
             assertTrue(sf1.hasSameSource(sf2));
+            assertEquals(sf1, sf2);
         }
 
         @Test
@@ -328,17 +326,6 @@ class FragmentEqualityTest {
 
             // hasSameSource now compares description (and syntax style), not text
             assertFalse(sf1.hasSameSource(sf2));
-        }
-
-        @Test
-        void testHasSameSourceDifferentText() {
-            var sf1 = new ContextFragments.StringFragment(
-                    contextManager, "text1", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 = new ContextFragments.StringFragment(
-                    contextManager, "text2", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-            // Text differs, but description and style are the same => same source
-            assertTrue(sf1.hasSameSource(sf2));
         }
 
         @Test
@@ -424,18 +411,6 @@ class FragmentEqualityTest {
         }
 
         @Test
-        void testHasSameSourceNullDescription() {
-            // Test with empty descriptions (edge case): both empty => same description
-            var sf1 =
-                    new ContextFragments.StringFragment(contextManager, "text1", "", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var sf2 =
-                    new ContextFragments.StringFragment(contextManager, "text2", "", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-            // Both have empty descriptions; hasSameSource compares description (and syntax style), not text
-            assertTrue(sf1.hasSameSource(sf2));
-        }
-
-        @Test
         void testHasSameSourceCompareAgainstNonStringFragment() {
             // StringFragment vs different fragment type should not match
             var sf = new ContextFragments.StringFragment(
@@ -463,30 +438,6 @@ class FragmentEqualityTest {
 
             var filesFromFragment = sf.files().join();
             assertEquals(associatedFiles, filesFromFragment);
-        }
-
-        @Test
-        void testDiffStringFragmentFilesDoNotAffectHasSameSource() throws IOException {
-            var file1 = new ProjectFile(tempDir, "src/File1.java");
-            var file2 = new ProjectFile(tempDir, "src/File2.java");
-            Files.createDirectories(file1.absPath().getParent());
-            Files.writeString(file1.absPath(), "class File1 {}");
-            Files.writeString(file2.absPath(), "class File2 {}");
-
-            var sf1 = new ContextFragments.StringFragment(
-                    contextManager,
-                    "diff --git a/src/File1.java b/src/File1.java\n@@ -1 +1 @@\n-class File1 {}\n+class File1 { }",
-                    "Diff of files",
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    Set.of(file1));
-            var sf2 = new ContextFragments.StringFragment(
-                    contextManager,
-                    "diff --git a/src/File2.java b/src/File2.java\n@@ -1 +1 @@\n-class File2 {}\n+class File2 { }",
-                    "Diff of files",
-                    SyntaxConstants.SYNTAX_STYLE_NONE,
-                    Set.of(file2));
-
-            assertTrue(sf1.hasSameSource(sf2));
         }
 
         @Test
@@ -877,10 +828,8 @@ class FragmentEqualityTest {
             var tf1 = new ContextFragments.TaskFragment(contextManager, messages, "session");
             var tf2 = new ContextFragments.TaskFragment(contextManager, messages, "session");
 
-            // Identity-based: different instances are NOT equal()
-            assertNotEquals(tf1, tf2);
-            // But they represent the same session content
             assertTrue(tf1.hasSameSource(tf2));
+            assertEquals(tf1, tf2);
         }
 
         @Test
@@ -920,10 +869,8 @@ class FragmentEqualityTest {
             var sf2 =
                     new ContextFragments.StacktraceFragment(contextManager, sources, "stacktrace", "Exception", "code");
 
-            // Identity-based: different instances are NOT equal()
-            assertNotEquals(sf1, sf2);
-            // But they represent the same stacktrace content
             assertTrue(sf1.hasSameSource(sf2));
+            assertEquals(sf1, sf2);
         }
 
         @Test
@@ -991,10 +938,8 @@ class FragmentEqualityTest {
             var hf1 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
             var hf2 = new ContextFragments.HistoryFragment(contextManager, List.of(te));
 
-            // Identity-based: different instances are NOT equal()
-            assertNotEquals(hf1, hf2);
-            // But they represent the same history content
             assertTrue(hf1.hasSameSource(hf2));
+            assertEquals(hf1, hf2);
         }
 
         @Test
@@ -1014,20 +959,6 @@ class FragmentEqualityTest {
 
     @Nested
     class CrossTypeEqualityTest {
-        @Test
-        void testProjectPathVsExternalPath() throws IOException {
-            var projectFile = new ProjectFile(tempDir, "src/File.java");
-            Files.createDirectories(projectFile.absPath().getParent());
-            Files.writeString(projectFile.absPath(), "content");
-            var externalFile = new ExternalFile(projectFile.absPath());
-
-            var ppf = new ContextFragments.ProjectPathFragment(projectFile, contextManager);
-            var epf = new ContextFragments.ExternalPathFragment(externalFile, contextManager);
-
-            // Both refer to the same absolute path, so hasSameSource should return true
-            assertTrue(ppf.hasSameSource(epf));
-        }
-
         @Test
         void testStringVsCodeFragment() {
             var sf = new ContextFragments.StringFragment(
@@ -1055,7 +986,7 @@ class FragmentEqualityTest {
      */
     @AfterEach
     void awaitTrackedFragments() throws InterruptedException {
-        for (AbstractComputedFragment fragment : trackedFragments) {
+        for (var fragment : trackedFragments) {
             fragment.await(Duration.ofSeconds(5));
         }
         trackedFragments.clear();

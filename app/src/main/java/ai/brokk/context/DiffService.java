@@ -23,6 +23,8 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Computes and caches diffs between consecutive history entries using a live-context, non-blocking async model.
+ * This is *only* suitable for displaying diffs of files changed on disk! If you want instead to answer the question of
+ * "did *anything* change between these two Contexts" then you should use ContextDelta instead.
  *
  * <p>Uses a global bounded cache of (prev, curr) context pairs to avoid redundant computations across sessions.
  * This service materializes computed values asynchronously as needed via
@@ -37,7 +39,7 @@ public final class DiffService {
     /** Identity-based pair for caching diffs between two specific context instances. */
     private record ContextPair(@Nullable Context prev, Context curr) {}
 
-    private final AsyncCache<ContextPair, List<Context.DiffEntry>> cache =
+    private final AsyncCache<ContextPair, List<DiffEntry>> cache =
             Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).buildAsync();
 
     private final ContextHistory history;
@@ -56,7 +58,7 @@ public final class DiffService {
      * @param curr the current (new) context to peek diffs for
      * @return Optional containing the diff list if already computed, or empty if not ready
      */
-    public Optional<List<Context.DiffEntry>> peek(Context curr) {
+    public Optional<List<DiffEntry>> peek(Context curr) {
         var prev = history.previousOf(curr);
         var cf = cache.getIfPresent(new ContextPair(prev, curr));
         if (cf != null && cf.isDone()) {
@@ -73,7 +75,7 @@ public final class DiffService {
      * @param curr the current (new) context to compute diffs for
      * @return CompletableFuture that will contain the list of diff entries
      */
-    public CompletableFuture<List<Context.DiffEntry>> diff(Context curr) {
+    public CompletableFuture<List<DiffEntry>> diff(Context curr) {
         var prev = history.previousOf(curr);
         var key = new ContextPair(prev, curr);
 
@@ -95,15 +97,17 @@ public final class DiffService {
     }
 
     @Blocking
-    private static boolean isNewFileInGit(ContextFragment fragment, IGitRepo repo) {
-        if (!(fragment instanceof ContextFragments.PathFragment)) {
-            return false;
-        }
-        Set<ProjectFile> files = fragment.files().join();
-        if (files.isEmpty()) {
-            return false;
-        }
-        return !repo.getTrackedFiles().contains(files.iterator().next());
+    private static boolean isNewInGit(ContextFragment fragment, IGitRepo repo) {
+        return fragment.files().join().stream().anyMatch(file -> {
+            try {
+                // If getFileContent returns an empty string for HEAD, the file is not yet committed.
+                return repo.getFileContent("HEAD", file).isEmpty();
+            } catch (Exception e) {
+                // If an error occurs (e.g. GitAPIException), we treat it as not committed to HEAD.
+                logger.debug("Failed to get content from HEAD for file {}: {}", file, e.getMessage());
+                return true;
+            }
+        });
     }
 
     /**
@@ -111,7 +115,7 @@ public final class DiffService {
      * Triggers async computations and awaits their completion.
      */
     @Blocking
-    public static List<Context.DiffEntry> computeDiff(Context ctx, Context other) {
+    public static List<DiffEntry> computeDiff(Context ctx, Context other) {
         // Candidates:
         // - Editable fragments
         // - Image fragments (non-text), including pasted images and image files.
@@ -142,26 +146,24 @@ public final class DiffService {
      * The DiffEntry returned is Nullable!
      */
     @Blocking
-    private static CompletableFuture<Context.DiffEntry> computeDiffForFragment(
+    private static CompletableFuture<DiffEntry> computeDiffForFragment(
             Context curr, ContextFragment thisFragment, Context other) {
         var otherFragment = other.allFragments()
                 .filter(thisFragment::hasSameSource)
                 .findFirst()
                 .orElse(null);
 
-        // If this fragment is new-only and is a PathFragment that is tracked by Git, suppress the diff.
+        // other==null will result in showing all of this as "new";
+        // suppress for non-text fragments and fragments whose files exist in Git
         if (otherFragment == null) {
             if (!thisFragment.isText()) {
                 // Non-text new fragments are not diffed here.
                 return CompletableFuture.completedFuture(null);
             }
 
-            if (thisFragment instanceof ContextFragments.PathFragment) {
-                var repo = curr.getContextManager().getRepo();
-                if (!isNewFileInGit(thisFragment, repo)) {
-                    // Path fragment exists only in 'curr' but is tracked in Git; suppress diff here.
-                    return CompletableFuture.completedFuture(null);
-                }
+            var repo = curr.getContextManager().getRepo();
+            if (!isNewInGit(thisFragment, repo)) {
+                return CompletableFuture.completedFuture(null);
             }
         }
 
@@ -175,7 +177,7 @@ public final class DiffService {
     }
 
     @Blocking
-    public static CompletableFuture<Context.DiffEntry> computeDiff(
+    public static CompletableFuture<DiffEntry> computeDiff(
             @Nullable ContextFragment oldFragment, ContextFragment newFragment) {
         // If fragments don't share the same source, we can't sensibly diff them here.
         if (oldFragment != null && !newFragment.hasSameSource(oldFragment)) {
@@ -195,8 +197,7 @@ public final class DiffService {
                 if (result.diff().isEmpty()) {
                     return null;
                 }
-                return new Context.DiffEntry(
-                        newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+                return new DiffEntry(newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
             });
         }
 
@@ -237,8 +238,7 @@ public final class DiffService {
                 return null;
             }
 
-            return new Context.DiffEntry(
-                    newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+            return new DiffEntry(newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
         });
     }
 
@@ -274,7 +274,7 @@ public final class DiffService {
     /**
      * Compute a placeholder diff entry for image fragments when the bytes differ.
      */
-    private static @Nullable Context.DiffEntry computeImageDiffEntry(
+    private static @Nullable DiffService.DiffEntry computeImageDiffEntry(
             ContextFragment thisFragment, ContextFragment otherFragment) {
         // Prefer frozen bytes (snapshot), fall back to computed image bytes
         byte[] oldImageBytes = null;
@@ -297,7 +297,7 @@ public final class DiffService {
         // If one side has bytes and the other does not, treat as changed.
         if ((oldImageBytes == null) != (newImageBytes == null)) {
             String diff = "[Image changed]";
-            return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
+            return new DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
         }
 
         boolean imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
@@ -305,7 +305,7 @@ public final class DiffService {
             return null;
         }
         String diff = "[Image changed]";
-        return new Context.DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
+        return new DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
     }
 
     /**
@@ -340,7 +340,7 @@ public final class DiffService {
             return new CumulativeChanges(0, 0, 0, List.of());
         }
 
-        List<Context.DiffEntry> perFileChanges = new ArrayList<>();
+        List<DiffEntry> perFileChanges = new ArrayList<>();
         int totalAdded = 0;
         int totalDeleted = 0;
 
@@ -407,7 +407,7 @@ public final class DiffService {
                 }
             }
 
-            var de = new Context.DiffEntry(rightFragForEntry, "", added, deleted, leftContent, rightContent);
+            var de = new DiffEntry(rightFragForEntry, "", added, deleted, leftContent, rightContent);
             perFileChanges.add(de);
         }
 
@@ -422,9 +422,9 @@ public final class DiffService {
      * @return list of (title, DiffEntry) pairs sorted by title
      */
     @Blocking
-    public static List<Map.Entry<String, Context.DiffEntry>> preparePerFileSummaries(CumulativeChanges res) {
-        var list = new ArrayList<Map.Entry<String, Context.DiffEntry>>(
-                res.perFileChanges().size());
+    public static List<Map.Entry<String, DiffEntry>> preparePerFileSummaries(CumulativeChanges res) {
+        var list =
+                new ArrayList<Map.Entry<String, DiffEntry>>(res.perFileChanges().size());
         var seen = new HashSet<String>();
         for (var de : res.perFileChanges()) {
             String title = de.title();
@@ -443,13 +443,33 @@ public final class DiffService {
             int filesChanged,
             int totalAdded,
             int totalDeleted,
-            List<Context.DiffEntry> perFileChanges,
+            List<DiffEntry> perFileChanges,
             @Nullable GitWorkflow.PushPullState pushPullState) {
 
         /** Convenience constructor without pushPullState. */
-        public CumulativeChanges(
-                int filesChanged, int totalAdded, int totalDeleted, List<Context.DiffEntry> perFileChanges) {
+        public CumulativeChanges(int filesChanged, int totalAdded, int totalDeleted, List<DiffEntry> perFileChanges) {
             this(filesChanged, totalAdded, totalDeleted, perFileChanges, null);
+        }
+    }
+
+    /**
+     * Per-fragment diff entry between two contexts.
+     */
+    public record DiffEntry(
+            ContextFragment fragment,
+            String diff,
+            int linesAdded,
+            int linesDeleted,
+            String oldContent,
+            String newContent) {
+        @Blocking
+        public String title() {
+            var files = fragment.files().join();
+            if (files != null && !files.isEmpty()) {
+                var pf = files.iterator().next();
+                return pf.getRelPath().toString();
+            }
+            return fragment.shortDescription().join();
         }
     }
 }
