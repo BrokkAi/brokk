@@ -76,6 +76,20 @@ public final class ComputedSubscription {
     }
 
     /**
+     * Bind a {@link ComputedValue} to a Swing component, automatically managing the subscription
+     * and running the UI update on the EDT when the value completes.
+     * Subscriptions are automatically disposed when the owner component is removed from its parent.
+     *
+     * @param cv the ComputedValue to bind
+     * @param owner the Swing component that owns this subscription
+     * @param uiUpdate a runnable to execute on the EDT when the value completes
+     */
+    public static void bind(ComputedValue<?> cv, JComponent owner, Runnable uiUpdate) {
+        var sub = cv.onComplete((val, ex) -> SwingUtilities.invokeLater(uiUpdate));
+        register(owner, sub);
+    }
+
+    /**
      * Dispose all subscriptions associated with the given component and remove the internal
      * AncestorListener, if any.
      */
