@@ -3,22 +3,23 @@ package ai.brokk;
 import ai.brokk.Service.RemoteSessionMeta;
 import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.SwingUtil;
 import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
-import javax.swing.JOptionPane;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -43,10 +44,6 @@ class SessionSynchronizer {
                 throws IOException;
 
         void deleteRemoteSession(UUID id) throws IOException;
-
-        boolean promptCopySessionBeforeDownload(ContextManager cm, String title, String message);
-
-        boolean promptCopySessionBeforeDeletion(ContextManager cm, String title, String message);
     }
 
     private static class DefaultSyncCallbacks implements SyncCallbacks {
@@ -70,16 +67,6 @@ class SessionSynchronizer {
         public void deleteRemoteSession(UUID id) throws IOException {
             Service.deleteRemoteSession(id);
         }
-
-        @Override
-        public boolean promptCopySessionBeforeDownload(ContextManager cm, String title, String message) {
-            return promptCopySessionBeforeChanging(cm, title, message);
-        }
-
-        @Override
-        public boolean promptCopySessionBeforeDeletion(ContextManager cm, String title, String message) {
-            return promptCopySessionBeforeChanging(cm, title, message);
-        }
     }
 
     SessionSynchronizer(IProject project) {
@@ -93,159 +80,249 @@ class SessionSynchronizer {
         this.sessionsDir = sessionManager.getSessionsDir();
     }
 
+    enum ActionType {
+        DOWNLOAD,
+        UPLOAD,
+        DELETE_REMOTE,
+        DELETE_LOCAL,
+        NO_OP
+    }
+
+    record SyncAction(
+            UUID sessionId,
+            ActionType type,
+            @Nullable SessionInfo localInfo,
+            @Nullable RemoteSessionMeta remoteMeta) {}
+
+    record SyncResult(
+            List<UUID> succeeded, Map<UUID, Exception> failed, List<SyncAction> skipped) {
+        public SyncResult() {
+            this(new ArrayList<>(), new HashMap<>(), new ArrayList<>());
+        }
+    }
+
+    static class SyncPlanner {
+        List<SyncAction> plan(
+                Map<UUID, SessionInfo> localSessions,
+                List<RemoteSessionMeta> remoteSessions,
+                Set<UUID> tombstones,
+                Set<UUID> unreadableSessionIds) {
+
+            Map<UUID, RemoteSessionMeta> remoteMap = remoteSessions.stream()
+                    .collect(Collectors.toMap(RemoteSessionMeta::uuid, Function.identity(), (a, b) -> a));
+
+            Set<UUID> allIds = new HashSet<>();
+            allIds.addAll(localSessions.keySet());
+            allIds.addAll(remoteMap.keySet());
+            allIds.addAll(tombstones);
+
+            List<SyncAction> actions = new ArrayList<>();
+
+            for (UUID id : allIds) {
+                // Tombstones: Local deletion that needs to be propagated to remote
+                if (tombstones.contains(id)) {
+                    RemoteSessionMeta remote = remoteMap.get(id);
+                    if (remote != null && remote.deletedAt() == null) {
+                        actions.add(new SyncAction(id, ActionType.DELETE_REMOTE, localSessions.get(id), remote));
+                    }
+                    continue;
+                }
+
+                SessionInfo local = localSessions.get(id);
+                RemoteSessionMeta remote = remoteMap.get(id);
+
+                if (remote == null) {
+                    // Local exists but remote missing (or we are uploading a new session)
+                    if (local != null) {
+                        actions.add(new SyncAction(id, ActionType.UPLOAD, local, null));
+                    }
+                } else {
+                    // Remote exists
+                    if (remote.deletedAt() != null) {
+                        // Remote deleted
+                        if (local != null) {
+                            actions.add(new SyncAction(id, ActionType.DELETE_LOCAL, local, remote));
+                        }
+                    } else {
+                        // Remote active
+                        if (unreadableSessionIds.contains(id)) {
+                            continue;
+                        }
+
+                        if (local == null) {
+                            actions.add(new SyncAction(id, ActionType.DOWNLOAD, null, remote));
+                        } else {
+                            long localMod = local.modified();
+                            long remoteMod = remote.modifiedAtMillis();
+
+                            if (remoteMod > localMod) {
+                                actions.add(new SyncAction(id, ActionType.DOWNLOAD, local, remote));
+                            } else if (localMod > remoteMod) {
+                                actions.add(new SyncAction(id, ActionType.UPLOAD, local, remote));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Sort actions: Delete Remote -> Download/Delete Local (Newest Remote First) -> Upload
+            return actions.stream()
+                    .sorted(Comparator.comparing((SyncAction a) -> {
+                        if (a.type() == ActionType.DELETE_REMOTE) return 0;
+                        if (a.type() == ActionType.DOWNLOAD || a.type() == ActionType.DELETE_LOCAL) return 1;
+                        return 2;
+                    }).thenComparing((SyncAction a) -> {
+                        if (a.remoteMeta() != null) return -a.remoteMeta().modifiedAtMillis();
+                        return 0L;
+                    }))
+                    .toList();
+        }
+    }
+
+    class SyncExecutor {
+        SyncResult execute(
+                List<SyncAction> actions,
+                SyncCallbacks callbacks,
+                Map<UUID, ContextManager> openContextManagers,
+                String remoteProject) {
+            SyncResult result = new SyncResult();
+
+            for (SyncAction action : actions) {
+                UUID id = action.sessionId();
+                try {
+                    switch (action.type()) {
+                        case DELETE_REMOTE -> {
+                            callbacks.deleteRemoteSession(id);
+                            // Delete tombstone after successful remote delete
+                            Path tombstone = sessionsDir.resolve(id + ".tombstone");
+                            Files.deleteIfExists(tombstone);
+                            result.succeeded.add(id);
+                            logger.debug("Deleted session {} from remote via tombstone", id);
+                        }
+                        case DELETE_LOCAL -> {
+                            if (isLocalModified(action, result)) continue;
+                            
+                            ContextManager cm = openContextManagers.get(id);
+                            deleteLocalSession(id);
+                            if (cm != null) {
+                                cm.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).join();
+                            }
+                            result.succeeded.add(id);
+                        }
+                        case DOWNLOAD -> {
+                            if (isLocalModified(action, result)) continue;
+
+                            downloadSession(id, callbacks);
+                            ContextManager cm = openContextManagers.get(id);
+                            if (cm != null) {
+                                cm.reloadCurrentSessionAsync();
+                            }
+                            result.succeeded.add(id);
+                        }
+                        case UPLOAD -> {
+                            uploadSession(id, remoteProject, callbacks);
+                            result.succeeded.add(id);
+                        }
+                        case NO_OP -> {}
+                    }
+                } catch (Exception e) {
+                    result.failed.put(id, e);
+                    logger.warn("Action {} failed for session {}: {}", action.type(), id, e.getMessage());
+                }
+            }
+            return result;
+        }
+
+        private boolean isLocalModified(SyncAction action, SyncResult result) {
+            if (action.localInfo() == null) return false;
+            SessionInfo current = sessionManager.getSessionsCache().get(action.sessionId());
+            if (current != null && current.modified() > action.localInfo().modified()) {
+                result.skipped.add(action);
+                logger.info("Skipping {} for session {} because local copy was modified", action.type(), action.sessionId());
+                return true;
+            }
+            return false;
+        }
+    }
+
     public void synchronize() {
         try {
             String remoteProject = project.getRemoteProjectName();
-
-            List<RemoteSessionMeta> remoteMetas = syncCallbacks.listRemoteSessions(remoteProject);
             Files.createDirectories(sessionsDir);
 
-            Map<UUID, RemoteSessionMeta> remoteSessionsMap =
-                    remoteMetas.stream().collect(Collectors.toMap(RemoteSessionMeta::uuid, meta -> meta, (a, b) -> a));
+            SyncPlanner planner = new SyncPlanner();
+            SyncExecutor executor = new SyncExecutor();
+            SyncResult result;
+            int iteration = 0;
+            
+            do {
+                iteration++;
+                if (iteration > 10) {
+                    logger.warn("Sync loop iteration limit reached, stopping.");
+                    break;
+                }
 
-            // 1. Process tombstones (local deletions that need to go to remote)
-            Set<UUID> tombstoneDeletedIds = new HashSet<>();
-            try (var stream = Files.list(sessionsDir)) {
-                List<Path> tombstones = stream.filter(path -> path.toString().endsWith(".tombstone"))
-                        .toList();
+                // Fetch state
+                List<RemoteSessionMeta> remoteSessions = syncCallbacks.listRemoteSessions(remoteProject);
+                Map<UUID, SessionInfo> localSessions = new HashMap<>(sessionManager.getSessionsCache());
+                
+                Set<UUID> tombstones = new HashSet<>();
+                try (Stream<Path> stream = Files.list(sessionsDir)) {
+                    tombstones.addAll(stream.filter(path -> path.toString().endsWith(".tombstone"))
+                            .map(path -> {
+                                String fileName = path.getFileName().toString();
+                                try {
+                                    return UUID.fromString(fileName.substring(0, fileName.length() - ".tombstone".length()));
+                                } catch (IllegalArgumentException e) {
+                                    return null;
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toSet()));
+                }
 
-                for (Path tombstone : tombstones) {
-                    String fileName = tombstone.getFileName().toString();
-                    String idStr = fileName.substring(0, fileName.length() - ".tombstone".length());
-                    try {
-                        UUID id = UUID.fromString(idStr);
-                        RemoteSessionMeta remoteMeta = remoteSessionsMap.get(id);
-                        // Only call remote delete if it's not already marked deleted there
-                        if (remoteMeta != null && remoteMeta.deletedAt() == null) {
-                            sessionManager
-                                    .getSessionExecutorByKey()
-                                    .submit(id.toString(), () -> {
-                                        try {
-                                            syncCallbacks.deleteRemoteSession(id);
-                                            tombstoneDeletedIds.add(id);
-                                            logger.debug("Deleted session {} from remote via tombstone", id);
-                                        } catch (IOException e) {
-                                            logger.warn(
-                                                    "Failed to delete session {} from remote: {}", id, e.getMessage());
-                                        }
-                                    })
-                                    .join();
-                        }
-                        Files.delete(tombstone);
-                    } catch (IllegalArgumentException | IOException e) {
-                        logger.warn("Error processing tombstone {}: {}", tombstone, e.getMessage());
+                Set<UUID> unreadableIds = new HashSet<>();
+                Path unreadableDir = sessionsDir.resolve(SessionManager.UNREADABLE_SESSIONS_DIR);
+                if (Files.exists(unreadableDir)) {
+                     try (Stream<Path> stream = Files.list(unreadableDir)) {
+                        unreadableIds.addAll(stream
+                                .filter(path -> path.toString().endsWith(".zip"))
+                                .map(path -> {
+                                    String fileName = path.getFileName().toString();
+                                    try {
+                                        return UUID.fromString(fileName.substring(0, fileName.length() - ".zip".length()));
+                                    } catch (IllegalArgumentException e) {
+                                        return null;
+                                    }
+                                })
+                                .filter(Objects::nonNull)
+                                .collect(Collectors.toSet()));
                     }
                 }
-            }
 
-            // 2. Bidirectional sync
-            Map<UUID, SessionInfo> localSessions = new HashMap<>(sessionManager.getSessionsCache());
+                Map<UUID, ContextManager> openContextManagers = getOpenContextManagers();
 
-            // Fetch latest changes first and filter out sessions handled by tombstones
-            List<RemoteSessionMeta> syncableRemoteMetas = remoteMetas.stream()
-                    .filter(meta -> !tombstoneDeletedIds.contains(meta.uuid()))
-                    .sorted(Comparator.comparingLong(RemoteSessionMeta::modifiedAtMillis)
-                            .reversed())
-                    .toList();
-
-            for (RemoteSessionMeta remoteMeta : syncableRemoteMetas) {
-                UUID id = remoteMeta.uuid();
-                SessionInfo localInfo = localSessions.get(id);
-
-                // Find if this session is currently active in any Chrome/ContextManager
-                Optional<ContextManager> activeCm = Brokk.getProjectAndWorktreeChromes(project).stream()
-                        .map(Chrome::getContextManager)
-                        .filter(cm -> id.equals(cm.getCurrentSessionId()))
-                        .findFirst();
-
-                if (remoteMeta.deletedAt() != null) {
-                    // Session deleted on remote
-                    if (localInfo != null || activeCm.isPresent()) {
-                        if (activeCm.isPresent()) {
-                            handleOpenSessionDeletion(
-                                    activeCm.get(),
-                                    localInfo != null ? localInfo : new SessionInfo(id, remoteMeta.name(), 0, 0),
-                                    id);
-                        } else {
-                            deleteLocalSessionAndWait(id);
-                        }
-                    }
-                } else if (shouldDownloadRemoteSession(localInfo, remoteMeta)) {
-                    // Remote is newer or local doesn't exist
-                    if (activeCm.isPresent()
-                            && localInfo != null
-                            && localInfo.modified() < remoteMeta.modifiedAtMillis()) {
-                        handleOpenSessionDownload(activeCm.get(), localInfo, id);
-                    } else {
-                        downloadSessionAndWait(id);
-                    }
-                } else if (localInfo != null && localInfo.modified() > remoteMeta.modifiedAtMillis()) {
-                    // Local is newer
-                    sessionManager
-                            .getSessionExecutorByKey()
-                            .submit(id.toString(), () -> uploadSession(id, remoteProject))
-                            .join();
+                // Plan
+                List<SyncAction> actions = planner.plan(localSessions, remoteSessions, tombstones, unreadableIds);
+                if (actions.isEmpty()) {
+                    break;
                 }
-            }
 
-            // 3. Upload local sessions that are completely missing from remote
-            for (SessionInfo localInfo : localSessions.values()) {
-                if (!remoteSessionsMap.containsKey(localInfo.id())) {
-                    sessionManager
-                            .getSessionExecutorByKey()
-                            .submit(localInfo.id().toString(), () -> uploadSession(localInfo.id(), remoteProject))
-                            .join();
-                }
-            }
+                // Execute
+                result = executor.execute(actions, syncCallbacks, openContextManagers, remoteProject);
+
+            } while (!result.skipped().isEmpty());
 
         } catch (Exception e) {
             logger.warn("synchronizeRemoteSessions failed.", e);
         }
     }
-
-    void handleOpenSessionDownload(ContextManager cm, SessionInfo localInfo, UUID id) {
-        String sessionName = localInfo.name();
-        boolean accept = syncCallbacks.promptCopySessionBeforeDownload(
-                cm,
-                "Remote Session Updated",
-                "Session '" + sessionName + "' (" + id + ") was modified on the remote.\n"
-                        + "Copy the current session first before updating it?");
-        if (accept) {
-            cm.copySessionAsync(id, sessionName).join();
-        }
-        downloadSessionAndWait(id);
-        cm.reloadCurrentSessionAsync();
-    }
-
-    void handleOpenSessionDeletion(ContextManager cm, SessionInfo localInfo, UUID id) {
-        String sessionName = localInfo.name();
-        boolean accept = syncCallbacks.promptCopySessionBeforeDeletion(
-                cm,
-                "Remote Session Deleted",
-                "Session '" + sessionName + "' (" + id + ") was deleted on the remote.\n"
-                        + "Copy the current session first before deleting it?");
-        if (accept) {
-            cm.copySessionAsync(id, sessionName).join();
-            deleteLocalSessionAndWait(id);
-        } else {
-            deleteLocalSessionAndWait(id);
-            cm.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).join();
-        }
-        cm.reloadCurrentSessionAsync();
-    }
-
-    private void downloadSessionAndWait(UUID id) {
-        sessionManager
-                .getSessionExecutorByKey()
-                .submit(id.toString(), () -> downloadSession(id))
-                .join();
-    }
-
-    private void deleteLocalSessionAndWait(UUID id) {
-        sessionManager
-                .getSessionExecutorByKey()
-                .submit(id.toString(), () -> deleteLocalSession(id))
-                .join();
+    
+    protected Map<UUID, ContextManager> getOpenContextManagers() {
+        return Brokk.getProjectAndWorktreeChromes(project).stream()
+                .map(Chrome::getContextManager)
+                .filter(cm -> cm.getCurrentSessionId() != null)
+                .collect(Collectors.toMap(ContextManager::getCurrentSessionId, Function.identity(), (a, b) -> a));
     }
 
     private void deleteLocalSession(UUID id) {
@@ -261,68 +338,33 @@ class SessionSynchronizer {
         }
     }
 
-    private boolean shouldDownloadRemoteSession(@Nullable SessionInfo localInfo, RemoteSessionMeta meta) {
-        Path unreadablePath =
-                sessionsDir.resolve(SessionManager.UNREADABLE_SESSIONS_DIR).resolve(meta.id() + ".zip");
-        if (Files.exists(unreadablePath)) {
-            return false;
-        }
-        if (meta.deletedAt() != null) {
-            return false;
-        }
-        if (localInfo == null) {
-            return true;
-        }
-        return meta.modifiedAtMillis() > localInfo.modified();
+    private void downloadSession(UUID id, SyncCallbacks callbacks) throws IOException {
+        byte[] content = callbacks.getRemoteSessionContent(id);
+        Path localPath = sessionManager.getSessionHistoryPath(id);
+        Files.createDirectories(localPath.getParent());
+        Files.write(localPath, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+
+        sessionManager.readSessionInfoFromZip(localPath).ifPresent(si -> {
+            sessionManager.getSessionsCache().put(si.id(), si);
+            logger.info("Downloaded session {} from remote", id);
+        });
     }
 
-    private void downloadSession(UUID id) {
-        try {
-            byte[] content = syncCallbacks.getRemoteSessionContent(id);
-            Path localPath = sessionManager.getSessionHistoryPath(id);
-            Files.createDirectories(localPath.getParent());
-            Files.write(localPath, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-
-            sessionManager.readSessionInfoFromZip(localPath).ifPresent(si -> {
-                sessionManager.getSessionsCache().put(si.id(), si);
-                logger.info("Downloaded session {} from remote", id);
-            });
-        } catch (IOException e) {
-            logger.warn("Failed to download session {}: {}", id, e.getMessage());
-        }
-    }
-
-    private void uploadSession(UUID id, String remoteUrl) {
+    private void uploadSession(UUID id, String remoteUrl, SyncCallbacks callbacks) throws IOException {
         Path zipPath = sessionManager.getSessionHistoryPath(id);
-        try {
-            if (!Files.exists(zipPath)) {
-                return;
-            }
-
-            SessionInfo info = sessionManager.readSessionInfoFromZip(zipPath).orElse(null);
-            if (info == null) {
-                return;
-            }
-
-            String name = info.name();
-            long modifiedAt = info.modified();
-            byte[] bytes = Files.readAllBytes(zipPath);
-            syncCallbacks.writeRemoteSession(id, remoteUrl, name, modifiedAt, bytes);
-            logger.debug("Uploaded session {} to remote", id);
-        } catch (IOException e) {
-            logger.warn("Failed to upload session {}: {}", id, e.getMessage());
+        if (!Files.exists(zipPath)) {
+            return;
         }
-    }
 
-    private static boolean promptCopySessionBeforeChanging(ContextManager cm, String title, String message) {
-        Integer choice = SwingUtil.runOnEdt(
-                () -> cm.getIo()
-                        .showConfirmDialog(message, title, JOptionPane.YES_NO_OPTION, JOptionPane.QUESTION_MESSAGE),
-                JOptionPane.NO_OPTION);
-        if (choice == null) {
-            logger.debug("Prompt for remote session decision failed; defaulting to 'Copy current'");
-            return true;
+        SessionInfo info = sessionManager.readSessionInfoFromZip(zipPath).orElse(null);
+        if (info == null) {
+            return;
         }
-        return choice == JOptionPane.YES_OPTION;
+
+        String name = info.name();
+        long modifiedAt = info.modified();
+        byte[] bytes = Files.readAllBytes(zipPath);
+        callbacks.writeRemoteSession(id, remoteUrl, name, modifiedAt, bytes);
+        logger.debug("Uploaded session {} to remote", id);
     }
 }

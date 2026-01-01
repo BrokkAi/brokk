@@ -37,10 +37,6 @@ class SessionSynchronizerTest {
         List<UUID> deletedRemoteIds = new ArrayList<>();
         List<UUID> uploadedIds = new ArrayList<>();
 
-        boolean promptResponse = true;
-        int promptDownloadCount = 0;
-        int promptDeleteCount = 0;
-
         @Override
         public List<RemoteSessionMeta> listRemoteSessions(String remote) {
             return remoteSessions;
@@ -60,40 +56,37 @@ class SessionSynchronizerTest {
         public void deleteRemoteSession(UUID id) {
             deletedRemoteIds.add(id);
         }
-
-        @Override
-        public boolean promptCopySessionBeforeDownload(ContextManager cm, String title, String message) {
-            promptDownloadCount++;
-            return promptResponse;
-        }
-
-        @Override
-        public boolean promptCopySessionBeforeDeletion(ContextManager cm, String title, String message) {
-            promptDeleteCount++;
-            return promptResponse;
-        }
     }
 
     /** Simple stub for ContextManager to verify interactions during sync. */
     private static class TestContextManager extends ContextManager {
-        UUID copiedSessionId = null;
         boolean reloadCalled = false;
+        boolean createSessionCalled = false;
+        private UUID currentSessionId;
 
-        public TestContextManager(IProject project) {
+        public TestContextManager(IProject project, UUID currentSessionId) {
             super(project);
-        }
-
-        @Override
-        public CompletableFuture<Void> copySessionAsync(UUID sessionId, String newName) {
-            this.copiedSessionId = sessionId;
-            return CompletableFuture.completedFuture(null);
+            this.currentSessionId = currentSessionId;
         }
 
         @Override
         public void reloadCurrentSessionAsync() {
             this.reloadCalled = true;
         }
+        
+        @Override
+        public CompletableFuture<Void> createSessionAsync(String name) {
+            this.createSessionCalled = true;
+            return CompletableFuture.completedFuture(null);
+        }
+        
+        @Override
+        public UUID getCurrentSessionId() {
+            return currentSessionId;
+        }
     }
+
+    private Map<UUID, ContextManager> openContexts = new HashMap<>();
 
     @BeforeEach
     void setup() throws IOException {
@@ -106,7 +99,12 @@ class SessionSynchronizerTest {
         Files.createDirectories(sessionsDir);
 
         syncCallbacks = new FakeSyncCallbacks();
-        synchronizer = new SessionSynchronizer(project, syncCallbacks);
+        synchronizer = new SessionSynchronizer(project, syncCallbacks) {
+            @Override
+            protected Map<UUID, ContextManager> getOpenContextManagers() {
+                return openContexts;
+            }
+        };
     }
 
     @AfterEach
@@ -252,36 +250,75 @@ class SessionSynchronizerTest {
     }
 
     @Test
-    void handleOpenSessionDownload_AcceptCopy() throws IOException {
+    void openSessionRefreshesAfterDownload() throws IOException {
         UUID sessionId = UUID.randomUUID();
         SessionInfo localInfo = new SessionInfo(sessionId, "Open Session", 100, 100);
-        TestContextManager cm = new TestContextManager(project);
-        syncCallbacks.promptResponse = true;
+        sessionManager.getSessionsCache().put(sessionId, localInfo);
+        
+        TestContextManager cm = new TestContextManager(project, sessionId);
+        openContexts.put(sessionId, cm);
 
         byte[] newContent = createValidSessionZip(sessionId, "Open Session Updated");
+        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
+                sessionId.toString(), "u1", "o1", "remote", "Open Session", "private", 
+                "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", null);
+        
+        syncCallbacks.remoteSessions.add(remoteMeta);
         syncCallbacks.remoteContent.put(sessionId, newContent);
 
-        synchronizer.handleOpenSessionDownload(cm, localInfo, sessionId);
+        synchronizer.synchronize();
 
-        assertEquals(sessionId, cm.copiedSessionId, "Session should have been copied");
         assertTrue(cm.reloadCalled, "Context should have been reloaded");
-        assertTrue(sessionManager.getSessionsCache().containsKey(sessionId), "Local cache should be updated");
+        Path zipPath = sessionsDir.resolve(sessionId + ".zip");
+        assertArrayEquals(newContent, Files.readAllBytes(zipPath));
+    }
+    
+    @Test
+    void openSessionResetsAfterDeletion() throws IOException {
+        UUID sessionId = UUID.randomUUID();
+        SessionInfo localInfo = new SessionInfo(sessionId, "Open Session", 100, 100);
+        sessionManager.getSessionsCache().put(sessionId, localInfo);
+        
+        TestContextManager cm = new TestContextManager(project, sessionId);
+        openContexts.put(sessionId, cm);
+
+        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
+                sessionId.toString(), "u1", "o1", "remote", "Open Session", "private", 
+                "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", 
+                "2023-01-03T00:00:00Z"); // Deleted
+        syncCallbacks.remoteSessions.add(remoteMeta);
+
+        synchronizer.synchronize();
+
+        assertTrue(cm.createSessionCalled, "Context should have created new session after deletion");
+        assertFalse(sessionManager.getSessionsCache().containsKey(sessionId));
     }
 
     @Test
-    void handleOpenSessionDownload_DeclineCopy() throws IOException {
-        UUID sessionId = UUID.randomUUID();
-        SessionInfo localInfo = new SessionInfo(sessionId, "Open Session", 100, 100);
-        TestContextManager cm = new TestContextManager(project);
-        syncCallbacks.promptResponse = false;
-
-        byte[] newContent = createValidSessionZip(sessionId, "Open Session Updated");
-        syncCallbacks.remoteContent.put(sessionId, newContent);
-
-        synchronizer.handleOpenSessionDownload(cm, localInfo, sessionId);
-
-        assertNull(cm.copiedSessionId, "Session should NOT have been copied");
-        assertTrue(cm.reloadCalled, "Context should still have been reloaded");
+    void skipDownloadIfModifiedLocally() throws IOException {
+        UUID id = UUID.randomUUID();
+        SessionInfo localInfo = new SessionInfo(id, "Session", 100, 100);
+        sessionManager.getSessionsCache().put(id, localInfo);
+        
+        // Remote is newer
+        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
+                id.toString(), "u1", "o1", "remote", "Session", "private", 
+                "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", null);
+        
+        // Planner logic test: create action manually
+        SessionSynchronizer.SyncAction action = new SessionSynchronizer.SyncAction(
+                id, SessionSynchronizer.ActionType.DOWNLOAD, localInfo, remoteMeta);
+        
+        // Simulate local modification occurring after planning
+        SessionInfo modifiedLocal = new SessionInfo(id, "Session", 200, 200);
+        sessionManager.getSessionsCache().put(id, modifiedLocal);
+        
+        SessionSynchronizer.SyncExecutor executor = synchronizer.new SyncExecutor();
+        SessionSynchronizer.SyncResult result = executor.execute(
+                List.of(action), syncCallbacks, openContexts, "remote");
+        
+        assertTrue(result.skipped().contains(action), "Action should be skipped");
+        assertEquals(0, result.succeeded().size());
     }
 
     @Test
