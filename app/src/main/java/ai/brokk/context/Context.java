@@ -1194,10 +1194,7 @@ public class Context {
             newFragments.add(fragmentToAdd);
         }
 
-        // Create a new Context only if any fragment actually changed, or parsed output is present.
-        boolean mustCreateNew = anyReplaced || parsedOutput != null;
-
-        if (!mustCreateNew && newFragments.equals(fragments)) {
+        if (!anyReplaced) {
             // No content to update; keep original Context
             return this;
         }
