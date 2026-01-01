@@ -238,6 +238,7 @@ public class Context {
         return this.withFragments(keptExistingFragments);
     }
 
+    @Blocking
     public Optional<ContextFragment> findWithSameSource(ContextFragment fragment) {
         return fragments.stream().filter(f -> f.hasSameSource(fragment)).findFirst();
     }

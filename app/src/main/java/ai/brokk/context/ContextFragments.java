@@ -893,13 +893,13 @@ public class ContextFragments {
         }
 
         public Optional<SpecialTextType> specialType() {
-            return SpecialTextType.fromDescription(description().join());
+            return SpecialTextType.fromDescription(description);
         }
 
         public String previewSyntaxStyle() {
             return specialType()
                     .map(SpecialTextType::previewSyntaxStyle)
-                    .orElse(syntaxStyle().join());
+                    .orElse(syntaxStyle);
         }
 
         public String previewText() {
@@ -908,21 +908,21 @@ public class ContextFragments {
 
         @Override
         public String toString() {
-            return "StringFragment('%s')".formatted(description().join());
+            return "StringFragment('%s')".formatted(description);
         }
 
         @Override
         public boolean hasSameSource(ContextFragment other) {
             if (this == other) return true;
             if (!(other instanceof StringFragment that)) return false;
-            var thisType = SpecialTextType.fromDescription(this.description().join());
-            var thatType = SpecialTextType.fromDescription(that.description().join());
+            var thisType = SpecialTextType.fromDescription(this.description);
+            var thatType = SpecialTextType.fromDescription(that.description);
             if (thisType.isPresent() && thisType.equals(thatType)) {
                 return true;
             }
-            return Objects.equals(this.description().join(), that.description().join())
+            return Objects.equals(this.description, that.description)
                     && Objects.equals(
-                            this.syntaxStyle().join(), that.syntaxStyle().join())
+                            this.syntaxStyle, that.syntaxStyle)
                     && Objects.equals(this.snapshot, that.snapshot);
         }
     }

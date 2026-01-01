@@ -179,7 +179,7 @@ public record ContextDelta(
 
         String cacheKey;
         try {
-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(taskText.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = MessageDigest.getInstance("SHA-1").digest(taskText.getBytes(StandardCharsets.UTF_8));
             cacheKey = "action_" + HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
