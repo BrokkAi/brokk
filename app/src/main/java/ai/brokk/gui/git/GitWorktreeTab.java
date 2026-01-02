@@ -950,8 +950,7 @@ public class GitWorktreeTab extends JPanel {
     private void attemptRemoveWorktree(IGitRepo repo, Path worktreePath, boolean force)
             throws GitRepo.WorktreeNeedsForceException, GitRepo.GitRepoException {
         try {
-            repo.removeWorktree(worktreePath, force);
-            contextManager.getProject().getSessionRegistry().release(worktreePath);
+            contextManager.getProject().getMainProject().deleteWorktree(worktreePath, force);
 
             chrome.showNotification(
                     IConsoleIO.NotificationRole.INFO,
@@ -1156,10 +1155,8 @@ public class GitWorktreeTab extends JPanel {
                 // Post-Merge Cleanup
                 if (deleteWorktree) {
                     logger.info("Attempting to delete worktree: {}", worktreePath);
-                    MainProject.removeFromOpenProjectsListAndClearActiveSession(
-                            worktreePath); // Attempt to close if open
                     try {
-                        parentGitRepo.removeWorktree(worktreePath, true); // Force remove during automated cleanup
+                        parentProject.deleteWorktree(worktreePath, true); // Force remove during automated cleanup
                         chrome.showNotification(
                                 IConsoleIO.NotificationRole.INFO,
                                 "Worktree " + worktreePath.getFileName() + " removed.");
