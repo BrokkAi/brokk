@@ -23,6 +23,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.InstructionsPanel;
+import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
@@ -576,6 +577,28 @@ public final class BrokkCli implements Callable<Integer> {
                 }
             } else {
                 io.toolError("Deep Scan did not complete successfully");
+            }
+
+            // Output metrics if BRK_COLLECT_METRICS is set
+            if ("true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))) {
+                var metrics = SearchMetrics.tracking();
+                // Collect files added from recommendations
+                var filesAddedPaths = recommendations.fragments().stream()
+                        .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                        .map(pf -> pf.getRelPath().toString())
+                        .collect(Collectors.toSet());
+                metrics.recordContextScan(
+                        filesAddedPaths.size(),
+                        !recommendations.success(),
+                        filesAddedPaths,
+                        recommendations.metadata());
+                // Record outcome (no search turns for deepscan)
+                metrics.recordOutcome(
+                        recommendations.success() ? TaskResult.StopReason.SUCCESS : TaskResult.StopReason.LLM_ERROR,
+                        filesAddedPaths.size());
+                metrics.recordFinalWorkspaceFiles(filesAddedPaths);
+                var json = metrics.toJson(goalForScan, 0, recommendations.success());
+                System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
             }
 
             // If deepscan is standalone, exit here with success
