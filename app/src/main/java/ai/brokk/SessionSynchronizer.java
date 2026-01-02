@@ -9,7 +9,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -291,8 +290,7 @@ class SessionSynchronizer {
                     .get();
         }
 
-        private void handleUpload(
-                SyncAction action, SyncCallbacks callbacks, String remoteProject, SyncResult result)
+        private void handleUpload(SyncAction action, SyncCallbacks callbacks, String remoteProject, SyncResult result)
                 throws IOException, ExecutionException, InterruptedException {
             UUID id = action.sessionId();
             if (isLocalModified(action, result)) return;
@@ -322,7 +320,8 @@ class SessionSynchronizer {
                         Path localPath = sessionManager.getSessionHistoryPath(id);
                         if (!Files.exists(localPath)) return null;
 
-                        SessionInfo info = sessionManager.readSessionInfoFromZip(localPath).orElse(null);
+                        SessionInfo info =
+                                sessionManager.readSessionInfoFromZip(localPath).orElse(null);
                         if (info == null) return null;
 
                         byte[] bytes = Files.readAllBytes(localPath);
@@ -331,8 +330,7 @@ class SessionSynchronizer {
                     .get();
 
             if (snapshot != null) {
-                callbacks.writeRemoteSession(
-                        id, remoteProject, snapshot.name(), snapshot.modified(), snapshot.bytes());
+                callbacks.writeRemoteSession(id, remoteProject, snapshot.name(), snapshot.modified(), snapshot.bytes());
                 result.succeeded.add(id);
                 logger.debug("Uploaded session {} to remote", id);
             }
@@ -511,7 +509,10 @@ class SessionSynchronizer {
 
             sessionManager.writeSessionInfoToZip(localZipPath, newInfo);
             sessionManager.getSessionsCache().put(id, newInfo);
-            logger.info("Saved session {} (merged={})", id, localHistory != null && merged != localHistory && merged != remoteHistory);
+            logger.info(
+                    "Saved session {} (merged={})",
+                    id,
+                    localHistory != null && merged != localHistory && merged != remoteHistory);
 
         } finally {
             try {

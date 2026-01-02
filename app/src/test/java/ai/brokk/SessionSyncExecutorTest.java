@@ -10,16 +10,16 @@ import ai.brokk.SessionSynchronizer.SyncCallbacks;
 import ai.brokk.SessionSynchronizer.SyncExecutor;
 import ai.brokk.SessionSynchronizer.SyncResult;
 import ai.brokk.context.Context;
-import ai.brokk.project.AbstractProject;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.util.HistoryIo;
 import java.io.IOException;
 import java.nio.file.FileSystems;
-import java.time.Instant;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -165,8 +165,8 @@ class SessionSyncExecutorTest {
         Files.writeString(tombstone, "deleted", StandardOpenOption.CREATE);
 
         String now = Instant.now().toString();
-        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
-                id.toString(), "u1", "o1", "remote", "name", "private", now, now, now, null);
+        RemoteSessionMeta remoteMeta =
+                new RemoteSessionMeta(id.toString(), "u1", "o1", "remote", "name", "private", now, now, now, null);
 
         SyncAction action = new SyncAction(id, ActionType.DELETE_REMOTE, null, remoteMeta);
 
@@ -208,8 +208,8 @@ class SessionSyncExecutorTest {
     void testExecute_Exceptions() throws InterruptedException {
         UUID id = UUID.randomUUID();
         String now = Instant.now().toString();
-        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
-                id.toString(), "u1", "o1", "remote", "name", "private", now, now, now, null);
+        RemoteSessionMeta remoteMeta =
+                new RemoteSessionMeta(id.toString(), "u1", "o1", "remote", "name", "private", now, now, now, null);
 
         SyncAction action = new SyncAction(id, ActionType.DOWNLOAD, null, remoteMeta);
 
@@ -234,13 +234,23 @@ class SessionSyncExecutorTest {
         long localTime = 2000L; // Local is newer
 
         // 1. Create Remote History with one context
-        Context remoteCtx = new Context(new TestContextManager(projectStub, id)).withBuildResult(false, "Remote changes");
+        Context remoteCtx =
+                new Context(new TestContextManager(projectStub, id)).withBuildResult(false, "Remote changes");
         ContextHistory remoteHistory = new ContextHistory(remoteCtx);
         byte[] remoteBytes = createValidSessionZip(id, name, remoteTime, remoteHistory);
 
         String remoteTimeStr = Instant.ofEpochMilli(remoteTime).toString();
         RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
-                id.toString(), "u1", "o1", "remote", name, "private", remoteTimeStr, remoteTimeStr, remoteTimeStr, null);
+                id.toString(),
+                "u1",
+                "o1",
+                "remote",
+                name,
+                "private",
+                remoteTimeStr,
+                remoteTimeStr,
+                remoteTimeStr,
+                null);
         callbacks.remoteContent.put(id, remoteBytes);
 
         // 2. Create Local History with different context (diverged)
@@ -309,7 +319,8 @@ class SessionSyncExecutorTest {
         return createValidSessionZip(id, name, modified, new ContextHistory(Context.EMPTY));
     }
 
-    private byte[] createValidSessionZip(UUID id, String name, long modified, ContextHistory history) throws IOException {
+    private byte[] createValidSessionZip(UUID id, String name, long modified, ContextHistory history)
+            throws IOException {
         Path tempZip = tempDir.resolve("temp_" + id + ".zip");
         // Ensure parent dir exists
         Files.createDirectories(tempZip.getParent());

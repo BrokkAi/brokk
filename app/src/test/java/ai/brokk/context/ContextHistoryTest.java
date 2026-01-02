@@ -570,9 +570,7 @@ public class ContextHistoryTest {
 
         // Verify auxiliary data
         assertEquals(2, merged.getResetEdges().size(), "Should combine reset edges");
-        assertEquals(
-                gsOlder, merged.getGitState(c.id()).orElse(null), "Should preserve git state from older");
-        assertEquals(
-                gsNewer, merged.getGitState(d.id()).orElse(null), "Should preserve git state from newer");
+        assertEquals(gsOlder, merged.getGitState(c.id()).orElse(null), "Should preserve git state from older");
+        assertEquals(gsNewer, merged.getGitState(d.id()).orElse(null), "Should preserve git state from newer");
     }
 }
