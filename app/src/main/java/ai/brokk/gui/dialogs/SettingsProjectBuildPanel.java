@@ -9,11 +9,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.util.BuildVerifier;
-import ai.brokk.util.Environment;
-import ai.brokk.util.ExecutorConfig;
-import ai.brokk.util.ExecutorValidator;
-import ai.brokk.util.PathNormalizer;
+import ai.brokk.util.*;
 import com.google.common.io.Files;
 import java.awt.*;
 import java.nio.file.Path;
@@ -897,7 +893,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             } else {
                 // If checkbox is NOT selected, we explicitly pass the sentinel to prevent
                 // BuildVerifier from falling back to project.getJdk()
-                env.put("JAVA_HOME", ai.brokk.util.EnvironmentJava.JAVA_HOME_SENTINEL);
+                env.put("JAVA_HOME", EnvironmentJava.JAVA_HOME_SENTINEL);
             }
         }
         if (selected == Languages.PYTHON) {
