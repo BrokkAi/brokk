@@ -159,8 +159,10 @@ public final class BuildVerifier {
         if (isValidJdkHome(jdkPath)) {
             env.put("JAVA_HOME", jdkPath.toString());
         } else {
-            logger.debug("Project JDK setting '{}' (resolved to '{}') is not a valid JDK home; skipping JAVA_HOME injection.",
-                    jdkSetting, jdkPath);
+            logger.debug(
+                    "Project JDK setting '{}' (resolved to '{}') is not a valid JDK home; skipping JAVA_HOME injection.",
+                    jdkSetting,
+                    jdkPath);
         }
 
         return env;

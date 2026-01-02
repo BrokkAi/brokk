@@ -168,8 +168,17 @@ class BuildVerifierTest {
             this.jdk = jdk;
         }
 
-        @Override public Path getRoot() { return root; }
-        @Override public String getJdk() { return jdk; }
-        @Override public void close() {}
+        @Override
+        public Path getRoot() {
+            return root;
+        }
+
+        @Override
+        public String getJdk() {
+            return jdk;
+        }
+
+        @Override
+        public void close() {}
     }
 }

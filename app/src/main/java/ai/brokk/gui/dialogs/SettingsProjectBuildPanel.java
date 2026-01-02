@@ -817,7 +817,8 @@ public class SettingsProjectBuildPanel extends JPanel {
             if (setJavaHomeCheckbox.isSelected()) {
                 String rawPath = jdkSelector.getSelectedJdkPath();
                 if (rawPath == null || rawPath.isBlank()) {
-                    JOptionPane.showMessageDialog(this, "Please select a valid JDK path.", "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
+                    JOptionPane.showMessageDialog(
+                            this, "Please select a valid JDK path.", "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
                     return false;
                 }
 

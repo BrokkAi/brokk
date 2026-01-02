@@ -225,7 +225,10 @@ public class BuildDetailsPathNormalizationTest {
         assertTrue(Files.exists(workspacePropsFile), "workspace.properties should be created");
         Properties wsProps = loadProps(workspacePropsFile);
         String expectedJdkHome = PathNormalizer.canonicalizeEnvPathValue(jdkPath);
-        assertEquals(expectedJdkHome, wsProps.getProperty("jdk.home"), "jdk.home should be migrated to workspace.properties");
+        assertEquals(
+                expectedJdkHome,
+                wsProps.getProperty("jdk.home"),
+                "jdk.home should be migrated to workspace.properties");
 
         // 4. Assert: Loaded details do NOT contain JAVA_HOME in environmentVariables map
         assertFalse(
