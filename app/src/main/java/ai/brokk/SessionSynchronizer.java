@@ -2,7 +2,6 @@ package ai.brokk;
 
 import ai.brokk.Service.RemoteSessionMeta;
 import ai.brokk.SessionManager.SessionInfo;
-import ai.brokk.gui.Chrome;
 import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,7 +17,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -186,7 +185,7 @@ class SessionSynchronizer {
                 List<SyncAction> actions,
                 SyncCallbacks callbacks,
                 Map<UUID, IContextManager> openContextManagers,
-                String remoteProject) {
+                String remoteProject) throws InterruptedException {
             SyncResult result = new SyncResult();
 
             for (SyncAction action : actions) {
@@ -229,8 +228,8 @@ class SessionSynchronizer {
                             case NO_OP -> {}
                         }
                         return null;
-                    }).join();
-                } catch (CompletionException e) {
+                    }).get();
+                } catch (ExecutionException e) {
                     Throwable cause = e.getCause();
                     Exception ex = (cause instanceof Exception) ? (Exception) cause : new Exception(cause);
                     result.failed.put(id, ex);
@@ -252,7 +251,7 @@ class SessionSynchronizer {
         }
     }
 
-    public void synchronize() throws IOException {
+    public void synchronize() throws IOException, InterruptedException {
         String remoteProject = project.getRemoteProjectName();
         Files.createDirectories(sessionsDir);
 

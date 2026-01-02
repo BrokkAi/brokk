@@ -56,9 +56,6 @@ class SessionSyncExecutorTest {
             public String getRemoteProjectName() {
                 return REMOTE_PROJECT;
             }
-
-            @Override
-            public void close() {}
         };
         
         callbacks = new FakeSyncCallbacks();
@@ -72,7 +69,7 @@ class SessionSyncExecutorTest {
     }
 
     @Test
-    void testExecuteDownload_Successful() throws IOException {
+    void testExecuteDownload_Successful() throws IOException, InterruptedException {
         UUID id = UUID.randomUUID();
         String name = "Remote Session";
         long modified = System.currentTimeMillis();
@@ -106,7 +103,7 @@ class SessionSyncExecutorTest {
     }
 
     @Test
-    void testExecuteDownload_SkippedIfLocalModified() throws IOException {
+    void testExecuteDownload_SkippedIfLocalModified() throws InterruptedException {
         UUID id = UUID.randomUUID();
         String name = "Session";
         long oldModified = 1000L;
@@ -136,7 +133,7 @@ class SessionSyncExecutorTest {
     }
 
     @Test
-    void testExecuteUpload_Successful() throws IOException {
+    void testExecuteUpload_Successful() throws IOException, InterruptedException {
         UUID id = UUID.randomUUID();
         String name = "Local Session";
         long modified = System.currentTimeMillis();
@@ -160,7 +157,7 @@ class SessionSyncExecutorTest {
     }
 
     @Test
-    void testExecuteDeleteRemote_Successful() throws IOException {
+    void testExecuteDeleteRemote_Successful() throws IOException, InterruptedException {
         UUID id = UUID.randomUUID();
         
         // Create tombstone
@@ -184,7 +181,7 @@ class SessionSyncExecutorTest {
     }
 
     @Test
-    void testExecuteDeleteLocal_Successful() throws IOException {
+    void testExecuteDeleteLocal_Successful() throws IOException, InterruptedException {
         UUID id = UUID.randomUUID();
         String name = "ToDelete";
         long modified = System.currentTimeMillis();
@@ -213,7 +210,7 @@ class SessionSyncExecutorTest {
     }
 
     @Test
-    void testExecute_Exceptions() {
+    void testExecute_Exceptions() throws InterruptedException{
         UUID id = UUID.randomUUID();
         RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
             id.toString(), "u1", "o1", "remote", "name", "private", 
@@ -238,7 +235,7 @@ class SessionSyncExecutorTest {
     }
 
     @Test
-    void testExecute_ConcurrentActions() throws IOException {
+    void testExecute_ConcurrentActions() throws IOException, InterruptedException {
         // 1. Download
         UUID dlId = UUID.randomUUID();
         RemoteSessionMeta dlMeta = new RemoteSessionMeta(

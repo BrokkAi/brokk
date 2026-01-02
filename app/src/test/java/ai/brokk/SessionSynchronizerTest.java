@@ -121,7 +121,7 @@ class SessionSynchronizerTest {
     }
 
     @Test
-    void testSessionSynchronizationScenarios() throws IOException {
+    void testSessionSynchronizationScenarios() throws IOException, InterruptedException {
         // Shared timestamps
         String timeStr = "2023-10-01T12:00:00Z";
         long timeMillis = java.time.Instant.parse(timeStr).toEpochMilli();
