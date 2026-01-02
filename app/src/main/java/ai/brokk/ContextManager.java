@@ -501,11 +501,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
 
                     // Update context w/ new analyzer
-                    // ignore "load external changes" done by the build agent itself
-                    // the build agent pauses the analyzer, which is our indicator
+                    // ignore "load external changes" done by internal writes or build agent
+                    // the analyzer pause is our indicator for suppressed self-writes
                     if (!analyzerWrapper.isPause()) {
                         processExternalFileChangesIfNeeded();
                         io.updateWorkspace();
+                    } else {
+                        logger.debug("Skipping processExternalFileChangesIfNeeded because analyzer is paused (internal write in progress)");
                     }
 
                     if (externalRequest && io instanceof Chrome chrome) {
