@@ -54,6 +54,7 @@ import java.util.stream.Collectors;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
 import org.jetbrains.annotations.Nullable;
@@ -2206,6 +2207,26 @@ public final class MainProject extends AbstractProject {
     @Override
     public SessionRegistry getSessionRegistry() {
         return sessionRegistry;
+    }
+
+    /**
+     * Deletes a worktree associated with this project.
+     *
+     * @param worktreePath The path of the worktree to delete.
+     * @param force        If true, force deletion even if the worktree is dirty or locked.
+     * @throws GitAPIException if the git operation fails.
+     */
+    public void deleteWorktree(Path worktreePath, boolean force) throws GitAPIException {
+        if (!hasGit() || !getRepo().supportsWorktrees()) {
+            throw new GitRepo.GitRepoException("This project does not support worktrees.");
+        }
+        if (!(getRepo() instanceof GitRepo gitRepo)) {
+            throw new GitRepo.GitRepoException("Underlying repository is not a local GitRepo.");
+        }
+
+        gitRepo.removeWorktree(worktreePath, force);
+        sessionRegistry.release(worktreePath);
+        removeFromOpenProjectsListAndClearActiveSession(worktreePath);
     }
 
     @Override
