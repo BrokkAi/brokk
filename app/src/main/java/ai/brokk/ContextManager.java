@@ -1734,7 +1734,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Submits a background task to the internal background executor (non-user actions). */
     @Override
     public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
-        var future = backgroundTasks.submit(() -> {
+        taskDescriptions.put(task, taskDescription);
+        return backgroundTasks.submit(() -> {
             try {
                 io.backgroundOutput(taskDescription);
                 return task.call();
@@ -1757,10 +1758,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 });
             }
         });
-
-        // Track the future with its description
-        taskDescriptions.put(task, taskDescription);
-        return future;
     }
 
     /**
