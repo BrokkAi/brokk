@@ -162,8 +162,11 @@ public final class BrokkCli implements Callable<Integer> {
 
     @CommandLine.Option(
             names = "--deepscan",
-            description = "Perform a Deep Scan to suggest additional relevant context.")
-    private boolean deepScan = false;
+            arity = "0..1",
+            fallbackValue = "true",
+            description =
+                    "Perform a Deep Scan to suggest additional relevant context. Optionally provide a custom goal.")
+    private @Nullable String deepScanGoal;
 
     @CommandLine.Option(
             names = "--search-workspace",
@@ -229,6 +232,7 @@ public final class BrokkCli implements Callable<Integer> {
                 .count();
         if (merge) actionCount++;
         if (build) actionCount++;
+        boolean deepScan = deepScanGoal != null;
         if (actionCount > 1) {
             System.err.println(
                     "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
@@ -521,12 +525,17 @@ public final class BrokkCli implements Callable<Integer> {
                     IConsoleIO.NotificationRole.INFO,
                     ContextFragment.describe(cm.liveContext().allFragments()));
 
-            String goalForScan = isStandaloneDeepScan
-                    ? "Analyze the workspace and suggest relevant context"
-                    : Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
-                            .filter(s -> s != null && !s.isBlank())
-                            .findFirst()
-                            .orElseThrow();
+            String goalForScan;
+            if (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank()) {
+                goalForScan = deepScanGoal;
+            } else if (isStandaloneDeepScan) {
+                goalForScan = "Analyze the workspace and suggest relevant context";
+            } else {
+                goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
+                        .filter(s -> s != null && !s.isBlank())
+                        .findFirst()
+                        .orElseThrow();
+            }
 
             // Determine task file for cache
             @Nullable
