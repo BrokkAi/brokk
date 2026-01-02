@@ -36,7 +36,7 @@ class ContextDeltaTest {
     void testDelta_identicalContexts_returnsEmptyDelta() {
         var ctx = new Context(contextManager);
 
-        var delta = ContextDelta.between(ctx, ctx);
+        var delta = ContextDelta.between(ctx, ctx).join();
 
         assertTrue(delta.addedFragments().isEmpty(), "No fragments should be added for identical contexts");
         assertTrue(delta.removedFragments().isEmpty(), "No fragments should be removed for identical contexts");
@@ -59,7 +59,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager);
         var ctx2 = ctx1.addFragments(List.of(ppf));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertEquals(1, delta.addedFragments().size(), "Should identify added fragment");
         assertTrue(delta.removedFragments().isEmpty(), "No fragments should be removed");
@@ -81,7 +81,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager).addFragments(List.of(ppf1, ppf2));
         var ctx2 = ctx1.removeFragments(List.of(ppf2));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertTrue(delta.addedFragments().isEmpty(), "No fragments should be added");
         assertEquals(1, delta.removedFragments().size(), "Should identify removed fragment");
@@ -98,7 +98,7 @@ class ContextDeltaTest {
         var entry = new TaskEntry(1, taskFrag, null);
         var ctx2 = ctx1.addHistoryEntry(entry, taskFrag);
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertEquals(1, delta.addedTasks().size(), "Should identify added task");
         assertFalse(delta.isEmpty(), "Delta should not be empty");
@@ -120,7 +120,7 @@ class ContextDeltaTest {
         var ctxWithHistory = ctx1.addHistoryEntry(entry, taskFrag);
         var ctxCleared = ctxWithHistory.clearHistory();
 
-        var delta = ContextDelta.between(ctxWithHistory, ctxCleared);
+        var delta = ContextDelta.between(ctxWithHistory, ctxCleared).join();
 
         assertTrue(delta.clearedHistory(), "Should detect cleared history");
         assertEquals(
@@ -143,7 +143,7 @@ class ContextDeltaTest {
         assertTrue(entry1Compressed.isCompressed());
         var ctx3 = ctx2.withHistory(List.of(entry1Compressed));
 
-        var delta = ContextDelta.between(ctx2, ctx3);
+        var delta = ContextDelta.between(ctx2, ctx3).join();
 
         assertTrue(delta.compressedHistory());
     }
@@ -153,7 +153,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager).withSpecial(SpecialTextType.SEARCH_NOTES, "Old Notes");
         var ctx2 = ctx1.withSpecial(SpecialTextType.SEARCH_NOTES, "New Notes");
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertEquals(1, delta.updatedSpecialFragments().size());
     }
@@ -172,7 +172,7 @@ class ContextDeltaTest {
         var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = ctx1.removeFragments(List.of(frag)).addFragments(List.of(frag2));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertTrue(delta.contentsChanged());
     }
@@ -187,7 +187,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager).addFragments(List.of(frag));
         var ctx2 = Context.EMPTY;
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertFalse(delta.isEmpty());
         assertTrue(delta.sessionReset());
@@ -201,7 +201,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager);
         var ctx2 = ctx1.withSpecial(SpecialTextType.SEARCH_NOTES, "New Notes");
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertEquals(1, delta.addedFragments().size(), "Special fragment should appear as added");
         assertTrue(delta.updatedSpecialFragments().isEmpty(), "Should not be in updated list when added");
@@ -215,7 +215,7 @@ class ContextDeltaTest {
                 ctx1.getSpecial(SpecialTextType.SEARCH_NOTES.description()).orElseThrow();
         var ctx2 = ctx1.removeFragments(List.of(specialFrag));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertEquals(1, delta.removedFragments().size(), "Special fragment should appear as removed");
         assertTrue(delta.updatedSpecialFragments().isEmpty(), "Should not be in updated list when removed");
@@ -239,7 +239,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager).addFragments(List.of(frag1, frag2));
         var ctx2 = ctx1.removeFragments(List.of(frag1)).addFragments(List.of(frag3));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertEquals(1, delta.addedFragments().size(), "Should identify frag3 as added");
         assertEquals(1, delta.removedFragments().size(), "Should identify frag1 as removed");
@@ -263,7 +263,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager);
         var ctx2 = ctx1.addFragments(List.of(frag1, frag2, frag3));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertEquals(3, delta.addedFragments().size(), "Should identify all three fragments as added");
         assertTrue(delta.removedFragments().isEmpty());
@@ -283,7 +283,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager).addFragments(List.of(frag1, frag2));
         var ctx2 = ctx1.removeFragments(List.of(frag1, frag2));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertTrue(delta.addedFragments().isEmpty());
         assertEquals(2, delta.removedFragments().size(), "Should identify both fragments as removed");
@@ -305,7 +305,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager).addFragments(List.of(frag1));
         var ctx2 = ctx1.removeFragments(List.of(frag1)).addFragments(List.of(frag2));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         // Same file means same source, so neither added nor removed
         assertTrue(delta.addedFragments().isEmpty(), "Same file should not appear as added");
@@ -320,7 +320,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager).addFragments(List.of(frag1));
         var ctx2 = ctx1.removeFragments(List.of(frag1)).addFragments(List.of(frag2));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         // Same target identifier means same source
         assertTrue(delta.addedFragments().isEmpty(), "Same target should not appear as added");
@@ -340,7 +340,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager).addFragments(List.of(fileFrag));
         var ctx2 = ctx1.addFragments(List.of(codeFrag));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         // Different fragment types should be treated as different sources
         assertEquals(1, delta.addedFragments().size(), "CodeFragment should be added");
@@ -368,7 +368,7 @@ class ContextDeltaTest {
 
         var ctx2 = ctx1.withHistory(List.of(entry1Compressed, entry2, entry3));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertTrue(delta.compressedHistory(), "Should detect compression");
         assertEquals(1, delta.addedTasks().size(), "Should detect added task");
@@ -385,7 +385,7 @@ class ContextDeltaTest {
         var ctx1 = new Context(contextManager);
         var ctx2 = ctx1.addFragments(List.of(frag));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertFalse(delta.sessionReset(), "Going from empty to non-empty is not a session reset");
         assertEquals(1, delta.addedFragments().size());
@@ -403,11 +403,11 @@ class ContextDeltaTest {
         var ctx2 = ctx1.withPinned(frag, true);
         var ctx3 = ctx2.withPinned(frag, false);
 
-        var deltaPin = ContextDelta.between(ctx1, ctx2);
+        var deltaPin = ContextDelta.between(ctx1, ctx2).join();
         assertEquals(1, deltaPin.pinnedFragments().size());
         assertEquals("Pin Pin.java", deltaPin.description(contextManager).join());
 
-        var deltaUnpin = ContextDelta.between(ctx2, ctx3);
+        var deltaUnpin = ContextDelta.between(ctx2, ctx3).join();
         assertEquals(1, deltaUnpin.unpinnedFragments().size());
         assertEquals("Unpin Pin.java", deltaUnpin.description(contextManager).join());
     }
@@ -423,12 +423,12 @@ class ContextDeltaTest {
         var ctx2 = ctx1.setReadonly(frag, true);
         var ctx3 = ctx2.setReadonly(frag, false);
 
-        var deltaProtect = ContextDelta.between(ctx1, ctx2);
+        var deltaProtect = ContextDelta.between(ctx1, ctx2).join();
         assertEquals(1, deltaProtect.protectedFragments().size());
         assertEquals(
                 "Protect Protect.java", deltaProtect.description(contextManager).join());
 
-        var deltaUnprotect = ContextDelta.between(ctx2, ctx3);
+        var deltaUnprotect = ContextDelta.between(ctx2, ctx3).join();
         assertEquals(1, deltaUnprotect.unprotectedFragments().size());
         assertEquals(
                 "Unprotect Protect.java",
@@ -452,7 +452,7 @@ class ContextDeltaTest {
 
         var ctx2 = ctx1.removeFragments(List.of(frag1)).addFragments(List.of(frag2));
 
-        var delta = ContextDelta.between(ctx1, ctx2);
+        var delta = ContextDelta.between(ctx1, ctx2).join();
 
         assertFalse(delta.contentsChanged(), "Content should not be marked as changed when text is identical");
         assertTrue(delta.addedFragments().isEmpty(), "Same source should not appear as added");

@@ -194,7 +194,7 @@ public class ContextHistory {
 
         // Guard: if refresh produced no actual content differences, avoid adding a no-op
         // Note: this may block briefly while diffs are computed; this method is @Blocking.
-        var delta = ContextDelta.between(base, merged);
+        var delta = ContextDelta.between(base, merged).join();
         if (delta.isEmpty()) {
             return null; // nothing meaningful changed; do not push/replace
         }
