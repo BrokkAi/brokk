@@ -1181,7 +1181,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                             JOptionPane.WARNING_MESSAGE);
 
             shouldClose = switch (choice) {
-                case JOptionPane.YES_OPTION -> performSave(saveButton);
+                case JOptionPane.YES_OPTION -> {
+                    var ancestor = SwingUtilities.getWindowAncestor(this);
+                    yield performSave(saveButton, () -> {
+                        if (ancestor != null) {
+                            ancestor.dispose();
+                        }
+                    });
+                }
                 case JOptionPane.NO_OPTION -> true; // Allow closing, discard changes
                 default -> false; // Prevent closing
             };
@@ -1221,9 +1228,20 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
      * Performs the file save operation, updating history and disabling the save button.
      *
      * @param buttonToDisable The save button instance to disable after a successful save.
-     * @return true if the save was successful, false otherwise.
+     * @return true if the save was successfully initiated, false if it could not be started.
      */
     private boolean performSave(@Nullable JButton buttonToDisable) {
+        return performSave(buttonToDisable, null);
+    }
+
+    /**
+     * Performs the file save operation asynchronously.
+     *
+     * @param buttonToDisable The save button instance to disable after a successful save.
+     * @param onSuccess       An optional callback to run on the EDT after a successful save.
+     * @return true if the save was successfully initiated (even if it's still running).
+     */
+    private boolean performSave(@Nullable JButton buttonToDisable, @Nullable Runnable onSuccess) {
         requireNonNull(file, "Attempted to save but no ProjectFile is associated with this panel");
         var newContent = textArea.getText();
         var snapshotOfQuickEditMessages = List.copyOf(quickEditMessages);
@@ -1276,6 +1294,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                             var currentFrame = (JFrame) SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
                             chrome.refreshPreviewsForFiles(Set.of(file), currentFrame);
                         }
+
+                        if (onSuccess != null) {
+                            onSuccess.run();
+                        }
                     });
 
                     logger.debug("File saved: " + file);
@@ -1289,7 +1311,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             return null;
         });
 
-        return true; // We return true immediately as the task is off-EDT; validation happens in UI callbacks
+        // We return false if the user chose to save, because the window shouldn't close YET.
+        // It will be closed by the onSuccess callback.
+        return onSuccess == null;
     }
 
     /**
