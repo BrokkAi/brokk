@@ -4,10 +4,13 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
 import dev.langchain4j.data.message.ChatMessageType;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -71,6 +74,21 @@ class ContextManagerFileWatchingTest {
             }
         }
         FileUtil.deleteRecursively(tempDir);
+    }
+
+    private static final class CountingContextHistory extends ContextHistory {
+        final AtomicInteger externalChangesCallCount = new AtomicInteger(0);
+
+        CountingContextHistory(Context liveContext) {
+            super(liveContext);
+        }
+
+        @Override
+        public synchronized @org.jetbrains.annotations.Nullable Context processExternalFileChangesIfNeeded(
+                Set<ProjectFile> changed) {
+            externalChangesCallCount.incrementAndGet();
+            return liveContext();
+        }
     }
 
     /**
@@ -312,6 +330,57 @@ class ContextManagerFileWatchingTest {
         // Note: In full integration with running executors, this would trigger:
         // - gitRepoUpdate for .git/HEAD
         // - commitPanelUpdate for src/Main.java
+    }
+
+    @Test
+    void testFileWatchListener_SuppressesSelfWrite_DoesNotTriggerTrackedHandlingOrWorkspaceRefresh() throws Exception {
+        ProjectFile file = new ProjectFile(projectRoot, Path.of("src/Main.java"));
+
+        // Replace ContextManager's private contextHistory field via reflection
+        CountingContextHistory countingHistory = new CountingContextHistory(new Context(contextManager));
+        Field historyField = ContextManager.class.getDeclaredField("contextHistory");
+        historyField.setAccessible(true);
+        historyField.set(contextManager, countingHistory);
+
+        // Add file to the context so contextFilesChanged would be true
+        var fragment = new ContextFragments.ProjectPathFragment(file, contextManager);
+        contextManager.pushContext(ctx -> ctx.addFragments(List.of(fragment)));
+
+        var listener = contextManager.createFileWatchListener();
+
+        // 1. Baseline sanity check: ensures the listener would normally process this event
+        TestConsoleIO io1 = new TestConsoleIO();
+        contextManager.setIo(io1);
+
+        EventBatch batch = new EventBatch();
+        batch.files.add(file);
+
+        listener.onFilesChanged(batch);
+
+        // Assert updates were triggered
+        assertTrue(io1.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS), "Baseline: updateCommitPanel should be called");
+        assertTrue(io1.workspaceUpdateLatch.await(5, TimeUnit.SECONDS), "Baseline: updateWorkspace should be called");
+        assertTrue(countingHistory.externalChangesCallCount.get() >= 1, "Baseline: context history should be checked");
+
+        // 2. Suppression scenario
+        TestConsoleIO io2 = new TestConsoleIO();
+        contextManager.setIo(io2);
+        countingHistory.externalChangesCallCount.set(0);
+
+        // Register suppression
+        contextManager.withFileChangeNotificationsPaused(List.of(file), () -> null);
+
+        // Fire the same batch again
+        listener.onFilesChanged(batch);
+
+        // Assert updates were NOT triggered (short window for negative assertions)
+        assertFalse(
+                io2.commitPanelUpdateLatch.await(250, TimeUnit.MILLISECONDS),
+                "Suppression: updateCommitPanel should NOT be called");
+        assertFalse(
+                io2.workspaceUpdateLatch.await(250, TimeUnit.MILLISECONDS),
+                "Suppression: updateWorkspace should NOT be called");
+        assertEquals(0, countingHistory.externalChangesCallCount.get(), "Suppression: context history should NOT be checked");
     }
 
     @Test
