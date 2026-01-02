@@ -148,14 +148,6 @@ public final class BuildVerifier {
         String normalized = PathNormalizer.canonicalizeEnvPathValue(jdkSetting);
         Path jdkPath = project.getRoot().resolve(normalized).toAbsolutePath().normalize();
 
-        // macOS bundle support
-        if (Files.isDirectory(jdkPath.resolve("Contents/Home"))) {
-            Path macOSHome = jdkPath.resolve("Contents/Home");
-            if (ai.brokk.gui.dialogs.JdkSelector.validateJdkPath(macOSHome) == null) {
-                jdkPath = macOSHome;
-            }
-        }
-
         if (ai.brokk.gui.dialogs.JdkSelector.validateJdkPath(jdkPath) == null) {
             env.put("JAVA_HOME", jdkPath.toString());
         } else {
