@@ -9,6 +9,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.IProject;
+import org.jetbrains.annotations.Nullable;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -33,6 +34,7 @@ public class TestProject implements IProject {
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
     private boolean hasGit = false;
+    private @Nullable String jdkHome = null;
 
     public TestProject(Path root) {
         this(root, Languages.NONE);
@@ -153,6 +155,16 @@ public class TestProject implements IProject {
     @Override
     public Path getMasterRootPathForConfig() {
         return getRoot();
+    }
+
+    @Override
+    public @Nullable String getJdk() {
+        return jdkHome;
+    }
+
+    @Override
+    public void setJdk(@Nullable String jdkHome) {
+        this.jdkHome = jdkHome;
     }
 
     @Override

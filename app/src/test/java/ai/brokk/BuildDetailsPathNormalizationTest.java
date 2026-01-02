@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import org.eclipse.jgit.api.Git;
@@ -149,6 +150,58 @@ public class BuildDetailsPathNormalizationTest {
         project.saveBuildDetails(persisted);
         Properties props3 = loadProps(propsFile);
         assertEquals(jsonAfterRewrite, props3.getProperty("buildDetailsJson"), "Canonical JSON should be stable");
+    }
+
+    @Test
+    void testLegacyJson_stripsJavaHome(@TempDir Path root) throws Exception {
+        // Arrange: BuildDetails containing JAVA_HOME in env vars
+        String jsonWithJavaHome =
+                """
+            {
+              "buildLintCommand": "mvn compile",
+              "environmentVariables": {
+                "JAVA_HOME": "/old/path",
+                "OTHER_VAR": "value"
+              }
+            }
+            """;
+
+        Path propsFile = brokkProps(root);
+        Files.createDirectories(propsFile.getParent());
+        var props = new Properties();
+        props.setProperty("buildDetailsJson", jsonWithJavaHome);
+        AtomicWrites.atomicSaveProperties(propsFile, props, "migration test");
+
+        // Act: load and then save via MainProject
+        var project = new MainProject(root);
+        var details = project.loadBuildDetails();
+
+        // Check loaded state
+        assertFalse(details.environmentVariables().containsKey("JAVA_HOME"), "JAVA_HOME should be stripped on load");
+        assertEquals("value", details.environmentVariables().get("OTHER_VAR"));
+
+        // Act: Save back
+        project.saveBuildDetails(details);
+
+        // Assert: Verify persisted JSON no longer has JAVA_HOME
+        Properties propsAfter = loadProps(propsFile);
+        var persisted = parseDetailsFromProps(propsAfter);
+        assertFalse(persisted.environmentVariables().containsKey("JAVA_HOME"), "JAVA_HOME should not be in persisted JSON");
+    }
+
+    @Test
+    void testGetMergedEnvironment_includesJdkFromProject() {
+        // Use a mock/test project that supports getJdk
+        var root = Path.of(".").toAbsolutePath();
+        var testProject = new ai.brokk.testutil.TestProject(root);
+        testProject.setJdk("/path/to/jdk");
+
+        var details = new BuildAgent.BuildDetails("", "", "", Set.of(), Map.of("VAR", "VAL"));
+
+        var merged = BuildAgent.getMergedEnvironment(testProject, details);
+
+        assertEquals("/path/to/jdk", merged.get("JAVA_HOME"), "Merged env should contain JAVA_HOME from project");
+        assertEquals("VAL", merged.get("VAR"));
     }
 
     /**
