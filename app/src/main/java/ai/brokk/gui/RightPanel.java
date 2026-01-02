@@ -529,19 +529,15 @@ public class RightPanel extends JPanel implements ThemeAware {
                 buildReviewTabs.setComponentAt(buildIdx, verticalActivityCombinedPanel);
             }
 
-            // Restore divider locations from GlobalUiSettings so the user's preferred vertical layout survives
-            // restarts. Deferred via invokeLater because setDividerLocation() can be ignored if the split pane
-            // hasn't been laid out yet (size is 0) after the component swap above.
-            SwingUtilities.invokeLater(() -> {
-                int savedLeftSplit = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
-                int savedHorizontalSplit = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
-                if (savedLeftSplit > 0 && verticalLayoutLeftSplit != null) {
-                    verticalLayoutLeftSplit.setDividerLocation(savedLeftSplit);
-                }
-                if (savedHorizontalSplit > 0 && verticalActivityCombinedPanel != null) {
-                    verticalActivityCombinedPanel.setDividerLocation(savedHorizontalSplit);
-                }
-            });
+            // Restore divider locations for vertical layout splits
+            int savedLeftSplit = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
+            int savedHorizontalSplit = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
+            if (savedLeftSplit > 0 && verticalLayoutLeftSplit != null) {
+                verticalLayoutLeftSplit.setDividerLocation(savedLeftSplit);
+            }
+            if (savedHorizontalSplit > 0 && verticalActivityCombinedPanel != null) {
+                verticalActivityCombinedPanel.setDividerLocation(savedHorizontalSplit);
+            }
         } else {
             historyOutputPanel.applyFixedCaptureBarSizing(false);
 
@@ -560,6 +556,9 @@ public class RightPanel extends JPanel implements ThemeAware {
             }
             verticalActivityCombinedPanel = null;
             verticalLayoutLeftSplit = null;
+
+            // Restore buildSplitPane divider when switching back to standard layout
+            restoreBuildSplitPaneDivider();
         }
         revalidate();
         repaint();
@@ -569,7 +568,29 @@ public class RightPanel extends JPanel implements ThemeAware {
         branchSelectorButton.refreshBranch(branch == null ? "" : branch);
     }
 
+    /**
+     * Restores the right panel's divider locations based on the current layout mode.
+     * For vertical activity layout, restores verticalLayoutLeftSplit and verticalActivityCombinedPanel.
+     * For standard layout, restores buildSplitPane.
+     */
     public void restoreDividerLocation() {
+        if (GlobalUiSettings.isVerticalActivityLayout() && verticalLayoutLeftSplit != null) {
+            // Vertical layout mode - restore those split panes
+            int savedLeftSplit = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
+            int savedHorizontalSplit = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
+            if (savedLeftSplit > 0) {
+                verticalLayoutLeftSplit.setDividerLocation(savedLeftSplit);
+            }
+            if (savedHorizontalSplit > 0 && verticalActivityCombinedPanel != null) {
+                verticalActivityCombinedPanel.setDividerLocation(savedHorizontalSplit);
+            }
+        } else {
+            // Standard layout mode - restore buildSplitPane
+            restoreBuildSplitPaneDivider();
+        }
+    }
+
+    private void restoreBuildSplitPaneDivider() {
         int buildSplitPos = chrome.getProject().getRightVerticalSplitPosition();
 
         if (buildSplitPos <= 0) {
