@@ -1330,6 +1330,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     }
 
     /**
+     * Helper method to sync the analyzer after a manual file write, ensuring code intelligence
+     * stays up to date when watcher events are suppressed.
+     */
+    static void syncAnalyzerAfterWrite(ai.brokk.IAnalyzerWrapper wrapper, ProjectFile file) {
+        wrapper.updateFiles(Set.of(file));
+    }
+
+    /**
      * Gets the ProjectFile associated with this preview panel.
      *
      * @return The ProjectFile, or null if this preview is not associated with a file

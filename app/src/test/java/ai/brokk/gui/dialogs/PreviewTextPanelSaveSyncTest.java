@@ -15,7 +15,7 @@ class PreviewTextPanelSaveSyncTest {
     Path tempDir;
 
     @Test
-    void testSyncAnalyzerAfterWriteInvokesUpdateFiles() {
+    void testSyncAnalyzerAfterWriteInvokesUpdateFiles() throws java.io.IOException {
         var file = new ProjectFile(tempDir, "test.java");
         file.create();
 

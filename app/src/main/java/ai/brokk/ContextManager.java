@@ -175,6 +175,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Publicly exposed flag for the exact TaskScope window
     private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
 
+    /**
+     * Set of files that should have their next watcher-reported change suppressed
+     * because they were written by the app itself.
+     */
+    private final Set<ProjectFile> suppressedFiles = ConcurrentHashMap.newKeySet();
+
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
@@ -549,9 +555,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
             public void onFilesChanged(IWatchService.EventBatch batch) {
                 logger.trace("ContextManager file watch listener received events batch: {}", batch);
 
+                // Filter out self-writes that we've explicitly asked to suppress
+                Set<ProjectFile> remainingFiles = batch.files.stream()
+                        .filter(f -> !suppressedFiles.remove(f))
+                        .collect(Collectors.toSet());
+
+                if (remainingFiles.isEmpty() && !batch.untrackedGitignoreChanged && !batch.isOverflowed) {
+                    logger.debug("All files in batch were suppressed self-writes; ignoring batch");
+                    return;
+                }
+
+                // Create a filtered batch for classification
+                IWatchService.EventBatch filteredBatch = new IWatchService.EventBatch();
+                filteredBatch.files.addAll(remainingFiles);
+                filteredBatch.untrackedGitignoreChanged = batch.untrackedGitignoreChanged;
+                filteredBatch.isOverflowed = batch.isOverflowed;
+
                 // Classify the changes using helper
                 var trackedFiles = project.getRepo().getTrackedFiles();
-                var classification = helper.classifyChanges(batch, trackedFiles);
+                var classification = helper.classifyChanges(filteredBatch, trackedFiles);
 
                 // 1) Handle git metadata changes
                 if (classification.gitMetadataChanged) {
@@ -568,9 +590,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
 
                 // 3) Handle all file changes for file change listeners
-                if (!batch.files.isEmpty()) {
-                    logger.debug("File changes detected by ContextManager ({} files)", batch.files.size());
-                    handleFileChange(batch.files);
+                if (!remainingFiles.isEmpty()) {
+                    logger.debug("File changes detected by ContextManager ({} files)", remainingFiles.size());
+                    handleFileChange(remainingFiles);
                 }
             }
 
@@ -1876,10 +1898,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
+        return withFileChangeNotificationsPaused(Set.of(), callable);
+    }
+
+    /**
+     * Pauses file notifications and optionally registers files to be suppressed
+     * when the watcher eventually flushes events after resume.
+     */
+    public <T> T withFileChangeNotificationsPaused(Collection<ProjectFile> filesToSuppress, Callable<T> callable) {
         analyzerWrapper.pause();
+        suppressedFiles.addAll(filesToSuppress);
         try {
             return callable.call();
         } catch (Exception e) {
+            // On error, we might want to keep suppression or clear it;
+            // usually better to clear it to avoid "ghost" suppression later if the write failed.
+            suppressedFiles.removeAll(filesToSuppress);
             throw new RuntimeException(e);
         } finally {
             analyzerWrapper.resume();
