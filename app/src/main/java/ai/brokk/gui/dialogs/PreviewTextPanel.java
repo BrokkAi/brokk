@@ -1217,7 +1217,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private boolean performSave(@Nullable JButton buttonToDisable) {
         requireNonNull(file, "Attempted to save but no ProjectFile is associated with this panel");
         var newContent = textArea.getText();
-        return cm.withFileChangeNotificationsPaused(() -> {
+        return cm.withFileChangeNotificationsPaused(List.of(file), () -> {
             try {
                 // Write the new content to the file first
                 file.write(newContent);
