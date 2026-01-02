@@ -481,6 +481,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             @Override
             public void afterEachBuild(boolean externalRequest) {
+                // Capture state immediately on the analyzer thread
+                boolean isPausedAtBuildEnd = analyzerWrapper.isPause();
+                int writeMarkerAtBuildEnd = fileChangeTracking.internalWriteMarker();
+
                 submitBackgroundTask("Code Intelligence post-build", () -> {
                     if (io instanceof Chrome chrome) {
                         chrome.hideAnalyzerRebuildStatus();
@@ -498,19 +502,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
 
                     // Update context w/ new analyzer
-                    // We skip the no-arg refresh (processing external changes) if an internal write marker
-                    // is active, or if there are simply no pending changes to process.
-                    Set<ProjectFile> changed = drainPendingFileChanges();
-                    if (changed.isEmpty()) {
-                        logger.debug("Skipping processExternalFileChangesIfNeeded: no pending changes");
-                    } else if (analyzerWrapper.isPause() || fileChangeTracking.isInternalWriteInProgress()) {
+                    // We skip processing external changes if an internal write or pause was active
+                    // when the build finished.
+                    if (isPausedAtBuildEnd || writeMarkerAtBuildEnd > 0) {
                         logger.debug(
-                                "Skipping processExternalFileChangesIfNeeded: internal write marker active (pause={}, marker={})",
-                                analyzerWrapper.isPause(),
-                                fileChangeTracking.internalWriteMarker());
+                                "Skipping processExternalFileChangesIfNeeded: analyzer was paused or internal write in progress at build end (pause={}, marker={})",
+                                isPausedAtBuildEnd,
+                                writeMarkerAtBuildEnd);
                     } else {
-                        if (processExternalFileChangesIfNeeded(changed)) {
-                            io.updateWorkspace();
+                        Set<ProjectFile> changed = drainPendingFileChanges();
+                        if (changed.isEmpty()) {
+                            logger.debug("Skipping processExternalFileChangesIfNeeded: no pending changes");
+                        } else {
+                            if (processExternalFileChangesIfNeeded(changed)) {
+                                io.updateWorkspace();
+                            }
                         }
                     }
 

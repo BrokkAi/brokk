@@ -539,6 +539,65 @@ class ContextManagerFileWatchingTest {
     }
 
     @Test
+    void testAfterEachBuild_RetainsPendingChangesDuringInternalWrite() throws Exception {
+        ProjectFile contextFile = new ProjectFile(projectRoot, Path.of("src/Main.java"));
+        ProjectFile pendingFile = new ProjectFile(projectRoot, Path.of("README.md"));
+
+        // Put *some* file in context, but ensure the pending change is for a NON-context file.
+        // This avoids handleTrackedFileChange(...) triggering an immediate workspace refresh while paused.
+        var fragment = new ContextFragments.ProjectPathFragment(contextFile, contextManager);
+        contextManager.pushContext(ctx -> ctx.addFragments(List.of(fragment)));
+
+        // Replace ContextManager's private contextHistory field via reflection
+        CountingContextHistory countingHistory = new CountingContextHistory(contextManager.liveContext());
+        Field historyField = ContextManager.class.getDeclaredField("contextHistory");
+        historyField.setAccessible(true);
+        historyField.set(contextManager, countingHistory);
+
+        // Inject TestConsoleIO
+        Field ioField = ContextManager.class.getDeclaredField("io");
+        ioField.setAccessible(true);
+        ioField.set(contextManager, testIO);
+
+        // Get the internal AnalyzerListener from ContextManager
+        var listenerMethod = ContextManager.class.getDeclaredMethod("createAnalyzerListener");
+        listenerMethod.setAccessible(true);
+        AnalyzerListener analyzerListener = (AnalyzerListener) listenerMethod.invoke(contextManager);
+
+        // 1. Enter paused scope (internal write marker active)
+        contextManager.withFileChangeNotificationsPaused(List.of(), () -> {
+            // 2. Record a pending unsuppressed change while paused.
+            // Use a file that is not in context to avoid immediate workspace refresh from handleTrackedFileChange.
+            contextManager.handleTrackedFileChange(Set.of(pendingFile));
+
+            // 3. Call afterEachBuild while still paused.
+            analyzerListener.afterEachBuild(false);
+
+            // While paused, afterEachBuild should skip processing and (critically) NOT drain the pending set.
+            assertFalse(
+                    testIO.workspaceUpdateLatch.await(300, TimeUnit.MILLISECONDS),
+                    "Workspace update should NOT be triggered while paused");
+            assertEquals(
+                    0,
+                    countingHistory.externalChangesCallCount.get(),
+                    "Should NOT drain/process pending changes while paused");
+            assertEquals(0, testIO.workspaceUpdateCount.get(), "Should NOT update workspace while paused");
+
+            return null;
+        });
+
+        // 4. Exit paused scope and call afterEachBuild again (now unpaused)
+        analyzerListener.afterEachBuild(false);
+
+        // 5. Verify pending changes were retained and are now processed
+        assertTrue(testIO.workspaceUpdateLatch.await(5, TimeUnit.SECONDS), "updateWorkspace should be called after resume");
+        assertTrue(
+                countingHistory.externalChangesCallCount.get() >= 1,
+                "Should process previously pending changes after resume");
+        assertTrue(testIO.workspaceUpdateCount.get() >= 1, "Should update workspace after resume");
+    }
+
+    @Test
     void testFileWatchListener_GitignoreChangeNotSuppressedByFileSuppression() throws Exception {
         ProjectFile file = new ProjectFile(projectRoot, Path.of("src/Main.java"));
         contextManager.setIo(testIO);
