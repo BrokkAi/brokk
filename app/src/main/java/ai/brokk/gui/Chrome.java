@@ -77,6 +77,7 @@ public class Chrome
     private static final double MAX_SIDEBAR_WIDTH_FRACTION_WIDE = 0.25; // 25% maximum sidebar width (wide screens)
     private static final int WIDE_SCREEN_THRESHOLD = 2000; // Screen width threshold for wide screen layout
     private static final int SIDEBAR_COLLAPSED_THRESHOLD = 50;
+    private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 40;
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
@@ -1289,23 +1290,15 @@ public class Chrome
             // Collapse sidebar by default or if explicitly saved as closed
             toolsPane.setLastExpandedSidebarLocation(
                     Math.max(toolsPane.getLastExpandedSidebarLocation(), properDividerLocation));
-            // Relax minimum sizes to allow full collapse to compact width
-            leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
-            toolsPane.getToolsPane().setMinimumSize(new Dimension(0, 0));
             toolsPane.getToolsPane().setSelectedIndex(0); // Always show Project Files when collapsed
-            horizontalSplitPane.setDividerSize(0);
             toolsPane.setSidebarCollapsed(true);
-            horizontalSplitPane.setDividerLocation(40);
+            applySidebarState(true);
         } else {
             // Open sidebar using the saved or computed divider location
             horizontalSplitPane.setDividerLocation(properDividerLocation);
-            horizontalSplitPane.setDividerSize(originalBottomDividerSize);
             toolsPane.setSidebarCollapsed(false);
             toolsPane.setLastExpandedSidebarLocation(properDividerLocation);
-            // Restore minimum sizes so min-width clamp is enforced
-            int minPx = computeMinSidebarWidthPx();
-            leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
-            toolsPane.getToolsPane().setMinimumSize(new Dimension(minPx, 0));
+            applySidebarState(false);
         }
 
         // Add property change listeners for future updates (also persist globally)
@@ -1675,10 +1668,32 @@ public class Chrome
         return rightPanel;
     }
 
+    void applySidebarState(boolean collapsed) {
+        if (collapsed) {
+            leftVerticalSplitPane.setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
+            toolsPane.getToolsPane().setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
+            horizontalSplitPane.setDividerSize(0);
+            horizontalSplitPane.setDividerLocation(COLLAPSED_SIDEBAR_WIDTH_PX);
+            return;
+        }
+
+        int minPx = computeMinSidebarWidthPx();
+        leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
+        toolsPane.getToolsPane().setMinimumSize(new Dimension(minPx, 0));
+        horizontalSplitPane.setDividerSize(originalBottomDividerSize);
+
+        int current = horizontalSplitPane.getDividerLocation();
+        int target = (current >= minPx) ? current : Math.max(minPx, toolsPane.getLastExpandedSidebarLocation());
+        horizontalSplitPane.setDividerLocation(target);
+    }
+
     public void applyVerticalActivityLayout() {
         SwingUtilities.invokeLater(() -> {
             rightPanel.applyVerticalActivityLayout();
             horizontalSplitPane.setRightComponent(rightPanel);
+
+            applySidebarState(toolsPane.isSidebarCollapsed());
+
             frame.revalidate();
             frame.repaint();
         });

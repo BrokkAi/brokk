@@ -33,6 +33,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(ToolsPane.class);
 
     private static final int SIDEBAR_COLLAPSED_THRESHOLD = 50;
+    private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 40;
     private static final int MIN_SIDEBAR_WIDTH_PX = 220;
     private static final long TAB_TOGGLE_DEBOUNCE_MS = 150;
 
@@ -154,25 +155,19 @@ public class ToolsPane extends JPanel implements ThemeAware {
             if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
                 lastExpandedSidebarLocation = currentLocation;
             }
-            chrome.getLeftVerticalSplitPane().setMinimumSize(new Dimension(0, 0));
-            toolsPane.setMinimumSize(new Dimension(0, 0));
             toolsPane.setSelectedIndex(0);
-            horizontalSplit.setDividerSize(0);
             sidebarCollapsed = true;
-            horizontalSplit.setDividerLocation(40);
+            chrome.applySidebarState(true);
             saveSidebarOpenSetting(false);
         } else {
             toolsPane.setSelectedIndex(tabIndex);
             if (sidebarCollapsed) {
-                horizontalSplit.setDividerSize(chrome.getOriginalBottomDividerSize());
                 int target = (lastExpandedSidebarLocation > 0)
                         ? lastExpandedSidebarLocation
                         : chrome.computeInitialSidebarWidth() + horizontalSplit.getDividerSize();
                 horizontalSplit.setDividerLocation(target);
                 sidebarCollapsed = false;
-                int minPx = chrome.computeMinSidebarWidthPx();
-                chrome.getLeftVerticalSplitPane().setMinimumSize(new Dimension(minPx, 0));
-                toolsPane.setMinimumSize(new Dimension(minPx, 0));
+                chrome.applySidebarState(false);
                 saveSidebarOpenSetting(true);
             }
             if (toolsPane.getComponentAt(tabIndex) == projectFilesPanel) {
