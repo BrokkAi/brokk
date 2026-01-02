@@ -13,7 +13,6 @@ import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.ExecutorValidator;
-import ai.brokk.util.PathNormalizer;
 import com.google.common.io.Files;
 import java.awt.*;
 import java.util.*;

@@ -186,7 +186,8 @@ public class BuildDetailsPathNormalizationTest {
         // Assert: Verify persisted JSON no longer has JAVA_HOME
         Properties propsAfter = loadProps(propsFile);
         var persisted = parseDetailsFromProps(propsAfter);
-        assertFalse(persisted.environmentVariables().containsKey("JAVA_HOME"), "JAVA_HOME should not be in persisted JSON");
+        assertFalse(
+                persisted.environmentVariables().containsKey("JAVA_HOME"), "JAVA_HOME should not be in persisted JSON");
     }
 
     @Test
