@@ -1657,7 +1657,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return false;
     }
 
-
     /**
      * Pushes context changes using a generator function. The generator is applied to the current `liveContext`. The
      * resulting context becomes the new `liveContext`. A frozen snapshot of this new `liveContext` is added to

@@ -8,7 +8,6 @@ import ai.brokk.testutil.TestAnalyzerWrapper;
 import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

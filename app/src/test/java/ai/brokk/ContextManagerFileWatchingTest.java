@@ -367,12 +367,12 @@ class ContextManagerFileWatchingTest {
 
         // Assertions:
         // 1. ContextHistory.processExternalFileChangesIfNeeded should be called because it was a real external change.
-        assertTrue(countingHistory.externalChangesCallCount.get() >= 1,
+        assertTrue(
+                countingHistory.externalChangesCallCount.get() >= 1,
                 "Should process external changes when not suppressed");
 
         // 2. io.updateWorkspace() should be called.
-        assertTrue(testIO.workspaceUpdateCount.get() >= 1,
-                "Should update workspace for external changes");
+        assertTrue(testIO.workspaceUpdateCount.get() >= 1, "Should update workspace for external changes");
     }
 
     @Test
@@ -395,27 +395,28 @@ class ContextManagerFileWatchingTest {
         listenerField.setAccessible(true);
         AnalyzerListener analyzerListener = (AnalyzerListener) listenerField.invoke(contextManager);
 
-        // Simulate a self-write scenario. 
+        // Simulate a self-write scenario.
         // withFileChangeNotificationsPaused increments the internalWriteMarker.
         contextManager.withFileChangeNotificationsPaused(List.of(file), () -> {
             // While paused/writing, an analyzer build finishes.
             // In a real scenario, the watcher might have fired or the analyzer noticed the change.
-            
+
             analyzerListener.afterEachBuild(false);
-            
+
             // We need to wait a bit because afterEachBuild submits a background task
-            Thread.sleep(200); 
+            Thread.sleep(200);
 
             // Assertions:
-            // 1. ContextHistory.processExternalFileChangesIfNeeded should NOT be called 
+            // 1. ContextHistory.processExternalFileChangesIfNeeded should NOT be called
             //    because internalWriteMarker > 0.
-            assertEquals(0, countingHistory.externalChangesCallCount.get(), 
-                "Should NOT process external changes during internal write");
-            
+            assertEquals(
+                    0,
+                    countingHistory.externalChangesCallCount.get(),
+                    "Should NOT process external changes during internal write");
+
             // 2. io.updateWorkspace() should NOT be called.
-            assertEquals(0, testIO.workspaceUpdateCount.get(), 
-                "Should NOT update workspace during internal write");
-            
+            assertEquals(0, testIO.workspaceUpdateCount.get(), "Should NOT update workspace during internal write");
+
             return null;
         });
     }
@@ -446,7 +447,8 @@ class ContextManagerFileWatchingTest {
         listener.onFilesChanged(batch);
 
         // Assert updates were triggered
-        assertTrue(io1.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS), "Baseline: updateCommitPanel should be called");
+        assertTrue(
+                io1.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS), "Baseline: updateCommitPanel should be called");
         assertTrue(io1.workspaceUpdateLatch.await(5, TimeUnit.SECONDS), "Baseline: updateWorkspace should be called");
         assertTrue(countingHistory.externalChangesCallCount.get() >= 1, "Baseline: context history should be checked");
 
@@ -468,7 +470,10 @@ class ContextManagerFileWatchingTest {
         assertFalse(
                 io2.workspaceUpdateLatch.await(250, TimeUnit.MILLISECONDS),
                 "Suppression: updateWorkspace should NOT be called");
-        assertEquals(0, countingHistory.externalChangesCallCount.get(), "Suppression: context history should NOT be checked");
+        assertEquals(
+                0,
+                countingHistory.externalChangesCallCount.get(),
+                "Suppression: context history should NOT be checked");
     }
 
     @Test
