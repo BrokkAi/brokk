@@ -1209,6 +1209,18 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     }
 
     /**
+     * Builds the context that should be pushed after a successful save.
+     * Ensures the file is in the workspace and its fragment is refreshed to reflect the new disk content.
+     */
+    static ai.brokk.context.Context buildPostSaveContext(ai.brokk.IContextManager cm, ProjectFile file) {
+        // addFragments dedupes by source, so we ensure it's present first
+        var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
+        // Then refresh specifically this file to ensure the fragment instance is replaced
+        // and its computed snapshot is cleared/materialized from new disk state.
+        return ctx.copyAndRefresh(Set.of(file));
+    }
+
+    /**
      * Performs the file save operation, updating history and disabling the save button.
      *
      * @param buttonToDisable The save button instance to disable after a successful save.
@@ -1236,8 +1248,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
                         messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
                         messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
-                        // Build resulting Context by adding the saved file if it is not already editable
-                        var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
+                        // Build resulting Context by adding the saved file and refreshing it
+                        var ctx = buildPostSaveContext(cm, file);
+
+                        // Ensure analyzer stays current since watcher events are suppressed
+                        syncAnalyzerAfterWrite(cm.getAnalyzerWrapper(), file);
 
                         // Determine TaskMeta only if there was LLM activity in quick edits.
                         TaskResult.TaskMeta meta = null;
