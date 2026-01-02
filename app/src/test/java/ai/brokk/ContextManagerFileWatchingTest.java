@@ -497,4 +497,44 @@ class ContextManagerFileWatchingTest {
         // When they do overlap, workspace refresh is triggered
         // This is tested indirectly through handleTrackedFileChange tests above
     }
+
+    @Test
+    void testFileWatchListener_SuppressionIsAtomicPerBatch() throws Exception {
+        ProjectFile file = new ProjectFile(projectRoot, Path.of("src/Main.java"));
+
+        // Inject TestConsoleIO
+        TestConsoleIO io = new TestConsoleIO();
+        Field ioField = ContextManager.class.getDeclaredField("io");
+        ioField.setAccessible(true);
+        ioField.set(contextManager, io);
+
+        // 1. Register suppression for the file
+        contextManager.withFileChangeNotificationsPaused(List.of(file), () -> null);
+
+        IWatchService.Listener listener = contextManager.createFileWatchListener();
+
+        // 2. Create a batch where the SAME file appears multiple times (if the watch service allows duplicates)
+        // or effectively simulate concurrent batches.
+        EventBatch batch1 = new EventBatch();
+        batch1.files.add(file);
+
+        // 3. Process the batch. The first time it's seen in the batch (or the batch as a whole),
+        // it should be suppressed and the suppression consumed.
+        listener.onFilesChanged(batch1);
+
+        // Wait a bit for async tasks
+        Thread.sleep(200);
+
+        assertEquals(0, io.commitPanelUpdateCount.get(), "First batch should be suppressed");
+
+        // 4. Process a second batch with the same file. It should no longer be suppressed.
+        EventBatch batch2 = new EventBatch();
+        batch2.files.add(file);
+        listener.onFilesChanged(batch2);
+
+        assertTrue(
+                io.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS),
+                "Second batch should NOT be suppressed after first batch consumed it");
+        assertTrue(io.commitPanelUpdateCount.get() >= 1);
+    }
 }

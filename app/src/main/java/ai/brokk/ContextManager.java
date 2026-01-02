@@ -182,6 +182,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final Set<ProjectFile> suppressedFiles = ConcurrentHashMap.newKeySet();
 
     /**
+     * Lock used to ensure atomic check-and-remove from suppressedFiles during batch processing.
+     */
+    private final Object suppressionLock = new Object();
+
+    /**
      * Set of unsuppressed file changes that have been detected but not yet processed
      * into a context snapshot.
      */
@@ -577,10 +582,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
             public void onFilesChanged(IWatchService.EventBatch batch) {
                 logger.trace("ContextManager file watch listener received events batch: {}", batch);
 
-                // Filter out self-writes that we've explicitly asked to suppress
-                Set<ProjectFile> remainingFiles = batch.files.stream()
-                        .filter(f -> !suppressedFiles.remove(f))
-                        .collect(Collectors.toSet());
+                Set<ProjectFile> remainingFiles;
+                synchronized (suppressionLock) {
+                    // Identify which files in this batch are currently suppressed
+                    Set<ProjectFile> toSuppress = batch.files.stream()
+                            .filter(suppressedFiles::contains)
+                            .collect(Collectors.toSet());
+
+                    // Filter batch and consume suppression for identified files
+                    remainingFiles = batch.files.stream()
+                            .filter(f -> !toSuppress.contains(f))
+                            .collect(Collectors.toSet());
+
+                    suppressedFiles.removeAll(toSuppress);
+                }
 
                 // Track unsuppressed changes
                 pendingUnsuppressedFileChanges.addAll(remainingFiles);
