@@ -154,7 +154,7 @@ public class Environment {
             Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
-        logger.debug(
+        logger.trace(
                 "Running internal `{}` in `{}` (sandbox={}, has-consumer={})",
                 command,
                 root,
@@ -242,7 +242,7 @@ public class Environment {
             }
         }
 
-        logger.debug("command: {} = {}", Arrays.toString(shellCommand), String.join(" ", shellCommand));
+        logger.debug("Running: {} = {}", Arrays.toString(shellCommand), String.join(" ", shellCommand));
         ProcessBuilder pb = createProcessBuilder(root, shellCommand);
 
         if (!environment.isEmpty()) {
