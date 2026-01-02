@@ -366,7 +366,9 @@ public class BuildAgent {
         String wrapperScriptInstruction;
         if (Environment.isWindows()) {
             wrapperScriptInstruction =
-                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. gradlew.cmd, mvnw.cmd).";
+                    """
+                    Prefer the repository-local *wrapper script* when it exists in the project root (e.g. gradlew.cmd, mvnw.cmd).
+                    Since the command will run in PowerShell, use the `--%` stop-parsing token immediately after the command or wrapper script to avoid quoting issues (e.g., `mvnw.cmd --% compile`, `gradlew.bat --% classes`).""";
         } else {
             wrapperScriptInstruction =
                     "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. ./gradlew, ./mvnw).";
