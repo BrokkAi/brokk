@@ -1693,7 +1693,18 @@ public class Chrome
         horizontalSplitPane.setDividerSize(originalBottomDividerSize);
 
         int current = horizontalSplitPane.getDividerLocation();
-        int target = (current >= minPx) ? current : Math.max(minPx, toolsPane.getLastExpandedSidebarLocation());
+        int target;
+        if (current >= minPx) {
+            // Current position is valid and meets minimum requirements, keep it
+            target = current;
+        } else if (current < SIDEBAR_COLLAPSED_THRESHOLD) {
+            // Value is below collapse threshold (likely stale 0 or collapsed state)
+            // Use the saved expanded location instead of the potentially invalid current value
+            target = Math.max(minPx, toolsPane.getLastExpandedSidebarLocation());
+        } else {
+            // In-between (>= threshold but < minPx) - clamp to minimum usable width
+            target = minPx;
+        }
         horizontalSplitPane.setDividerLocation(target);
     }
 
