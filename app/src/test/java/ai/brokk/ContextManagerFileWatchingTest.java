@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -603,6 +604,66 @@ class ContextManagerFileWatchingTest {
                 countingHistory.externalChangesCallCount.get() >= 1,
                 "Should process previously pending changes after resume");
         assertTrue(testIO.workspaceUpdateCount.get() >= 1, "Should update workspace after resume");
+    }
+
+    @Test
+    void testPendingFileChanges_NoLossUnderConcurrency() throws Exception {
+        final int iterations = 5000;
+        final Set<ProjectFile> allExpectedFiles = ConcurrentHashMap.newKeySet();
+        final Set<ProjectFile> allDrainedFiles = ConcurrentHashMap.newKeySet();
+        final CountDownLatch startLatch = new CountDownLatch(1);
+        final CountDownLatch finishLatch = new CountDownLatch(2);
+
+        IWatchService.Listener listener = contextManager.createFileWatchListener();
+
+        // Writer Thread: Records batches of unique files
+        Thread writer = new Thread(() -> {
+            try {
+                startLatch.await();
+                for (int i = 0; i < iterations; i++) {
+                    Path filePath = Path.of("src/StressTest_" + i + ".java");
+                    ProjectFile file = new ProjectFile(projectRoot, filePath);
+                    allExpectedFiles.add(file);
+
+                    EventBatch batch = new EventBatch();
+                    batch.files.add(file);
+                    listener.onFilesChanged(batch);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                finishLatch.countDown();
+            }
+        });
+
+        // Drainer Thread: Frequently drains the pending set
+        Thread drainer = new Thread(() -> {
+            try {
+                startLatch.await();
+                while (finishLatch.getCount() > 1) { // while writer is still running
+                    allDrainedFiles.addAll(contextManager.drainPendingFileChanges());
+                    Thread.yield();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                finishLatch.countDown();
+            }
+        });
+
+        writer.start();
+        drainer.start();
+        startLatch.countDown();
+
+        assertTrue(finishLatch.await(10, TimeUnit.SECONDS), "Stress test timed out");
+
+        // Final drain to catch anything remaining after threads joined
+        allDrainedFiles.addAll(contextManager.drainPendingFileChanges());
+
+        assertEquals(allExpectedFiles.size(), allDrainedFiles.size(),
+                "Lost events during concurrent add and drain");
+        assertEquals(allExpectedFiles, allDrainedFiles,
+                "Drained set does not match recorded set");
     }
 
     @Test

@@ -2861,7 +2861,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final class FileChangeTracking {
         private final Set<ProjectFile> suppressedFiles = ConcurrentHashMap.newKeySet();
         private final Object suppressionLock = new Object();
-        private final Set<ProjectFile> pendingUnsuppressedFileChanges = ConcurrentHashMap.newKeySet();
+
+        /**
+         * Guard for atomic drain-vs-add semantics of pending changes.
+         * Ensures that a recordPendingUnsuppressed call cannot interleave between the
+         * snapshot and clear steps of drainPending, which would result in lost events.
+         */
+        private final Object pendingLock = new Object();
+        private final Set<ProjectFile> pendingUnsuppressedFileChanges = new HashSet<>();
+
         private final AtomicInteger internalWriteMarker = new AtomicInteger(0);
 
         /**
@@ -2884,11 +2892,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         void recordPendingUnsuppressed(Set<ProjectFile> files) {
-            pendingUnsuppressedFileChanges.addAll(files);
+            synchronized (pendingLock) {
+                pendingUnsuppressedFileChanges.addAll(files);
+            }
         }
 
         Set<ProjectFile> drainPending() {
-            synchronized (pendingUnsuppressedFileChanges) {
+            synchronized (pendingLock) {
                 Set<ProjectFile> drained = new HashSet<>(pendingUnsuppressedFileChanges);
                 pendingUnsuppressedFileChanges.clear();
                 return drained;
