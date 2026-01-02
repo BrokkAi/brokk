@@ -2,11 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.ContextManager;
-import ai.brokk.EditBlock;
-import ai.brokk.IConsoleIO;
-import ai.brokk.Service;
-import ai.brokk.TaskResult;
+import ai.brokk.*;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
@@ -15,6 +11,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.MultiAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceCodeProvider;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
@@ -1212,7 +1209,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
      * Builds the context that should be pushed after a successful save.
      * Ensures the file is in the workspace and its fragment is refreshed to reflect the new disk content.
      */
-    static ai.brokk.context.Context buildPostSaveContext(ai.brokk.IContextManager cm, ProjectFile file) {
+    static Context buildPostSaveContext(ai.brokk.IContextManager cm, ProjectFile file) {
         // addFragments dedupes by source, so we ensure it's present first
         var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
         // Then refresh specifically this file to ensure the fragment instance is replaced
@@ -1348,7 +1345,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
      * Helper method to sync the analyzer after a manual file write, ensuring code intelligence
      * stays up to date when watcher events are suppressed.
      */
-    static void syncAnalyzerAfterWrite(ai.brokk.IAnalyzerWrapper wrapper, ProjectFile file) {
+    static void syncAnalyzerAfterWrite(IAnalyzerWrapper wrapper, ProjectFile file) {
         wrapper.updateFiles(Set.of(file));
     }
 
