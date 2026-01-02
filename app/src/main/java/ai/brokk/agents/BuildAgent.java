@@ -410,7 +410,7 @@ public class BuildAgent {
                 | Build tool        | One-liner a user could write
                 | ----------------- | ------------------------------------------------------------------------
                 | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
-                | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
+                | **Maven**         | `mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
                 | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
                 | **Go**            | `go test -run '{{#classes}}{{value}}{{^last}} | {{/last}}{{/classes}}`
                 | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}} | {{/last}}{{/classes}}"`
