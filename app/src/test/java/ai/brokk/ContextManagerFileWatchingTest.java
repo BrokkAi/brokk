@@ -537,4 +537,29 @@ class ContextManagerFileWatchingTest {
                 "Second batch should NOT be suppressed after first batch consumed it");
         assertTrue(io.commitPanelUpdateCount.get() >= 1);
     }
+
+    @Test
+    void testFileWatchListener_GitignoreChangeNotSuppressedByFileSuppression() throws Exception {
+        ProjectFile file = new ProjectFile(projectRoot, Path.of("src/Main.java"));
+        contextManager.setIo(testIO);
+
+        // 1. Register suppression for the file
+        contextManager.withFileChangeNotificationsPaused(List.of(file), () -> null);
+
+        IWatchService.Listener listener = contextManager.createFileWatchListener();
+
+        // 2. Create a batch where the file is suppressed but untrackedGitignoreChanged is true
+        EventBatch batch = new EventBatch();
+        batch.files.add(file);
+        batch.untrackedGitignoreChanged = true;
+
+        // 3. Process the batch
+        listener.onFilesChanged(batch);
+
+        // 4. Assert that updateCommitPanel was still triggered because of the gitignore flag
+        assertTrue(
+                testIO.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS),
+                "updateCommitPanel should be called when gitignore changes even if files are suppressed");
+        assertTrue(testIO.commitPanelUpdateCount.get() >= 1);
+    }
 }

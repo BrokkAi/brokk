@@ -588,11 +588,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     handleGitMetadataChange();
                 }
 
-                // 2) Handle tracked file changes
-                if (classification.trackedFilesChanged) {
+                // 2) Handle tracked file changes or gitignore changes
+                if (classification.trackedFilesChanged || filteredBatch.untrackedGitignoreChanged) {
                     logger.debug(
-                            "Tracked file changes detected by ContextManager ({} files)",
-                            classification.changedTrackedFiles.size());
+                            "Tracked file or gitignore changes detected by ContextManager ({} files, gitignoreChanged={})",
+                            classification.changedTrackedFiles.size(),
+                            filteredBatch.untrackedGitignoreChanged);
+                    // If untrackedGitignoreChanged is true, we pass the changed tracked files (which might be empty).
+                    // handleTrackedFileChange treats an empty set as a conservative "assume context changed" signal.
                     handleTrackedFileChange(classification.changedTrackedFiles);
                 }
 
