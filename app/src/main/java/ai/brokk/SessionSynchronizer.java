@@ -188,9 +188,6 @@ class SessionSynchronizer {
     }
 
     class SyncExecutor {
-        @SuppressWarnings("ArrayRecordComponent")
-        record UploadSnapshot(String name, long modified, byte[] bytes) {}
-
         SyncResult execute(
                 List<SyncAction> actions,
                 SyncCallbacks callbacks,
@@ -310,13 +307,20 @@ class SessionSynchronizer {
             }
             final byte[] contentToMerge = remoteContent;
 
+            @SuppressWarnings("ArrayRecordComponent")
+            record UploadSnapshot(String name, long modified, byte[] bytes) {}
+
             UploadSnapshot snapshot = sessionManager
                     .getSessionExecutorByKey()
                     .submit(id.toString(), (Callable<UploadSnapshot>) () -> {
                         if (isLocalModified(action, result)) return null;
 
                         if (contentToMerge != null) {
-                            mergeAndSave(id, contentToMerge, action.localInfo(), Objects.requireNonNull(action.remoteMeta()));
+                            mergeAndSave(
+                                    id,
+                                    contentToMerge,
+                                    action.localInfo(),
+                                    Objects.requireNonNull(action.remoteMeta()));
                         }
 
                         Path localPath = sessionManager.getSessionHistoryPath(id);
