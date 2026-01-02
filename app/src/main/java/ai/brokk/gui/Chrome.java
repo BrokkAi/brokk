@@ -1678,6 +1678,7 @@ public class Chrome
      * trigger layout recalculation (e.g. frame.pack()), otherwise Swing can legally shrink the left side to 0px.
      */
     void applySidebarState(boolean collapsed) {
+        assert SwingUtilities.isEventDispatchThread() : "applySidebarState must run on EDT";
         if (collapsed) {
             leftVerticalSplitPane.setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
             toolsPane.getToolsPane().setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
