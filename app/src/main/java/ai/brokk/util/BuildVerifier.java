@@ -64,7 +64,12 @@ public final class BuildVerifier {
 
         ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
         Path root = project.getRoot();
-        Map<String, String> env = extraEnv == null || extraEnv.isEmpty() ? Map.of() : extraEnv;
+        Map<String, String> env = extraEnv == null || extraEnv.isEmpty() ? new java.util.HashMap<>() : new java.util.HashMap<>(extraEnv);
+
+        String jdkHome = project.getJdk();
+        if (jdkHome != null && !jdkHome.isBlank()) {
+            env.put("JAVA_HOME", jdkHome);
+        }
 
         Deque<String> lines = new ArrayDeque<>(MAX_OUTPUT_LINES);
 
