@@ -189,6 +189,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
         fileChangeTracking.setSuppressionTtl(ttl);
     }
 
+    /**
+     * Test-only accessor to obtain the AnalyzerListener instance.
+     */
+    @TestOnly
+    AnalyzerListener getAnalyzerListenerForTests() {
+        return createAnalyzerListener();
+    }
+
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;

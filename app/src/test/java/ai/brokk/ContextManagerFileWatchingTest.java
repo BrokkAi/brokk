@@ -360,9 +360,7 @@ class ContextManagerFileWatchingTest {
         watchListener.onFilesChanged(batch);
 
         // Get the internal AnalyzerListener from ContextManager
-        var listenerMethod = ContextManager.class.getDeclaredMethod("createAnalyzerListener");
-        listenerMethod.setAccessible(true);
-        AnalyzerListener analyzerListener = (AnalyzerListener) listenerMethod.invoke(contextManager);
+        AnalyzerListener analyzerListener = contextManager.getAnalyzerListenerForTests();
 
         // Simulate an analyzer build finishing
         analyzerListener.afterEachBuild(false);
@@ -396,9 +394,7 @@ class ContextManagerFileWatchingTest {
         ioField.set(contextManager, testIO);
 
         // Get the internal AnalyzerListener from ContextManager
-        var listenerField = ContextManager.class.getDeclaredMethod("createAnalyzerListener");
-        listenerField.setAccessible(true);
-        AnalyzerListener analyzerListener = (AnalyzerListener) listenerField.invoke(contextManager);
+        AnalyzerListener analyzerListener = contextManager.getAnalyzerListenerForTests();
 
         // Simulate a self-write scenario.
         // withFileChangeNotificationsPaused increments the internalWriteMarker.
@@ -565,9 +561,7 @@ class ContextManagerFileWatchingTest {
         ioField.set(contextManager, testIO);
 
         // Get the internal AnalyzerListener from ContextManager
-        var listenerMethod = ContextManager.class.getDeclaredMethod("createAnalyzerListener");
-        listenerMethod.setAccessible(true);
-        AnalyzerListener analyzerListener = (AnalyzerListener) listenerMethod.invoke(contextManager);
+        AnalyzerListener analyzerListener = contextManager.getAnalyzerListenerForTests();
 
         // Simulate an external file change event arriving via the watch listener
         IWatchService.Listener watchListener = contextManager.createFileWatchListener();
