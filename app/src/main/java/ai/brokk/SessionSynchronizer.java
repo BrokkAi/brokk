@@ -283,7 +283,7 @@ class SessionSynchronizer {
                         if (action.localInfo() == null) {
                             saveRemoteSession(id, content);
                         } else {
-                            mergeAndSave(id, content, Objects.requireNonNull(action.localInfo()), remoteMeta);
+                            mergeAndSave(id, content, Objects.requireNonNull(action.localInfo()), remoteMeta, false);
                             if (cm != null) {
                                 cm.reloadCurrentSessionAsync();
                             }
@@ -326,7 +326,8 @@ class SessionSynchronizer {
                                     id,
                                     contentToMerge,
                                     Objects.requireNonNull(action.localInfo()),
-                                    Objects.requireNonNull(action.remoteMeta()));
+                                    Objects.requireNonNull(action.remoteMeta()),
+                                    true);
                         }
 
                         Path localPath = sessionManager.getSessionHistoryPath(id);
@@ -462,7 +463,12 @@ class SessionSynchronizer {
     }
 
     private void mergeAndSave(
-            UUID id, byte[] remoteContent, SessionInfo localInfo, RemoteSessionMeta remoteMeta) throws IOException {
+            UUID id,
+            byte[] remoteContent,
+            SessionInfo localInfo,
+            RemoteSessionMeta remoteMeta,
+            boolean localIsNewer)
+            throws IOException {
         Objects.requireNonNull(localInfo);
 
         Path tmpDir = sessionsDir.resolve(TMP_DIR);
@@ -492,14 +498,10 @@ class SessionSynchronizer {
                 newModified = remoteMeta.modifiedAtMillis();
                 newName = remoteMeta.name();
             } else {
-                long localTime = localInfo.modified();
-                long remoteTime = remoteMeta.modifiedAtMillis();
-                boolean remoteIsNewer = remoteTime > localTime;
-
-                newName = remoteIsNewer ? remoteMeta.name() : localInfo.name();
+                newName = localIsNewer ? localInfo.name() : remoteMeta.name();
 
                 if (ContextHistory.areDiverged(localHistory, remoteHistory)) {
-                    if (localTime >= remoteTime) {
+                    if (localIsNewer) {
                         merged = ContextHistory.merge(remoteHistory, localHistory);
                     } else {
                         merged = ContextHistory.merge(localHistory, remoteHistory);
@@ -507,12 +509,12 @@ class SessionSynchronizer {
                     // Diverged merge results in a new modification
                     newModified = System.currentTimeMillis();
                 } else {
-                    if (localTime >= remoteTime) {
+                    if (localIsNewer) {
                         merged = localHistory;
-                        newModified = localTime;
+                        newModified = localInfo.modified();
                     } else {
                         merged = remoteHistory;
-                        newModified = remoteTime;
+                        newModified = remoteMeta.modifiedAtMillis();
                     }
                 }
             }
