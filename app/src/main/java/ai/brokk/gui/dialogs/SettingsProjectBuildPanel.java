@@ -13,7 +13,6 @@ import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.ExecutorValidator;
-import ai.brokk.util.PathNormalizer;
 import com.google.common.io.Files;
 import java.awt.*;
 import java.util.*;
@@ -859,7 +858,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         // We want to see if it's explicitly set in the properties to determine the checkbox state.
         // However, IProject doesn't distinguish between 'detected' and 'explicit' easily without
         // checking the properties directly. AbstractProject.getJdk() already handles the fallback.
-        
+
         // Since getJdk() returns detected or configured, we check if the selector should be enabled.
         // If it's a valid JDK path, we show it.
         boolean hasOverride = jdkHome != null && !jdkHome.isBlank();

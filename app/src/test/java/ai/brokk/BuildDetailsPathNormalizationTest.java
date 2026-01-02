@@ -208,8 +208,8 @@ public class BuildDetailsPathNormalizationTest {
         envVars.put("JAVA_HOME", jdkPath);
         envVars.put("OTHER_VAR", "value");
 
-        BuildAgent.BuildDetails legacyDetails = new BuildAgent.BuildDetails(
-                "mvn compile", "mvn test", "", Set.of(), envVars);
+        BuildAgent.BuildDetails legacyDetails =
+                new BuildAgent.BuildDetails("mvn compile", "mvn test", "", Set.of(), envVars);
 
         Properties projectProps = new Properties();
         projectProps.setProperty("buildDetailsJson", MAPPER.writeValueAsString(legacyDetails));
@@ -226,7 +226,8 @@ public class BuildDetailsPathNormalizationTest {
         assertEquals(jdkPath, wsProps.getProperty("jdk.home"), "jdk.home should be migrated to workspace.properties");
 
         // 4. Assert: Loaded details do NOT contain JAVA_HOME in environmentVariables map
-        assertFalse(loadedDetails.environmentVariables().containsKey("JAVA_HOME"),
+        assertFalse(
+                loadedDetails.environmentVariables().containsKey("JAVA_HOME"),
                 "Loaded details should strip JAVA_HOME from environmentVariables");
         assertEquals("value", loadedDetails.environmentVariables().get("OTHER_VAR"));
 
@@ -236,7 +237,8 @@ public class BuildDetailsPathNormalizationTest {
         // 6. Assert: .brokk/project.properties rewritten without JAVA_HOME in buildDetailsJson
         Properties updatedProjectProps = loadProps(propsFile);
         BuildAgent.BuildDetails persistedDetails = parseDetailsFromProps(updatedProjectProps);
-        assertFalse(persistedDetails.environmentVariables().containsKey("JAVA_HOME"),
+        assertFalse(
+                persistedDetails.environmentVariables().containsKey("JAVA_HOME"),
                 "Persisted JSON should not contain JAVA_HOME");
     }
 

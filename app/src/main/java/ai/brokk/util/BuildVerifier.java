@@ -4,6 +4,7 @@ import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -64,7 +65,8 @@ public final class BuildVerifier {
 
         ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
         Path root = project.getRoot();
-        Map<String, String> env = extraEnv == null || extraEnv.isEmpty() ? new java.util.HashMap<>() : new java.util.HashMap<>(extraEnv);
+        Map<String, String> env =
+                extraEnv == null || extraEnv.isEmpty() ? new HashMap<>() : new HashMap<>(extraEnv);
 
         String jdkHome = project.getJdk();
         if (jdkHome != null && !jdkHome.isBlank()) {
