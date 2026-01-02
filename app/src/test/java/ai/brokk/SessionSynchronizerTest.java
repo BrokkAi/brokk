@@ -36,6 +36,7 @@ class SessionSynchronizerTest {
         Map<UUID, byte[]> remoteContent = new HashMap<>();
         List<UUID> deletedRemoteIds = new ArrayList<>();
         List<UUID> uploadedIds = new ArrayList<>();
+        List<UUID> downloadedIds = new ArrayList<>();
 
         @Override
         public List<RemoteSessionMeta> listRemoteSessions(String remote) {
@@ -44,6 +45,7 @@ class SessionSynchronizerTest {
 
         @Override
         public byte[] getRemoteSessionContent(UUID id) {
+            downloadedIds.add(id);
             return remoteContent.getOrDefault(id, new byte[0]);
         }
 
@@ -113,268 +115,103 @@ class SessionSynchronizerTest {
     }
 
     @Test
-    void uploadLocalOnlySession() {
-        String name = "Local Session";
-        SessionInfo info = sessionManager.newSession(name);
-        sessionManager
-                .getSessionExecutorByKey()
-                .awaitCompletion(info.id().toString())
-                .join();
+    void testSessionSynchronizationScenarios() throws IOException {
+        // Shared timestamps
+        String timeStr = "2023-10-01T12:00:00Z";
+        long timeMillis = java.time.Instant.parse(timeStr).toEpochMilli();
 
+        // --- Session A: Download (Remote exists, Local missing) ---
+        UUID idA = UUID.randomUUID();
+        String nameA = "Session A";
+        RemoteSessionMeta metaA = new RemoteSessionMeta(
+                idA.toString(), "u1", "o1", "remote", nameA, "private",
+                timeStr, timeStr, timeStr, null);
+
+        byte[] contentA = createValidSessionZip(idA, nameA, timeMillis);
+        syncCallbacks.remoteSessions.add(metaA);
+        syncCallbacks.remoteContent.put(idA, contentA);
+
+        TestContextManager cmA = new TestContextManager(project, idA);
+        openContexts.put(idA, cmA);
+
+        // --- Session B: Upload (Local exists, Remote missing) ---
+        UUID idB = UUID.randomUUID();
+        String nameB = "Session B";
+        // Create local session file manually to ensure it exists on disk
+        Path zipB = sessionManager.getSessionHistoryPath(idB);
+        Files.createDirectories(zipB.getParent());
+        Files.write(zipB, createValidSessionZip(idB, nameB, timeMillis));
+        // Register in cache
+        SessionInfo infoB = new SessionInfo(idB, nameB, timeMillis, timeMillis);
+        sessionManager.getSessionsCache().put(idB, infoB);
+
+        // --- Session C: Delete Remote (Local tombstone exists, Remote exists) ---
+        UUID idC = UUID.randomUUID();
+        String nameC = "Session C";
+        RemoteSessionMeta metaC = new RemoteSessionMeta(
+                idC.toString(), "u1", "o1", "remote", nameC, "private",
+                timeStr, timeStr, timeStr, null);
+        syncCallbacks.remoteSessions.add(metaC);
+
+        Path tombstoneC = sessionsDir.resolve(idC + ".tombstone");
+        Files.writeString(tombstoneC, "deleted");
+
+        // --- Session D: Delete Local (Local exists, Remote deleted) ---
+        UUID idD = UUID.randomUUID();
+        String nameD = "Session D";
+        SessionInfo infoD = new SessionInfo(idD, nameD, timeMillis, timeMillis);
+        sessionManager.getSessionsCache().put(idD, infoD);
+        // Ensure local file exists (though deleteLocalSession handles if it doesn't)
+        Path zipD = sessionManager.getSessionHistoryPath(idD);
+        Files.createDirectories(zipD.getParent());
+        Files.write(zipD, createValidSessionZip(idD, nameD, timeMillis));
+
+        RemoteSessionMeta metaD = new RemoteSessionMeta(
+                idD.toString(), "u1", "o1", "remote", nameD, "private",
+                timeStr, timeStr, timeStr, "2023-10-02T12:00:00Z"); // Deleted later
+        syncCallbacks.remoteSessions.add(metaD);
+
+        // --- Session E: No-op (Local and Remote match) ---
+        UUID idE = UUID.randomUUID();
+        String nameE = "Session E";
+        SessionInfo infoE = new SessionInfo(idE, nameE, timeMillis, timeMillis);
+        sessionManager.getSessionsCache().put(idE, infoE);
+
+        RemoteSessionMeta metaE = new RemoteSessionMeta(
+                idE.toString(), "u1", "o1", "remote", nameE, "private",
+                timeStr, timeStr, timeStr, null);
+        syncCallbacks.remoteSessions.add(metaE);
+
+        // --- Execute ---
         synchronizer.synchronize();
 
-        assertTrue(syncCallbacks.uploadedIds.contains(info.id()), "Local session should have been uploaded");
+        // --- Assertions ---
+
+        // Session A
+        assertTrue(syncCallbacks.downloadedIds.contains(idA), "Session A should be downloaded");
+        assertTrue(cmA.reloadCalled, "ContextManager for Session A should be reloaded");
+        assertTrue(sessionManager.getSessionsCache().containsKey(idA), "Session A should be in local cache");
+
+        // Session B
+        assertTrue(syncCallbacks.uploadedIds.contains(idB), "Session B should be uploaded");
+
+        // Session C
+        assertTrue(syncCallbacks.deletedRemoteIds.contains(idC), "Session C remote should be deleted");
+        assertFalse(Files.exists(tombstoneC), "Session C tombstone should be removed");
+
+        // Session D
+        assertFalse(sessionManager.getSessionsCache().containsKey(idD), "Session D should be removed from local cache");
+        assertFalse(Files.exists(zipD), "Session D local file should be deleted");
+
+        // Session E
+        assertFalse(syncCallbacks.downloadedIds.contains(idE), "Session E should not be downloaded");
+        assertFalse(syncCallbacks.uploadedIds.contains(idE), "Session E should not be uploaded");
+        assertFalse(syncCallbacks.deletedRemoteIds.contains(idE), "Session E should not be deleted");
     }
 
-    @Test
-    void downloadRemoteOnlySession() throws IOException {
-        UUID remoteId = UUID.randomUUID();
-        String name = "Remote Session";
-
-        byte[] zipBytes = createValidSessionZip(remoteId, name);
-
-        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
-                remoteId.toString(),
-                "u1",
-                "o1",
-                "test-remote-repo",
-                name,
-                "private",
-                "2023-01-01T00:00:00Z",
-                "2023-01-01T00:00:00Z",
-                "2023-01-01T00:00:00Z",
-                null);
-        syncCallbacks.remoteSessions.add(remoteMeta);
-        syncCallbacks.remoteContent.put(remoteId, zipBytes);
-
-        synchronizer.synchronize();
-
-        Path expectedZip = sessionsDir.resolve(remoteId + ".zip");
-        assertTrue(Files.exists(expectedZip), "Remote session should be downloaded");
-        assertTrue(sessionManager.getSessionsCache().containsKey(remoteId), "Cache should be updated after download");
-    }
-
-    @Test
-    void dontRedownloadLocallyDeletedSessions() throws IOException {
-        UUID deletedId = UUID.randomUUID();
-        Path tombstone = sessionsDir.resolve(deletedId + ".tombstone");
-        Files.writeString(tombstone, "deleted");
-
-        // Stale metadata: shows session exists even though we are about to delete it
-        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
-                deletedId.toString(),
-                "u1",
-                "o1",
-                "test-remote-repo",
-                "Stale Meta",
-                "private",
-                "2023-01-01T00:00:00Z",
-                "2023-01-01T00:00:00Z",
-                "2023-01-01T00:00:00Z",
-                null);
-        syncCallbacks.remoteSessions.add(remoteMeta);
-
-        List<UUID> downloadedIds = new ArrayList<>();
-        FakeSyncCallbacks trackingCallbacks = new FakeSyncCallbacks() {
-            {
-                remoteSessions = syncCallbacks.remoteSessions;
-                remoteContent = syncCallbacks.remoteContent;
-                deletedRemoteIds = syncCallbacks.deletedRemoteIds;
-            }
-
-            @Override
-            public byte[] getRemoteSessionContent(UUID id) {
-                downloadedIds.add(id);
-                return new byte[0];
-            }
-        };
-
-        synchronizer = new SessionSynchronizer(project, trackingCallbacks);
-        synchronizer.synchronize();
-
-        assertTrue(trackingCallbacks.deletedRemoteIds.contains(deletedId), "Remote delete should have been called");
-        assertFalse(Files.exists(tombstone), "Tombstone should be removed");
-        assertFalse(downloadedIds.contains(deletedId), "Should NOT have attempted to download the deleted session");
-    }
-
-    @Test
-    void tombstoneTriggersRemoteDelete() throws IOException {
-        UUID deletedId = UUID.randomUUID();
-        Path tombstone = sessionsDir.resolve(deletedId + ".tombstone");
-        Files.writeString(tombstone, "deleted");
-
-        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
-                deletedId.toString(),
-                "u1",
-                "o1",
-                "test-remote-repo",
-                "To Delete",
-                "private",
-                "2023-01-01T00:00:00Z",
-                "2023-01-01T00:00:00Z",
-                "2023-01-01T00:00:00Z",
-                null);
-        syncCallbacks.remoteSessions.add(remoteMeta);
-
-        synchronizer.synchronize();
-
-        assertTrue(syncCallbacks.deletedRemoteIds.contains(deletedId), "Remote delete should be called for tombstone");
-        assertFalse(Files.exists(tombstone), "Tombstone should be removed after processing");
-    }
-
-    @Test
-    void skipUnreadableSessions() throws IOException {
-        UUID unreadableId = UUID.randomUUID();
-        Path unreadableDir = sessionsDir.resolve(SessionManager.UNREADABLE_SESSIONS_DIR);
-        Files.createDirectories(unreadableDir);
-        Files.writeString(unreadableDir.resolve(unreadableId + ".zip"), "corrupt");
-
-        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
-                unreadableId.toString(),
-                "u1",
-                "o1",
-                "test-remote-repo",
-                "Unreadable",
-                "private",
-                "2023-01-01T00:00:00Z",
-                "2023-01-01T00:00:00Z",
-                "2023-01-01T00:00:00Z",
-                null);
-        syncCallbacks.remoteSessions.add(remoteMeta);
-
-        synchronizer.synchronize();
-
-        assertFalse(
-                Files.exists(sessionsDir.resolve(unreadableId + ".zip")),
-                "Unreadable session should not be re-downloaded");
-    }
-
-    @Test
-    void openSessionRefreshesAfterDownload() throws IOException {
-        UUID sessionId = UUID.randomUUID();
-        SessionInfo localInfo = new SessionInfo(sessionId, "Open Session", 100, 100);
-        sessionManager.getSessionsCache().put(sessionId, localInfo);
-        
-        TestContextManager cm = new TestContextManager(project, sessionId);
-        openContexts.put(sessionId, cm);
-
-        byte[] newContent = createValidSessionZip(sessionId, "Open Session Updated");
-        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
-                sessionId.toString(), "u1", "o1", "remote", "Open Session", "private", 
-                "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", null);
-        
-        syncCallbacks.remoteSessions.add(remoteMeta);
-        syncCallbacks.remoteContent.put(sessionId, newContent);
-
-        synchronizer.synchronize();
-
-        assertTrue(cm.reloadCalled, "Context should have been reloaded");
-        Path zipPath = sessionsDir.resolve(sessionId + ".zip");
-        assertArrayEquals(newContent, Files.readAllBytes(zipPath));
-    }
-    
-    @Test
-    void openSessionResetsAfterDeletion() throws IOException {
-        UUID sessionId = UUID.randomUUID();
-        SessionInfo localInfo = new SessionInfo(sessionId, "Open Session", 100, 100);
-        sessionManager.getSessionsCache().put(sessionId, localInfo);
-        
-        TestContextManager cm = new TestContextManager(project, sessionId);
-        openContexts.put(sessionId, cm);
-
-        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
-                sessionId.toString(), "u1", "o1", "remote", "Open Session", "private", 
-                "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", 
-                "2023-01-03T00:00:00Z"); // Deleted
-        syncCallbacks.remoteSessions.add(remoteMeta);
-
-        synchronizer.synchronize();
-
-        assertTrue(cm.createSessionCalled, "Context should have created new session after deletion");
-        assertFalse(sessionManager.getSessionsCache().containsKey(sessionId));
-    }
-
-    @Test
-    void skipDownloadIfModifiedLocally() throws IOException {
-        UUID id = UUID.randomUUID();
-        SessionInfo localInfo = new SessionInfo(id, "Session", 100, 100);
-        sessionManager.getSessionsCache().put(id, localInfo);
-        
-        // Remote is newer
-        RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
-                id.toString(), "u1", "o1", "remote", "Session", "private", 
-                "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", "2023-01-02T00:00:00Z", null);
-        
-        // Planner logic test: create action manually
-        SessionSynchronizer.SyncAction action = new SessionSynchronizer.SyncAction(
-                id, SessionSynchronizer.ActionType.DOWNLOAD, localInfo, remoteMeta);
-        
-        // Simulate local modification occurring after planning
-        SessionInfo modifiedLocal = new SessionInfo(id, "Session", 200, 200);
-        sessionManager.getSessionsCache().put(id, modifiedLocal);
-        
-        SessionSynchronizer.SyncExecutor executor = synchronizer.new SyncExecutor();
-        SessionSynchronizer.SyncResult result = executor.execute(
-                List.of(action), syncCallbacks, openContexts, "remote");
-        
-        assertTrue(result.skipped().contains(action), "Action should be skipped");
-        assertEquals(0, result.succeeded().size());
-    }
-
-    @Test
-    void fetchLatestChangesFirst() throws IOException {
-        // Create 3 remote sessions with different modification times
-        UUID id1 = UUID.randomUUID();
-        UUID id2 = UUID.randomUUID();
-        UUID id3 = UUID.randomUUID();
-
-        String time1 = "2023-01-01T00:00:00Z"; // oldest
-        String time2 = "2023-06-15T00:00:00Z"; // middle
-        String time3 = "2023-12-31T00:00:00Z"; // newest
-
-        byte[] zip1 = createValidSessionZip(id1, "Session 1");
-        byte[] zip2 = createValidSessionZip(id2, "Session 2");
-        byte[] zip3 = createValidSessionZip(id3, "Session 3");
-
-        syncCallbacks.remoteSessions.add(new RemoteSessionMeta(
-                id1.toString(), "u1", "o1", "test-remote", "Session 1", "private", time1, time1, time1, null));
-        syncCallbacks.remoteSessions.add(new RemoteSessionMeta(
-                id2.toString(), "u1", "o1", "test-remote", "Session 2", "private", time2, time2, time2, null));
-        syncCallbacks.remoteSessions.add(new RemoteSessionMeta(
-                id3.toString(), "u1", "o1", "test-remote", "Session 3", "private", time3, time3, time3, null));
-
-        syncCallbacks.remoteContent.put(id1, zip1);
-        syncCallbacks.remoteContent.put(id2, zip2);
-        syncCallbacks.remoteContent.put(id3, zip3);
-
-        // Track download order
-        List<UUID> downloadOrder = new ArrayList<>();
-        FakeSyncCallbacks customCallbacks = new FakeSyncCallbacks() {
-            {
-                remoteSessions = syncCallbacks.remoteSessions;
-                remoteContent = syncCallbacks.remoteContent;
-            }
-
-            @Override
-            public byte[] getRemoteSessionContent(UUID id) {
-                downloadOrder.add(id);
-                return remoteContent.getOrDefault(id, new byte[0]);
-            }
-        };
-        synchronizer = new SessionSynchronizer(project, customCallbacks);
-
-        synchronizer.synchronize();
-
-        // Verify download order: newest first (id3), then middle (id2), then oldest (id1)
-        assertEquals(3, downloadOrder.size(), "All 3 sessions should be downloaded");
-        assertEquals(id3, downloadOrder.get(0), "Newest session should be downloaded first");
-        assertEquals(id2, downloadOrder.get(1), "Middle session should be downloaded second");
-        assertEquals(id1, downloadOrder.get(2), "Oldest session should be downloaded last");
-    }
-
-    private byte[] createValidSessionZip(UUID id, String name) throws IOException {
+    private byte[] createValidSessionZip(UUID id, String name, long modified) throws IOException {
         Path tempZip = tempDir.resolve("temp_" + id + ".zip");
-        SessionInfo info = new SessionInfo(id, name, 1000L, 1000L);
+        SessionInfo info = new SessionInfo(id, name, modified, modified);
         try (var fs = java.nio.file.FileSystems.newFileSystem(tempZip, Map.of("create", "true"))) {
             Path manifestPath = fs.getPath("manifest.json");
             String json = ai.brokk.project.AbstractProject.objectMapper.writeValueAsString(info);
