@@ -8,6 +8,7 @@ import ai.brokk.util.HistoryIo;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -457,7 +458,15 @@ class SessionSynchronizer {
 
             // Write merged to local
             Files.createDirectories(localZipPath.getParent());
-            HistoryIo.writeZip(merged, localZipPath);
+
+            if (localHistory != null && merged == localHistory) {
+                logger.debug("Session {} merged history matches local history; skipping zip rewrite.", id);
+            } else if (merged == remoteHistory) {
+                logger.debug("Session {} merged history matches remote history; copying remote zip.", id);
+                Files.copy(remoteZipPath, localZipPath, StandardCopyOption.REPLACE_EXISTING);
+            } else {
+                HistoryIo.writeZip(merged, localZipPath);
+            }
 
             // Update manifest
             String name = localInfo != null ? localInfo.name() : remoteMeta.name();

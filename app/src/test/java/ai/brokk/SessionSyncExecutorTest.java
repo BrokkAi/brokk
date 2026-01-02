@@ -265,6 +265,55 @@ class SessionSyncExecutorTest {
     }
 
     @Test
+    void testExecute_NoDivergence_RemoteNewer_OptimizedCopy() throws IOException, InterruptedException {
+        UUID id = UUID.randomUUID();
+        String name = "Optimized Copy Session";
+        long modified = System.currentTimeMillis();
+        String now = java.time.Instant.now().toString();
+
+        // 1. Create remote zip with a marker file
+        // This marker file would be lost if HistoryIo.writeZip were used (as it only writes known history)
+        // But if Files.copy is used, the marker file should be preserved.
+        byte[] baseZip = createValidSessionZip(id, name, modified);
+        Path tempRemoteZip = tempDir.resolve("temp_remote_" + id + ".zip");
+        Files.write(tempRemoteZip, baseZip);
+
+        try (var fs = FileSystems.newFileSystem(tempRemoteZip, Map.of())) {
+            Path markerPath = fs.getPath("marker.txt");
+            Files.writeString(markerPath, "Optimized Copy Marker", StandardOpenOption.CREATE);
+        }
+        byte[] remoteContent = Files.readAllBytes(tempRemoteZip);
+        callbacks.remoteContent.put(id, remoteContent);
+
+        RemoteSessionMeta remoteMeta =
+                new RemoteSessionMeta(id.toString(), "u1", "o1", "remote", name, "private", now, now, now, null);
+
+        // 2. Action: Download (Local is missing, so Remote is newer/authoritative)
+        SyncAction action = new SyncAction(id, ActionType.DOWNLOAD, null, remoteMeta);
+
+        // 3. Execute
+        SyncResult result = syncExecutor.execute(List.of(action), callbacks, Collections.emptyMap(), REMOTE_PROJECT);
+
+        assertTrue(result.succeeded().contains(id));
+
+        // 4. Verify local zip contains the marker
+        Path localZip = sessionManager.getSessionHistoryPath(id);
+        assertTrue(Files.exists(localZip));
+
+        boolean markerFound = false;
+        try (var fs = FileSystems.newFileSystem(localZip, Map.of())) {
+            Path markerPath = fs.getPath("marker.txt");
+            if (Files.exists(markerPath)) {
+                String content = Files.readString(markerPath);
+                if ("Optimized Copy Marker".equals(content)) {
+                    markerFound = true;
+                }
+            }
+        }
+        assertTrue(markerFound, "Marker file should be preserved by optimized copy");
+    }
+
+    @Test
     void testExecute_ConcurrentActions() throws IOException, InterruptedException {
         // 1. Download
         UUID dlId = UUID.randomUUID();
