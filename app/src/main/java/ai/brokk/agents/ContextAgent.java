@@ -405,7 +405,8 @@ public class ContextAgent {
         // If too large for evaluation, ask for interesting files (files-pruning stage with 100k cap)
         @Nullable Llm.ResponseMetadata usage = null;
 
-        if (initialTokens > evalBudgetRemaining) {
+        boolean forcePrune = "true".equalsIgnoreCase(System.getenv("BRK_FORCE_FILENAME_PRUNE"));
+        if (forcePrune || initialTokens > evalBudgetRemaining) {
             logger.debug(
                     "{} group exceeds evaluation budget ({} > {}); pruning filenames first.",
                     type,
