@@ -151,7 +151,8 @@ public class ToolsPane extends JPanel implements ThemeAware {
         JSplitPane horizontalSplit = chrome.getHorizontalSplitPane();
         if (!sidebarCollapsed && toolsPane.getSelectedIndex() == tabIndex) {
             int currentLocation = horizontalSplit.getDividerLocation();
-            if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
+            int minPx = chrome.computeMinSidebarWidthPx();
+            if (currentLocation >= minPx) {
                 lastExpandedSidebarLocation = currentLocation;
             }
             toolsPane.setSelectedIndex(0);

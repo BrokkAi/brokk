@@ -1385,8 +1385,8 @@ public class Chrome
             // Keep backward-compat but persist globally as the source of truth
             project.saveHorizontalSplitPosition(newPos);
             GlobalUiSettings.saveHorizontalSplitPosition(newPos);
-            // Remember expanded locations only (ignore collapsed sidebar)
-            if (newPos >= SIDEBAR_COLLAPSED_THRESHOLD) {
+            // Remember expanded locations only when >= minimum usable width
+            if (newPos >= computeMinSidebarWidthPx()) {
                 toolsPane.setLastExpandedSidebarLocation(newPos);
             }
         });
