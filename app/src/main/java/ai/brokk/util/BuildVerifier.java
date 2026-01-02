@@ -151,12 +151,12 @@ public final class BuildVerifier {
         // macOS bundle support
         if (Files.isDirectory(jdkPath.resolve("Contents/Home"))) {
             Path macOSHome = jdkPath.resolve("Contents/Home");
-            if (isValidJdkHome(macOSHome)) {
+            if (ai.brokk.gui.dialogs.JdkSelector.validateJdkPath(macOSHome) == null) {
                 jdkPath = macOSHome;
             }
         }
 
-        if (isValidJdkHome(jdkPath)) {
+        if (ai.brokk.gui.dialogs.JdkSelector.validateJdkPath(jdkPath) == null) {
             env.put("JAVA_HOME", jdkPath.toString());
         } else {
             logger.debug(
@@ -166,22 +166,6 @@ public final class BuildVerifier {
         }
 
         return env;
-    }
-
-    private static boolean isValidJdkHome(Path path) {
-        if (!Files.isDirectory(path)) {
-            return false;
-        }
-        return (isRegularFile(path, "bin/java") || isRegularFile(path, "bin/java.exe"))
-                && (isRegularFile(path, "bin/javac") || isRegularFile(path, "bin/javac.exe"));
-    }
-
-    private static boolean isRegularFile(Path root, String relPath) {
-        try {
-            return Files.isRegularFile(root.resolve(relPath));
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     // Private helper to bound output to last MAX_OUTPUT_LINES

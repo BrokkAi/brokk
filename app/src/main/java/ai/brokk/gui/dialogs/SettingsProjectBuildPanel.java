@@ -1051,7 +1051,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             Path path = Path.of(canonical);
             // On macOS, if the selected path is a bundle root, use Contents/Home instead
             Path contentsHome = path.resolve("Contents").resolve("Home");
-            if (JdkSelector.isValidJdkPath(contentsHome)) {
+            if (JdkSelector.validateJdkPath(contentsHome) == null) {
                 return PathNormalizer.canonicalizeEnvPathValue(contentsHome.toString());
             }
         } catch (Exception e) {
