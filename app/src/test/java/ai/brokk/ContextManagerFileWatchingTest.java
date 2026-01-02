@@ -333,6 +333,49 @@ class ContextManagerFileWatchingTest {
     }
 
     @Test
+    void testAfterEachBuild_TriggersRefreshOnExternalChange() throws Exception {
+        ProjectFile file = new ProjectFile(projectRoot, Path.of("src/Main.java"));
+
+        // Add file to context so processExternalFileChangesIfNeeded has something to do
+        var fragment = new ContextFragments.ProjectPathFragment(file, contextManager);
+        contextManager.pushContext(ctx -> ctx.addFragments(List.of(fragment)));
+
+        // Replace ContextManager's private contextHistory field via reflection
+        CountingContextHistory countingHistory = new CountingContextHistory(contextManager.liveContext());
+        Field historyField = ContextManager.class.getDeclaredField("contextHistory");
+        historyField.setAccessible(true);
+        historyField.set(contextManager, countingHistory);
+
+        // Inject TestConsoleIO
+        Field ioField = ContextManager.class.getDeclaredField("io");
+        ioField.setAccessible(true);
+        ioField.set(contextManager, testIO);
+
+        // Simulate an external file change event arriving
+        contextManager.handleTrackedFileChange(Set.of(file));
+
+        // Get the internal AnalyzerListener from ContextManager
+        var listenerMethod = ContextManager.class.getDeclaredMethod("createAnalyzerListener");
+        listenerMethod.setAccessible(true);
+        AnalyzerListener analyzerListener = (AnalyzerListener) listenerMethod.invoke(contextManager);
+
+        // Simulate an analyzer build finishing
+        analyzerListener.afterEachBuild(false);
+
+        // Wait for async background task in afterEachBuild
+        assertTrue(testIO.workspaceUpdateLatch.await(5, TimeUnit.SECONDS), "updateWorkspace should be called");
+
+        // Assertions:
+        // 1. ContextHistory.processExternalFileChangesIfNeeded should be called because it was a real external change.
+        assertTrue(countingHistory.externalChangesCallCount.get() >= 1,
+                "Should process external changes when not suppressed");
+
+        // 2. io.updateWorkspace() should be called.
+        assertTrue(testIO.workspaceUpdateCount.get() >= 1,
+                "Should update workspace for external changes");
+    }
+
+    @Test
     void testAfterEachBuild_SuppressesRefreshOnInternalWrite() throws Exception {
         ProjectFile file = new ProjectFile(projectRoot, Path.of("src/Main.java"));
 
