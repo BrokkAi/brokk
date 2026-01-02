@@ -1,7 +1,5 @@
 package ai.brokk.gui.tests;
 
-import static java.util.Objects.requireNonNull;
-
 import ai.brokk.IConsoleIO;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
@@ -15,13 +13,12 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.SerialByKeyExecutor;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.Font;
-import java.awt.Insets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
+
+import javax.swing.*;
+import java.awt.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -39,26 +36,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.swing.BorderFactory;
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.DefaultListModel;
-import javax.swing.JButton;
-import javax.swing.JLabel;
-import javax.swing.JList;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JSplitPane;
-import javax.swing.JTabbedPane;
-import javax.swing.JTextArea;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
-import javax.swing.text.AttributeSet;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.PlainDocument;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.jetbrains.annotations.Nullable;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Run-centric Test Runner panel.
@@ -905,34 +884,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         return s.substring(0, cut) + "...";
     }
 
-    /**
-     * Compatibility API for legacy tests: update a TestEntry's status and timestamps. This panel is now run-centric,
-     * but tests still validate timestamp behavior on TestEntry.
-     */
-    public void updateTestStatus(TestEntry entry, TestEntry.Status status) {
-        Instant now = Instant.now();
-        switch (status) {
-            case RUNNING -> entry.setStartedAtIfAbsent(now);
-            case PASSED, FAILED, ERROR -> {
-                entry.setStartedAtIfAbsent(now);
-                entry.setCompletedAtIfAbsent(now);
-            }
-        }
-        entry.setStatus(status);
-        runOnEdt(() -> {
-            revalidate();
-            repaint();
-        });
-    }
-
-    /**
-     * Factory for tests: ensures TestEntryRenderer is referenced by production code so Error Prone does not flag it as
-     * UnusedNestedClass.
-     */
-    public static DefaultListCellRenderer newTestEntryRendererForTests() {
-        return new TestEntryRenderer();
-    }
-
     // ==========================
     // Internal model and classes
     // ==========================
@@ -1077,35 +1028,4 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             return label;
         }
     }
-
-    /**
-     * Compatibility renderer for legacy tests that expect TestRunnerPanel$TestEntryRenderer. Renders TestEntry display
-     * name with a timestamp suffix and sets tooltip to ISO-8601 instant. Prefers completedAt; falls back to startedAt;
-     * omits time if both are null.
-     */
-    private static class TestEntryRenderer extends DefaultListCellRenderer {
-        private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
-
-        @Override
-        public Component getListCellRendererComponent(
-                JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (!(value instanceof TestEntry te)) {
-                return label;
-            }
-
-            Instant ts = te.getCompletedAt() != null ? te.getCompletedAt() : te.getStartedAt();
-            StringBuilder text = new StringBuilder(te.getDisplayName());
-            if (ts != null) {
-                String timeText = TIME_FORMAT.format(ts.atZone(ZoneId.systemDefault()));
-                text.append(" ").append(timeText);
-                label.setToolTipText(DateTimeFormatter.ISO_INSTANT.format(ts));
-            } else {
-                label.setToolTipText(null);
-            }
-            label.setText(text.toString());
-            return label;
-        }
-    }
-
 }
