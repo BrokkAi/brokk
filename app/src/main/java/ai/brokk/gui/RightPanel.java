@@ -39,6 +39,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     private final BranchSelectorButton branchSelectorButton;
 
     private @Nullable JSplitPane verticalActivityCombinedPanel = null;
+    private @Nullable JSplitPane verticalLayoutLeftSplit = null;
 
     // Review tab infrastructure
     private final JComponent reviewTabComponent;
@@ -459,7 +460,9 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     private void setupSplitPanePersistence() {
         buildSplitPane.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
-            if (!buildSplitPane.isShowing()) return;
+            if (!buildSplitPane.isShowing()) {
+                return;
+            }
             int newPos = buildSplitPane.getDividerLocation();
             if (newPos > 0) {
                 chrome.getProject().saveRightVerticalSplitPosition(newPos);
@@ -490,18 +493,51 @@ public class RightPanel extends JPanel implements ThemeAware {
                 var leftTopPanel = new JPanel(new BorderLayout());
                 leftTopPanel.add(activityTabs, BorderLayout.CENTER);
 
+                // Vertical activity layout replaces the original buildSplitPane with a different split structure.
+                // It introduces two independent JSplitPanes (verticalLayoutLeftSplit + verticalActivityCombinedPanel)
+                // whose divider locations must be persisted separately or they reset to defaults on restart.
                 var leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, leftTopPanel, commandPanel);
                 leftSplit.setResizeWeight(0.4);
+                verticalLayoutLeftSplit = leftSplit;
+
+                leftSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                    if (!leftSplit.isShowing()) return;
+                    int newPos = leftSplit.getDividerLocation();
+                    if (newPos > 0) {
+                        GlobalUiSettings.saveVerticalLayoutLeftSplitPosition(newPos);
+                    }
+                });
 
                 verticalActivityCombinedPanel = new JSplitPane(
                         JSplitPane.HORIZONTAL_SPLIT, leftSplit, historyOutputPanel.getLlmOutputContainer());
                 verticalActivityCombinedPanel.setResizeWeight(0.5);
+
+                var combinedPanel = verticalActivityCombinedPanel;
+                combinedPanel.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> {
+                    if (!combinedPanel.isShowing()) return;
+                    int newPos = combinedPanel.getDividerLocation();
+                    if (newPos > 0) {
+                        GlobalUiSettings.saveVerticalLayoutHorizontalSplitPosition(newPos);
+                    }
+                });
+
                 historyOutputPanel.applyFixedCaptureBarSizing(true);
             }
 
             int buildIdx = buildReviewTabs.indexOfTab("Build");
             if (buildIdx != -1) {
                 buildReviewTabs.setComponentAt(buildIdx, verticalActivityCombinedPanel);
+            }
+
+            // Restore divider locations from GlobalUiSettings so the user's preferred vertical layout survives
+            // restarts.
+            int savedLeftSplit = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
+            int savedHorizontalSplit = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
+            if (savedLeftSplit > 0 && verticalLayoutLeftSplit != null) {
+                verticalLayoutLeftSplit.setDividerLocation(savedLeftSplit);
+            }
+            if (savedHorizontalSplit > 0) {
+                verticalActivityCombinedPanel.setDividerLocation(savedHorizontalSplit);
             }
         } else {
             historyOutputPanel.applyFixedCaptureBarSizing(false);
@@ -520,6 +556,7 @@ public class RightPanel extends JPanel implements ThemeAware {
                 buildReviewTabs.setComponentAt(buildIdx, buildSplitPane);
             }
             verticalActivityCombinedPanel = null;
+            verticalLayoutLeftSplit = null;
         }
         revalidate();
         repaint();
@@ -530,11 +567,17 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void restoreDividerLocation() {
-        int buildSplitPos = GlobalUiSettings.getRightVerticalSplitPosition();
+        int buildSplitPos = chrome.getProject().getRightVerticalSplitPosition();
+
+        if (buildSplitPos <= 0) {
+            buildSplitPos = GlobalUiSettings.getRightVerticalSplitPosition();
+        }
+
         if (buildSplitPos > 0) {
             buildSplitPane.setDividerLocation(buildSplitPos);
         } else {
-            buildSplitPane.setDividerLocation((int) (buildSplitPane.getHeight() * DEFAULT_OUTPUT_MAIN_SPLIT));
+            int defaultPos = (int) (buildSplitPane.getHeight() * DEFAULT_OUTPUT_MAIN_SPLIT);
+            buildSplitPane.setDividerLocation(defaultPos);
         }
     }
 

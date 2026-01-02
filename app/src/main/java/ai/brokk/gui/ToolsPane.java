@@ -33,7 +33,6 @@ public class ToolsPane extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(ToolsPane.class);
 
     private static final int SIDEBAR_COLLAPSED_THRESHOLD = 50;
-    private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 40;
     private static final int MIN_SIDEBAR_WIDTH_PX = 220;
     private static final long TAB_TOGGLE_DEBOUNCE_MS = 150;
 
@@ -157,6 +156,8 @@ public class ToolsPane extends JPanel implements ThemeAware {
             }
             toolsPane.setSelectedIndex(0);
             sidebarCollapsed = true;
+            // Enforcing minimum sizes prevents Swing from compressing the icon strip below usable width; this
+            // works with Chrome.applySidebarState() to keep the collapsed sidebar visible and re-expandable.
             chrome.applySidebarState(true);
             saveSidebarOpenSetting(false);
         } else {

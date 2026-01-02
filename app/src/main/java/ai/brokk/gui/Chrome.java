@@ -77,6 +77,8 @@ public class Chrome
     private static final double MAX_SIDEBAR_WIDTH_FRACTION_WIDE = 0.25; // 25% maximum sidebar width (wide screens)
     private static final int WIDE_SCREEN_THRESHOLD = 2000; // Screen width threshold for wide screen layout
     private static final int SIDEBAR_COLLAPSED_THRESHOLD = 50;
+    // Minimum width for the collapsed sidebar icon strip; without this, Swing relayout can compress the
+    // left component to 0px, hiding icons and making the sidebar effectively impossible to expand.
     private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 40;
 
     // Used as the default text for the background tasks label
@@ -1310,6 +1312,8 @@ public class Chrome
         // Force a complete layout validation
         frame.revalidate();
 
+        // frame.pack() triggers a full relayout that can reset JSplitPane divider locations; re-assert
+        // the collapsed divider/min sizes after pack/validate so the icon strip cannot disappear to 0px.
         // Fix zero-sized components by forcing layout calculation with pack()
         // Remember the intended size before pack changes it
         int intendedWidth = frame.getWidth();
@@ -1668,6 +1672,11 @@ public class Chrome
         return rightPanel;
     }
 
+    /**
+     * Centralizes sidebar collapse/expand layout logic to avoid duplicated split-pane tweaks.
+     * Must be called after operations that swap JSplitPane children (e.g. setRightComponent()) or
+     * trigger layout recalculation (e.g. frame.pack()), otherwise Swing can legally shrink the left side to 0px.
+     */
     void applySidebarState(boolean collapsed) {
         if (collapsed) {
             leftVerticalSplitPane.setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
@@ -1692,6 +1701,8 @@ public class Chrome
             rightPanel.applyVerticalActivityLayout();
             horizontalSplitPane.setRightComponent(rightPanel);
 
+            // Swapping split children via setRightComponent() triggers relayout; re-assert sidebar constraints
+            // so Swing cannot legally collapse the left component to 0px during recalculation.
             applySidebarState(toolsPane.isSidebarCollapsed());
 
             frame.revalidate();
