@@ -2,6 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
+
 import ai.brokk.ContextManager;
 import ai.brokk.EditBlock;
 import ai.brokk.IConsoleIO;
@@ -1226,15 +1227,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
                 if (contentChangedFromInitial) {
                     try {
-                        var fileNameForDiff = file.toString();
                         var diffResult = ContentDiffUtils.computeDiffResult(
-                                contentBeforeSave, newContent, fileNameForDiff, fileNameForDiff, 3);
+                                contentBeforeSave, newContent, file.toString(), file.toString(), 3);
                         var diffText = diffResult.diff();
                         // Create the SessionResult representing the net change
-                        var actionDescription = "Edited " + fileNameForDiff;
+                        var actionDescription = "Edited " + file.getFileName();
                         // Include filtered quick edit messages (without XML context) + the current diff
                         var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
-                        messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
+                        messagesForHistory.add(Messages.customSystem("### " + file.toString()));
                         messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
                         // Build resulting Context by adding the saved file if it is not already editable
                         var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
