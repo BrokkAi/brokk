@@ -776,6 +776,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         // Build environment variables map
         var envVars = new HashMap<>(baseDetails.environmentVariables());
+        // JAVA_HOME is now managed via project.setJdk() and stored in workspace.properties
         envVars.remove("JAVA_HOME");
         envVars.remove("VIRTUAL_ENV");
         if (selectedPrimaryLang == Languages.PYTHON) {

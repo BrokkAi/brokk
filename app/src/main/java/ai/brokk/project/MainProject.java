@@ -360,7 +360,7 @@ public final class MainProject extends AbstractProject {
                     }
                 }
 
-                // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
+                // Normalize environment variables and migrate JAVA_HOME to workspace properties
                 Map<String, String> envIn = details.environmentVariables();
                 Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
 
@@ -371,7 +371,12 @@ public final class MainProject extends AbstractProject {
                         continue;
                     }
                     if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                        canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+                        // Migration: Move JAVA_HOME from project.properties to workspace.properties
+                        String canonicalPath = PathNormalizer.canonicalizeEnvPathValue(v);
+                        if (!canonicalPath.isBlank()) {
+                            setJdk(canonicalPath);
+                            logger.info("Migrated JAVA_HOME from project build details to workspace JDK settings.");
+                        }
                     } else {
                         canonicalEnv.put(k, v);
                     }
