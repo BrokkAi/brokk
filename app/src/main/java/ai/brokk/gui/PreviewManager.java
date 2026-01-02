@@ -480,7 +480,7 @@ public class PreviewManager {
             var syntax = pf.getSyntaxStyle();
 
             // 3. Build the PTP with custom positioning
-            var panel = new PreviewTextPanel(cm, pf, content.get(), syntax, chrome.getTheme(), null);
+            var panel = new PreviewTextPanel(chrome, cm, pf, content.get(), syntax, chrome.getTheme(), null);
 
             // 4. Show in frame first
             showPreviewFrame("Preview: " + pf, panel);
@@ -574,7 +574,7 @@ public class PreviewManager {
 
     private void showImagePreview(ContextFragment fragment, String initialTitle) {
         if (fragment instanceof ContextFragments.AnonymousImageFragment pif) {
-            var imagePanel = new PreviewImagePanel(null);
+            var imagePanel = new PreviewImagePanel(chrome, null);
             showPreviewFrame(initialTitle, imagePanel, pif);
 
             ComputedSubscription.bind(
@@ -586,7 +586,7 @@ public class PreviewManager {
                                 initialTitle, imagePanel, pif.shortDescription().renderNowOrNull());
                     }));
         } else if (fragment instanceof ContextFragments.ImageFileFragment iff) {
-            var imagePanel = new PreviewImagePanel(iff.file());
+            var imagePanel = new PreviewImagePanel(chrome, iff.file());
             showPreviewFrame(initialTitle, imagePanel, iff);
             bindTitleUpdate(iff, imagePanel, initialTitle);
         }
@@ -621,7 +621,7 @@ public class PreviewManager {
             markdownPanel.setText(List.of(Messages.customSystem(text)));
             panel = createSearchableContentPanel(List.of(markdownPanel), null, false);
         } else {
-            panel = new PreviewTextPanel(cm, null, text, style, chrome.getTheme(), sf);
+            panel = new PreviewTextPanel(chrome, cm, null, text, style, chrome.getTheme(), sf);
         }
 
         showPreviewFrame(initialTitle, panel, sf);
@@ -656,7 +656,8 @@ public class PreviewManager {
         // For history snapshots, pass null to prevent auto-refresh and editing, ensuring the preview remains static.
         ProjectFile projectFile = isLive ? extractProjectFile(fragment) : null;
 
-        var panel = new PreviewTextPanel(cm, projectFile, initialText, initialStyle, chrome.getTheme(), fragment);
+        var panel =
+                new PreviewTextPanel(chrome, cm, projectFile, initialText, initialStyle, chrome.getTheme(), fragment);
         showPreviewFrame(initialTitle, panel, fragment);
 
         final String fallbackStyle = initialStyle;

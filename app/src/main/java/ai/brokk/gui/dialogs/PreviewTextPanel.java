@@ -88,6 +88,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private MaterialButton btnIncreaseFont;
 
     private final ContextManager cm;
+    private final Chrome chrome;
 
     // Nullable
     @Nullable
@@ -126,6 +127,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     }
 
     public PreviewTextPanel(
+            Chrome chrome,
             ContextManager cm,
             @Nullable ProjectFile file,
             String content,
@@ -134,6 +136,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             @Nullable ContextFragment fragment) {
         super(new BorderLayout());
 
+        this.chrome = chrome;
         this.cm = cm;
         this.file = file;
         this.contentBeforeSave = content; // Store initial content
@@ -1368,8 +1371,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             if (!java.nio.file.Files.exists(file.absPath())) {
                 logger.debug("File no longer exists: {}", file);
                 SwingUtilities.invokeLater(() -> {
-                    JOptionPane.showMessageDialog(
-                            this, "File has been deleted: " + file, "File Deleted", JOptionPane.WARNING_MESSAGE);
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File has been deleted: " + file);
                 });
                 return;
             }
