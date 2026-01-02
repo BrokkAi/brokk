@@ -27,7 +27,6 @@ import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
-import org.eclipse.jgit.gpg.bc.internal.BouncyCastleGpgSignerFactory;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.*;
@@ -52,7 +51,6 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Path gitTopLevel; // The actual top-level directory of the git repository
     private final Repository repository;
     private final Git git;
-    private final char @Nullable [] gpgPassPhrase; // if the user has enabled GPG signing by default
     private final Supplier<String> tokenSupplier; // Supplier for GitHub token
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
     private @Nullable Set<Path> trackedPathsCache = null;
@@ -152,9 +150,6 @@ public class GitRepo implements Closeable, IGitRepo {
             git = new Git(repository);
             worktrees = new GitRepoWorktrees(this);
 
-            // Check for GPG signing
-            this.gpgPassPhrase = null; // TODO: Fetch from settings, vault, etc.
-
             // For worktrees, we need to find the actual repository root, not the .git/worktrees path
             if (isWorktree()) {
                 // For worktrees, read the commondir file to find the main repository
@@ -231,9 +226,9 @@ public class GitRepo implements Closeable, IGitRepo {
         }
     }
 
-    /** @return true if GPG signing is enabled by default for this repository, false if otherwise. */
+    /** @return true if GPG signing is enabled globally in Brokk. */
     public boolean isGpgSigned() {
-        return gpgPassPhrase != null;
+        return MainProject.isGpgCommitSigningEnabled();
     }
 
     @Override
@@ -632,17 +627,15 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
-     * Prepares a Git commit command, handling signing if required.
+     * Prepares a Git commit command for unsigned commits.
      *
-     * @return a properly configured Git commit command.
+     * <p>Note: GPG signing is handled natively via shell command in {@code commitFiles} to better support
+     * external GPG agents and hardware keys.
+     *
+     * @return a properly configured JGit commit command.
      */
     public CommitCommand commitCommand() {
-        if (!isGpgSigned()) {
-            return git.commit().setSign(false);
-        } else {
-            var signer = new BouncyCastleGpgSignerFactory().create();
-            return git.commit().setSigner(signer).setSign(true);
-        }
+        return git.commit().setSign(false);
     }
 
     /**
@@ -651,20 +644,88 @@ public class GitRepo implements Closeable, IGitRepo {
      * @return The commit ID of the new commit
      */
     public String commitFiles(List<ProjectFile> files, String message) throws GitAPIException {
-        add(files);
-
-        var commitCommand = commitCommand().setMessage(message);
-
         if (!files.isEmpty()) {
+            add(files);
+        }
+
+        String commitId;
+        if (isGpgSigned()) {
+            commitId = commitFilesNative(files, message);
+        } else {
+            logger.debug("Committing files using JGit (unsigned)");
+            var commitCommand = commitCommand().setMessage(message);
+            if (!files.isEmpty()) {
+                for (var file : files) {
+                    commitCommand.setOnly(toRepoRelativePath(file));
+                }
+            }
+            var commitResult = commitCommand.call();
+            commitId = commitResult.getId().getName();
+        }
+
+        invalidateCaches();
+        return commitId;
+    }
+
+    /**
+     * Executes a native git commit with GPG signing enabled.
+     *
+     * <p>Native git is preferred for signing because it seamlessly integrates with system GPG agents,
+     * pinentry dialogs, and hardware security modules (like Yubikeys) that JGit often struggles with.
+     */
+    private String commitFilesNative(List<ProjectFile> files, String message) throws GitAPIException {
+        String key = MainProject.getGpgSigningKey().trim();
+        logger.info("Committing files using native git with GPG signing. Key: {}", key.isEmpty() ? "default" : key);
+
+        // First, ensure all changes are added to the index so native git sees them.
+        if (!files.isEmpty()) {
+            List<String> addArgs = new ArrayList<>();
+            addArgs.add("git");
+            addArgs.add("add");
+            addArgs.add("--");
             for (var file : files) {
-                commitCommand.setOnly(toRepoRelativePath(file));
+                addArgs.add(toRepoRelativePath(file));
+            }
+            try {
+                Environment.instance.runProcess(addArgs, getProjectRoot(), out -> {}, Environment.GIT_TIMEOUT);
+            } catch (Exception e) {
+                logger.warn("Native git add failed before commit: {}", e.getMessage());
             }
         }
 
-        var commitResult = commitCommand.call();
-        var commitId = commitResult.getId().getName();
-        invalidateCaches();
-        return commitId;
+        List<String> args = new ArrayList<>();
+        args.add("git");
+        args.add("commit");
+        if (!key.isEmpty()) {
+            args.add("--gpg-sign=" + key);
+        } else {
+            args.add("-S");
+        }
+        args.add("-m");
+        args.add(message);
+
+        // Always add --allow-empty to support tests and clean index states
+        args.add("--allow-empty");
+
+        if (!files.isEmpty()) {
+            // When specific files are provided, use --only to commit just those.
+            args.add("--only");
+            args.add("--");
+            for (var file : files) {
+                args.add(toRepoRelativePath(file));
+            }
+        }
+
+        try {
+            Environment.instance.runProcess(args, getProjectRoot(), out -> {}, Environment.GIT_SIGNING_TIMEOUT);
+            return getCurrentCommitId();
+        } catch (Exception e) {
+            if (e instanceof Environment.FailureException fe) {
+                throw new GitOperationException(
+                        "Native GPG commit failed (exit " + fe.getExitCode() + "): " + fe.getOutput(), fe);
+            }
+            throw new GitOperationException("Native GPG commit failed: " + e.getMessage(), e);
+        }
     }
 
     /**
@@ -2402,17 +2463,21 @@ public class GitRepo implements Closeable, IGitRepo {
 
         logger.debug("Performing merge conflict simulation in temporary worktree: {}", tempWorktreePath);
 
-        // fixme: Temporarily disable signing in the in-memory config until we support signing
+        // Temporarily disable signing in the config during simulation to avoid GPG prompts/errors.
+        // We check the entry specifically in the LOCAL config to avoid leaking global settings into local config.
         final var config = git.getRepository().getConfig();
-        final boolean oldSignConfig = config.getBoolean("commit", null, "gpgsign", false);
-        try {
-            config.setBoolean("commit", null, "gpgsign", false);
-            config.save();
-        } catch (IOException e) {
-            logger.warn("Exception encountered while attempting to temporarily disable GPG signing.", e);
-        }
+        final String oldSignConfig = config.getString("commit", null, "gpgsign");
+        // Use the two-argument getNames(section, recursive=false) to check local repo config only
+        final boolean wasSetLocally = config.getNames("commit", false).contains("gpgsign");
 
         try {
+            config.setBoolean("commit", null, "gpgsign", false);
+            try {
+                config.save();
+            } catch (IOException e) {
+                logger.warn("Exception encountered while attempting to temporarily disable GPG signing.", e);
+            }
+
             // Add a detached worktree on the target branch
             var addCommand = String.format(
                     "git worktree add --detach %s %s", tempWorktreePath.toAbsolutePath(), targetBranchId.getName());
@@ -2449,6 +2514,19 @@ public class GitRepo implements Closeable, IGitRepo {
         } catch (Environment.SubprocessException | InterruptedException e) {
             throw new GitRepoException("Failed to execute command for temporary worktree", e);
         } finally {
+            // Re-enable old signing setting BEFORE removing worktree to ensure state is restored
+            // even if worktree removal fails.
+            try {
+                if (wasSetLocally && oldSignConfig != null) {
+                    config.setString("commit", null, "gpgsign", oldSignConfig);
+                } else {
+                    config.unset("commit", null, "gpgsign");
+                }
+                config.save();
+            } catch (IOException e) {
+                logger.warn("Exception encountered while attempting to restore GPG signing configuration.", e);
+            }
+
             // Forcefully remove the temporary worktree and its directory
             try {
                 var removeCommand = String.format("git worktree remove --force %s", tempWorktreePath.toAbsolutePath());
@@ -2456,13 +2534,6 @@ public class GitRepo implements Closeable, IGitRepo {
                         removeCommand, getGitTopLevel(), out -> {}, Environment.GIT_TIMEOUT);
             } catch (Exception e) {
                 logger.error("Failed to clean up temporary worktree at {}", tempWorktreePath, e);
-            }
-            // Re-enable old signing setting
-            try {
-                config.setBoolean("commit", null, "gpgsign", oldSignConfig);
-                config.save();
-            } catch (IOException e) {
-                logger.warn("Exception encountered while attempting to set GPG signing to previous value.", e);
             }
         }
     }

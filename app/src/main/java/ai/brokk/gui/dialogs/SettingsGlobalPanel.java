@@ -22,6 +22,7 @@ import ai.brokk.mcp.StdioMcpServer;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.GpgKeyUtil;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.awt.*;
 import java.awt.event.InputEvent;
@@ -77,6 +78,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
     // Appearance controls (kept in Global)
     private JComboBox<String> themeCombo = new JComboBox<>();
+    private JCheckBox gpgSigningCheckbox = new JCheckBox("Sign commits with GPG");
+    private JComboBox<GpgKeyUtil.GpgKey> gpgKeyCombo = new JComboBox<>();
     private JCheckBox wordWrapCheckbox = new JCheckBox("Enable word wrap");
     private JCheckBox classicBrokkViewCheckbox = new JCheckBox("Enable Classic (Horizontal) View");
     private JRadioButton diffSideBySideRadio = new JRadioButton("Side-by-Side");
@@ -94,7 +97,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     // GitHub / MCP / Keybindings
-    private GitHubSettingsPanel gitHubSettingsPanel;
+    private final GitHubSettingsPanel gitSettingsPanel;
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
     private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
 
@@ -107,6 +110,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
+        this.gitSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
         // NOTE: loadSettings() is now called explicitly in SettingsDialog.showSettingsDialog()
@@ -194,6 +198,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // MCP servers list
         populateMcpServersTab();
+
+        // GPG Signing
+        gpgSigningCheckbox.setSelected(MainProject.isGpgCommitSigningEnabled());
+        discoverGpgKeys();
     }
 
     @Override
@@ -220,10 +228,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var appearancePanel = createAppearancePanel();
         globalSubTabbedPane.addTab("Appearance", null, appearancePanel, "Theme settings");
 
-        // GitHub Tab
-        gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
+        // GitHub / Git Signing Tab
+        var githubAndSigningPanel = createGitHubAndSigningPanel();
         globalSubTabbedPane.addTab(
-                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
+                SettingsDialog.GIT_SETTINGS_TAB_NAME, null, githubAndSigningPanel, "Git and signing settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
@@ -347,6 +355,116 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         String currentPersistedKey = MainProject.getBrokkKey();
         boolean keyIsEffectivelyPresent = !currentPersistedKey.trim().isEmpty();
         this.signupLabel.setVisible(!keyIsEffectivelyPresent);
+    }
+
+    private JPanel createGitHubAndSigningPanel() {
+        var mainPanel = new JPanel();
+        mainPanel.setLayout(new BoxLayout(mainPanel, BoxLayout.Y_AXIS));
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        // Section 1: GitHub
+        var githubHeader = new JLabel("GitHub Integration");
+        githubHeader.setFont(githubHeader.getFont().deriveFont(Font.BOLD));
+        githubHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mainPanel.add(githubHeader);
+        mainPanel.add(Box.createVerticalStrut(5));
+
+        // Remove individual panel border to avoid double padding
+        gitSettingsPanel.setBorder(BorderFactory.createEmptyBorder(0, 5, 10, 5));
+        gitSettingsPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mainPanel.add(gitSettingsPanel);
+
+        mainPanel.add(new JSeparator(JSeparator.HORIZONTAL));
+        mainPanel.add(Box.createVerticalStrut(15));
+
+        // Section 2: Git Signing
+        var gitHeader = new JLabel("Signing");
+        gitHeader.setFont(gitHeader.getFont().deriveFont(Font.BOLD));
+        gitHeader.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mainPanel.add(gitHeader);
+        mainPanel.add(Box.createVerticalStrut(5));
+
+        var gitSigningPanel = createGitSigningPanel();
+        gitSigningPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        mainPanel.add(gitSigningPanel);
+
+        // Push everything to the top
+        mainPanel.add(Box.createVerticalGlue());
+
+        return mainPanel;
+    }
+
+    private JPanel createGitSigningPanel() {
+        var panel = new JPanel(new GridBagLayout());
+        // Border removed as it is now inside the combined panel section
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 5, 0, 5));
+        var gbc = new GridBagConstraints();
+        gbc.anchor = GridBagConstraints.WEST;
+        gbc.insets = new Insets(5, 5, 5, 5);
+        int row = 0;
+
+        gbc.gridx = 0;
+        gbc.gridy = row++;
+        gbc.gridwidth = 2;
+        panel.add(gpgSigningCheckbox, gbc);
+
+        gbc.gridwidth = 1;
+        gbc.gridx = 0;
+        gbc.gridy = row;
+        panel.add(new JLabel("GPG Signing Key:"), gbc);
+
+        gpgKeyCombo.setEditable(false);
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        panel.add(gpgKeyCombo, gbc);
+
+        row++;
+        gbc.gridx = 1;
+        gbc.gridy = row++;
+        gbc.weighty = 1.0;
+        gbc.fill = GridBagConstraints.BOTH;
+        panel.add(Box.createGlue(), gbc);
+
+        return panel;
+    }
+
+    private void discoverGpgKeys() {
+        String savedKeyId = MainProject.getGpgSigningKey();
+        new SwingWorker<List<GpgKeyUtil.GpgKey>, Void>() {
+            @Override
+            protected List<GpgKeyUtil.GpgKey> doInBackground() {
+                return GpgKeyUtil.listSecretKeys();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<GpgKeyUtil.GpgKey> keys = get();
+                    DefaultComboBoxModel<GpgKeyUtil.GpgKey> model = new DefaultComboBoxModel<>();
+                    GpgKeyUtil.GpgKey selected = null;
+                    for (var key : keys) {
+                        model.addElement(key);
+                        if (key.id().equals(savedKeyId)) {
+                            selected = key;
+                        }
+                    }
+
+                    // If the saved key isn't in the discovered list, add it as a manual entry so it's not lost
+                    if (selected == null && !savedKeyId.isEmpty()) {
+                        selected = new GpgKeyUtil.GpgKey(savedKeyId, savedKeyId);
+                        model.insertElementAt(selected, 0);
+                    }
+
+                    gpgKeyCombo.setModel(model);
+                    if (selected != null) {
+                        gpgKeyCombo.setSelectedItem(selected);
+                    }
+                } catch (Exception e) {
+                    logger.debug("GPG key discovery update failed", e);
+                }
+            }
+        }.execute();
     }
 
     private JPanel createAppearancePanel() {
@@ -623,7 +741,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private void populateGitHubTab() {
-        gitHubSettingsPanel.loadSettings();
+        gitSettingsPanel.loadSettings();
     }
 
     /**
@@ -1045,7 +1163,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // GitHub settings
-        if (!gitHubSettingsPanel.applySettings()) {
+        if (!gitSettingsPanel.applySettings()) {
             return false;
         }
 
@@ -1116,6 +1234,17 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         var mcpConfig = new McpConfig(mcpServers);
         chrome.getProject().getMainProject().setMcpConfig(mcpConfig);
+
+        // Git / Signing settings
+        MainProject.setGpgCommitSigningEnabled(gpgSigningCheckbox.isSelected());
+        Object selectedItem = gpgKeyCombo.getSelectedItem();
+        if (selectedItem instanceof GpgKeyUtil.GpgKey key) {
+            MainProject.setGpgSigningKey(key.id());
+        } else if (selectedItem != null) {
+            MainProject.setGpgSigningKey(selectedItem.toString());
+        } else {
+            MainProject.setGpgSigningKey("");
+        }
 
         // Side effects
 
@@ -2208,7 +2337,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // SettingsChangeListener implementation
     @Override
     public void gitHubTokenChanged() {
-        gitHubSettingsPanel.gitHubTokenChanged();
+        gitSettingsPanel.gitHubTokenChanged();
     }
 
     @Override

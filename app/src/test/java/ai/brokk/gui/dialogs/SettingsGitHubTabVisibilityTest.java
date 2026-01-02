@@ -42,7 +42,7 @@ public class SettingsGitHubTabVisibilityTest {
             // Look for the GitHub tab
             boolean foundGitHubTab = false;
             for (int i = 0; i < tabCount; i++) {
-                if (SettingsDialog.GITHUB_SETTINGS_TAB_NAME.equals(tabs.getTitleAt(i))) {
+                if (SettingsDialog.GIT_SETTINGS_TAB_NAME.equals(tabs.getTitleAt(i))) {
                     foundGitHubTab = true;
                     break;
                 }
@@ -50,8 +50,18 @@ public class SettingsGitHubTabVisibilityTest {
 
             assertTrue(
                     foundGitHubTab,
-                    "Global settings should always include the GitHub tab so users can configure GitHub auth, "
+                    "Global settings should always include the Git tab so users can configure Git/GitHub settings, "
                             + "even when the project is not a GitHub repo");
+
+            // Verify Git / Signing tab is merged and no longer standalone
+            boolean foundGitSigningTab = false;
+            for (int i = 0; i < tabCount; i++) {
+                if ("Git / Signing".equals(tabs.getTitleAt(i))) {
+                    foundGitSigningTab = true;
+                    break;
+                }
+            }
+            assertFalse(foundGitSigningTab, "Git / Signing tab should be merged into GitHub tab");
         });
     }
 
@@ -75,13 +85,23 @@ public class SettingsGitHubTabVisibilityTest {
 
             boolean foundGitHubTab = false;
             for (int i = 0; i < tabCount; i++) {
-                if (SettingsDialog.GITHUB_SETTINGS_TAB_NAME.equals(tabs.getTitleAt(i))) {
+                if (SettingsDialog.GIT_SETTINGS_TAB_NAME.equals(tabs.getTitleAt(i))) {
                     foundGitHubTab = true;
                     break;
                 }
             }
 
-            assertTrue(foundGitHubTab, "Global settings should include the GitHub tab for all projects");
+            assertTrue(foundGitHubTab, "Global settings should include the Git tab for all projects");
+
+            // Verify Git / Signing tab is merged and no longer standalone
+            boolean foundGitSigningTab = false;
+            for (int i = 0; i < tabCount; i++) {
+                if ("Git / Signing".equals(tabs.getTitleAt(i))) {
+                    foundGitSigningTab = true;
+                    break;
+                }
+            }
+            assertFalse(foundGitSigningTab, "Git / Signing tab should be merged into GitHub tab");
         });
     }
 }

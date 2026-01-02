@@ -4,7 +4,11 @@ import ai.brokk.Brokk;
 import ai.brokk.gui.Chrome;
 import com.google.common.base.Splitter;
 import com.sun.management.UnixOperatingSystemMXBean;
-import java.awt.*;
+import java.awt.AWTException;
+import java.awt.Desktop;
+import java.awt.SystemTray;
+import java.awt.TrayIcon;
+import java.awt.Window;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -54,6 +58,9 @@ public class Environment {
     /** Timeout for fast git commands (status, branch, etc.). */
     public static final Duration GIT_TIMEOUT = Duration.ofSeconds(10);
 
+    /** Timeout for interactive git operations (e.g., GPG signing which may prompt). */
+    public static final Duration GIT_SIGNING_TIMEOUT = Duration.ofMinutes(2);
+
     /** Timeout for network-heavy git operations (fetch, clone, push, pull). */
     public static final Duration GIT_NETWORK_TIMEOUT = Duration.ofMinutes(5);
 
@@ -72,8 +79,16 @@ public class Environment {
 
     // Default factory creates the real runner. Tests can replace this.
     public static final BiFunction<String, Path, ShellCommandRunner> DEFAULT_SHELL_COMMAND_RUNNER_FACTORY =
-            (cmd, projectRoot) -> (outputConsumer, timeout) ->
-                    runShellCommandInternal(cmd, projectRoot, false, timeout, outputConsumer, null, Map.of(), null);
+            (cmd, projectRoot) -> (outputConsumer, timeout) -> runShellCommandInternal(
+                    new String[] {isWindows() ? "powershell.exe" : "/bin/sh", isWindows() ? "-Command" : "-c", cmd},
+                    cmd,
+                    projectRoot,
+                    false,
+                    timeout,
+                    outputConsumer,
+                    null,
+                    Map.of(),
+                    null);
 
     public static BiFunction<String, Path, ShellCommandRunner> shellCommandRunnerFactory =
             DEFAULT_SHELL_COMMAND_RUNNER_FACTORY;
@@ -101,7 +116,16 @@ public class Environment {
     public String runShellCommand(
             String command, Path root, boolean sandbox, Consumer<String> outputConsumer, Duration timeout)
             throws SubprocessException, InterruptedException {
-        return runShellCommandInternal(command, root, sandbox, timeout, outputConsumer, null, Map.of(), null);
+        return runShellCommandInternal(
+                new String[] {isWindows() ? "powershell.exe" : "/bin/sh", isWindows() ? "-Command" : "-c", command},
+                command,
+                root,
+                sandbox,
+                timeout,
+                outputConsumer,
+                null,
+                Map.of(),
+                null);
     }
 
     /**
@@ -129,22 +153,50 @@ public class Environment {
             Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
-        // Check if shellCommandRunnerFactory has been overridden for testing.
-        // If so, use the factory path (which allows tests to mock/stub).
-        // Otherwise, use the direct path with ExecutorConfig and environment support.
         if (shellCommandRunnerFactory != DEFAULT_SHELL_COMMAND_RUNNER_FACTORY) {
-            // Test hook: delegate to factory
             return shellCommandRunnerFactory.apply(command, root).run(outputConsumer, timeout);
         }
 
-        // Production path: use the new overload with full support
         return runShellCommandInternal(
-                command, root, false, timeout, outputConsumer, executorConfig, environment, processConsumer);
+                new String[] {isWindows() ? "powershell.exe" : "/bin/sh", isWindows() ? "-Command" : "-c", command},
+                command,
+                root,
+                false,
+                timeout,
+                outputConsumer,
+                executorConfig,
+                environment,
+                processConsumer);
+    }
+
+    /**
+     * Runs a command specified as an argument list (argv), bypassing shell interpretation and quoting issues.
+     */
+    public String runProcess(java.util.List<String> args, Path root, Consumer<String> outputConsumer, Duration timeout)
+            throws SubprocessException, InterruptedException {
+        String commandDesc = String.join(" ", args);
+        // If mocked, use the factory
+        if (shellCommandRunnerFactory != DEFAULT_SHELL_COMMAND_RUNNER_FACTORY) {
+            return shellCommandRunnerFactory.apply(commandDesc, root).run(outputConsumer, timeout);
+        }
+
+        return runShellCommandInternal(
+                args.toArray(new String[0]),
+                commandDesc,
+                root,
+                false,
+                timeout,
+                outputConsumer,
+                null,
+                Map.of(),
+                null,
+                true); // Use direct execution, skip shell wrapper
     }
 
     /** Internal helper that supports running the command in a sandbox when requested. */
     private static String runShellCommandInternal(
-            String command,
+            String[] shellCommand,
+            String commandDesc,
             Path root,
             boolean sandbox,
             Duration timeout,
@@ -153,14 +205,38 @@ public class Environment {
             Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
+        return runShellCommandInternal(
+                shellCommand,
+                commandDesc,
+                root,
+                sandbox,
+                timeout,
+                outputConsumer,
+                executorConfig,
+                environment,
+                processConsumer,
+                false);
+    }
+
+    private static String runShellCommandInternal(
+            String[] shellCommand,
+            String commandDesc,
+            Path root,
+            boolean sandbox,
+            Duration timeout,
+            Consumer<String> outputConsumer,
+            @Nullable ExecutorConfig executorConfig,
+            Map<String, String> environment,
+            @Nullable Consumer<Process> processConsumer,
+            boolean directExecute)
+            throws SubprocessException, InterruptedException {
         logger.debug(
                 "Running internal `{}` in `{}` (sandbox={}, has-consumer={})",
-                command,
+                commandDesc,
                 root,
                 sandbox,
                 processConsumer != null);
 
-        String[] shellCommand;
         if (sandbox) {
             if (isWindows()) {
                 throw new UnsupportedOperationException("sandboxing is not supported on Windows");
@@ -198,7 +274,7 @@ public class Environment {
                 // Phase 2: Support approved custom executors in sandbox mode
                 if (executorConfig != null && ExecutorValidator.isApprovedForSandbox(executorConfig)) {
                     // Use custom executor with sandbox
-                    String[] executorCommand = executorConfig.buildCommand(command);
+                    String[] executorCommand = executorConfig.buildCommand(commandDesc);
                     String[] sandboxedCommand = new String[executorCommand.length + 4];
                     sandboxedCommand[0] = "sandbox-exec";
                     sandboxedCommand[1] = "-f";
@@ -210,8 +286,9 @@ public class Environment {
                     logger.info("using custom executor '{}' with sandbox", executorConfig.getDisplayName());
                 } else {
                     // Fallback to system default with sandbox
-                    shellCommand =
-                            new String[] {"sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", command};
+                    shellCommand = new String[] {
+                        "sandbox-exec", "-f", policyFile.toString(), "--", "/bin/sh", "-c", commandDesc
+                    };
 
                     if (executorConfig != null) {
                         logger.info(
@@ -219,25 +296,16 @@ public class Environment {
                                 executorConfig.getDisplayName());
                     }
                 }
-                // TODO
             } else if (isLinux()) {
                 throw new UnsupportedOperationException("sandboxing is not supported yet on Linux");
             } else {
                 throw new UnsupportedOperationException("sandboxing is not supported on this OS");
             }
-        } else {
+        } else if (!directExecute) {
             // Phase 1: Support custom executors for non-sandboxed execution
             if (executorConfig != null && executorConfig.isValid()) {
-                shellCommand = executorConfig.buildCommand(command);
+                shellCommand = executorConfig.buildCommand(commandDesc);
                 logger.info("using custom executor '{}'", executorConfig.getDisplayName());
-            } else {
-                if (executorConfig != null && !executorConfig.isValid()) {
-                    logger.warn("invalid custom executor '{}', using system default", executorConfig);
-                }
-                // Fall back to system default
-                shellCommand = isWindows()
-                        ? new String[] {"powershell.exe", "-Command", command}
-                        : new String[] {"/bin/sh", "-c", command};
             }
         }
 
@@ -256,10 +324,8 @@ public class Environment {
                 processConsumer.accept(process);
             }
         } catch (IOException e) {
-            var shell = isWindows() ? "cmd.exe" : "/bin/sh";
             throw new StartupException(
-                    "unable to start %s in %s for command: `%s` (%s)".formatted(shell, root, command, e.getMessage()),
-                    "");
+                    "unable to start command in %s: `%s` (%s)".formatted(root, commandDesc, e.getMessage()), "");
         }
 
         CompletableFuture<String> stdoutFuture =
@@ -284,24 +350,24 @@ public class Environment {
                 String stderr = stderrFuture.join();
                 combinedOutput = formatOutput(stdout, stderr);
                 throw new TimeoutException(
-                        "process '%s' did not complete within %s".formatted(command, timeout), combinedOutput);
+                        "process '%s' did not complete within %s".formatted(commandDesc, timeout), combinedOutput);
             }
         } catch (InterruptedException ie) {
             process.destroyForcibly();
             stdoutFuture.cancel(true);
             stderrFuture.cancel(true);
-            logger.warn("Process '{}' interrupted.", command);
+            logger.warn("Process '{}' interrupted.", commandDesc);
             throw ie;
         }
 
         // collect output with timeout to avoid indefinite blocking
-        StreamOutput streams = collectStreamOutputs(stdoutFuture, stderrFuture, command);
+        StreamOutput streams = collectStreamOutputs(stdoutFuture, stderrFuture, commandDesc);
         combinedOutput = formatOutput(streams.stdout(), streams.stderr());
         int exitCode = process.exitValue();
 
         if (exitCode != 0) {
             throw new FailureException(
-                    "process '%s' signaled error code %d".formatted(command, exitCode), combinedOutput, exitCode);
+                    "process '%s' signaled error code %d".formatted(commandDesc, exitCode), combinedOutput, exitCode);
         }
 
         return combinedOutput;
