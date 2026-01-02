@@ -530,15 +530,18 @@ public class RightPanel extends JPanel implements ThemeAware {
             }
 
             // Restore divider locations from GlobalUiSettings so the user's preferred vertical layout survives
-            // restarts.
-            int savedLeftSplit = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
-            int savedHorizontalSplit = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
-            if (savedLeftSplit > 0 && verticalLayoutLeftSplit != null) {
-                verticalLayoutLeftSplit.setDividerLocation(savedLeftSplit);
-            }
-            if (savedHorizontalSplit > 0) {
-                verticalActivityCombinedPanel.setDividerLocation(savedHorizontalSplit);
-            }
+            // restarts. Deferred via invokeLater because setDividerLocation() can be ignored if the split pane
+            // hasn't been laid out yet (size is 0) after the component swap above.
+            SwingUtilities.invokeLater(() -> {
+                int savedLeftSplit = GlobalUiSettings.getVerticalLayoutLeftSplitPosition();
+                int savedHorizontalSplit = GlobalUiSettings.getVerticalLayoutHorizontalSplitPosition();
+                if (savedLeftSplit > 0 && verticalLayoutLeftSplit != null) {
+                    verticalLayoutLeftSplit.setDividerLocation(savedLeftSplit);
+                }
+                if (savedHorizontalSplit > 0 && verticalActivityCombinedPanel != null) {
+                    verticalActivityCombinedPanel.setDividerLocation(savedHorizontalSplit);
+                }
+            });
         } else {
             historyOutputPanel.applyFixedCaptureBarSizing(false);
 
