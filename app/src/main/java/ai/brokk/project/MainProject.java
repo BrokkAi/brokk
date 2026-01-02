@@ -418,20 +418,17 @@ public final class MainProject extends AbstractProject {
             }
         }
 
-        // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
+        // 2) Normalize environment variables.
+        // Omit JAVA_HOME from project-scoped storage as it is persisted in workspace properties.
         Map<String, String> envIn = details.environmentVariables();
         Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
         for (Map.Entry<String, String> e : envIn.entrySet()) {
             String k = e.getKey();
             String v = e.getValue();
-            if (v == null) {
-                continue; // NullAway should avoid this, but be defensive
+            if (v == null || "JAVA_HOME".equalsIgnoreCase(k)) {
+                continue;
             }
-            if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
-            } else {
-                canonicalEnv.put(k, v);
-            }
+            canonicalEnv.put(k, v);
         }
 
         var canonicalDetails = new BuildAgent.BuildDetails(
