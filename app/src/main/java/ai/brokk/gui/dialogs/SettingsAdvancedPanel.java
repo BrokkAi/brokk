@@ -55,8 +55,11 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             new JCheckBox("Tab inserts indentation in Instructions (Code-style)");
     private final JCheckBox advancedModeCheckbox = new JCheckBox("Enable Advanced Mode (show all UI)");
     private final JCheckBox skipCommitGateEzCheckbox = new JCheckBox("Skip commit gate in EZ mode");
+    private final JLabel watchServiceImplLabel = new JLabel("File watcher implementation:");
     private final JComboBox<String> watchServiceImplCombo =
             new JComboBox<>(new String[] {"Default (auto)", "Legacy", "Native"});
+    private final JLabel watchNote =
+            new JLabel("<html><i>Changing this will require restarting Brokk to fully take effect.</i></html>");
 
     // Startup tab
     private final JRadioButton startupOpenLastRadio = new JRadioButton("Open last project (recommended)");
@@ -333,9 +336,15 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
             memorySpinner.setValue(v);
         }
 
-        advancedModeCheckbox.setSelected(GlobalUiSettings.isAdvancedMode());
+        boolean isAdvanced = GlobalUiSettings.isAdvancedMode();
+        advancedModeCheckbox.setSelected(isAdvanced);
         skipCommitGateEzCheckbox.setSelected(GlobalUiSettings.isSkipCommitGateInEzMode());
-        skipCommitGateEzCheckbox.setVisible(!GlobalUiSettings.isAdvancedMode());
+        skipCommitGateEzCheckbox.setVisible(!isAdvanced);
+        boolean isDevMode = Boolean.getBoolean("brokk.devmode");
+        watchServiceImplLabel.setVisible(isDevMode);
+        watchServiceImplCombo.setVisible(isDevMode);
+        watchNote.setVisible(isDevMode);
+
         instructionsTabInsertIndentationCheckbox.setSelected(GlobalUiSettings.isInstructionsTabInsertIndentation());
 
         String pref = MainProject.getWatchServiceImplPreference();
@@ -576,6 +585,9 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         advancedModeCheckbox.addActionListener(e -> {
             boolean advanced = advancedModeCheckbox.isSelected();
             skipCommitGateEzCheckbox.setVisible(!advanced);
+            watchServiceImplLabel.setVisible(advanced);
+            watchServiceImplCombo.setVisible(advanced);
+            watchNote.setVisible(advanced);
             panel.revalidate();
             panel.repaint();
         });
@@ -585,7 +597,7 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         gbc.gridy = row;
         gbc.weightx = 0.0;
         gbc.fill = GridBagConstraints.NONE;
-        panel.add(new JLabel("File watcher implementation:"), gbc);
+        panel.add(watchServiceImplLabel, gbc);
 
         gbc.gridx = 1;
         gbc.gridy = row++;
@@ -595,8 +607,6 @@ public class SettingsAdvancedPanel extends JPanel implements ThemeAware {
         watchPanel.add(watchServiceImplCombo);
         panel.add(watchPanel, gbc);
 
-        var watchNote =
-                new JLabel("<html><i>Changing this will require restarting Brokk to fully take effect.</i></html>");
         gbc.gridy = row++;
         gbc.insets = new Insets(0, 25, 2, 5);
         gbc.gridx = 1;

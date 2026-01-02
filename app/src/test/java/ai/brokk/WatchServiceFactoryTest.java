@@ -59,7 +59,9 @@ class WatchServiceFactoryTest {
         var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "linux");
 
         assertNotNull(service);
-        assertTrue(service instanceof NativeProjectWatchService, "Should create NativeProjectWatchService for Linux");
+        assertTrue(
+                service instanceof JavaProjectWatchService,
+                "Should create JavaProjectWatchService for Linux by default");
     }
 
     @Test
@@ -67,7 +69,9 @@ class WatchServiceFactoryTest {
         var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "windows 10");
 
         assertNotNull(service);
-        assertTrue(service instanceof NativeProjectWatchService, "Should create NativeProjectWatchService for Windows");
+        assertTrue(
+                service instanceof JavaProjectWatchService,
+                "Should create JavaProjectWatchService for Windows by default");
     }
 
     @Test
@@ -83,13 +87,13 @@ class WatchServiceFactoryTest {
 
     @Test
     void testDefaultBehaviorNoConfiguration() throws Exception {
-        // When configuration defaults to "legacy" (as per current implementation)
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "linux");
+        // When configuration defaults to "default", it should follow platform logic
+        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "default", "linux");
 
         assertNotNull(service);
         assertTrue(
                 service instanceof JavaProjectWatchService,
-                "Should use legacy when default configuration is 'legacy'");
+                "Should use legacy on Linux when configuration is 'default'");
     }
 
     @Test
