@@ -13,6 +13,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -688,6 +689,33 @@ class ContextManagerFileWatchingTest {
         assertTrue(
                 testIO.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS),
                 "updateCommitPanel should be called when gitignore changes even if files are suppressed");
+        assertTrue(testIO.commitPanelUpdateCount.get() >= 1);
+    }
+
+    @Test
+    void testFileWatchListener_SuppressionExpires_AllowsLaterExternalEvent() throws Exception {
+        ProjectFile file = new ProjectFile(projectRoot, Path.of("src/Main.java"));
+        contextManager.setIo(testIO);
+
+        // 1. Set a very short TTL for tests
+        contextManager.setSuppressionTtlForTests(Duration.ofMillis(100));
+
+        // 2. Register suppression
+        contextManager.withFileChangeNotificationsPaused(List.of(file), () -> null);
+
+        // 3. Wait for TTL to expire
+        Thread.sleep(200);
+
+        // 4. Fire a watcher event for the "previously suppressed" file
+        IWatchService.Listener listener = contextManager.createFileWatchListener();
+        EventBatch batch = new EventBatch();
+        batch.files.add(file);
+        listener.onFilesChanged(batch);
+
+        // 5. Assert that it is NOT suppressed anymore (UI updates occur)
+        assertTrue(
+                testIO.commitPanelUpdateLatch.await(5, TimeUnit.SECONDS),
+                "Suppression should have expired, allowing the UI update to trigger");
         assertTrue(testIO.commitPanelUpdateCount.get() >= 1);
     }
 }

@@ -38,6 +38,8 @@ import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.UiTools;
 import ai.brokk.util.*;
 import ai.brokk.util.UserActionManager.ThrowingRunnable;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.Image;
@@ -177,6 +179,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Helper for managing file change suppression and tracking. */
     private final FileChangeTracking fileChangeTracking = new FileChangeTracking();
+
+    /**
+     * Set the TTL for file change suppression entries. Entries will expire after this duration
+     * if no watcher event consumes them.
+     */
+    @TestOnly
+    void setSuppressionTtlForTests(Duration ttl) {
+        fileChangeTracking.setSuppressionTtl(ttl);
+    }
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -2855,12 +2866,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
      *
      * <p>Invariants:
      * 1. Suppression is consumed exactly once when a file change is detected.
-     * 2. Internal write marker prevents external change snapshots during build callbacks.
-     * 3. Suppression check-and-consume is atomic for an entire batch of events.
+     * 2. Suppression entries may expire (TTL) if no watcher event arrives to consume them.
+     * 3. Internal write marker prevents external change snapshots during build callbacks.
+     * 4. Suppression check-and-consume is atomic for an entire batch of events.
      */
     private final class FileChangeTracking {
-        private final Set<ProjectFile> suppressedFiles = ConcurrentHashMap.newKeySet();
+        private static final Duration DEFAULT_SUPPRESSION_TTL = Duration.ofSeconds(5);
+
         private final Object suppressionLock = new Object();
+        private volatile Cache<ProjectFile, Boolean> suppressedFiles = createSuppressionCache(DEFAULT_SUPPRESSION_TTL);
 
         /**
          * Guard for atomic drain-vs-add semantics of pending changes.
@@ -2872,21 +2886,34 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         private final AtomicInteger internalWriteMarker = new AtomicInteger(0);
 
+        private Cache<ProjectFile, Boolean> createSuppressionCache(Duration ttl) {
+            return Caffeine.newBuilder().expireAfterWrite(ttl).build();
+        }
+
+        void setSuppressionTtl(Duration ttl) {
+            synchronized (suppressionLock) {
+                // When rebuilding, we discard the old cache. This is acceptable for tests
+                // and avoids complex migration of expiring entries.
+                suppressedFiles = createSuppressionCache(ttl);
+            }
+        }
+
         /**
          * Identifies which files in the set are suppressed, removes them from the
          * suppressed set (consuming the suppression), and returns the remaining files.
          */
         Set<ProjectFile> filterAndConsumeSuppressed(Set<ProjectFile> batchFiles) {
             synchronized (suppressionLock) {
+                var cache = suppressedFiles;
                 Set<ProjectFile> toSuppress = batchFiles.stream()
-                        .filter(suppressedFiles::contains)
+                        .filter(f -> cache.getIfPresent(f) != null)
                         .collect(Collectors.toSet());
 
                 Set<ProjectFile> remaining = batchFiles.stream()
                         .filter(f -> !toSuppress.contains(f))
                         .collect(Collectors.toSet());
 
-                suppressedFiles.removeAll(toSuppress);
+                cache.invalidateAll(toSuppress);
                 return remaining;
             }
         }
@@ -2907,13 +2934,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         void beginInternalWrite(Collection<ProjectFile> filesToSuppress) {
             internalWriteMarker.incrementAndGet();
-            suppressedFiles.addAll(filesToSuppress);
+            var cache = suppressedFiles;
+            for (ProjectFile file : filesToSuppress) {
+                cache.put(file, Boolean.TRUE);
+            }
         }
 
         void endInternalWrite(Collection<ProjectFile> filesToSuppress, boolean success) {
             internalWriteMarker.decrementAndGet();
             if (!success) {
-                suppressedFiles.removeAll(filesToSuppress);
+                suppressedFiles.invalidateAll(filesToSuppress);
             }
         }
 
