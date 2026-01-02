@@ -181,6 +181,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     private final Set<ProjectFile> suppressedFiles = ConcurrentHashMap.newKeySet();
 
+    /**
+     * Set of unsuppressed file changes that have been detected but not yet processed
+     * into a context snapshot.
+     */
+    private final Set<ProjectFile> pendingUnsuppressedFileChanges = ConcurrentHashMap.newKeySet();
+
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
@@ -562,6 +568,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         .filter(f -> !suppressedFiles.remove(f))
                         .collect(Collectors.toSet());
 
+                // Track unsuppressed changes
+                pendingUnsuppressedFileChanges.addAll(remainingFiles);
+
                 if (remainingFiles.isEmpty() && !batch.untrackedGitignoreChanged && !batch.isOverflowed) {
                     logger.debug("All files in batch were suppressed self-writes; ignoring batch");
                     return;
@@ -661,6 +670,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param changedFiles Set of files that changed (may be empty for backward compatibility)
      */
     void handleTrackedFileChange(Set<ProjectFile> changedFiles) {
+        if (!changedFiles.isEmpty()) {
+            pendingUnsuppressedFileChanges.addAll(changedFiles);
+        }
+
         submitBackgroundTask("Update for FS changes", () -> {
             // Invalidate caches
             project.getRepo().invalidateCaches();
@@ -1601,6 +1614,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
             contextHistory.addGitState(frozenContext.id(), gitState);
         } catch (Exception e) {
             logger.error("Failed to capture git state", e);
+        }
+    }
+
+    /**
+     * Atomically captures and clears the set of pending unsuppressed file changes.
+     *
+     * @return The set of files changed since the last drain.
+     */
+    public Set<ProjectFile> drainPendingFileChanges() {
+        synchronized (pendingUnsuppressedFileChanges) {
+            Set<ProjectFile> drained = new HashSet<>(pendingUnsuppressedFileChanges);
+            pendingUnsuppressedFileChanges.clear();
+            return drained;
         }
     }
 
