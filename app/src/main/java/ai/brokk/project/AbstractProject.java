@@ -445,22 +445,31 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
     @Override
     public @Nullable String getJdk() {
-        var value = workspaceProps.getProperty(PROP_JDK_HOME);
+        // Clean up legacy local property if present
+        if (workspaceProps.containsKey(PROP_JDK_HOME)) {
+            workspaceProps.remove(PROP_JDK_HOME);
+            saveWorkspaceProperties();
+        }
+
+        String value = MainProject.getGlobalJdkHome();
         if (value == null || value.isBlank()) {
             value = EnvironmentJava.detectJdk();
-            setJdk(value);
+            if (value != null) {
+                MainProject.setGlobalJdkHome(value);
+            }
         }
         return value;
     }
 
     @Override
     public void setJdk(@Nullable String jdkHome) {
-        if (jdkHome == null || jdkHome.isBlank()) {
+        // Ensure legacy local property is cleared
+        if (workspaceProps.containsKey(PROP_JDK_HOME)) {
             workspaceProps.remove(PROP_JDK_HOME);
-        } else {
-            workspaceProps.setProperty(PROP_JDK_HOME, jdkHome);
+            saveWorkspaceProperties();
         }
-        saveWorkspaceProperties();
+
+        MainProject.setGlobalJdkHome(jdkHome);
     }
 
     @Override
