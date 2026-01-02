@@ -232,9 +232,9 @@ class SessionSynchronizer {
                                 return null;
                             })
                             .get();
-                } catch (ExecutionException e) {
-                    Throwable cause = e.getCause();
-                    Exception ex = (cause instanceof Exception) ? (Exception) cause : new Exception(cause);
+                } catch (ExecutionException executionException) {
+                    Throwable cause = executionException.getCause();
+                    Exception ex = (cause instanceof Exception e) ? e : new Exception(cause);
                     result.failed.put(id, ex);
                     logger.warn("Action {} failed for session {}: {}", action.type(), id, ex.getMessage());
                 }

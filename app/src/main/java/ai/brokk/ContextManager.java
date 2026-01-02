@@ -2309,10 +2309,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return Objects.equals(liveContext(), selectedContext());
     }
 
+    @Override
     public UUID getCurrentSessionId() {
         return currentSessionId;
     }
 
+    @Override
     public void reloadCurrentSessionAsync() {
         switchSessionAsync(getCurrentSessionId());
     }
@@ -2336,6 +2338,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @param name The name for the new session
      * @return A CompletableFuture representing the completion of the session creation task
      */
+    @Override
     public CompletableFuture<Void> createSessionAsync(String name) {
         // No explicit exclusivity check for new session, as it gets a new unique ID.
         return submitExclusiveAction(() -> {

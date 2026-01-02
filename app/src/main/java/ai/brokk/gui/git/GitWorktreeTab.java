@@ -845,14 +845,14 @@ public class GitWorktreeTab extends JPanel {
                 }
                 try {
                     logger.debug("Attempting non-forced removal of worktree {}", worktreePath);
-                    attemptRemoveWorktree(repo, worktreePath, false);
+                    attemptRemoveWorktree(worktreePath, false);
                 } catch (GitRepo.WorktreeNeedsForceException ne) {
                     logger.warn("Worktree {} removal needs force: {}", worktreePath, ne.getMessage());
 
                     if (forceAll) {
                         try {
                             logger.debug("ForceAll active; attempting forced removal of worktree {}", worktreePath);
-                            attemptRemoveWorktree(repo, worktreePath, true);
+                            attemptRemoveWorktree(worktreePath, true);
                         } catch (
                                 GitRepo.GitRepoException
                                         forceEx) { // WorktreeNeedsForceException is a subclass and would be caught here
@@ -892,7 +892,7 @@ public class GitWorktreeTab extends JPanel {
                             }
                             try {
                                 logger.debug("Attempting forced removal of worktree {}", worktreePath);
-                                attemptRemoveWorktree(repo, worktreePath, true);
+                                attemptRemoveWorktree(worktreePath, true);
                             } catch (
                                     GitRepo.GitRepoException
                                             forceEx) { // WorktreeNeedsForceException is a subclass and would be caught
@@ -947,8 +947,7 @@ public class GitWorktreeTab extends JPanel {
         });
     }
 
-    private void attemptRemoveWorktree(IGitRepo repo, Path worktreePath, boolean force)
-            throws GitRepo.WorktreeNeedsForceException, GitRepo.GitRepoException {
+    private void attemptRemoveWorktree(Path worktreePath, boolean force) throws GitRepo.GitRepoException {
         try {
             contextManager.getProject().getMainProject().deleteWorktree(worktreePath, force);
 
