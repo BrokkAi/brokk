@@ -13,8 +13,10 @@ import ai.brokk.util.BuildVerifier;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.ExecutorValidator;
+import ai.brokk.util.PathNormalizer;
 import com.google.common.io.Files;
 import java.awt.*;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.Objects;
@@ -812,12 +814,27 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         // JDK Controls (only for Java)
         if (selectedPrimaryLang == Languages.JAVA) {
-            String jdkToSet = null;
             if (setJavaHomeCheckbox.isSelected()) {
-                jdkToSet = jdkSelector.getSelectedJdkPath();
+                String rawPath = jdkSelector.getSelectedJdkPath();
+                if (rawPath == null || rawPath.isBlank()) {
+                    JOptionPane.showMessageDialog(this, "Please select a valid JDK path.", "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+
+                String normalizedPath = normalizeJdkPath(rawPath);
+                Path path = Path.of(normalizedPath);
+                String error = JdkSelector.validateJdkPath(path);
+                if (error != null) {
+                    JOptionPane.showMessageDialog(this, error, "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+
+                project.setJdk(normalizedPath);
+                logger.debug("Applied JDK Home: {}", normalizedPath);
+            } else {
+                project.setJdk(null);
+                logger.debug("Removed JDK Home override");
             }
-            project.setJdk(jdkToSet);
-            logger.debug("Applied JDK Home: {}", jdkToSet);
         }
 
         if (selectedPrimaryLang != null && selectedPrimaryLang != project.getBuildLanguage()) {
@@ -1014,6 +1031,28 @@ public class SettingsProjectBuildPanel extends JPanel {
             }
         };
         worker.execute();
+    }
+
+    /**
+     * Normalizes a JDK path: canonicalizes environment path strings and
+     * resolves macOS "Contents/Home" if pointing to a bundle root.
+     */
+    static String normalizeJdkPath(String rawPath) {
+        String canonical = PathNormalizer.canonicalizeEnvPathValue(rawPath);
+        if (canonical.isEmpty()) return "";
+
+        try {
+            Path path = Path.of(canonical);
+            // On macOS, if the selected path is a bundle root, use Contents/Home instead
+            Path contentsHome = path.resolve("Contents").resolve("Home");
+            if (JdkSelector.isValidJdkPath(contentsHome)) {
+                return PathNormalizer.canonicalizeEnvPathValue(contentsHome.toString());
+            }
+        } catch (Exception e) {
+            logger.debug("Error during JDK path normalization for {}: {}", rawPath, e.getMessage());
+        }
+
+        return canonical;
     }
 
     private void showBuildAgentCancelledNotification() {
