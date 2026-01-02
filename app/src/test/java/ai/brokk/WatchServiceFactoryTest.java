@@ -19,7 +19,7 @@ class WatchServiceFactoryTest {
 
         assertNotNull(service);
         assertTrue(
-                service instanceof LegacyProjectWatchService,
+                service instanceof JavaProjectWatchService,
                 "Should create LegacyProjectWatchService when configured as 'legacy'");
     }
 
@@ -37,7 +37,7 @@ class WatchServiceFactoryTest {
     void testConfigurationCaseInsensitive() throws Exception {
         var legacyService = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "LEGACY", "linux");
         assertTrue(
-                legacyService instanceof LegacyProjectWatchService,
+                legacyService instanceof JavaProjectWatchService,
                 "Should handle case-insensitive configuration values");
 
         var nativeService = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "NATIVE", "linux");
@@ -88,7 +88,7 @@ class WatchServiceFactoryTest {
 
         assertNotNull(service);
         assertTrue(
-                service instanceof LegacyProjectWatchService,
+                service instanceof JavaProjectWatchService,
                 "Should use legacy when default configuration is 'legacy'");
     }
 
@@ -106,7 +106,7 @@ class WatchServiceFactoryTest {
                 WatchServiceFactory.createInternal(gitRepo, gitRepo, globalGitignore, List.of(), "legacy", "linux");
 
         assertNotNull(service);
-        assertTrue(service instanceof LegacyProjectWatchService);
+        assertTrue(service instanceof JavaProjectWatchService);
     }
 
     @Test
@@ -126,7 +126,7 @@ class WatchServiceFactoryTest {
         var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "linux");
 
         assertNotNull(service);
-        assertTrue(service instanceof LegacyProjectWatchService);
+        assertTrue(service instanceof JavaProjectWatchService);
     }
 
     @Test
@@ -147,7 +147,7 @@ class WatchServiceFactoryTest {
 
         assertNotNull(service);
         assertTrue(
-                service instanceof LegacyProjectWatchService, "Configuration should override platform-based selection");
+                service instanceof JavaProjectWatchService, "Configuration should override platform-based selection");
     }
 
     /**

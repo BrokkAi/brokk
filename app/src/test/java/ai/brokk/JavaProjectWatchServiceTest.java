@@ -20,12 +20,12 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * Tests for LegacyProjectWatchService, focusing on multi-listener functionality.
  */
-class LegacyProjectWatchServiceTest {
+class JavaProjectWatchServiceTest {
 
     @TempDir
     Path tempDir;
 
-    private LegacyProjectWatchService watchService;
+    private JavaProjectWatchService watchService;
     private final List<TestListener> testListeners = new ArrayList<>();
     private Path gitRepoDir; // For worktree tests
 
@@ -68,7 +68,7 @@ class LegacyProjectWatchServiceTest {
 
         // Create watch service with all three listeners
         List<Listener> listeners = new ArrayList<>(testListeners);
-        watchService = new LegacyProjectWatchService(tempDir, null, null, listeners);
+        watchService = new JavaProjectWatchService(tempDir, null, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give the watch service time to start (increased for CI reliability)
@@ -109,7 +109,7 @@ class LegacyProjectWatchServiceTest {
         testListeners.add(listener3);
 
         List<Listener> listeners = new ArrayList<>(testListeners);
-        watchService = new LegacyProjectWatchService(tempDir, null, null, listeners);
+        watchService = new JavaProjectWatchService(tempDir, null, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize (increased for CI reliability)
@@ -144,7 +144,7 @@ class LegacyProjectWatchServiceTest {
         testListeners.add(listener2);
 
         List<Listener> listeners = new ArrayList<>(testListeners);
-        watchService = new LegacyProjectWatchService(tempDir, null, null, listeners);
+        watchService = new JavaProjectWatchService(tempDir, null, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
@@ -183,7 +183,7 @@ class LegacyProjectWatchServiceTest {
         testListeners.add(listener2);
 
         List<Listener> listeners = new ArrayList<>(testListeners);
-        watchService = new LegacyProjectWatchService(tempDir, null, null, listeners);
+        watchService = new JavaProjectWatchService(tempDir, null, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize (increased for CI reliability)
@@ -225,7 +225,7 @@ class LegacyProjectWatchServiceTest {
     @Test
     void testEmptyListenerList() throws Exception {
         // Create watch service with empty list
-        watchService = new LegacyProjectWatchService(tempDir, null, null, List.of());
+        watchService = new JavaProjectWatchService(tempDir, null, null, List.of());
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize (increased for CI reliability)
@@ -248,7 +248,7 @@ class LegacyProjectWatchServiceTest {
         TestListener listener1 = new TestListener("Listener1");
         testListeners.add(listener1);
 
-        watchService = new LegacyProjectWatchService(tempDir, null, null, List.of(listener1));
+        watchService = new JavaProjectWatchService(tempDir, null, null, List.of(listener1));
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
@@ -285,7 +285,7 @@ class LegacyProjectWatchServiceTest {
         testListeners.add(listener2);
 
         List<Listener> listeners = new ArrayList<>(testListeners);
-        watchService = new LegacyProjectWatchService(tempDir, null, null, listeners);
+        watchService = new JavaProjectWatchService(tempDir, null, null, listeners);
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
@@ -314,7 +314,7 @@ class LegacyProjectWatchServiceTest {
     @Test
     void testMultipleDynamicListenerOperations() throws Exception {
         // Start with empty listener list
-        watchService = new LegacyProjectWatchService(tempDir, null, null, List.of());
+        watchService = new JavaProjectWatchService(tempDir, null, null, List.of());
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
@@ -394,7 +394,7 @@ class LegacyProjectWatchServiceTest {
         testListeners.add(listener);
 
         // Create the watcher with gitRepoRoot pointing to the external main repo
-        watchService = new LegacyProjectWatchService(tempDir, gitRepoDir, null, List.of(listener));
+        watchService = new JavaProjectWatchService(tempDir, gitRepoDir, null, List.of(listener));
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Allow watcher to settle
@@ -438,7 +438,7 @@ class LegacyProjectWatchServiceTest {
         testListeners.add(listener);
 
         // Create the watcher with gitRepoRoot pointing to the external main repo
-        watchService = new LegacyProjectWatchService(tempDir, gitRepoDir, null, List.of(listener));
+        watchService = new JavaProjectWatchService(tempDir, gitRepoDir, null, List.of(listener));
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Allow watcher to settle
@@ -483,7 +483,7 @@ class LegacyProjectWatchServiceTest {
 
         // Create watcher with worktree as BOTH root and gitRepoRoot (real scenario)
         var listener = new TestListener("worktree-git-file");
-        watchService = new LegacyProjectWatchService(tempDir, tempDir, null, List.of(listener));
+        watchService = new JavaProjectWatchService(tempDir, tempDir, null, List.of(listener));
 
         watchService.start(CompletableFuture.completedFuture(null));
 

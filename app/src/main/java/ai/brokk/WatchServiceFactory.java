@@ -116,7 +116,7 @@ public class WatchServiceFactory {
 
         if (WATCH_SERVICE_IMPL_LEGACY.equalsIgnoreCase(implProp)) {
             logger.debug("Using legacy watch service (forced by configuration)");
-            return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
+            return new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
         if (WATCH_SERVICE_IMPL_NATIVE.equalsIgnoreCase(implProp)) {
             logger.debug("Using native watch service (forced by configuration)");
@@ -155,7 +155,7 @@ public class WatchServiceFactory {
             return new NativeProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         } catch (Exception e) {
             logger.error("Failed to create native watch service, falling back to legacy", e);
-            return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
+            return new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
     }
 }
