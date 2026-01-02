@@ -2878,7 +2878,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * 3. Internal write marker prevents external change snapshots during build callbacks.
      * 4. Suppression check-and-consume is atomic for an entire batch of events.
      */
-    private final class FileChangeTracking {
+    private static final class FileChangeTracking {
         private static final Duration DEFAULT_SUPPRESSION_TTL = Duration.ofSeconds(5);
 
         private final Object suppressionLock = new Object();
@@ -2890,6 +2890,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
          * snapshot and clear steps of drainPending, which would result in lost events.
          */
         private final Object pendingLock = new Object();
+
         private final Set<ProjectFile> pendingUnsuppressedFileChanges = new HashSet<>();
 
         private final AtomicInteger internalWriteMarker = new AtomicInteger(0);
@@ -2917,9 +2918,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         .filter(f -> cache.getIfPresent(f) != null)
                         .collect(Collectors.toSet());
 
-                Set<ProjectFile> remaining = batchFiles.stream()
-                        .filter(f -> !toSuppress.contains(f))
-                        .collect(Collectors.toSet());
+                Set<ProjectFile> remaining =
+                        batchFiles.stream().filter(f -> !toSuppress.contains(f)).collect(Collectors.toSet());
 
                 cache.invalidateAll(toSuppress);
                 return remaining;
@@ -2944,7 +2944,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             internalWriteMarker.incrementAndGet();
             var cache = suppressedFiles;
             for (ProjectFile file : filesToSuppress) {
-                cache.put(file, Boolean.TRUE);
+                cache.put(file, true);
             }
         }
 
@@ -2953,10 +2953,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (!success) {
                 suppressedFiles.invalidateAll(filesToSuppress);
             }
-        }
-
-        boolean isInternalWriteInProgress() {
-            return internalWriteMarker.get() > 0;
         }
 
         int internalWriteMarker() {

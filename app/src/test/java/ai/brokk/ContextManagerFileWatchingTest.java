@@ -594,7 +594,9 @@ class ContextManagerFileWatchingTest {
         analyzerListener.afterEachBuild(false);
 
         // 5. Verify pending changes were retained and are now processed
-        assertTrue(testIO.workspaceUpdateLatch.await(5, TimeUnit.SECONDS), "updateWorkspace should be called after resume");
+        assertTrue(
+                testIO.workspaceUpdateLatch.await(5, TimeUnit.SECONDS),
+                "updateWorkspace should be called after resume");
         assertTrue(
                 countingHistory.externalChangesCallCount.get() >= 1,
                 "Should process previously pending changes after resume");
@@ -655,10 +657,8 @@ class ContextManagerFileWatchingTest {
         // Final drain to catch anything remaining after threads joined
         allDrainedFiles.addAll(contextManager.drainPendingFileChanges());
 
-        assertEquals(allExpectedFiles.size(), allDrainedFiles.size(),
-                "Lost events during concurrent add and drain");
-        assertEquals(allExpectedFiles, allDrainedFiles,
-                "Drained set does not match recorded set");
+        assertEquals(allExpectedFiles.size(), allDrainedFiles.size(), "Lost events during concurrent add and drain");
+        assertEquals(allExpectedFiles, allDrainedFiles, "Drained set does not match recorded set");
     }
 
     @Test
