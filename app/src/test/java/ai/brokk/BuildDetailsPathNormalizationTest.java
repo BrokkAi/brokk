@@ -7,6 +7,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.AtomicWrites;
+import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -223,7 +224,8 @@ public class BuildDetailsPathNormalizationTest {
         Path workspacePropsFile = root.resolve(".brokk/workspace.properties");
         assertTrue(Files.exists(workspacePropsFile), "workspace.properties should be created");
         Properties wsProps = loadProps(workspacePropsFile);
-        assertEquals(jdkPath, wsProps.getProperty("jdk.home"), "jdk.home should be migrated to workspace.properties");
+        String expectedJdkHome = PathNormalizer.canonicalizeEnvPathValue(jdkPath);
+        assertEquals(expectedJdkHome, wsProps.getProperty("jdk.home"), "jdk.home should be migrated to workspace.properties");
 
         // 4. Assert: Loaded details do NOT contain JAVA_HOME in environmentVariables map
         assertFalse(
