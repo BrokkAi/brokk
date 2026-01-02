@@ -175,29 +175,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     // Publicly exposed flag for the exact TaskScope window
     private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
 
-    /**
-     * Set of files that should have their next watcher-reported change suppressed
-     * because they were written by the app itself.
-     */
-    private final Set<ProjectFile> suppressedFiles = ConcurrentHashMap.newKeySet();
-
-    /**
-     * Lock used to ensure atomic check-and-remove from suppressedFiles during batch processing.
-     */
-    private final Object suppressionLock = new Object();
-
-    /**
-     * Set of unsuppressed file changes that have been detected but not yet processed
-     * into a context snapshot.
-     */
-    private final Set<ProjectFile> pendingUnsuppressedFileChanges = ConcurrentHashMap.newKeySet();
-
-    /**
-     * Counter incremented whenever an internal write occurs. Used to coordinate
-     * with analyzer callbacks to avoid creating "External Change" snapshots for
-     * changes we just performed ourselves.
-     */
-    private final AtomicInteger internalWriteMarker = new AtomicInteger(0);
+    /** Helper for managing file change suppression and tracking. */
+    private final FileChangeTracking fileChangeTracking = new FileChangeTracking();
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -524,11 +503,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     Set<ProjectFile> changed = drainPendingFileChanges();
                     if (changed.isEmpty()) {
                         logger.debug("Skipping processExternalFileChangesIfNeeded: no pending changes");
-                    } else if (analyzerWrapper.isPause() || internalWriteMarker.get() > 0) {
+                    } else if (analyzerWrapper.isPause() || fileChangeTracking.isInternalWriteInProgress()) {
                         logger.debug(
                                 "Skipping processExternalFileChangesIfNeeded: internal write marker active (pause={}, marker={})",
                                 analyzerWrapper.isPause(),
-                                internalWriteMarker.get());
+                                fileChangeTracking.internalWriteMarker());
                     } else {
                         if (processExternalFileChangesIfNeeded(changed)) {
                             io.updateWorkspace();
@@ -582,23 +561,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
             public void onFilesChanged(IWatchService.EventBatch batch) {
                 logger.trace("ContextManager file watch listener received events batch: {}", batch);
 
-                Set<ProjectFile> remainingFiles;
-                synchronized (suppressionLock) {
-                    // Identify which files in this batch are currently suppressed
-                    Set<ProjectFile> toSuppress = batch.files.stream()
-                            .filter(suppressedFiles::contains)
-                            .collect(Collectors.toSet());
-
-                    // Filter batch and consume suppression for identified files
-                    remainingFiles = batch.files.stream()
-                            .filter(f -> !toSuppress.contains(f))
-                            .collect(Collectors.toSet());
-
-                    suppressedFiles.removeAll(toSuppress);
-                }
+                // Identify and consume suppression for files in this batch
+                Set<ProjectFile> remainingFiles = fileChangeTracking.filterAndConsumeSuppressed(batch.files);
 
                 // Track unsuppressed changes
-                pendingUnsuppressedFileChanges.addAll(remainingFiles);
+                fileChangeTracking.recordPendingUnsuppressed(remainingFiles);
 
                 if (remainingFiles.isEmpty() && !batch.untrackedGitignoreChanged && !batch.isOverflowed) {
                     logger.debug("All files in batch were suppressed self-writes; ignoring batch");
@@ -700,7 +667,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     void handleTrackedFileChange(Set<ProjectFile> changedFiles) {
         if (!changedFiles.isEmpty()) {
-            pendingUnsuppressedFileChanges.addAll(changedFiles);
+            fileChangeTracking.recordPendingUnsuppressed(changedFiles);
         }
 
         submitBackgroundTask("Update for FS changes", () -> {
@@ -1652,11 +1619,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return The set of files changed since the last drain.
      */
     public Set<ProjectFile> drainPendingFileChanges() {
-        synchronized (pendingUnsuppressedFileChanges) {
-            Set<ProjectFile> drained = new HashSet<>(pendingUnsuppressedFileChanges);
-            pendingUnsuppressedFileChanges.clear();
-            return drained;
-        }
+        return fileChangeTracking.drainPending();
     }
 
     /**
@@ -1943,17 +1906,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public <T> T withFileChangeNotificationsPaused(Collection<ProjectFile> filesToSuppress, Callable<T> callable) {
         analyzerWrapper.pause();
-        internalWriteMarker.incrementAndGet();
-        suppressedFiles.addAll(filesToSuppress);
+        fileChangeTracking.beginInternalWrite(filesToSuppress);
         try {
             return callable.call();
         } catch (Exception e) {
             // On error, we might want to keep suppression or clear it;
             // usually better to clear it to avoid "ghost" suppression later if the write failed.
-            suppressedFiles.removeAll(filesToSuppress);
+            fileChangeTracking.endInternalWrite(filesToSuppress, false);
             throw new RuntimeException(e);
         } finally {
-            internalWriteMarker.decrementAndGet();
+            fileChangeTracking.endInternalWrite(filesToSuppress, true);
             analyzerWrapper.resume();
         }
     }
@@ -2877,5 +2839,72 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @TestOnly
     public void setAnalyzerWrapper(IAnalyzerWrapper analyzerWrapper) {
         this.analyzerWrapper = analyzerWrapper;
+    }
+
+    /**
+     * Encapsulates state and logic for tracking file system changes and suppressing
+     * notifications for internal writes.
+     *
+     * <p>Invariants:
+     * 1. Suppression is consumed exactly once when a file change is detected.
+     * 2. Internal write marker prevents external change snapshots during build callbacks.
+     * 3. Suppression check-and-consume is atomic for an entire batch of events.
+     */
+    private final class FileChangeTracking {
+        private final Set<ProjectFile> suppressedFiles = ConcurrentHashMap.newKeySet();
+        private final Object suppressionLock = new Object();
+        private final Set<ProjectFile> pendingUnsuppressedFileChanges = ConcurrentHashMap.newKeySet();
+        private final AtomicInteger internalWriteMarker = new AtomicInteger(0);
+
+        /**
+         * Identifies which files in the set are suppressed, removes them from the
+         * suppressed set (consuming the suppression), and returns the remaining files.
+         */
+        Set<ProjectFile> filterAndConsumeSuppressed(Set<ProjectFile> batchFiles) {
+            synchronized (suppressionLock) {
+                Set<ProjectFile> toSuppress = batchFiles.stream()
+                        .filter(suppressedFiles::contains)
+                        .collect(Collectors.toSet());
+
+                Set<ProjectFile> remaining = batchFiles.stream()
+                        .filter(f -> !toSuppress.contains(f))
+                        .collect(Collectors.toSet());
+
+                suppressedFiles.removeAll(toSuppress);
+                return remaining;
+            }
+        }
+
+        void recordPendingUnsuppressed(Set<ProjectFile> files) {
+            pendingUnsuppressedFileChanges.addAll(files);
+        }
+
+        Set<ProjectFile> drainPending() {
+            synchronized (pendingUnsuppressedFileChanges) {
+                Set<ProjectFile> drained = new HashSet<>(pendingUnsuppressedFileChanges);
+                pendingUnsuppressedFileChanges.clear();
+                return drained;
+            }
+        }
+
+        void beginInternalWrite(Collection<ProjectFile> filesToSuppress) {
+            internalWriteMarker.incrementAndGet();
+            suppressedFiles.addAll(filesToSuppress);
+        }
+
+        void endInternalWrite(Collection<ProjectFile> filesToSuppress, boolean success) {
+            internalWriteMarker.decrementAndGet();
+            if (!success) {
+                suppressedFiles.removeAll(filesToSuppress);
+            }
+        }
+
+        boolean isInternalWriteInProgress() {
+            return internalWriteMarker.get() > 0;
+        }
+
+        int internalWriteMarker() {
+            return internalWriteMarker.get();
+        }
     }
 }
