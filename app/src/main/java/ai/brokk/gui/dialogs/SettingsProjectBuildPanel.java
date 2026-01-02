@@ -895,7 +895,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                     env.put("JAVA_HOME", normalizeJdkPath(sel));
                 }
             } else {
-                // If checkbox is NOT selected, we explicitly pass the sentinel to prevent 
+                // If checkbox is NOT selected, we explicitly pass the sentinel to prevent
                 // BuildVerifier from falling back to project.getJdk()
                 env.put("JAVA_HOME", ai.brokk.util.EnvironmentJava.JAVA_HOME_SENTINEL);
             }

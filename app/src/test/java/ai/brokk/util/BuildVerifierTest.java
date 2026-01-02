@@ -120,22 +120,21 @@ class BuildVerifierTest {
     @Test
     void testBuildEnvironmentRelativeJdkPath() throws IOException {
         Path jdkDir = tempDir.resolve("jdks/myjdk");
-        Files.createDirectories(jdkDir.resolve("bin"));
-        Files.createFile(jdkDir.resolve("bin/java"));
-        Files.createFile(jdkDir.resolve("bin/javac"));
+        createFakeJdkHome(jdkDir);
 
+        // Relative paths should no longer be resolved against project root
         var project = new TestProjectWrapper(tempDir, "jdks/myjdk");
         var env = BuildVerifier.buildEnvironmentForCommand(project, null);
 
-        assertEquals(jdkDir.toAbsolutePath().toString(), env.get("JAVA_HOME"));
+        assertFalse(env.containsKey("JAVA_HOME"));
     }
 
     @Test
     void testBuildEnvironmentInvalidJdkPath() throws IOException {
-        Path notAJdk = tempDir.resolve("not-a-jdk");
+        Path notAJdk = tempDir.resolve("not-a-jdk").toAbsolutePath();
         Files.createDirectories(notAJdk);
 
-        var project = new TestProjectWrapper(tempDir, "not-a-jdk");
+        var project = new TestProjectWrapper(tempDir, notAJdk.toString());
         var env = BuildVerifier.buildEnvironmentForCommand(project, null);
 
         assertFalse(env.containsKey("JAVA_HOME"));
@@ -143,16 +142,49 @@ class BuildVerifierTest {
 
     @Test
     void testBuildEnvironmentMacOsBundle() throws IOException {
-        Path bundleDir = tempDir.resolve("JavaApp.jdk");
+        Path bundleDir = tempDir.resolve("JavaApp.jdk").toAbsolutePath();
         Path homeDir = bundleDir.resolve("Contents/Home");
-        Files.createDirectories(homeDir.resolve("bin"));
-        Files.createFile(homeDir.resolve("bin/java"));
-        Files.createFile(homeDir.resolve("bin/javac"));
+        createFakeJdkHome(homeDir);
 
-        var project = new TestProjectWrapper(tempDir, "JavaApp.jdk");
+        // BuildVerifier uses the JDK setting "as-is". If validation accepts a bundle root as a JDK,
+        // then JAVA_HOME should be injected with that exact path (no Contents/Home normalization here).
+        var project = new TestProjectWrapper(tempDir, bundleDir.toString());
         var env = BuildVerifier.buildEnvironmentForCommand(project, null);
+        assertEquals(bundleDir.toString(), env.get("JAVA_HOME"));
 
-        assertEquals(homeDir.toAbsolutePath().toString(), env.get("JAVA_HOME"));
+        // Passing the explicit home path should also work
+        var projectHome = new TestProjectWrapper(tempDir, homeDir.toString());
+        var envHome = BuildVerifier.buildEnvironmentForCommand(projectHome, null);
+        assertEquals(homeDir.toString(), envHome.get("JAVA_HOME"));
+    }
+
+    private static void createFakeJdkHome(Path homeDir) throws IOException {
+        Files.createDirectories(homeDir);
+
+        Files.createDirectories(homeDir.resolve("bin"));
+        Path java = homeDir.resolve("bin").resolve(Environment.exeName("java"));
+        Path javac = homeDir.resolve("bin").resolve(Environment.exeName("javac"));
+        if (!Files.exists(java)) {
+            Files.writeString(java, "fake");
+        }
+        if (!Files.exists(javac)) {
+            Files.writeString(javac, "fake");
+        }
+        java.toFile().setExecutable(true);
+        javac.toFile().setExecutable(true);
+
+        // Common markers used by various JDK validators.
+        Path release = homeDir.resolve("release");
+        if (!Files.exists(release)) {
+            Files.writeString(release, "JAVA_VERSION=\"21\"\n");
+        }
+
+        Path jmodsDir = homeDir.resolve("jmods");
+        Files.createDirectories(jmodsDir);
+        Path javaBaseJmod = jmodsDir.resolve("java.base.jmod");
+        if (!Files.exists(javaBaseJmod)) {
+            Files.writeString(javaBaseJmod, "fake");
+        }
     }
 
     private IProject createTestProject() {
