@@ -203,105 +203,10 @@ class SessionSynchronizer {
                 UUID id = action.sessionId();
                 try {
                     switch (action.type()) {
-                        case DELETE_REMOTE -> {
-                            callbacks.deleteRemoteSession(id);
-                            // Delete tombstone after successful remote delete
-                            sessionManager
-                                    .getSessionExecutorByKey()
-                                    .submit(id.toString(), (Callable<Void>) () -> {
-                                        Path tombstone = sessionsDir.resolve(id + ".tombstone");
-                                        Files.deleteIfExists(tombstone);
-                                        return null;
-                                    })
-                                    .get();
-                            result.succeeded.add(id);
-                            logger.debug("Deleted session {} from remote via tombstone", id);
-                        }
-                        case DELETE_LOCAL -> {
-                            sessionManager
-                                    .getSessionExecutorByKey()
-                                    .submit(id.toString(), (Callable<Void>) () -> {
-                                        if (isLocalModified(action, result)) return null;
-
-                                        IContextManager cm = openContextManagers.get(id);
-                                        deleteLocalSession(id);
-                                        if (cm != null) {
-                                            cm.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
-                                                    .join();
-                                        }
-                                        result.succeeded.add(id);
-                                        return null;
-                                    })
-                                    .get();
-                        }
-                        case DOWNLOAD -> {
-                            if (action.remoteMeta() == null) {
-                                throw new IllegalArgumentException("Cannot download session without remote metadata");
-                            }
-
-                            if (isLocalModified(action, result)) break;
-
-                            byte[] content = callbacks.getRemoteSessionContent(id);
-
-                            sessionManager
-                                    .getSessionExecutorByKey()
-                                    .submit(id.toString(), (Callable<Void>) () -> {
-                                        if (isLocalModified(action, result)) return null;
-
-                                        mergeAndSave(id, content, action.localInfo(), action.remoteMeta());
-                                        IContextManager cm = openContextManagers.get(id);
-                                        if (cm != null) {
-                                            cm.reloadCurrentSessionAsync();
-                                        }
-                                        result.succeeded.add(id);
-                                        return null;
-                                    })
-                                    .get();
-                        }
-                        case UPLOAD -> {
-                            if (isLocalModified(action, result)) break;
-
-                            byte[] remoteContent = null;
-                            if (action.remoteMeta() != null) {
-                                try {
-                                    remoteContent = callbacks.getRemoteSessionContent(id);
-                                } catch (IOException e) {
-                                    logger.warn(
-                                            "Failed to fetch remote content for merge during upload of session {}. Proceeding with overwrite.",
-                                            id,
-                                            e);
-                                }
-                            }
-                            final byte[] contentToMerge = remoteContent;
-
-                            UploadSnapshot snapshot = sessionManager
-                                    .getSessionExecutorByKey()
-                                    .submit(id.toString(), (Callable<UploadSnapshot>) () -> {
-                                        if (isLocalModified(action, result)) return null;
-
-                                        if (contentToMerge != null) {
-                                            mergeAndSave(id, contentToMerge, action.localInfo(), action.remoteMeta());
-                                        }
-
-                                        Path localPath = sessionManager.getSessionHistoryPath(id);
-                                        if (!Files.exists(localPath)) return null;
-
-                                        SessionInfo info =
-                                                sessionManager.readSessionInfoFromZip(localPath).orElse(null);
-                                        if (info == null) return null;
-
-                                        byte[] bytes = Files.readAllBytes(localPath);
-                                        return new UploadSnapshot(info.name(), info.modified(), bytes);
-                                    })
-                                    .get();
-
-                            if (snapshot != null) {
-                                callbacks.writeRemoteSession(
-                                        id, remoteProject, snapshot.name(), snapshot.modified(), snapshot.bytes());
-                                result.succeeded.add(id);
-                                logger.debug("Uploaded session {} to remote", id);
-                            }
-                        }
+                        case DELETE_REMOTE -> handleDeleteRemote(action, callbacks, result);
+                        case DELETE_LOCAL -> handleDeleteLocal(action, openContextManagers, result);
+                        case DOWNLOAD -> handleDownload(action, callbacks, openContextManagers, result);
+                        case UPLOAD -> handleUpload(action, callbacks, remoteProject, result);
                         case NO_OP -> {}
                     }
                 } catch (ExecutionException executionException) {
@@ -315,6 +220,122 @@ class SessionSynchronizer {
                 }
             }
             return result;
+        }
+
+        private void handleDeleteRemote(SyncAction action, SyncCallbacks callbacks, SyncResult result)
+                throws IOException, ExecutionException, InterruptedException {
+            UUID id = action.sessionId();
+            callbacks.deleteRemoteSession(id);
+            // Delete tombstone after successful remote delete
+            sessionManager
+                    .getSessionExecutorByKey()
+                    .submit(id.toString(), (Callable<Void>) () -> {
+                        Path tombstone = sessionsDir.resolve(id + ".tombstone");
+                        Files.deleteIfExists(tombstone);
+                        return null;
+                    })
+                    .get();
+            result.succeeded.add(id);
+            logger.debug("Deleted session {} from remote via tombstone", id);
+        }
+
+        private void handleDeleteLocal(
+                SyncAction action, Map<UUID, IContextManager> openContextManagers, SyncResult result)
+                throws ExecutionException, InterruptedException {
+            UUID id = action.sessionId();
+            sessionManager
+                    .getSessionExecutorByKey()
+                    .submit(id.toString(), (Callable<Void>) () -> {
+                        if (isLocalModified(action, result)) return null;
+
+                        IContextManager cm = openContextManagers.get(id);
+                        deleteLocalSession(id);
+                        if (cm != null) {
+                            cm.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
+                                    .join();
+                        }
+                        result.succeeded.add(id);
+                        return null;
+                    })
+                    .get();
+        }
+
+        private void handleDownload(
+                SyncAction action,
+                SyncCallbacks callbacks,
+                Map<UUID, IContextManager> openContextManagers,
+                SyncResult result)
+                throws IOException, ExecutionException, InterruptedException {
+            UUID id = action.sessionId();
+            if (action.remoteMeta() == null) {
+                throw new IllegalArgumentException("Cannot download session without remote metadata");
+            }
+
+            if (isLocalModified(action, result)) return;
+
+            byte[] content = callbacks.getRemoteSessionContent(id);
+
+            sessionManager
+                    .getSessionExecutorByKey()
+                    .submit(id.toString(), (Callable<Void>) () -> {
+                        if (isLocalModified(action, result)) return null;
+
+                        mergeAndSave(id, content, action.localInfo(), action.remoteMeta());
+                        IContextManager cm = openContextManagers.get(id);
+                        if (cm != null) {
+                            cm.reloadCurrentSessionAsync();
+                        }
+                        result.succeeded.add(id);
+                        return null;
+                    })
+                    .get();
+        }
+
+        private void handleUpload(
+                SyncAction action, SyncCallbacks callbacks, String remoteProject, SyncResult result)
+                throws IOException, ExecutionException, InterruptedException {
+            UUID id = action.sessionId();
+            if (isLocalModified(action, result)) return;
+
+            byte[] remoteContent = null;
+            if (action.remoteMeta() != null) {
+                try {
+                    remoteContent = callbacks.getRemoteSessionContent(id);
+                } catch (IOException e) {
+                    logger.warn(
+                            "Failed to fetch remote content for merge during upload of session {}. Proceeding with overwrite.",
+                            id,
+                            e);
+                }
+            }
+            final byte[] contentToMerge = remoteContent;
+
+            UploadSnapshot snapshot = sessionManager
+                    .getSessionExecutorByKey()
+                    .submit(id.toString(), (Callable<UploadSnapshot>) () -> {
+                        if (isLocalModified(action, result)) return null;
+
+                        if (contentToMerge != null) {
+                            mergeAndSave(id, contentToMerge, action.localInfo(), action.remoteMeta());
+                        }
+
+                        Path localPath = sessionManager.getSessionHistoryPath(id);
+                        if (!Files.exists(localPath)) return null;
+
+                        SessionInfo info = sessionManager.readSessionInfoFromZip(localPath).orElse(null);
+                        if (info == null) return null;
+
+                        byte[] bytes = Files.readAllBytes(localPath);
+                        return new UploadSnapshot(info.name(), info.modified(), bytes);
+                    })
+                    .get();
+
+            if (snapshot != null) {
+                callbacks.writeRemoteSession(
+                        id, remoteProject, snapshot.name(), snapshot.modified(), snapshot.bytes());
+                result.succeeded.add(id);
+                logger.debug("Uploaded session {} to remote", id);
+            }
         }
 
         private boolean isLocalModified(SyncAction action, SyncResult result) {
