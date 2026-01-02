@@ -479,7 +479,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (!buildCmd.isEmpty()) {
                     publish("--- Verifying Build/Lint Command ---\n");
                     publish("$ " + buildCmd + "\n");
-                    var envVars = computeEnvFromUi();
+                    var envVars = computeMergedEnvFromUi();
                     var result =
                             BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish(line + "\n"));
                     if (result.success()) {
@@ -498,7 +498,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (!testAllCmd.isEmpty()) {
                     publish("--- Verifying Test All Command ---\n");
                     publish("$ " + testAllCmd + "\n");
-                    var envVars = computeEnvFromUi();
+                    var envVars = computeMergedEnvFromUi();
                     var result =
                             BuildVerifier.verifyStreaming(project, testAllCmd, envVars, line -> publish(line + "\n"));
                     if (result.success()) {
@@ -544,7 +544,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                     }
 
                     publish("$ " + interpolatedCmd + "\n");
-                    var envVars = computeEnvFromUi();
+                    var envVars = computeMergedEnvFromUi();
                     var result = BuildVerifier.verifyStreaming(
                             project, interpolatedCmd, envVars, line -> publish(line + "\n"));
                     if (result.success()) {
@@ -869,15 +869,36 @@ public class SettingsProjectBuildPanel extends JPanel {
         jdkSelector.setVisible(isJava);
     }
 
-    private Map<String, String> computeEnvFromUi() {
-        var env = new HashMap<String, String>();
+    /**
+     * Computes the environment variables for verification based on current UI state,
+     * merging them with the existing environment variables from the project's build details.
+     */
+    private Map<String, String> computeMergedEnvFromUi() {
+        var details = project.loadBuildDetails();
+        var env = new HashMap<>(details.environmentVariables());
+
         var selected = (Language) primaryLanguageComboBox.getSelectedItem();
-        if (selected == Languages.JAVA && setJavaHomeCheckbox.isSelected()) {
-            String sel = jdkSelector.getSelectedJdkPath();
-            if (sel != null && !sel.isBlank()) {
-                env.put("JAVA_HOME", sel);
+        if (selected == Languages.JAVA) {
+            if (setJavaHomeCheckbox.isSelected()) {
+                String sel = jdkSelector.getSelectedJdkPath();
+                if (sel != null && !sel.isBlank()) {
+                    env.put("JAVA_HOME", sel);
+                } else {
+                    env.remove("JAVA_HOME");
+                }
+            } else {
+                env.remove("JAVA_HOME");
+            }
+        } else {
+            // If we are not in Java mode, we might still want to apply the project-wide JDK
+            // if it was set, but typically we follow the UI toggle here.
+            // For now, let's just use the shared helper's logic for JAVA_HOME if not overridden by UI.
+            String jdkHome = project.getJdk();
+            if (jdkHome != null && !jdkHome.isBlank()) {
+                env.put("JAVA_HOME", jdkHome);
             }
         }
+
         if (selected == Languages.PYTHON) {
             env.put("VIRTUAL_ENV", ".venv");
         }

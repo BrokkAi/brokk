@@ -1133,6 +1133,18 @@ public class BuildAgent {
         throw new IllegalArgumentException("Unable to parse git repo url " + url);
     }
 
+    /**
+     * Merges environment variables from {@link BuildDetails} with project-level settings like JAVA_HOME.
+     */
+    public static Map<String, String> getMergedEnvironment(IProject project, BuildDetails details) {
+        Map<String, String> env = new HashMap<>(details.environmentVariables());
+        String jdkHome = project.getJdk();
+        if (jdkHome != null && !jdkHome.isBlank()) {
+            env.put("JAVA_HOME", jdkHome);
+        }
+        return env;
+    }
+
     /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */
     private static Context runBuildAndUpdateFragmentInternal(Context ctx, String verificationCommand)
             throws InterruptedException {
@@ -1146,7 +1158,7 @@ public class BuildAgent {
         io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
         try {
             var details = cm.getProject().awaitBuildDetails();
-            var envVars = details.environmentVariables();
+            var envVars = getMergedEnvironment(cm.getProject(), details);
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 
             long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();

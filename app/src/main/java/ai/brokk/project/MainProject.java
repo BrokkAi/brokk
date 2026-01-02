@@ -361,30 +361,13 @@ public final class MainProject extends AbstractProject {
                     }
                 }
 
-                // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
-                Map<String, String> envIn = details.environmentVariables();
-                Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
-
-                for (Map.Entry<String, String> e : envIn.entrySet()) {
-                    String k = e.getKey();
-                    String v = e.getValue();
-                    if (v == null) {
-                        continue;
-                    }
-                    if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                        canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
-                    } else {
-                        canonicalEnv.put(k, v);
-                    }
-                }
-
                 // Return a re-wrapped BuildDetails with canonicalized content
                 return new BuildAgent.BuildDetails(
                         details.buildLintCommand(),
                         details.testAllCommand(),
                         details.testSomeCommand(),
                         canonicalExclusions,
-                        canonicalEnv);
+                        details.environmentVariables());
             } catch (JsonProcessingException e) {
                 logger.error("Failed to deserialize BuildDetails from JSON: {}", json, e);
             }
@@ -414,28 +397,12 @@ public final class MainProject extends AbstractProject {
             }
         }
 
-        // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
-        Map<String, String> envIn = details.environmentVariables();
-        Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
-        for (Map.Entry<String, String> e : envIn.entrySet()) {
-            String k = e.getKey();
-            String v = e.getValue();
-            if (v == null) {
-                continue; // NullAway should avoid this, but be defensive
-            }
-            if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
-            } else {
-                canonicalEnv.put(k, v);
-            }
-        }
-
         var canonicalDetails = new BuildAgent.BuildDetails(
                 details.buildLintCommand(),
                 details.testAllCommand(),
                 details.testSomeCommand(),
                 canonicalExclusions,
-                canonicalEnv);
+                details.environmentVariables());
 
         if (!canonicalDetails.equals(BuildAgent.BuildDetails.EMPTY)) {
             try {
