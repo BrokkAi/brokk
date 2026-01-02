@@ -278,15 +278,15 @@ class SessionSynchronizer {
                     .submit(id.toString(), (Callable<Void>) () -> {
                         if (isLocalModified(action, result)) return null;
 
-                        IContextManager cm = openContextManagers.get(id);
-
                         if (action.localInfo() == null) {
                             saveRemoteSession(id, content);
                         } else {
                             mergeAndSave(id, content, Objects.requireNonNull(action.localInfo()), remoteMeta, false);
-                            if (cm != null) {
-                                cm.reloadCurrentSessionAsync();
-                            }
+                        }
+
+                        IContextManager cm = openContextManagers.get(id);
+                        if (cm != null) {
+                            cm.reloadCurrentSessionAsync();
                         }
 
                         result.succeeded.add(id);
@@ -489,17 +489,16 @@ class SessionSynchronizer {
                 }
             }
 
-            ContextHistory merged;
+            ContextHistory merged = null;
+            boolean useRemote = false;
             long newModified;
             String newName;
 
             if (localHistory == null) {
-                merged = remoteHistory;
+                useRemote = true;
                 newModified = remoteMeta.modifiedAtMillis();
                 newName = remoteMeta.name();
             } else {
-                newName = localIsNewer ? localInfo.name() : remoteMeta.name();
-
                 if (ContextHistory.areDiverged(localHistory, remoteHistory)) {
                     if (localIsNewer) {
                         merged = ContextHistory.merge(remoteHistory, localHistory);
@@ -508,13 +507,16 @@ class SessionSynchronizer {
                     }
                     // Diverged merge results in a new modification
                     newModified = System.currentTimeMillis();
+                    newName = localIsNewer ? localInfo.name() : remoteMeta.name();
                 } else {
                     if (localIsNewer) {
-                        merged = localHistory;
+                        // Keep local
                         newModified = localInfo.modified();
+                        newName = localInfo.name();
                     } else {
-                        merged = remoteHistory;
+                        useRemote = true;
                         newModified = remoteMeta.modifiedAtMillis();
+                        newName = remoteMeta.name();
                     }
                 }
             }
@@ -522,13 +524,13 @@ class SessionSynchronizer {
             // Write merged to local
             Files.createDirectories(localZipPath.getParent());
 
-            if (localHistory != null && merged == localHistory) {
-                logger.debug("Session {} merged history matches local history; skipping zip rewrite.", id);
-            } else if (merged == remoteHistory) {
-                logger.debug("Session {} merged history matches remote history; copying remote zip.", id);
+            if (merged != null) {
+                HistoryIo.writeZip(merged, localZipPath);
+            } else if (useRemote) {
+                logger.debug("Session {} matches remote history; copying remote zip.", id);
                 Files.copy(remoteZipPath, localZipPath, StandardCopyOption.REPLACE_EXISTING);
             } else {
-                HistoryIo.writeZip(merged, localZipPath);
+                logger.debug("Session {} matches local history; skipping zip rewrite.", id);
             }
 
             // Update manifest
@@ -540,7 +542,7 @@ class SessionSynchronizer {
             logger.info(
                     "Saved session {} (merged={})",
                     id,
-                    localHistory != null && merged != localHistory && merged != remoteHistory);
+                    merged != null);
 
         } finally {
             try {
