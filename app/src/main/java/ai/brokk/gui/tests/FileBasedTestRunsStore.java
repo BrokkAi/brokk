@@ -20,7 +20,7 @@ public class FileBasedTestRunsStore implements TestRunsStore {
     }
 
     @Override
-    public List<RunRecord> load() {
+    public List<Run> load() {
         try {
             if (!Files.exists(file)) {
                 return List.of();
@@ -30,8 +30,8 @@ public class FileBasedTestRunsStore implements TestRunsStore {
                 return List.of();
             }
             ObjectMapper mapper = Json.getMapper();
-            var type = mapper.getTypeFactory().constructCollectionType(List.class, RunRecord.class);
-            List<RunRecord> runs = mapper.readValue(json, type);
+            var type = mapper.getTypeFactory().constructCollectionType(List.class, Run.class);
+            List<Run> runs = mapper.readValue(json, type);
             return runs != null ? runs : List.of();
         } catch (IOException e) {
             logger.warn("Failed to read test runs from {}: {}", file, e.getMessage());
@@ -43,7 +43,7 @@ public class FileBasedTestRunsStore implements TestRunsStore {
     }
 
     @Override
-    public void save(List<RunRecord> runs) {
+    public void save(List<Run> runs) {
         try {
             Path parent = file.getParent();
             if (parent != null) {

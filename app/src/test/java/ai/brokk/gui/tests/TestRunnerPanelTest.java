@@ -57,7 +57,7 @@ public class TestRunnerPanelTest {
         panel.appendToRun(runId, longOutput);
         waitForEdt();
 
-        List<RunRecord> snapshot = panel.snapshotRuns(10);
+        List<TestRunsStore.Run> snapshot = panel.snapshotRuns(10);
         assertEquals(1, snapshot.size(), "Expected a single run in snapshot");
 
         String stored = snapshot.get(0).output();
@@ -142,10 +142,10 @@ public class TestRunnerPanelTest {
     @Test
     void maxRunsCapEnforcedDuringRestore() throws Exception {
         InMemoryTestRunsStore store = new InMemoryTestRunsStore();
-        List<RunRecord> recordsToSave = new ArrayList<>();
+        List<TestRunsStore.Run> recordsToSave = new ArrayList<>();
         int initialRuns = 10;
         for (int i = 0; i < initialRuns; i++) {
-            recordsToSave.add(new RunRecord(
+            recordsToSave.add(new TestRunsStore.Run(
                     "id-" + i,
                     1,
                     "cmd " + i,

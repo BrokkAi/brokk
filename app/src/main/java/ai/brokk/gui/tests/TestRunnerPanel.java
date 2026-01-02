@@ -227,7 +227,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         // Load persisted runs (per-project) if available
         try {
-            List<RunRecord> records = runsStore.load();
+            List<TestRunsStore.Run> records = runsStore.load();
             if (!records.isEmpty()) {
                 restoreRuns(records);
             }
@@ -270,14 +270,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
      * the list (newest -> oldest). EDT safety: reads the Swing model on the EDT; if called off-EDT, blocks on
      * invokeAndWait.
      */
-    public List<RunRecord> snapshotRuns(int limit) {
+    public List<TestRunsStore.Run> snapshotRuns(int limit) {
         if (limit <= 0) {
             return List.of();
         }
         if (SwingUtilities.isEventDispatchThread()) {
             return snapshotRunsFromModel(limit);
         }
-        var ref = new AtomicReference<List<RunRecord>>(List.of());
+        var ref = new AtomicReference<List<TestRunsStore.Run>>(List.of());
         try {
             SwingUtilities.invokeAndWait(() -> ref.set(snapshotRunsFromModel(limit)));
         } catch (Exception e) {
@@ -286,13 +286,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         return requireNonNull(ref.get());
     }
 
-    private List<RunRecord> snapshotRunsFromModel(int limit) {
+    private List<TestRunsStore.Run> snapshotRunsFromModel(int limit) {
         int size = runListModel.getSize();
         if (size == 0) {
             return List.of();
         }
         int count = Math.min(limit, size);
-        var out = new ArrayList<RunRecord>(count);
+        var out = new ArrayList<TestRunsStore.Run>(count);
         for (int i = 0; i < count; i++) {
             var run = runListModel.get(i);
             String output = run.getOutput();
@@ -300,7 +300,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 int keep = Math.max(0, MAX_SNAPSHOT_OUTPUT_CHARS - 3);
                 output = output.substring(0, keep) + "...";
             }
-            out.add(new RunRecord(
+            out.add(new TestRunsStore.Run(
                     run.id,
                     run.fileCount,
                     run.command,
@@ -319,7 +319,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private void triggerSave() {
         var store = runsStore;
         Runnable snapshotAndSaveTask = () -> {
-            List<RunRecord> snapshot;
+            List<TestRunsStore.Run> snapshot;
             try {
                 snapshot = snapshotRunsFromModel(maxRuns);
             } catch (Exception e) {
@@ -347,7 +347,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
      * Restore runs into the UI. Preserves order (oldest -> newest), truncates to maxRuns most recent, rebuilds state,
      * selects newest, and updates the output area accordingly. EDT safety: uses runOnEdt to mutate Swing state.
      */
-    public void restoreRuns(List<RunRecord> records) {
+    public void restoreRuns(List<TestRunsStore.Run> records) {
         if (records.isEmpty()) {
             return;
         }
@@ -362,10 +362,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void doRestore(List<RunRecord> records) {
+    private void doRestore(List<TestRunsStore.Run> records) {
         // Records are newest-to-oldest. We want to keep up to maxRuns of the newest.
         int count = Math.min(records.size(), maxRuns);
-        List<RunRecord> slice = records.subList(0, count);
+        List<TestRunsStore.Run> slice = records.subList(0, count);
 
         runsById.clear();
         runListModel.clear();
