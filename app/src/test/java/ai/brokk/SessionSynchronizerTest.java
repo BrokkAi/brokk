@@ -4,14 +4,18 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.Service.RemoteSessionMeta;
 import ai.brokk.SessionManager.SessionInfo;
+import ai.brokk.SessionSynchronizer.SyncCallbacks;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.HistoryIo;
 import java.io.IOException;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -34,7 +38,7 @@ class SessionSynchronizerTest {
     private Path sessionsDir;
     private FakeSyncCallbacks syncCallbacks;
 
-    private static class FakeSyncCallbacks implements SessionSynchronizer.SyncCallbacks {
+    private static class FakeSyncCallbacks implements SyncCallbacks {
         List<RemoteSessionMeta> remoteSessions = new ArrayList<>();
         Map<UUID, byte[]> remoteContent = new HashMap<>();
         List<UUID> deletedRemoteIds = new ArrayList<>();
@@ -128,7 +132,7 @@ class SessionSynchronizerTest {
     void testSessionSynchronizationScenarios() throws IOException, InterruptedException {
         // Shared timestamps
         String timeStr = "2023-10-01T12:00:00Z";
-        long timeMillis = java.time.Instant.parse(timeStr).toEpochMilli();
+        long timeMillis = Instant.parse(timeStr).toEpochMilli();
 
         // --- Session A: Download (Remote exists, Local missing) ---
         UUID idA = UUID.randomUUID();
@@ -232,9 +236,9 @@ class SessionSynchronizerTest {
         HistoryIo.writeZip(history, tempZip);
 
         SessionInfo info = new SessionInfo(id, name, modified, modified);
-        try (var fs = java.nio.file.FileSystems.newFileSystem(tempZip, (ClassLoader) null)) {
+        try (var fs = FileSystems.newFileSystem(tempZip, (ClassLoader) null)) {
             Path manifestPath = fs.getPath("manifest.json");
-            String json = ai.brokk.project.AbstractProject.objectMapper.writeValueAsString(info);
+            String json = AbstractProject.objectMapper.writeValueAsString(info);
             Files.writeString(manifestPath, json);
         }
         return Files.readAllBytes(tempZip);

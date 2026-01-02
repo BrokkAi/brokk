@@ -6,13 +6,17 @@ import ai.brokk.Service.RemoteSessionMeta;
 import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.SessionSynchronizer.ActionType;
 import ai.brokk.SessionSynchronizer.SyncAction;
+import ai.brokk.SessionSynchronizer.SyncCallbacks;
+import ai.brokk.SessionSynchronizer.SyncExecutor;
 import ai.brokk.SessionSynchronizer.SyncResult;
 import ai.brokk.context.Context;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.project.IProject;
 import ai.brokk.util.HistoryIo;
 import java.io.IOException;
 import java.nio.file.FileSystems;
+import java.time.Instant;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -35,7 +39,7 @@ class SessionSyncExecutorTest {
 
     private SessionManager sessionManager;
     private SessionSynchronizer sessionSynchronizer;
-    private SessionSynchronizer.SyncExecutor syncExecutor;
+    private SyncExecutor syncExecutor;
     private FakeSyncCallbacks callbacks;
     private Path sessionsDir;
     private static final String REMOTE_PROJECT = "remote-proj";
@@ -77,7 +81,7 @@ class SessionSyncExecutorTest {
         UUID id = UUID.randomUUID();
         String name = "Remote Session";
         long modified = System.currentTimeMillis();
-        String now = java.time.Instant.now().toString();
+        String now = Instant.now().toString();
 
         RemoteSessionMeta remoteMeta =
                 new RemoteSessionMeta(id.toString(), "u1", "o1", "remote", name, "private", now, now, now, null);
@@ -117,7 +121,7 @@ class SessionSyncExecutorTest {
         SessionInfo currentInfo = new SessionInfo(id, name, oldModified, newModified);
         sessionManager.getSessionsCache().put(id, currentInfo);
 
-        String now = java.time.Instant.now().toString();
+        String now = Instant.now().toString();
         RemoteSessionMeta remoteMeta =
                 new RemoteSessionMeta(id.toString(), "u1", "o1", "remote", name, "private", now, now, now, null);
 
@@ -160,7 +164,7 @@ class SessionSyncExecutorTest {
         Path tombstone = sessionsDir.resolve(id + ".tombstone");
         Files.writeString(tombstone, "deleted", StandardOpenOption.CREATE);
 
-        String now = java.time.Instant.now().toString();
+        String now = Instant.now().toString();
         RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
                 id.toString(), "u1", "o1", "remote", "name", "private", now, now, now, null);
 
@@ -203,7 +207,7 @@ class SessionSyncExecutorTest {
     @Test
     void testExecute_Exceptions() throws InterruptedException {
         UUID id = UUID.randomUUID();
-        String now = java.time.Instant.now().toString();
+        String now = Instant.now().toString();
         RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
                 id.toString(), "u1", "o1", "remote", "name", "private", now, now, now, null);
 
@@ -234,7 +238,7 @@ class SessionSyncExecutorTest {
         ContextHistory remoteHistory = new ContextHistory(remoteCtx);
         byte[] remoteBytes = createValidSessionZip(id, name, remoteTime, remoteHistory);
 
-        String remoteTimeStr = java.time.Instant.ofEpochMilli(remoteTime).toString();
+        String remoteTimeStr = Instant.ofEpochMilli(remoteTime).toString();
         RemoteSessionMeta remoteMeta = new RemoteSessionMeta(
                 id.toString(), "u1", "o1", "remote", name, "private", remoteTimeStr, remoteTimeStr, remoteTimeStr, null);
         callbacks.remoteContent.put(id, remoteBytes);
@@ -268,7 +272,7 @@ class SessionSyncExecutorTest {
     void testExecute_ConcurrentActions() throws IOException, InterruptedException {
         // 1. Download
         UUID dlId = UUID.randomUUID();
-        String now = java.time.Instant.now().toString();
+        String now = Instant.now().toString();
         RemoteSessionMeta dlMeta = new RemoteSessionMeta(
                 dlId.toString(), "u1", "o1", "remote", "Download", "private", now, now, now, null);
         callbacks.remoteContent.put(dlId, createValidSessionZip(dlId, "Download", 1000L));
@@ -318,7 +322,7 @@ class SessionSyncExecutorTest {
         // HistoryIo.writeZip might close the file system, so we open it again to append manifest
         try (var fs = FileSystems.newFileSystem(tempZip, Map.of("create", "false"))) {
             Path manifestPath = fs.getPath("manifest.json");
-            String json = ai.brokk.project.AbstractProject.objectMapper.writeValueAsString(info);
+            String json = AbstractProject.objectMapper.writeValueAsString(info);
             Files.writeString(manifestPath, json, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         }
         return Files.readAllBytes(tempZip);
@@ -326,7 +330,7 @@ class SessionSyncExecutorTest {
 
     // --- Stubs ---
 
-    private static class FakeSyncCallbacks implements SessionSynchronizer.SyncCallbacks {
+    private static class FakeSyncCallbacks implements SyncCallbacks {
         List<RemoteSessionMeta> remoteSessions = new ArrayList<>();
         Map<UUID, byte[]> remoteContent = new HashMap<>();
         List<UUID> deletedRemoteIds = new ArrayList<>();
