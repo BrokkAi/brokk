@@ -2,7 +2,9 @@ package ai.brokk;
 
 import ai.brokk.Service.RemoteSessionMeta;
 import ai.brokk.SessionManager.SessionInfo;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.project.IProject;
+import ai.brokk.util.HistoryIo;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,6 +32,7 @@ import org.jetbrains.annotations.Nullable;
  */
 class SessionSynchronizer {
     private static final Logger logger = LogManager.getLogger(SessionSynchronizer.class);
+    private static final String TMP_DIR = "tmp";
 
     private final SessionManager sessionManager;
     private final IContextManager contextManager;
@@ -222,7 +225,7 @@ class SessionSynchronizer {
                                     case DOWNLOAD -> {
                                         if (isLocalModified(action, result)) return null;
 
-                                        downloadSession(id, callbacks);
+                                        downloadSession(id, callbacks, action.localInfo(), action.remoteMeta());
                                         IContextManager cm = openContextManagers.get(id);
                                         if (cm != null) {
                                             cm.reloadCurrentSessionAsync();
@@ -230,7 +233,7 @@ class SessionSynchronizer {
                                         result.succeeded.add(id);
                                     }
                                     case UPLOAD -> {
-                                        uploadSession(id, remoteProject, callbacks);
+                                        uploadSession(id, remoteProject, callbacks, action.localInfo(), action.remoteMeta());
                                         result.succeeded.add(id);
                                     }
                                     case NO_OP -> {}
@@ -351,33 +354,126 @@ class SessionSynchronizer {
         }
     }
 
-    private void downloadSession(UUID id, SyncCallbacks callbacks) throws IOException {
+    private void downloadSession(
+            UUID id,
+            SyncCallbacks callbacks,
+            @Nullable SessionInfo localInfo,
+            @Nullable RemoteSessionMeta remoteMeta)
+            throws IOException {
+        if (remoteMeta == null) {
+            throw new IllegalArgumentException("Cannot download session without remote metadata");
+        }
         byte[] content = callbacks.getRemoteSessionContent(id);
-        Path localPath = sessionManager.getSessionHistoryPath(id);
-        Files.createDirectories(localPath.getParent());
-        Files.write(localPath, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-
-        sessionManager.readSessionInfoFromZip(localPath).ifPresent(si -> {
-            sessionManager.getSessionsCache().put(si.id(), si);
-            logger.info("Downloaded session {} from remote", id);
-        });
+        mergeAndSave(id, content, localInfo, remoteMeta);
     }
 
-    private void uploadSession(UUID id, String remoteUrl, SyncCallbacks callbacks) throws IOException {
-        Path zipPath = sessionManager.getSessionHistoryPath(id);
-        if (!Files.exists(zipPath)) {
+    private void uploadSession(
+            UUID id,
+            String remoteUrl,
+            SyncCallbacks callbacks,
+            @Nullable SessionInfo localInfo,
+            @Nullable RemoteSessionMeta remoteMeta)
+            throws IOException {
+        Path localPath = sessionManager.getSessionHistoryPath(id);
+        if (!Files.exists(localPath)) {
             return;
         }
 
-        SessionInfo info = sessionManager.readSessionInfoFromZip(zipPath).orElse(null);
+        // If remote exists, we try to merge first
+        if (remoteMeta != null) {
+            try {
+                byte[] remoteContent = callbacks.getRemoteSessionContent(id);
+                mergeAndSave(id, remoteContent, localInfo, remoteMeta);
+            } catch (IOException e) {
+                logger.warn(
+                        "Failed to fetch remote content for merge during upload of session {}. Proceeding with overwrite.",
+                        id,
+                        e);
+            }
+        }
+
+        SessionInfo info = sessionManager.readSessionInfoFromZip(localPath).orElse(null);
         if (info == null) {
             return;
         }
 
         String name = info.name();
         long modifiedAt = info.modified();
-        byte[] bytes = Files.readAllBytes(zipPath);
+        byte[] bytes = Files.readAllBytes(localPath);
         callbacks.writeRemoteSession(id, remoteUrl, name, modifiedAt, bytes);
         logger.debug("Uploaded session {} to remote", id);
+    }
+
+    private void mergeAndSave(
+            UUID id, byte[] remoteContent, @Nullable SessionInfo localInfo, RemoteSessionMeta remoteMeta)
+            throws IOException {
+        Path tmpDir = sessionsDir.resolve(TMP_DIR);
+        Files.createDirectories(tmpDir);
+        Path remoteZipPath = Files.createTempFile(tmpDir, "remote-" + id, ".zip");
+        Files.write(remoteZipPath, remoteContent);
+
+        try {
+            ContextHistory remoteHistory = HistoryIo.readZip(remoteZipPath, contextManager);
+
+            Path localZipPath = sessionManager.getSessionHistoryPath(id);
+            ContextHistory localHistory = null;
+            if (Files.exists(localZipPath)) {
+                try {
+                    localHistory = HistoryIo.readZip(localZipPath, contextManager);
+                } catch (Exception e) {
+                    logger.warn("Could not read local history for merge, overwriting with remote", e);
+                }
+            }
+
+            ContextHistory merged;
+            long newModified;
+
+            if (localHistory == null) {
+                merged = remoteHistory;
+                newModified = remoteMeta.modifiedAtMillis();
+            } else {
+                if (ContextHistory.areDiverged(localHistory, remoteHistory)) {
+                    long localTime = localInfo != null ? localInfo.modified() : 0;
+                    long remoteTime = remoteMeta.modifiedAtMillis();
+                    if (localTime >= remoteTime) {
+                        merged = ContextHistory.merge(remoteHistory, localHistory);
+                    } else {
+                        merged = ContextHistory.merge(localHistory, remoteHistory);
+                    }
+                    // Diverged merge results in a new modification
+                    newModified = System.currentTimeMillis();
+                } else {
+                    long localTime = localInfo != null ? localInfo.modified() : 0;
+                    long remoteTime = remoteMeta.modifiedAtMillis();
+                    if (localTime >= remoteTime) {
+                        merged = localHistory;
+                        newModified = localTime;
+                    } else {
+                        merged = remoteHistory;
+                        newModified = remoteTime;
+                    }
+                }
+            }
+
+            // Write merged to local
+            Files.createDirectories(localZipPath.getParent());
+            HistoryIo.writeZip(merged, localZipPath);
+
+            // Update manifest
+            String name = localInfo != null ? localInfo.name() : remoteMeta.name();
+            long created = localInfo != null ? localInfo.created() : System.currentTimeMillis();
+            SessionInfo newInfo = new SessionInfo(id, name, created, newModified);
+
+            sessionManager.writeSessionInfoToZip(localZipPath, newInfo);
+            sessionManager.getSessionsCache().put(id, newInfo);
+            logger.info("Saved session {} (merged={})", id, localHistory != null && merged != localHistory && merged != remoteHistory);
+
+        } finally {
+            try {
+                Files.deleteIfExists(remoteZipPath);
+            } catch (IOException e) {
+                logger.warn("Failed to delete temp remote zip: {}", remoteZipPath, e);
+            }
+        }
     }
 }

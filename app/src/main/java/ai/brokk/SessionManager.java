@@ -372,7 +372,7 @@ public class SessionManager implements AutoCloseable {
         return Optional.empty();
     }
 
-    private void writeSessionInfoToZip(Path zipPath, SessionInfo sessionInfo) throws IOException {
+    void writeSessionInfoToZip(Path zipPath, SessionInfo sessionInfo) throws IOException {
         try (var fs =
                 FileSystems.newFileSystem(zipPath, Map.of("create", Files.notExists(zipPath) ? "true" : "false"))) {
             Path manifestPath = fs.getPath("manifest.json");
