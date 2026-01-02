@@ -475,12 +475,13 @@ public class SettingsProjectBuildPanel extends JPanel {
             @Override
             protected String doInBackground() {
 
+                var envVars = computeEnvFromUi();
+
                 // Step 1: Build/Lint command
                 String buildCmd = buildCleanCommandField.getText().trim();
                 if (!buildCmd.isEmpty()) {
                     publish("--- Verifying Build/Lint Command ---\n");
                     publish("$ " + buildCmd + "\n");
-                    var envVars = computeEnvFromUi();
                     var result =
                             BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish(line + "\n"));
                     if (result.success()) {
@@ -499,7 +500,6 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (!testAllCmd.isEmpty()) {
                     publish("--- Verifying Test All Command ---\n");
                     publish("$ " + testAllCmd + "\n");
-                    var envVars = computeEnvFromUi();
                     var result =
                             BuildVerifier.verifyStreaming(project, testAllCmd, envVars, line -> publish(line + "\n"));
                     if (result.success()) {
@@ -545,7 +545,6 @@ public class SettingsProjectBuildPanel extends JPanel {
                     }
 
                     publish("$ " + interpolatedCmd + "\n");
-                    var envVars = computeEnvFromUi();
                     var result = BuildVerifier.verifyStreaming(
                             project, interpolatedCmd, envVars, line -> publish(line + "\n"));
                     if (result.success()) {
@@ -889,10 +888,16 @@ public class SettingsProjectBuildPanel extends JPanel {
     private Map<String, String> computeEnvFromUi() {
         var env = new HashMap<String, String>();
         var selected = (Language) primaryLanguageComboBox.getSelectedItem();
-        if (selected == Languages.JAVA && setJavaHomeCheckbox.isSelected()) {
-            String sel = jdkSelector.getSelectedJdkPath();
-            if (sel != null && !sel.isBlank()) {
-                env.put("JAVA_HOME", sel);
+        if (selected == Languages.JAVA) {
+            if (setJavaHomeCheckbox.isSelected()) {
+                String sel = jdkSelector.getSelectedJdkPath();
+                if (sel != null && !sel.isBlank()) {
+                    env.put("JAVA_HOME", normalizeJdkPath(sel));
+                }
+            } else {
+                // If checkbox is NOT selected, we explicitly pass the sentinel to prevent 
+                // BuildVerifier from falling back to project.getJdk()
+                env.put("JAVA_HOME", ai.brokk.util.EnvironmentJava.JAVA_HOME_SENTINEL);
             }
         }
         if (selected == Languages.PYTHON) {
