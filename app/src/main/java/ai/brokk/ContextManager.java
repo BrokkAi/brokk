@@ -671,14 +671,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * This refreshes UI components that display file contents.
      * <p>
      * Phase 6 optimization: Checks if changed files are in context before refreshing workspace.
+     * <p>
+     * NOTE: Pending unsuppressed changes are recorded by {@link #createFileWatchListener()}
+     * before this method is called.
      *
      * @param changedFiles Set of files that changed (may be empty for backward compatibility)
      */
     void handleTrackedFileChange(Set<ProjectFile> changedFiles) {
-        if (!changedFiles.isEmpty()) {
-            fileChangeTracking.recordPendingUnsuppressed(changedFiles);
-        }
-
         submitBackgroundTask("Update for FS changes", () -> {
             // Invalidate caches
             project.getRepo().invalidateCaches();

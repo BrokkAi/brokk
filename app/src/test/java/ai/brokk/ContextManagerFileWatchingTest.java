@@ -351,8 +351,11 @@ class ContextManagerFileWatchingTest {
         ioField.setAccessible(true);
         ioField.set(contextManager, testIO);
 
-        // Simulate an external file change event arriving
-        contextManager.handleTrackedFileChange(Set.of(file));
+        // Simulate an external file change event arriving via the watch listener
+        IWatchService.Listener watchListener = contextManager.createFileWatchListener();
+        EventBatch batch = new EventBatch();
+        batch.files.add(file);
+        watchListener.onFilesChanged(batch);
 
         // Get the internal AnalyzerListener from ContextManager
         var listenerMethod = ContextManager.class.getDeclaredMethod("createAnalyzerListener");
@@ -564,11 +567,16 @@ class ContextManagerFileWatchingTest {
         listenerMethod.setAccessible(true);
         AnalyzerListener analyzerListener = (AnalyzerListener) listenerMethod.invoke(contextManager);
 
+        // Simulate an external file change event arriving via the watch listener
+        IWatchService.Listener watchListener = contextManager.createFileWatchListener();
+
         // 1. Enter paused scope (internal write marker active)
         contextManager.withFileChangeNotificationsPaused(List.of(), () -> {
             // 2. Record a pending unsuppressed change while paused.
             // Use a file that is not in context to avoid immediate workspace refresh from handleTrackedFileChange.
-            contextManager.handleTrackedFileChange(Set.of(pendingFile));
+            EventBatch batch = new EventBatch();
+            batch.files.add(pendingFile);
+            watchListener.onFilesChanged(batch);
 
             // 3. Call afterEachBuild while still paused.
             analyzerListener.afterEachBuild(false);
