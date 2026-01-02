@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import ai.brokk.project.IProject;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -65,13 +66,7 @@ public final class BuildVerifier {
 
         ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
         Path root = project.getRoot();
-        Map<String, String> env =
-                extraEnv == null || extraEnv.isEmpty() ? new HashMap<>() : new HashMap<>(extraEnv);
-
-        String jdkHome = project.getJdk();
-        if (jdkHome != null && !jdkHome.isBlank()) {
-            env.put("JAVA_HOME", jdkHome);
-        }
+        Map<String, String> env = buildEnvironmentForCommand(project, extraEnv);
 
         Deque<String> lines = new ArrayDeque<>(MAX_OUTPUT_LINES);
 
@@ -140,6 +135,51 @@ public final class BuildVerifier {
 
     private static String joinLines(Deque<String> lines) {
         return lines.stream().collect(Collectors.joining("\n"));
+    }
+
+    static Map<String, String> buildEnvironmentForCommand(IProject project, @Nullable Map<String, String> extraEnv) {
+        Map<String, String> env = extraEnv == null || extraEnv.isEmpty() ? new HashMap<>() : new HashMap<>(extraEnv);
+
+        String jdkSetting = project.getJdk();
+        if (jdkSetting == null || jdkSetting.isBlank() || EnvironmentJava.JAVA_HOME_SENTINEL.equals(jdkSetting)) {
+            return env;
+        }
+
+        String normalized = PathNormalizer.canonicalizeEnvPathValue(jdkSetting);
+        Path jdkPath = project.getRoot().resolve(normalized).toAbsolutePath().normalize();
+
+        // macOS bundle support
+        if (Files.isDirectory(jdkPath.resolve("Contents/Home"))) {
+            Path macOSHome = jdkPath.resolve("Contents/Home");
+            if (isValidJdkHome(macOSHome)) {
+                jdkPath = macOSHome;
+            }
+        }
+
+        if (isValidJdkHome(jdkPath)) {
+            env.put("JAVA_HOME", jdkPath.toString());
+        } else {
+            logger.debug("Project JDK setting '{}' (resolved to '{}') is not a valid JDK home; skipping JAVA_HOME injection.",
+                    jdkSetting, jdkPath);
+        }
+
+        return env;
+    }
+
+    private static boolean isValidJdkHome(Path path) {
+        if (!Files.isDirectory(path)) {
+            return false;
+        }
+        return (isRegularFile(path, "bin/java") || isRegularFile(path, "bin/java.exe"))
+                && (isRegularFile(path, "bin/javac") || isRegularFile(path, "bin/javac.exe"));
+    }
+
+    private static boolean isRegularFile(Path root, String relPath) {
+        try {
+            return Files.isRegularFile(root.resolve(relPath));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     // Private helper to bound output to last MAX_OUTPUT_LINES

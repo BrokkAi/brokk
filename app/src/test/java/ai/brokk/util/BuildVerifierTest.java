@@ -3,6 +3,8 @@ package ai.brokk.util;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.project.IProject;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.function.BiFunction;
@@ -107,15 +109,67 @@ class BuildVerifierTest {
         assertEquals(0, result.exitCode());
     }
 
-    private IProject createTestProject() {
-        return new IProject() {
-            @Override
-            public Path getRoot() {
-                return tempDir;
-            }
+    @Test
+    void testBuildEnvironmentJdkSentinel() {
+        var project = new TestProjectWrapper(tempDir, EnvironmentJava.JAVA_HOME_SENTINEL);
+        var env = BuildVerifier.buildEnvironmentForCommand(project, Map.of("FOO", "BAR"));
+        assertFalse(env.containsKey("JAVA_HOME"));
+        assertEquals("BAR", env.get("FOO"));
+    }
 
-            @Override
-            public void close() {}
-        };
+    @Test
+    void testBuildEnvironmentRelativeJdkPath() throws IOException {
+        Path jdkDir = tempDir.resolve("jdks/myjdk");
+        Files.createDirectories(jdkDir.resolve("bin"));
+        Files.createFile(jdkDir.resolve("bin/java"));
+        Files.createFile(jdkDir.resolve("bin/javac"));
+
+        var project = new TestProjectWrapper(tempDir, "jdks/myjdk");
+        var env = BuildVerifier.buildEnvironmentForCommand(project, null);
+
+        assertEquals(jdkDir.toAbsolutePath().toString(), env.get("JAVA_HOME"));
+    }
+
+    @Test
+    void testBuildEnvironmentInvalidJdkPath() throws IOException {
+        Path notAJdk = tempDir.resolve("not-a-jdk");
+        Files.createDirectories(notAJdk);
+
+        var project = new TestProjectWrapper(tempDir, "not-a-jdk");
+        var env = BuildVerifier.buildEnvironmentForCommand(project, null);
+
+        assertFalse(env.containsKey("JAVA_HOME"));
+    }
+
+    @Test
+    void testBuildEnvironmentMacOsBundle() throws IOException {
+        Path bundleDir = tempDir.resolve("JavaApp.jdk");
+        Path homeDir = bundleDir.resolve("Contents/Home");
+        Files.createDirectories(homeDir.resolve("bin"));
+        Files.createFile(homeDir.resolve("bin/java"));
+        Files.createFile(homeDir.resolve("bin/javac"));
+
+        var project = new TestProjectWrapper(tempDir, "JavaApp.jdk");
+        var env = BuildVerifier.buildEnvironmentForCommand(project, null);
+
+        assertEquals(homeDir.toAbsolutePath().toString(), env.get("JAVA_HOME"));
+    }
+
+    private IProject createTestProject() {
+        return new TestProjectWrapper(tempDir, null);
+    }
+
+    private static class TestProjectWrapper implements IProject {
+        private final Path root;
+        private final String jdk;
+
+        TestProjectWrapper(Path root, String jdk) {
+            this.root = root;
+            this.jdk = jdk;
+        }
+
+        @Override public Path getRoot() { return root; }
+        @Override public String getJdk() { return jdk; }
+        @Override public void close() {}
     }
 }
