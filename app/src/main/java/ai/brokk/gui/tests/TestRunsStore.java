@@ -1,10 +1,9 @@
 package ai.brokk.gui.tests;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import org.jetbrains.annotations.Nullable;
-
 import java.time.Instant;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
 public interface TestRunsStore {
     List<Run> load();
