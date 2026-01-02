@@ -361,6 +361,35 @@ public final class MainProject extends AbstractProject {
                     }
                 }
 
+                // Migrate JAVA_HOME from environment variables to global properties if present
+                Map<String, String> envVars = new HashMap<>(details.environmentVariables());
+                if (envVars.containsKey("JAVA_HOME")) {
+                    String javaHome = envVars.remove("JAVA_HOME");
+                    if (getGlobalJdkHome() == null && javaHome != null && !javaHome.isBlank()) {
+                        setGlobalJdkHome(javaHome);
+                        logger.info("Migrated JAVA_HOME from project properties to global properties: {}", javaHome);
+                    }
+
+                    // Re-wrap with cleaned environment and save
+                    var migratedDetails = new BuildAgent.BuildDetails(
+                            details.buildLintCommand(),
+                            details.testAllCommand(),
+                            details.testSomeCommand(),
+                            canonicalExclusions,
+                            envVars);
+
+                    try {
+                        String migratedJson = objectMapper.writeValueAsString(migratedDetails);
+                        projectProps.setProperty(BUILD_DETAILS_KEY, migratedJson);
+                        saveProjectProperties();
+                        logger.debug("Persisted cleaned build details (removed JAVA_HOME).");
+                    } catch (JsonProcessingException e) {
+                        logger.error("Failed to serialize migrated BuildDetails: {}", e.getMessage());
+                    }
+
+                    return migratedDetails;
+                }
+
                 // Return a re-wrapped BuildDetails with canonicalized content
                 return new BuildAgent.BuildDetails(
                         details.buildLintCommand(),
