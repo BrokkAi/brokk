@@ -59,7 +59,8 @@ class SessionSyncExecutorTest {
         };
 
         callbacks = new FakeSyncCallbacks();
-        sessionSynchronizer = new SessionSynchronizer(projectStub, callbacks);
+        TestContextManager cm = new TestContextManager(projectStub, UUID.randomUUID());
+        sessionSynchronizer = new SessionSynchronizer(cm, callbacks);
         syncExecutor = sessionSynchronizer.new SyncExecutor();
     }
 

@@ -326,7 +326,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         periodicTasks.scheduleWithFixedDelay(
                 () -> {
                     try {
-                        new SessionSynchronizer(project).synchronize();
+                        new SessionSynchronizer(this).synchronize();
                         project.getMainProject().sessionsListChanged();
                     } catch (Exception e) {
                         logger.warn("Session sync failed: {}", e.getMessage());
@@ -1406,7 +1406,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .whenComplete((v, t) -> {
                     if (sessionsSyncActive) {
                         try {
-                            new SessionSynchronizer(project).synchronize();
+                            new SessionSynchronizer(this).synchronize();
                         } catch (Exception e) {
                             logger.warn("Failed to synchronize sessions during close: {}", e.getMessage());
                         }

@@ -107,7 +107,8 @@ class SessionSynchronizerTest {
         Files.createDirectories(sessionsDir);
 
         syncCallbacks = new FakeSyncCallbacks();
-        synchronizer = new SessionSynchronizer(project, syncCallbacks) {
+        TestContextManager cm = new TestContextManager(project, UUID.randomUUID());
+        synchronizer = new SessionSynchronizer(cm, syncCallbacks) {
             @Override
             protected Map<UUID, IContextManager> getOpenContextManagers() {
                 return openContexts;

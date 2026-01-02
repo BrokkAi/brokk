@@ -32,6 +32,7 @@ class SessionSynchronizer {
     private static final Logger logger = LogManager.getLogger(SessionSynchronizer.class);
 
     private final SessionManager sessionManager;
+    private final IContextManager contextManager;
     private final IProject project;
     private final Path sessionsDir;
     private final SyncCallbacks syncCallbacks;
@@ -70,12 +71,13 @@ class SessionSynchronizer {
         }
     }
 
-    SessionSynchronizer(IProject project) {
-        this(project, new DefaultSyncCallbacks());
+    SessionSynchronizer(IContextManager contextManager) {
+        this(contextManager, new DefaultSyncCallbacks());
     }
 
-    SessionSynchronizer(IProject project, SyncCallbacks syncCallbacks) {
-        this.project = project;
+    SessionSynchronizer(IContextManager contextManager, SyncCallbacks syncCallbacks) {
+        this.contextManager = contextManager;
+        this.project = contextManager.getProject();
         this.syncCallbacks = syncCallbacks;
         this.sessionManager = project.getSessionManager();
         this.sessionsDir = sessionManager.getSessionsDir();
