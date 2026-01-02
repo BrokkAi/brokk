@@ -278,11 +278,23 @@ class SessionSynchronizer {
                     .submit(id.toString(), (Callable<Void>) () -> {
                         if (isLocalModified(action, result)) return null;
 
-                        mergeAndSave(id, content, action.localInfo(), remoteMeta);
                         IContextManager cm = openContextManagers.get(id);
-                        if (cm != null) {
-                            cm.reloadCurrentSessionAsync();
+
+                        if (action.localInfo() == null) {
+                            if (sessionManager.getSessionsCache().containsKey(id)) {
+                                logger.warn(
+                                        "Session {} appeared locally during download race check; skipping download.", id);
+                                result.skipped.add(action);
+                                return null;
+                            }
+                            saveRemoteSession(id, content, remoteMeta, cm);
+                        } else {
+                            mergeAndSave(id, content, Objects.requireNonNull(action.localInfo()), remoteMeta);
+                            if (cm != null) {
+                                cm.reloadCurrentSessionAsync();
+                            }
                         }
+
                         result.succeeded.add(id);
                         return null;
                     })
@@ -319,7 +331,7 @@ class SessionSynchronizer {
                             mergeAndSave(
                                     id,
                                     contentToMerge,
-                                    action.localInfo(),
+                                    Objects.requireNonNull(action.localInfo()),
                                     Objects.requireNonNull(action.remoteMeta()));
                         }
 
@@ -445,9 +457,28 @@ class SessionSynchronizer {
         }
     }
 
+    private void saveRemoteSession(
+            UUID id, byte[] content, RemoteSessionMeta meta, @Nullable IContextManager cm) throws IOException {
+        Path localPath = sessionManager.getSessionHistoryPath(id);
+        Files.createDirectories(localPath.getParent());
+        Files.write(localPath, content);
+
+        SessionInfo readInfo = sessionManager.readSessionInfoFromZip(localPath).orElse(null);
+        long created = (readInfo != null) ? readInfo.created() : System.currentTimeMillis();
+
+        SessionInfo newInfo = new SessionInfo(id, meta.name(), created, meta.modifiedAtMillis());
+        sessionManager.writeSessionInfoToZip(localPath, newInfo);
+        sessionManager.getSessionsCache().put(id, newInfo);
+
+        if (cm != null) {
+            cm.reloadCurrentSessionAsync();
+        }
+    }
+
     private void mergeAndSave(
-            UUID id, byte[] remoteContent, @Nullable SessionInfo localInfo, RemoteSessionMeta remoteMeta)
-            throws IOException {
+            UUID id, byte[] remoteContent, SessionInfo localInfo, RemoteSessionMeta remoteMeta) throws IOException {
+        Objects.requireNonNull(localInfo);
+
         Path tmpDir = sessionsDir.resolve(TMP_DIR);
         Files.createDirectories(tmpDir);
         Path remoteZipPath = Files.createTempFile(tmpDir, "remote-" + id, ".zip");
@@ -468,14 +499,20 @@ class SessionSynchronizer {
 
             ContextHistory merged;
             long newModified;
+            String newName;
 
             if (localHistory == null) {
                 merged = remoteHistory;
                 newModified = remoteMeta.modifiedAtMillis();
+                newName = remoteMeta.name();
             } else {
+                long localTime = localInfo.modified();
+                long remoteTime = remoteMeta.modifiedAtMillis();
+                boolean remoteIsNewer = remoteTime > localTime;
+
+                newName = remoteIsNewer ? remoteMeta.name() : localInfo.name();
+
                 if (ContextHistory.areDiverged(localHistory, remoteHistory)) {
-                    long localTime = localInfo != null ? localInfo.modified() : 0;
-                    long remoteTime = remoteMeta.modifiedAtMillis();
                     if (localTime >= remoteTime) {
                         merged = ContextHistory.merge(remoteHistory, localHistory);
                     } else {
@@ -484,8 +521,6 @@ class SessionSynchronizer {
                     // Diverged merge results in a new modification
                     newModified = System.currentTimeMillis();
                 } else {
-                    long localTime = localInfo != null ? localInfo.modified() : 0;
-                    long remoteTime = remoteMeta.modifiedAtMillis();
                     if (localTime >= remoteTime) {
                         merged = localHistory;
                         newModified = localTime;
@@ -509,9 +544,8 @@ class SessionSynchronizer {
             }
 
             // Update manifest
-            String name = localInfo != null ? localInfo.name() : remoteMeta.name();
-            long created = localInfo != null ? localInfo.created() : System.currentTimeMillis();
-            SessionInfo newInfo = new SessionInfo(id, name, created, newModified);
+            long created = localInfo.created();
+            SessionInfo newInfo = new SessionInfo(id, newName, created, newModified);
 
             sessionManager.writeSessionInfoToZip(localZipPath, newInfo);
             sessionManager.getSessionsCache().put(id, newInfo);
