@@ -1209,7 +1209,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
      * Builds the context that should be pushed after a successful save.
      * Ensures the file is in the workspace and its fragment is refreshed to reflect the new disk content.
      */
-    static Context buildPostSaveContext(ai.brokk.IContextManager cm, ProjectFile file) {
+    static Context buildPostSaveContext(IContextManager cm, ProjectFile file) {
         // addFragments dedupes by source, so we ensure it's present first
         var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
         // Then refresh specifically this file to ensure the fragment instance is replaced
@@ -1226,76 +1226,70 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private boolean performSave(@Nullable JButton buttonToDisable) {
         requireNonNull(file, "Attempted to save but no ProjectFile is associated with this panel");
         var newContent = textArea.getText();
-        return cm.withFileChangeNotificationsPaused(List.of(file), () -> {
-            try {
-                // Write the new content to the file first
-                file.write(newContent);
+        var snapshotOfQuickEditMessages = List.copyOf(quickEditMessages);
 
-                // Then, add a history entry for the change.
-                var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
-                if (contentChangedFromInitial) {
-                    try {
-                        var fileNameForDiff = file.toString();
-                        var diffResult = ContentDiffUtils.computeDiffResult(
-                                contentBeforeSave, newContent, fileNameForDiff, fileNameForDiff, 3);
-                        var diffText = diffResult.diff();
-                        // Create the SessionResult representing the net change
-                        var actionDescription = "Edited " + fileNameForDiff;
-                        // Include filtered quick edit messages (without XML context) + the current diff
-                        var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
-                        messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
-                        messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
-                        // Build resulting Context by adding the saved file and refreshing it
-                        var ctx = buildPostSaveContext(cm, file);
+        cm.submitBackgroundTask("Saving " + file.getFileName(), () -> {
+            cm.withFileChangeNotificationsPaused(List.of(file), () -> {
+                try {
+                    // Write the new content to the file first
+                    file.write(newContent);
 
-                        // Ensure analyzer stays current since watcher events are suppressed
-                        syncAnalyzerAfterWrite(cm.getAnalyzerWrapper(), file);
+                    // Then, add a history entry for the change.
+                    var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
+                    if (contentChangedFromInitial) {
+                        try {
+                            var fileNameForDiff = file.toString();
+                            var diffResult = ContentDiffUtils.computeDiffResult(
+                                    contentBeforeSave, newContent, fileNameForDiff, fileNameForDiff, 3);
+                            var diffText = diffResult.diff();
+                            // Create the SessionResult representing the net change
+                            var actionDescription = "Edited " + fileNameForDiff;
+                            // Include filtered quick edit messages (without XML context) + the current diff
+                            var messagesForHistory = filterQuickEditMessagesForHistory(snapshotOfQuickEditMessages);
+                            messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
+                            messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
+                            // Build resulting Context by adding the saved file and refreshing it
+                            var ctx = buildPostSaveContext(cm, file);
 
-                        // Determine TaskMeta only if there was LLM activity in quick edits.
-                        TaskResult.TaskMeta meta = null;
-                        boolean llmInvolved = quickEditMessages.stream().anyMatch(m -> m instanceof AiMessage);
-                        if (llmInvolved) {
-                            var svc = cm.getService();
-                            var model = svc.quickEditModel();
-                            var modelConfig = Service.ModelConfig.from(model, svc);
-                            meta = new TaskResult.TaskMeta(TaskResult.Type.CODE, modelConfig);
+                            // Ensure analyzer stays current since watcher events are suppressed
+                            syncAnalyzerAfterWrite(cm.getAnalyzerWrapper(), file);
+
+                            var saveResult = TaskResult.humanResult(
+                                    cm, actionDescription, messagesForHistory, ctx, TaskResult.StopReason.SUCCESS);
+                            try (var scope = cm.beginTask("File changed saved", false)) {
+                                scope.append(saveResult);
+                            }
+                            logger.debug("Added history entry for changes in: {}", file);
+                        } catch (Exception e) {
+                            logger.error("Failed to generate diff or add history entry for {}", file, e);
                         }
+                    }
 
-                        var saveResult = TaskResult.humanResult(
-                                cm, actionDescription, messagesForHistory, ctx, TaskResult.StopReason.SUCCESS);
-                        try (var scope = cm.beginTask("File changed saved", false)) {
-                            scope.append(saveResult);
+                    SwingUtilities.invokeLater(() -> {
+                        if (buttonToDisable != null) {
+                            buttonToDisable.setEnabled(false); // Disable after successful save
                         }
-                        logger.debug("Added history entry for changes in: {}", file);
-                    } catch (Exception e) {
-                        logger.error("Failed to generate diff or add history entry for {}", file, e);
-                    }
+                        quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
+
+                        // Notify other preview windows to refresh (but not this one)
+                        if (cm.getIo() instanceof Chrome chrome) {
+                            var currentFrame = (JFrame) SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
+                            chrome.refreshPreviewsForFiles(Set.of(file), currentFrame);
+                        }
+                    });
+
+                    logger.debug("File saved: " + file);
+                } catch (IOException ex) {
+                    logger.error("Error saving file {}", file, ex);
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                            this, "Error saving file: " + ex.getMessage(), "Save Error", JOptionPane.ERROR_MESSAGE));
                 }
-
-                if (buttonToDisable != null) {
-                    buttonToDisable.setEnabled(false); // Disable after successful save
-                }
-                quickEditMessages.clear(); // Clear quick edit messages accumulated up to this save
-                logger.debug("File saved: " + file);
-
-                // Notify other preview windows to refresh (but not this one)
-                SwingUtilities.invokeLater(() -> {
-                    if (cm.getIo() instanceof Chrome chrome) {
-                        var currentFrame = (JFrame) SwingUtilities.getWindowAncestor(PreviewTextPanel.this);
-                        chrome.refreshPreviewsForFiles(Set.of(file), currentFrame);
-                    }
-                });
-
-                return true; // Save successful
-
-            } catch (IOException ex) {
-                // If save fails, button remains enabled and messages are not cleared.
-                logger.error("Error saving file {}", file, ex);
-                JOptionPane.showMessageDialog(
-                        this, "Error saving file: " + ex.getMessage(), "Save Error", JOptionPane.ERROR_MESSAGE);
-                return false; // Save failed
-            }
+                return null;
+            });
+            return null;
         });
+
+        return true; // We return true immediately as the task is off-EDT; validation happens in UI callbacks
     }
 
     /**
