@@ -1,20 +1,19 @@
 package ai.brokk;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import ai.brokk.Service.RemoteSessionMeta;
 import ai.brokk.SessionManager.SessionInfo;
 import ai.brokk.SessionSynchronizer.ActionType;
 import ai.brokk.SessionSynchronizer.SyncAction;
 import ai.brokk.SessionSynchronizer.SyncPlanner;
-import org.junit.jupiter.api.Test;
-
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Test;
 
 class SessionSyncPlannerTest {
 
@@ -32,7 +31,8 @@ class SessionSyncPlannerTest {
 
     private RemoteSessionMeta createRemote(UUID id, long modified, String deletedAt) {
         String ts = Instant.ofEpochMilli(modified).toString();
-        // The record constructor order is: id, userId, orgId, remote, name, sharing, createdAt, updatedAt, modifiedAt, deletedAt
+        // The record constructor order is: id, userId, orgId, remote, name, sharing, createdAt, updatedAt, modifiedAt,
+        // deletedAt
         return new RemoteSessionMeta(
                 id.toString(),
                 "user",
@@ -43,19 +43,13 @@ class SessionSyncPlannerTest {
                 ts, // createdAt
                 ts, // updatedAt
                 ts, // modifiedAt
-                deletedAt
-        );
+                deletedAt);
     }
 
     @Test
     void planUploadsLocalOnly() {
         SessionInfo local = createLocal(sessionId, 1000);
-        List<SyncAction> actions = planner.plan(
-                Map.of(sessionId, local),
-                List.of(),
-                Set.of(),
-                Set.of()
-        );
+        List<SyncAction> actions = planner.plan(Map.of(sessionId, local), List.of(), Set.of(), Set.of());
 
         assertEquals(1, actions.size());
         SyncAction action = actions.getFirst();
@@ -67,12 +61,7 @@ class SessionSyncPlannerTest {
     @Test
     void plansDownloadRemoteOnly() {
         RemoteSessionMeta remote = createRemote(sessionId, 2000);
-        List<SyncAction> actions = planner.plan(
-                Map.of(),
-                List.of(remote),
-                Set.of(),
-                Set.of()
-        );
+        List<SyncAction> actions = planner.plan(Map.of(), List.of(remote), Set.of(), Set.of());
 
         assertEquals(1, actions.size());
         SyncAction action = actions.getFirst();
@@ -86,12 +75,7 @@ class SessionSyncPlannerTest {
         SessionInfo local = createLocal(sessionId, 1000);
         RemoteSessionMeta remote = createRemote(sessionId, 2000, Instant.now().toString());
 
-        List<SyncAction> actions = planner.plan(
-                Map.of(sessionId, local),
-                List.of(remote),
-                Set.of(),
-                Set.of()
-        );
+        List<SyncAction> actions = planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of());
 
         assertEquals(1, actions.size());
         assertEquals(ActionType.DELETE_LOCAL, actions.getFirst().type());
@@ -100,12 +84,7 @@ class SessionSyncPlannerTest {
     @Test
     void plansDeleteRemoteIfTombstone() {
         RemoteSessionMeta remote = createRemote(sessionId, 2000);
-        List<SyncAction> actions = planner.plan(
-                Map.of(),
-                List.of(remote),
-                Set.of(sessionId),
-                Set.of()
-        );
+        List<SyncAction> actions = planner.plan(Map.of(), List.of(remote), Set.of(sessionId), Set.of());
 
         assertEquals(1, actions.size());
         assertEquals(ActionType.DELETE_REMOTE, actions.getFirst().type());
@@ -143,12 +122,7 @@ class SessionSyncPlannerTest {
     @Test
     void ignoresUnreadableSessions() {
         RemoteSessionMeta remote = createRemote(sessionId, 2000);
-        List<SyncAction> actions = planner.plan(
-                Map.of(),
-                List.of(remote),
-                Set.of(),
-                Set.of(sessionId)
-        );
+        List<SyncAction> actions = planner.plan(Map.of(), List.of(remote), Set.of(), Set.of(sessionId));
 
         assertTrue(actions.isEmpty());
     }
@@ -180,8 +154,7 @@ class SessionSyncPlannerTest {
                 Map.of(idDownloadNew, localNew, idDownloadOld, localOld, idUpload, localUpload),
                 List.of(remoteDelete, remoteNew, remoteOld),
                 Set.of(idDeleteRemote),
-                Set.of()
-        );
+                Set.of());
 
         assertEquals(4, actions.size());
 

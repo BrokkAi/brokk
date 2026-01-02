@@ -81,13 +81,13 @@ class SessionSynchronizerTest {
         public void reloadCurrentSessionAsync() {
             this.reloadCalled = true;
         }
-        
+
         @Override
         public CompletableFuture<Void> createSessionAsync(String name) {
             this.createSessionCalled = true;
             return CompletableFuture.completedFuture(null);
         }
-        
+
         @Override
         public UUID getCurrentSessionId() {
             return currentSessionId;
@@ -130,8 +130,7 @@ class SessionSynchronizerTest {
         UUID idA = UUID.randomUUID();
         String nameA = "Session A";
         RemoteSessionMeta metaA = new RemoteSessionMeta(
-                idA.toString(), "u1", "o1", "remote", nameA, "private",
-                timeStr, timeStr, timeStr, null);
+                idA.toString(), "u1", "o1", "remote", nameA, "private", timeStr, timeStr, timeStr, null);
 
         byte[] contentA = createValidSessionZip(idA, nameA, timeMillis);
         syncCallbacks.remoteSessions.add(metaA);
@@ -155,8 +154,7 @@ class SessionSynchronizerTest {
         UUID idC = UUID.randomUUID();
         String nameC = "Session C";
         RemoteSessionMeta metaC = new RemoteSessionMeta(
-                idC.toString(), "u1", "o1", "remote", nameC, "private",
-                timeStr, timeStr, timeStr, null);
+                idC.toString(), "u1", "o1", "remote", nameC, "private", timeStr, timeStr, timeStr, null);
         syncCallbacks.remoteSessions.add(metaC);
 
         Path tombstoneC = sessionsDir.resolve(idC + ".tombstone");
@@ -173,8 +171,16 @@ class SessionSynchronizerTest {
         Files.write(zipD, createValidSessionZip(idD, nameD, timeMillis));
 
         RemoteSessionMeta metaD = new RemoteSessionMeta(
-                idD.toString(), "u1", "o1", "remote", nameD, "private",
-                timeStr, timeStr, timeStr, "2023-10-02T12:00:00Z"); // Deleted later
+                idD.toString(),
+                "u1",
+                "o1",
+                "remote",
+                nameD,
+                "private",
+                timeStr,
+                timeStr,
+                timeStr,
+                "2023-10-02T12:00:00Z"); // Deleted later
         syncCallbacks.remoteSessions.add(metaD);
 
         // --- Session E: No-op (Local and Remote match) ---
@@ -184,8 +190,7 @@ class SessionSynchronizerTest {
         sessionManager.getSessionsCache().put(idE, infoE);
 
         RemoteSessionMeta metaE = new RemoteSessionMeta(
-                idE.toString(), "u1", "o1", "remote", nameE, "private",
-                timeStr, timeStr, timeStr, null);
+                idE.toString(), "u1", "o1", "remote", nameE, "private", timeStr, timeStr, timeStr, null);
         syncCallbacks.remoteSessions.add(metaE);
 
         // --- Execute ---
