@@ -281,13 +281,7 @@ class SessionSynchronizer {
                         IContextManager cm = openContextManagers.get(id);
 
                         if (action.localInfo() == null) {
-                            if (sessionManager.getSessionsCache().containsKey(id)) {
-                                logger.warn(
-                                        "Session {} appeared locally during download race check; skipping download.", id);
-                                result.skipped.add(action);
-                                return null;
-                            }
-                            saveRemoteSession(id, content, remoteMeta, cm);
+                            saveRemoteSession(id, content);
                         } else {
                             mergeAndSave(id, content, Objects.requireNonNull(action.localInfo()), remoteMeta);
                             if (cm != null) {
@@ -457,22 +451,14 @@ class SessionSynchronizer {
         }
     }
 
-    private void saveRemoteSession(
-            UUID id, byte[] content, RemoteSessionMeta meta, @Nullable IContextManager cm) throws IOException {
+    private void saveRemoteSession(UUID id, byte[] content) throws IOException {
         Path localPath = sessionManager.getSessionHistoryPath(id);
         Files.createDirectories(localPath.getParent());
         Files.write(localPath, content);
-
-        SessionInfo readInfo = sessionManager.readSessionInfoFromZip(localPath).orElse(null);
-        long created = (readInfo != null) ? readInfo.created() : System.currentTimeMillis();
-
-        SessionInfo newInfo = new SessionInfo(id, meta.name(), created, meta.modifiedAtMillis());
-        sessionManager.writeSessionInfoToZip(localPath, newInfo);
-        sessionManager.getSessionsCache().put(id, newInfo);
-
-        if (cm != null) {
-            cm.reloadCurrentSessionAsync();
-        }
+        sessionManager.readSessionInfoFromZip(localPath).ifPresent(si -> {
+            sessionManager.getSessionsCache().put(si.id(), si);
+            logger.info("Downloaded session {} from remote", id);
+        });
     }
 
     private void mergeAndSave(
