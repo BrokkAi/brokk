@@ -32,7 +32,6 @@ import org.jetbrains.annotations.Nullable;
 public class ToolsPane extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(ToolsPane.class);
 
-    private static final int SIDEBAR_COLLAPSED_THRESHOLD = 50;
     private static final int MIN_SIDEBAR_WIDTH_PX = 220;
     private static final long TAB_TOGGLE_DEBOUNCE_MS = 150;
 
