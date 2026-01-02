@@ -84,11 +84,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private final JScrollPane runListScrollPane;
 
     // Output
-    private final JTextArea outputArea;
-    private final DisplayOnlyDocument document;
-    private final JScrollPane outputScrollPane;
-
-    private final JSplitPane splitPane;
+    private final JTextArea streamingOutputArea;
+    private final JScrollPane streamingOutputScrollPane;
 
     // Runs by id
     private final Map<String, RunEntry> runsById;
@@ -151,7 +148,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         runList.setVisibleRowCount(5);
         runList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                updateOutputForSelectedRun();
+                RunEntry selected = runList.getSelectedValue();
+                if (selected != null && !selected.isRunning() && !selected.isQueued()) {
+                    showRunInPreview(selected);
+                }
             }
         });
 
@@ -221,35 +221,28 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         add(topToolbar, BorderLayout.NORTH);
 
-        outputArea = new JTextArea();
-        document = new DisplayOnlyDocument();
-        outputArea.setDocument(document);
-        outputArea.setEditable(false);
-        outputArea.setLineWrap(false);
-        outputArea.setWrapStyleWord(false);
-        outputArea.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        streamingOutputArea = new JTextArea();
+        streamingOutputArea.setEditable(false);
+        streamingOutputArea.setLineWrap(true);
+        streamingOutputArea.setWrapStyleWord(true);
+        streamingOutputArea.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
 
         Font base = UIManager.getFont("TextArea.font");
         if (base == null) base = new Font(Font.MONOSPACED, Font.PLAIN, 12);
         Font mono = new Font(Font.MONOSPACED, Font.PLAIN, base.getSize());
-        outputArea.setFont(mono);
+        streamingOutputArea.setFont(mono);
 
-        outputScrollPane = new JScrollPane(
-                outputArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        outputScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        outputScrollPane.setMinimumSize(new Dimension(100, 60));
-        outputScrollPane.setPreferredSize(new Dimension(100, 200));
-        outputScrollPane.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200));
+        streamingOutputScrollPane = new JScrollPane(
+                streamingOutputArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        streamingOutputScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        streamingOutputScrollPane.setPreferredSize(new Dimension(100, 150));
+        streamingOutputScrollPane.setVisible(false);
 
-        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, runListScrollPane, outputScrollPane);
-        splitPane.setResizeWeight(0.3);
-        splitPane.setDividerLocation(150);
-        splitPane.setBorder(BorderFactory.createEmptyBorder());
-        splitPane.setMinimumSize(new Dimension(100, 200));
+        JPanel centerPanel = new JPanel(new BorderLayout());
+        centerPanel.add(streamingOutputScrollPane, BorderLayout.NORTH);
+        centerPanel.add(runListScrollPane, BorderLayout.CENTER);
 
-        setMinimumSize(new Dimension(100, 200));
-
-        add(splitPane, BorderLayout.CENTER);
+        add(centerPanel, BorderLayout.CENTER);
 
         applyThemeColorsFromUIManager();
 
@@ -418,13 +411,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         if (runListModel.getSize() > 0) {
             runList.setSelectedIndex(0);
-            updateOutputForSelectedRun();
-        } else {
-            try {
-                document.withWritePermission(() -> outputArea.setText(""));
-            } catch (RuntimeException ex) {
-                logger.warn("Failed to clear output during restore", ex);
-            }
         }
 
         currentActiveRunId = lastRunningId;
@@ -492,16 +478,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                     RunEntry removed = runListModel.remove(last);
                     runsById.remove(removed.id);
                 }
-                // Select the active run and clear the output view
+                // Select the active run
                 runList.setSelectedIndex(0);
-                try {
-                    document.withWritePermission(() -> {
-                        outputArea.setText("");
-                        scrollToBottom();
-                    });
-                } catch (RuntimeException ex) {
-                    logger.warn("Failed to initialize output area for new run", ex);
-                }
             }
 
             // Persist after updating the UI/model
@@ -522,17 +500,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         run.appendOutput(text);
 
         runOnEdt(() -> {
-            var selected = runList.getSelectedValue();
-            if (selected != null && selected.id.equals(runId)) {
-                try {
-                    document.withWritePermission(() -> {
-                        outputArea.append(text);
-                        scrollToBottom();
-                    });
-                } catch (RuntimeException ex) {
-                    logger.warn("Failed to append run output", ex);
-                }
-                // Persist only when appending to the currently selected run to avoid excessive writes
+            if (runId.equals(currentActiveRunId)) {
+                streamingOutputArea.append(text);
+                streamingOutputArea.setCaretPosition(streamingOutputArea.getDocument().getLength());
+                // Persist only when appending to the active run to avoid excessive writes
                 triggerSave();
             }
         });
@@ -565,13 +536,23 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             // If we just completed the active run, promote the next queued run (if any)
             if (runId.equals(currentActiveRunId)) {
                 currentActiveRunId = null;
+                streamingOutputScrollPane.setVisible(false);
+
+                if (chrome != null) {
+                    showRunInPreview(run);
+                }
+
                 if (!runQueue.isEmpty()) {
                     String nextId = runQueue.removeFirst();
                     var next = runsById.get(nextId);
                     if (next != null) {
                         currentActiveRunId = nextId;
                         next.markRunning();
-                        // Move selection to the newly active run and display its buffered output
+
+                        streamingOutputArea.setText(next.getOutput());
+                        streamingOutputScrollPane.setVisible(true);
+
+                        // Move selection to the newly active run
                         int idx = -1;
                         for (int i = 0; i < runListModel.size(); i++) {
                             if (runListModel.get(i).id.equals(nextId)) {
@@ -581,15 +562,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                         }
                         if (idx >= 0) {
                             runList.setSelectedIndex(idx);
-                        }
-                        try {
-                            String text = next.getOutput();
-                            document.withWritePermission(() -> {
-                                outputArea.setText(text);
-                                scrollToBottom();
-                            });
-                        } catch (RuntimeException ex) {
-                            logger.warn("Failed to display output for promoted run {}", nextId, ex);
                         }
                     }
                 }
@@ -620,16 +592,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 runsById.remove(removed.id);
             }
 
-            // Keep selection on newest (top) if any runs remain; update output area
+            // Keep selection on newest (top) if any runs remain
             if (runListModel.getSize() > 0) {
                 runList.setSelectedIndex(0);
-                updateOutputForSelectedRun();
-            } else {
-                try {
-                    document.withWritePermission(() -> outputArea.setText(""));
-                } catch (RuntimeException ex) {
-                    logger.warn("Failed to clear output after maxRuns change", ex);
-                }
             }
 
             // Persist after updating the UI/model
@@ -657,11 +622,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 runsById.clear();
                 currentActiveRunId = null;
                 runListModel.clear();
-                try {
-                    document.withWritePermission(() -> outputArea.setText(""));
-                } catch (RuntimeException ex) {
-                    logger.warn("Failed to clear output", ex);
-                }
                 // Persist cleared state
                 triggerSave();
                 updateClearButtonTooltip();
@@ -692,44 +652,11 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                     runList.setSelectedIndex(runningIdx);
                 } else if (runListModel.getSize() > 0) {
                     runList.setSelectedIndex(0);
-                } else {
-                    try {
-                        document.withWritePermission(() -> outputArea.setText(""));
-                    } catch (RuntimeException ex) {
-                        logger.warn("Failed to clear output", ex);
-                    }
                 }
             }
-            updateOutputForSelectedRun();
             triggerSave();
             updateClearButtonTooltip();
         });
-    }
-
-    private void updateOutputForSelectedRun() {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::updateOutputForSelectedRun);
-            return;
-        }
-        RunEntry selected = runList.getSelectedValue();
-        if (selected == null) {
-            try {
-                document.withWritePermission(() -> outputArea.setText(""));
-            } catch (RuntimeException ex) {
-                logger.warn("Failed to clear output", ex);
-            }
-            return;
-        }
-
-        String text = selected.getOutput();
-        try {
-            document.withWritePermission(() -> {
-                outputArea.setText(text);
-                scrollToBottom();
-            });
-        } catch (RuntimeException ex) {
-            logger.warn("Failed to update output", ex);
-        }
     }
 
     @Override
@@ -817,6 +744,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             stopButton.setEnabled(true);
             Color stopColor = ThemeColors.getColor(false, ThemeColors.GIT_BADGE_BACKGROUND);
             stopButton.setBackground(stopColor);
+
+            streamingOutputArea.setText("%s:\n".formatted(command));
+            streamingOutputScrollPane.setVisible(true);
+            revalidate();
         });
 
         String runId = beginRun(fileCount, command, Instant.now());
@@ -880,9 +811,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     private void applyColors(Color bg, Color fg) {
-        outputArea.setBackground(bg);
-        outputArea.setForeground(fg);
-        outputArea.setCaretColor(fg);
+        streamingOutputArea.setBackground(bg);
+        streamingOutputArea.setForeground(fg);
+        streamingOutputArea.setCaretColor(fg);
 
         runList.setBackground(bg);
         runList.setForeground(fg);
@@ -956,8 +887,16 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 });
     }
 
-    private void scrollToBottom() {
-        outputArea.setCaretPosition(outputArea.getDocument().getLength());
+    private void showRunInPreview(RunEntry run) {
+        if (chrome != null) {
+            JTextArea previewArea = new JTextArea(run.getOutput());
+            previewArea.setEditable(false);
+            previewArea.setLineWrap(true);
+            previewArea.setWrapStyleWord(true);
+            previewArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+            JScrollPane scrollPane = new JScrollPane(previewArea);
+            chrome.getPreviewManager().showPreviewFrame("Test: " + withEllipsis(run.command, 30), scrollPane);
+        }
     }
 
     private static String withEllipsis(String s, int maxLen) {
@@ -1169,41 +1108,4 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private static final class DisplayOnlyDocument extends PlainDocument {
-        private boolean allowWrite = false;
-
-        void withWritePermission(Runnable r) {
-            boolean prev = allowWrite;
-            allowWrite = true;
-            try {
-                r.run();
-            } finally {
-                allowWrite = prev;
-            }
-        }
-
-        @Override
-        public void insertString(int offs, String str, AttributeSet a) throws BadLocationException {
-            if (!allowWrite) {
-                return;
-            }
-            super.insertString(offs, str, a);
-        }
-
-        @Override
-        public void remove(int offs, int len) throws BadLocationException {
-            if (!allowWrite) {
-                return;
-            }
-            super.remove(offs, len);
-        }
-
-        @Override
-        public void replace(int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
-            if (!allowWrite) {
-                return;
-            }
-            super.replace(offset, length, text, attrs);
-        }
-    }
 }
