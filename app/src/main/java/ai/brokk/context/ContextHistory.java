@@ -96,6 +96,58 @@ public class ContextHistory {
         this.diffService = new DiffService(this);
     }
 
+    public static boolean areDiverged(ContextHistory history1, ContextHistory history2) {
+        var list1 = history1.getHistory();
+        var list2 = history2.getHistory();
+        int minSize = Math.min(list1.size(), list2.size());
+
+        for (int i = 0; i < minSize; i++) {
+            if (!Objects.equals(list1.get(i), list2.get(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static ContextHistory merge(ContextHistory older, ContextHistory newer) {
+        var oldList = older.getHistory();
+        var newList = newer.getHistory();
+        int minSize = Math.min(oldList.size(), newList.size());
+        int commonPrefixLength = 0;
+
+        for (int i = 0; i < minSize; i++) {
+            if (!Objects.equals(oldList.get(i), newList.get(i))) {
+                break;
+            }
+            commonPrefixLength++;
+        }
+
+        List<Context> mergedList = new ArrayList<>(oldList.subList(0, commonPrefixLength));
+        // Add remaining from older (diverged part)
+        mergedList.addAll(oldList.subList(commonPrefixLength, oldList.size()));
+        // Add remaining from newer (diverged part)
+        mergedList.addAll(newList.subList(commonPrefixLength, newList.size()));
+
+        // Merge auxiliary data
+        List<ResetEdge> mergedResetEdges = new ArrayList<>();
+        mergedResetEdges.addAll(older.resetEdges);
+        mergedResetEdges.addAll(newer.resetEdges);
+
+        Map<UUID, GitState> mergedGitStates = new HashMap<>();
+        mergedGitStates.putAll(older.gitStates);
+        mergedGitStates.putAll(newer.gitStates);
+
+        Map<UUID, ContextHistoryEntryInfo> mergedEntryInfos = new HashMap<>();
+        mergedEntryInfos.putAll(older.entryInfos);
+        mergedEntryInfos.putAll(newer.entryInfos);
+
+        ContextHistory mergedHistory =
+                new ContextHistory(mergedList, mergedResetEdges, mergedGitStates, mergedEntryInfos);
+        mergedHistory.redo.addAll(newer.redo);
+
+        return mergedHistory;
+    }
+
     /* ───────────────────────── public API ─────────────────────────── */
 
     /**
