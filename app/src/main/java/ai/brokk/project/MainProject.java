@@ -161,6 +161,7 @@ public final class MainProject extends AbstractProject {
     public static final String STAGING_SERVICE_URL = "https://brokk-backend-staging.up.railway.app";
 
     private static final String DATA_RETENTION_POLICY_KEY = "dataRetentionPolicy";
+    private static final String GLOBAL_JDK_HOME_KEY = "jdk.home";
 
     public static final String DEFAULT_REVIEW_GUIDE =
             """
@@ -1681,6 +1682,30 @@ public final class MainProject extends AbstractProject {
             }
             return UNSET;
         }
+    }
+
+    /**
+     * Returns the global JDK home path set in preferences, if any.
+     */
+    public static @Nullable String getGlobalJdkHome() {
+        var props = loadGlobalProperties();
+        return props.getProperty(GLOBAL_JDK_HOME_KEY);
+    }
+
+    /**
+     * Sets the global JDK home path in preferences.
+     *
+     * @param jdkHome the path to the JDK home, or null to clear the preference
+     */
+    public static void setGlobalJdkHome(@Nullable String jdkHome) {
+        var props = loadGlobalProperties();
+        if (jdkHome == null || jdkHome.isBlank()) {
+            props.remove(GLOBAL_JDK_HOME_KEY);
+        } else {
+            props.setProperty(GLOBAL_JDK_HOME_KEY, jdkHome.trim());
+        }
+        saveGlobalProperties(props);
+        logger.debug("Set global JDK home preference to: {}", jdkHome);
     }
 
     @Override
