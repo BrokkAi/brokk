@@ -284,8 +284,8 @@ public class Llm {
                     .stream(true)
                     .streamOptions(StreamOptions.builder().includeUsage(true).build())
                     .build();
-            return Json.toJson(ChatCompletionRequest.builder().from(openAiRequest).stream(true)
-                    .build());
+            return Json.toJson(
+                    ChatCompletionRequest.builder().from(openAiRequest).build());
         }
         try {
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
