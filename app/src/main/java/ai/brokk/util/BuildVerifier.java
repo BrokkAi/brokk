@@ -147,14 +147,16 @@ public final class BuildVerifier {
         try {
             Path jdkPath = Path.of(jdkSetting);
             if (!jdkPath.isAbsolute()) {
-                logger.debug("Project JDK setting '{}' is not an absolute path; skipping JAVA_HOME injection.", jdkSetting);
+                logger.debug(
+                        "Project JDK setting '{}' is not an absolute path; skipping JAVA_HOME injection.", jdkSetting);
                 return env;
             }
 
             if (ai.brokk.gui.dialogs.JdkSelector.validateJdkPath(jdkPath) == null) {
                 env.put("JAVA_HOME", jdkPath.toString());
             } else {
-                logger.debug("Project JDK setting '{}' is not a valid JDK home; skipping JAVA_HOME injection.", jdkPath);
+                logger.debug(
+                        "Project JDK setting '{}' is not a valid JDK home; skipping JAVA_HOME injection.", jdkPath);
             }
         } catch (Exception e) {
             logger.debug("Project JDK setting '{}' is an invalid path: {}", jdkSetting, e.getMessage());
