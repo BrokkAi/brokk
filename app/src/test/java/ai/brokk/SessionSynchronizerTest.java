@@ -4,8 +4,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.Service.RemoteSessionMeta;
 import ai.brokk.SessionManager.SessionInfo;
+import ai.brokk.context.Context;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.HistoryIo;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -223,8 +226,13 @@ class SessionSynchronizerTest {
 
     private byte[] createValidSessionZip(UUID id, String name, long modified) throws IOException {
         Path tempZip = tempDir.resolve("temp_" + id + ".zip");
+
+        Context context = new Context(new TestContextManager(project, id));
+        ContextHistory history = new ContextHistory(context);
+        HistoryIo.writeZip(history, tempZip);
+
         SessionInfo info = new SessionInfo(id, name, modified, modified);
-        try (var fs = java.nio.file.FileSystems.newFileSystem(tempZip, Map.of("create", "true"))) {
+        try (var fs = java.nio.file.FileSystems.newFileSystem(tempZip, (ClassLoader) null)) {
             Path manifestPath = fs.getPath("manifest.json");
             String json = ai.brokk.project.AbstractProject.objectMapper.writeValueAsString(info);
             Files.writeString(manifestPath, json);
