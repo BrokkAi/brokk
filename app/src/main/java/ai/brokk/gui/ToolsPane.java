@@ -425,11 +425,29 @@ public class ToolsPane extends JPanel implements ThemeAware {
 
     /**
      * Programmatically selects the Tests tab and expands the sidebar if it is collapsed.
+     * Unlike {@link #handleTabToggle(int)}, this will not collapse the sidebar if the
+     * tab is already selected.
      */
     public void selectTestsTab() {
         int testsTabIdx = toolsPane.indexOfComponent(testRunnerPanel);
-        if (testsTabIdx != -1) {
-            handleTabToggle(testsTabIdx);
+        if (testsTabIdx == -1) {
+            return;
+        }
+
+        if (!sidebarCollapsed && toolsPane.getSelectedIndex() == testsTabIdx) {
+            return;
+        }
+
+        toolsPane.setSelectedIndex(testsTabIdx);
+        if (sidebarCollapsed) {
+            JSplitPane horizontalSplit = chrome.getHorizontalSplitPane();
+            int target = (lastExpandedSidebarLocation > 0)
+                    ? lastExpandedSidebarLocation
+                    : chrome.computeInitialSidebarWidth() + horizontalSplit.getDividerSize();
+            horizontalSplit.setDividerLocation(target);
+            sidebarCollapsed = false;
+            chrome.applySidebarState(false);
+            saveSidebarOpenSetting(true);
         }
     }
 
