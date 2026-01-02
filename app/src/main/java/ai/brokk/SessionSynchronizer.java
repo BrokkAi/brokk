@@ -235,9 +235,6 @@ class SessionSynchronizer {
                     Exception ex = (cause instanceof Exception) ? (Exception) cause : new Exception(cause);
                     result.failed.put(id, ex);
                     logger.warn("Action {} failed for session {}: {}", action.type(), id, ex.getMessage());
-                } catch (Exception e) {
-                    result.failed.put(id, e);
-                    logger.warn("Action {} failed for session {}: {}", action.type(), id, e.getMessage());
                 }
             }
             return result;
@@ -255,34 +252,51 @@ class SessionSynchronizer {
         }
     }
 
-    public void synchronize() {
-        try {
-            String remoteProject = project.getRemoteProjectName();
-            Files.createDirectories(sessionsDir);
+    public void synchronize() throws IOException {
+        String remoteProject = project.getRemoteProjectName();
+        Files.createDirectories(sessionsDir);
 
-            SyncPlanner planner = new SyncPlanner();
-            SyncExecutor executor = new SyncExecutor();
-            SyncResult result;
-            int iteration = 0;
-            
-            do {
-                iteration++;
-                if (iteration > 10) {
-                    logger.warn("Sync loop iteration limit reached, stopping.");
-                    break;
-                }
+        SyncPlanner planner = new SyncPlanner();
+        SyncExecutor executor = new SyncExecutor();
+        SyncResult result;
+        int iteration = 0;
 
-                // Fetch state
-                List<RemoteSessionMeta> remoteSessions = syncCallbacks.listRemoteSessions(remoteProject);
-                Map<UUID, SessionInfo> localSessions = new HashMap<>(sessionManager.getSessionsCache());
-                
-                Set<UUID> tombstones = new HashSet<>();
-                try (Stream<Path> stream = Files.list(sessionsDir)) {
-                    tombstones.addAll(stream.filter(path -> path.toString().endsWith(".tombstone"))
+        do {
+            iteration++;
+            if (iteration > 10) {
+                logger.warn("Sync loop iteration limit reached, stopping.");
+                break;
+            }
+
+            // Fetch state
+            List<RemoteSessionMeta> remoteSessions = syncCallbacks.listRemoteSessions(remoteProject);
+            Map<UUID, SessionInfo> localSessions = new HashMap<>(sessionManager.getSessionsCache());
+
+            Set<UUID> tombstones = new HashSet<>();
+            try (Stream<Path> stream = Files.list(sessionsDir)) {
+                tombstones.addAll(stream.filter(path -> path.toString().endsWith(".tombstone"))
+                        .map(path -> {
+                            String fileName = path.getFileName().toString();
+                            try {
+                                return UUID.fromString(fileName.substring(0, fileName.length() - ".tombstone".length()));
+                            } catch (IllegalArgumentException e) {
+                                return null;
+                            }
+                        })
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet()));
+            }
+
+            Set<UUID> unreadableIds = new HashSet<>();
+            Path unreadableDir = sessionsDir.resolve(SessionManager.UNREADABLE_SESSIONS_DIR);
+            if (Files.exists(unreadableDir)) {
+                 try (Stream<Path> stream = Files.list(unreadableDir)) {
+                    unreadableIds.addAll(stream
+                            .filter(path -> path.toString().endsWith(".zip"))
                             .map(path -> {
                                 String fileName = path.getFileName().toString();
                                 try {
-                                    return UUID.fromString(fileName.substring(0, fileName.length() - ".tombstone".length()));
+                                    return UUID.fromString(fileName.substring(0, fileName.length() - ".zip".length()));
                                 } catch (IllegalArgumentException e) {
                                     return null;
                                 }
@@ -290,42 +304,20 @@ class SessionSynchronizer {
                             .filter(Objects::nonNull)
                             .collect(Collectors.toSet()));
                 }
+            }
 
-                Set<UUID> unreadableIds = new HashSet<>();
-                Path unreadableDir = sessionsDir.resolve(SessionManager.UNREADABLE_SESSIONS_DIR);
-                if (Files.exists(unreadableDir)) {
-                     try (Stream<Path> stream = Files.list(unreadableDir)) {
-                        unreadableIds.addAll(stream
-                                .filter(path -> path.toString().endsWith(".zip"))
-                                .map(path -> {
-                                    String fileName = path.getFileName().toString();
-                                    try {
-                                        return UUID.fromString(fileName.substring(0, fileName.length() - ".zip".length()));
-                                    } catch (IllegalArgumentException e) {
-                                        return null;
-                                    }
-                                })
-                                .filter(Objects::nonNull)
-                                .collect(Collectors.toSet()));
-                    }
-                }
+            Map<UUID, IContextManager> openContextManagers = getOpenContextManagers();
 
-                Map<UUID, IContextManager> openContextManagers = getOpenContextManagers();
+            // Plan
+            List<SyncAction> actions = planner.plan(localSessions, remoteSessions, tombstones, unreadableIds);
+            if (actions.isEmpty()) {
+                break;
+            }
 
-                // Plan
-                List<SyncAction> actions = planner.plan(localSessions, remoteSessions, tombstones, unreadableIds);
-                if (actions.isEmpty()) {
-                    break;
-                }
+            // Execute
+            result = executor.execute(actions, syncCallbacks, openContextManagers, remoteProject);
 
-                // Execute
-                result = executor.execute(actions, syncCallbacks, openContextManagers, remoteProject);
-
-            } while (!result.skipped().isEmpty());
-
-        } catch (Exception e) {
-            logger.warn("synchronizeRemoteSessions failed.", e);
-        }
+        } while (!result.skipped().isEmpty());
     }
     
     protected Map<UUID, IContextManager> getOpenContextManagers() {
