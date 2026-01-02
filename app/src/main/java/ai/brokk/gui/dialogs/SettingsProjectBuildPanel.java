@@ -778,14 +778,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         var envVars = new HashMap<>(baseDetails.environmentVariables());
         envVars.remove("JAVA_HOME");
         envVars.remove("VIRTUAL_ENV");
-        if (selectedPrimaryLang == Languages.JAVA) {
-            if (setJavaHomeCheckbox.isSelected()) {
-                var selPath = jdkSelector.getSelectedJdkPath();
-                if (selPath != null && !selPath.isBlank()) {
-                    envVars.put("JAVA_HOME", PathNormalizer.canonicalizeEnvPathValue(selPath));
-                }
-            }
-        } else if (selectedPrimaryLang == Languages.PYTHON) {
+        if (selectedPrimaryLang == Languages.PYTHON) {
             envVars.put("VIRTUAL_ENV", ".venv");
         }
 
@@ -818,6 +811,15 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         // JDK Controls (only for Java)
+        if (selectedPrimaryLang == Languages.JAVA) {
+            String jdkToSet = null;
+            if (setJavaHomeCheckbox.isSelected()) {
+                jdkToSet = jdkSelector.getSelectedJdkPath();
+            }
+            project.setJdk(jdkToSet);
+            logger.debug("Applied JDK Home: {}", jdkToSet);
+        }
+
         if (selectedPrimaryLang != null && selectedPrimaryLang != project.getBuildLanguage()) {
             project.setBuildLanguage(selectedPrimaryLang);
             logger.debug("Applied Primary Language: {}", selectedPrimaryLang);
@@ -851,19 +853,14 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void populateJdkControlsFromProject() {
-        project.getBuildDetailsFuture().thenAccept(details -> {
-            SwingUtilities.invokeLater(() -> {
-                var env = details.environmentVariables();
-                String desired = env.get("JAVA_HOME");
+        String currentJdk = project.getJdk();
+        boolean useCustomJdk = currentJdk != null && !currentJdk.isBlank();
 
-                boolean useCustomJdk = desired != null && !desired.isBlank();
-                setJavaHomeCheckbox.setSelected(useCustomJdk);
-                jdkSelector.setEnabled(useCustomJdk);
+        setJavaHomeCheckbox.setSelected(useCustomJdk);
+        jdkSelector.setEnabled(useCustomJdk);
 
-                // Always populate the selector; it will select 'desired' if provided
-                jdkSelector.loadJdksAsync(desired);
-            });
-        });
+        // Always populate the selector; it will select 'currentJdk' if provided
+        jdkSelector.loadJdksAsync(currentJdk);
     }
 
     private void updateJdkControlsVisibility(@Nullable Language selected) {
