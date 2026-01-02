@@ -4,10 +4,8 @@ import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IWatchService;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.jetbrains.annotations.Nullable;
 
@@ -17,8 +15,6 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
     private final AtomicInteger pauseCount = new AtomicInteger(0);
     private final AtomicInteger resumeCount = new AtomicInteger(0);
     private final AtomicInteger rebuildCount = new AtomicInteger(0);
-    private final Set<Set<ProjectFile>> updateFilesCalls =
-            Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     public TestAnalyzerWrapper(@Nullable IAnalyzer analyzer) {
         this.analyzer = analyzer;
@@ -30,8 +26,7 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
 
     @Override
     public CompletableFuture<IAnalyzer> updateFiles(Set<ProjectFile> relevantFiles) {
-        updateFilesCalls.add(relevantFiles);
-        return CompletableFuture.completedFuture(analyzer);
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("Not used in this test"));
     }
 
     @Override
@@ -82,9 +77,5 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
 
     public int getRebuildCount() {
         return rebuildCount.get();
-    }
-
-    public Set<Set<ProjectFile>> getUpdateFilesCalls() {
-        return Collections.unmodifiableSet(updateFilesCalls);
     }
 }

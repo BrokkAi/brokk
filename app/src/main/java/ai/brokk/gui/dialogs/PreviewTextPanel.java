@@ -4,7 +4,6 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
 import ai.brokk.EditBlock;
-import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
@@ -44,8 +43,6 @@ import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -1217,39 +1214,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
      * @param buttonToDisable The save button instance to disable after a successful save.
      * @return true if the save was successful, false otherwise.
      */
-    static void syncAnalyzerAfterWrite(IAnalyzerWrapper analyzerWrapper, ProjectFile file) {
-        final long timeoutSeconds = 5;
-        long startNanos = System.nanoTime();
-        logger.debug(
-                "Syncing analyzer for {} while watcher paused (timeout={}s)",
-                file.getFileName(),
-                timeoutSeconds);
-
-        try {
-            analyzerWrapper.updateFiles(Set.of(file)).get(timeoutSeconds, TimeUnit.SECONDS);
-            long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
-            logger.info(
-                    "Analyzer sync for {} completed in {}ms while watcher paused",
-                    file.getFileName(),
-                    durationMs);
-        } catch (TimeoutException te) {
-            long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
-            logger.warn(
-                    "Analyzer sync timed out for {} after {}ms (timeout={}s)",
-                    file.getFileName(),
-                    durationMs,
-                    timeoutSeconds);
-        } catch (Exception e) {
-            long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
-            logger.warn(
-                    "Analyzer sync failed for {} after {}ms: {}",
-                    file.getFileName(),
-                    durationMs,
-                    e.toString());
-            logger.debug("Analyzer sync exception detail for {}", file.getFileName(), e);
-        }
-    }
-
     private boolean performSave(@Nullable JButton buttonToDisable) {
         requireNonNull(file, "Attempted to save but no ProjectFile is associated with this panel");
         var newContent = textArea.getText();
@@ -1257,10 +1221,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             try {
                 // Write the new content to the file first
                 file.write(newContent);
-
-                // Sync the analyzer while watcher is paused to advance its mtime watermark.
-                // This prevents the write from being detected as an external modification later.
-                syncAnalyzerAfterWrite(cm.getAnalyzerWrapper(), file);
 
                 // Then, add a history entry for the change.
                 var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
