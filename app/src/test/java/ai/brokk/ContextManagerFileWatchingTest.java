@@ -333,6 +333,51 @@ class ContextManagerFileWatchingTest {
     }
 
     @Test
+    void testAfterEachBuild_SuppressesRefreshOnInternalWrite() throws Exception {
+        ProjectFile file = new ProjectFile(projectRoot, Path.of("src/Main.java"));
+
+        // Replace ContextManager's private contextHistory field via reflection
+        CountingContextHistory countingHistory = new CountingContextHistory(new Context(contextManager));
+        Field historyField = ContextManager.class.getDeclaredField("contextHistory");
+        historyField.setAccessible(true);
+        historyField.set(contextManager, countingHistory);
+
+        // Inject TestConsoleIO
+        Field ioField = ContextManager.class.getDeclaredField("io");
+        ioField.setAccessible(true);
+        ioField.set(contextManager, testIO);
+
+        // Get the internal AnalyzerListener from ContextManager
+        var listenerField = ContextManager.class.getDeclaredMethod("createAnalyzerListener");
+        listenerField.setAccessible(true);
+        AnalyzerListener analyzerListener = (AnalyzerListener) listenerField.invoke(contextManager);
+
+        // Simulate a self-write scenario. 
+        // withFileChangeNotificationsPaused increments the internalWriteMarker.
+        contextManager.withFileChangeNotificationsPaused(List.of(file), () -> {
+            // While paused/writing, an analyzer build finishes.
+            // In a real scenario, the watcher might have fired or the analyzer noticed the change.
+            
+            analyzerListener.afterEachBuild(false);
+            
+            // We need to wait a bit because afterEachBuild submits a background task
+            Thread.sleep(200); 
+
+            // Assertions:
+            // 1. ContextHistory.processExternalFileChangesIfNeeded should NOT be called 
+            //    because internalWriteMarker > 0.
+            assertEquals(0, countingHistory.externalChangesCallCount.get(), 
+                "Should NOT process external changes during internal write");
+            
+            // 2. io.updateWorkspace() should NOT be called.
+            assertEquals(0, testIO.workspaceUpdateCount.get(), 
+                "Should NOT update workspace during internal write");
+            
+            return null;
+        });
+    }
+
+    @Test
     void testFileWatchListener_SuppressesSelfWrite_DoesNotTriggerTrackedHandlingOrWorkspaceRefresh() throws Exception {
         ProjectFile file = new ProjectFile(projectRoot, Path.of("src/Main.java"));
 
