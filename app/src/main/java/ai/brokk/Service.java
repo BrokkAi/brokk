@@ -554,6 +554,10 @@ public class Service extends AbstractService implements ExceptionReporter.Report
             return modifiedAt != null ? Instant.parse(modifiedAt).toEpochMilli() : 0;
         }
 
+        public long deletedAtMillis() {
+            return deletedAt != null ? Instant.parse(deletedAt).toEpochMilli() : 0;
+        }
+
         public UUID uuid() {
             return UUID.fromString(id);
         }

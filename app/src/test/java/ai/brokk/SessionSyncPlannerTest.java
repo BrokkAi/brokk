@@ -73,12 +73,26 @@ class SessionSyncPlannerTest {
     @Test
     void plansDeleteLocalIfRemoteDeleted() {
         SessionInfo local = createLocal(sessionId, 1000);
-        RemoteSessionMeta remote = createRemote(sessionId, 2000, Instant.now().toString());
+        // Remote deleted after local modification
+        RemoteSessionMeta remote = createRemote(sessionId, 2000, Instant.ofEpochMilli(2000).toString());
 
         List<SyncAction> actions = planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of());
 
         assertEquals(1, actions.size());
         assertEquals(ActionType.DELETE_LOCAL, actions.getFirst().type());
+    }
+
+    @Test
+    void resurrectsLocalIfModifiedAfterRemoteDeletion() {
+        SessionInfo local = createLocal(sessionId, 2000);
+        // Remote deleted before local modification
+        RemoteSessionMeta remote = createRemote(sessionId, 500, Instant.ofEpochMilli(1000).toString());
+
+        List<SyncAction> actions = planner.plan(Map.of(sessionId, local), List.of(remote), Set.of(), Set.of());
+
+        assertEquals(1, actions.size());
+        assertEquals(ActionType.UPLOAD, actions.getFirst().type());
+        assertEquals(local, actions.getFirst().localInfo());
     }
 
     @Test

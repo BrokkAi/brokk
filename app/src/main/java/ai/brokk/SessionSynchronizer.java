@@ -140,7 +140,11 @@ class SessionSynchronizer {
                     if (remote.deletedAt() != null) {
                         // Remote deleted
                         if (local != null) {
-                            actions.add(new SyncAction(id, ActionType.DELETE_LOCAL, local, remote));
+                            if (remote.deletedAtMillis() > local.modified()) {
+                                actions.add(new SyncAction(id, ActionType.DELETE_LOCAL, local, remote));
+                            } else {
+                                actions.add(new SyncAction(id, ActionType.UPLOAD, local, remote));
+                            }
                         }
                     } else {
                         // Remote active
