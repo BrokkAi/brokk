@@ -80,6 +80,7 @@ public class Finder {
 
     public static final String MACOS_JAVA_INSTALL_PATH = "/System/Volumes/Data/Library/Java/JavaVirtualMachines/";
     public static final String WINDOWS_JAVA_INSTALL_PATH = "C:\\Program Files\\Java\\";
+    public static final String WINDOWS_OPENJDK_INSTALL_PATH = "C:\\Program Files\\OpenJDK\\";
     public static final String LINUX_JAVA_INSTALL_PATH = "/usr/lib/jvm";
     private static final Pattern GRAALVM_VERSION_PATTERN = Pattern.compile("(.*graalvm\\s)(.*)(\\s\\(.*)");
     private static final Pattern ZULU_BUILD_PATTERN = Pattern.compile("\\((build\\s)(.*)\\)");
@@ -128,6 +129,14 @@ public class Finder {
                 && Detector.isSDKMANInstalled()) {
             if (!searchPaths.contains(Detector.SDKMAN_FOLDER)) {
                 searchPaths.add(Detector.SDKMAN_FOLDER);
+            }
+        }
+
+        // If on Windows, add the OpenJDK directory if it exists
+        if (operatingSystem == OperatingSystem.WINDOWS) {
+            Path openJdkPath = Paths.get(WINDOWS_OPENJDK_INSTALL_PATH);
+            if (Files.exists(openJdkPath) && Files.isDirectory(openJdkPath)) {
+                searchPaths.add(WINDOWS_OPENJDK_INSTALL_PATH);
             }
         }
 
