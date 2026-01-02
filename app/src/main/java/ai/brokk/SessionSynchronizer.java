@@ -309,7 +309,7 @@ class SessionSynchronizer {
                     Exception ex = (cause instanceof Exception e) ? e : new Exception(cause);
                     result.failed.put(id, ex);
                     logger.warn("Action {} failed for session {}: {}", action.type(), id, ex.getMessage());
-                } catch (Exception e) {
+                } catch (IOException e) {
                     result.failed.put(id, e);
                     logger.warn("Action {} failed for session {}: {}", action.type(), id, e.getMessage());
                 }
