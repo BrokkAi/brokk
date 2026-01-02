@@ -185,7 +185,7 @@ class SessionSynchronizer {
         SyncResult execute(
                 List<SyncAction> actions,
                 SyncCallbacks callbacks,
-                Map<UUID, ContextManager> openContextManagers,
+                Map<UUID, IContextManager> openContextManagers,
                 String remoteProject) {
             SyncResult result = new SyncResult();
 
@@ -205,7 +205,7 @@ class SessionSynchronizer {
                             case DELETE_LOCAL -> {
                                 if (isLocalModified(action, result)) return null;
 
-                                ContextManager cm = openContextManagers.get(id);
+                                IContextManager cm = openContextManagers.get(id);
                                 deleteLocalSession(id);
                                 if (cm != null) {
                                     cm.createSessionAsync(ContextManager.DEFAULT_SESSION_NAME).join();
@@ -216,7 +216,7 @@ class SessionSynchronizer {
                                 if (isLocalModified(action, result)) return null;
 
                                 downloadSession(id, callbacks);
-                                ContextManager cm = openContextManagers.get(id);
+                                IContextManager cm = openContextManagers.get(id);
                                 if (cm != null) {
                                     cm.reloadCurrentSessionAsync();
                                 }
@@ -310,7 +310,7 @@ class SessionSynchronizer {
                     }
                 }
 
-                Map<UUID, ContextManager> openContextManagers = getOpenContextManagers();
+                Map<UUID, IContextManager> openContextManagers = getOpenContextManagers();
 
                 // Plan
                 List<SyncAction> actions = planner.plan(localSessions, remoteSessions, tombstones, unreadableIds);
@@ -328,11 +328,11 @@ class SessionSynchronizer {
         }
     }
     
-    protected Map<UUID, ContextManager> getOpenContextManagers() {
+    protected Map<UUID, IContextManager> getOpenContextManagers() {
         return Brokk.getProjectAndWorktreeChromes(project).stream()
-                .map(Chrome::getContextManager)
+                .map(c -> (IContextManager) c.getContextManager())
                 .filter(cm -> cm.getCurrentSessionId() != null)
-                .collect(Collectors.toMap(ContextManager::getCurrentSessionId, Function.identity(), (a, b) -> a));
+                .collect(Collectors.toMap(IContextManager::getCurrentSessionId, Function.identity(), (a, b) -> a));
     }
 
     private void deleteLocalSession(UUID id) {

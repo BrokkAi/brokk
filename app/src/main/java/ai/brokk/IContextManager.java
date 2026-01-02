@@ -271,4 +271,17 @@ public interface IContextManager {
     default CompletableFuture<String> summarizeTaskForConversation(String taskText) {
         throw new UnsupportedOperationException();
     }
+
+    @Nullable
+    default UUID getCurrentSessionId() {
+        throw new UnsupportedOperationException();
+    }
+
+    default void reloadCurrentSessionAsync() {
+        throw new UnsupportedOperationException();
+    }
+
+    default CompletableFuture<Void> createSessionAsync(String name) {
+        throw new UnsupportedOperationException();
+    }
 }

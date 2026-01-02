@@ -61,14 +61,20 @@ class SessionSynchronizerTest {
     }
 
     /** Simple stub for ContextManager to verify interactions during sync. */
-    private static class TestContextManager extends ContextManager {
+    private static class TestContextManager implements IContextManager {
         boolean reloadCalled = false;
         boolean createSessionCalled = false;
+        private final IProject project;
         private UUID currentSessionId;
 
         public TestContextManager(IProject project, UUID currentSessionId) {
-            super(project);
+            this.project = project;
             this.currentSessionId = currentSessionId;
+        }
+
+        @Override
+        public IProject getProject() {
+            return project;
         }
 
         @Override
@@ -88,7 +94,7 @@ class SessionSynchronizerTest {
         }
     }
 
-    private Map<UUID, ContextManager> openContexts = new HashMap<>();
+    private Map<UUID, IContextManager> openContexts = new HashMap<>();
 
     @BeforeEach
     void setup() throws IOException {
@@ -103,7 +109,7 @@ class SessionSynchronizerTest {
         syncCallbacks = new FakeSyncCallbacks();
         synchronizer = new SessionSynchronizer(project, syncCallbacks) {
             @Override
-            protected Map<UUID, ContextManager> getOpenContextManagers() {
+            protected Map<UUID, IContextManager> getOpenContextManagers() {
                 return openContexts;
             }
         };

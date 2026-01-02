@@ -88,7 +88,7 @@ class SessionSyncExecutorTest {
         SyncAction action = new SyncAction(id, ActionType.DOWNLOAD, null, remoteMeta);
         
         TestContextManager cm = new TestContextManager(projectStub, id);
-        Map<UUID, ContextManager> contextManagers = Map.of(id, cm);
+        Map<UUID, IContextManager> contextManagers = Map.of(id, cm);
         
         SyncResult result = syncExecutor.execute(
             List.of(action), callbacks, contextManagers, REMOTE_PROJECT
@@ -198,7 +198,7 @@ class SessionSyncExecutorTest {
         sessionManager.getSessionsCache().put(id, localInfo);
         
         TestContextManager cm = new TestContextManager(projectStub, id);
-        Map<UUID, ContextManager> contextManagers = Map.of(id, cm);
+        Map<UUID, IContextManager> contextManagers = Map.of(id, cm);
 
         SyncAction action = new SyncAction(id, ActionType.DELETE_LOCAL, localInfo, null);
         
@@ -322,14 +322,20 @@ class SessionSyncExecutorTest {
         }
     }
 
-    private static class TestContextManager extends ContextManager {
+    private static class TestContextManager implements IContextManager {
         boolean reloadCalled = false;
         boolean createSessionCalled = false;
+        private final IProject project;
         private UUID currentSessionId;
 
         public TestContextManager(IProject project, UUID currentSessionId) {
-            super(project);
+            this.project = project;
             this.currentSessionId = currentSessionId;
+        }
+
+        @Override
+        public IProject getProject() {
+            return project;
         }
 
         @Override
