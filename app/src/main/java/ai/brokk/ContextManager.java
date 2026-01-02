@@ -187,6 +187,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     private final Set<ProjectFile> pendingUnsuppressedFileChanges = ConcurrentHashMap.newKeySet();
 
+    /**
+     * Counter incremented whenever an internal write occurs. Used to coordinate
+     * with analyzer callbacks to avoid creating "External Change" snapshots for
+     * changes we just performed ourselves.
+     */
+    private final AtomicInteger internalWriteMarker = new AtomicInteger(0);
+
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
@@ -507,16 +514,20 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
 
                     // Update context w/ new analyzer
-                    // ignore "load external changes" done by internal writes or build agent
-                    // the analyzer pause is our indicator for suppressed self-writes
-                    if (!analyzerWrapper.isPause()) {
-                        Set<ProjectFile> changed = drainPendingFileChanges();
-                        if (!changed.isEmpty() && processExternalFileChangesIfNeeded(changed)) {
+                    // We skip the no-arg refresh (processing external changes) if an internal write marker
+                    // is active, or if there are simply no pending changes to process.
+                    Set<ProjectFile> changed = drainPendingFileChanges();
+                    if (changed.isEmpty()) {
+                        logger.debug("Skipping processExternalFileChangesIfNeeded: no pending changes");
+                    } else if (analyzerWrapper.isPause() || internalWriteMarker.get() > 0) {
+                        logger.debug(
+                                "Skipping processExternalFileChangesIfNeeded: internal write marker active (pause={}, marker={})",
+                                analyzerWrapper.isPause(),
+                                internalWriteMarker.get());
+                    } else {
+                        if (processExternalFileChangesIfNeeded(changed)) {
                             io.updateWorkspace();
                         }
-                    } else {
-                        logger.debug(
-                                "Skipping processExternalFileChangesIfNeeded because analyzer is paused (internal write in progress)");
                     }
 
                     if (externalRequest && io instanceof Chrome chrome) {
@@ -1918,6 +1929,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public <T> T withFileChangeNotificationsPaused(Collection<ProjectFile> filesToSuppress, Callable<T> callable) {
         analyzerWrapper.pause();
+        internalWriteMarker.incrementAndGet();
         suppressedFiles.addAll(filesToSuppress);
         try {
             return callable.call();
@@ -1927,6 +1939,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             suppressedFiles.removeAll(filesToSuppress);
             throw new RuntimeException(e);
         } finally {
+            internalWriteMarker.decrementAndGet();
             analyzerWrapper.resume();
         }
     }
