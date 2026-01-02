@@ -188,6 +188,7 @@ class SessionSynchronizer {
     }
 
     class SyncExecutor {
+        @SuppressWarnings("ArrayRecordComponent")
         record UploadSnapshot(String name, long modified, byte[] bytes) {}
 
         SyncResult execute(
@@ -266,7 +267,8 @@ class SessionSynchronizer {
                 SyncResult result)
                 throws IOException, ExecutionException, InterruptedException {
             UUID id = action.sessionId();
-            if (action.remoteMeta() == null) {
+            RemoteSessionMeta remoteMeta = action.remoteMeta();
+            if (remoteMeta == null) {
                 throw new IllegalArgumentException("Cannot download session without remote metadata");
             }
 
@@ -279,7 +281,7 @@ class SessionSynchronizer {
                     .submit(id.toString(), (Callable<Void>) () -> {
                         if (isLocalModified(action, result)) return null;
 
-                        mergeAndSave(id, content, action.localInfo(), action.remoteMeta());
+                        mergeAndSave(id, content, action.localInfo(), remoteMeta);
                         IContextManager cm = openContextManagers.get(id);
                         if (cm != null) {
                             cm.reloadCurrentSessionAsync();
@@ -314,7 +316,7 @@ class SessionSynchronizer {
                         if (isLocalModified(action, result)) return null;
 
                         if (contentToMerge != null) {
-                            mergeAndSave(id, contentToMerge, action.localInfo(), action.remoteMeta());
+                            mergeAndSave(id, contentToMerge, action.localInfo(), Objects.requireNonNull(action.remoteMeta()));
                         }
 
                         Path localPath = sessionManager.getSessionHistoryPath(id);
