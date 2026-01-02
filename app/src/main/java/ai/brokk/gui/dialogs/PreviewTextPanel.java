@@ -21,6 +21,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.VoiceInputButton;
 import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.search.GenericSearchBar;
 import ai.brokk.gui.search.RTextAreaSearchableComponent;
 import ai.brokk.gui.theme.FontSizeAware;
@@ -73,6 +74,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
     private final RTextScrollPane scrollPane;
+    private final JLabel emptyStateLabel;
+    private final JLayeredPane layeredPane;
 
     @Nullable
     private MaterialButton attachButton;
@@ -267,14 +270,59 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
 
+        // Empty state label
+        emptyStateLabel = new JLabel();
+        emptyStateLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        emptyStateLabel.setOpaque(true);
+        emptyStateLabel.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
+        emptyStateLabel.setFont(new Font(Font.DIALOG, Font.BOLD, 14));
+        emptyStateLabel.setVisible(false);
+
+        // Use a layered pane to overlay the label on top of the scroll pane
+        layeredPane = new JLayeredPane() {
+            @Override
+            public void doLayout() {
+                scrollPane.setBounds(0, 0, getWidth(), getHeight());
+                if (emptyStateLabel.isVisible()) {
+                    Dimension pref = emptyStateLabel.getPreferredSize();
+                    emptyStateLabel.setBounds(
+                            (getWidth() - pref.width) / 2,
+                            (getHeight() - pref.height) / 3, // slightly above center
+                            pref.width,
+                            pref.height);
+                }
+            }
+        };
+        layeredPane.add(scrollPane, JLayeredPane.DEFAULT_LAYER);
+        layeredPane.add(emptyStateLabel, JLayeredPane.PALETTE_LAYER);
+
+        // Update empty state whenever text changes
+        textArea.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                updateEmptyState();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                updateEmptyState();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                updateEmptyState();
+            }
+        });
+        updateEmptyState();
+
         // Initialize font index from saved settings or default
         // This must happen BEFORE theme application (which Chrome.java will do after construction)
         // so the theme preserves the font when applyTheme() is called
         ensureFontIndexInitialized();
 
-        // Add top panel (search + edit) + text area to this panel
+        // Add top panel (search + edit) + layered pane to this panel
         add(topPanel, BorderLayout.NORTH);
-        add(scrollPane, BorderLayout.CENTER);
+        add(layeredPane, BorderLayout.CENTER);
 
         // Register global shortcuts for the search bar
         searchBar.registerGlobalShortcuts(this);
@@ -337,8 +385,28 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Explicitly theme the text area (updateComponentTreeUIPreservingFonts doesn't recurse into ThemeAware
         // children)
         textArea.applyTheme(guiTheme);
+
+        // Apply colors to empty state label
+        emptyStateLabel.setBackground(ThemeColors.getColor(ThemeColors.NOTIF_INFO_BG));
+        emptyStateLabel.setForeground(ThemeColors.getColor(ThemeColors.NOTIF_INFO_FG));
+
         revalidate();
         repaint();
+    }
+
+    private void updateEmptyState() {
+        String text = textArea.getText();
+        if (text.isEmpty()) {
+            emptyStateLabel.setText("Empty Content");
+            emptyStateLabel.setVisible(true);
+        } else if (text.isBlank()) {
+            emptyStateLabel.setText("Whitespace-Only Content");
+            emptyStateLabel.setVisible(true);
+        } else {
+            emptyStateLabel.setVisible(false);
+        }
+        layeredPane.revalidate();
+        layeredPane.repaint();
     }
 
     /** Custom RSyntaxTextArea implementation for preview panels with custom popup menu */
