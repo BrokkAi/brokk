@@ -853,18 +853,13 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void populateJdkControlsFromProject() {
-        String jdkHome = project.getJdk();
-        // project.getJdk() returns a detected JDK if jdk.home is not set in workspace.properties.
-        // We want to see if it's explicitly set in the properties to determine the checkbox state.
-        // However, IProject doesn't distinguish between 'detected' and 'explicit' easily without
-        // checking the properties directly. AbstractProject.getJdk() already handles the fallback.
+        String effectiveJdk = project.getJdk();
+        boolean hasOverride = project.hasJdkOverride();
 
-        // Since getJdk() returns detected or configured, we check if the selector should be enabled.
-        // If it's a valid JDK path, we show it.
-        boolean hasOverride = jdkHome != null && !jdkHome.isBlank();
         setJavaHomeCheckbox.setSelected(hasOverride);
         jdkSelector.setEnabled(hasOverride);
-        jdkSelector.loadJdksAsync(jdkHome);
+        // Show the effective JDK (detected or explicit) in the selector
+        jdkSelector.loadJdksAsync(effectiveJdk);
     }
 
     private void updateJdkControlsVisibility(@Nullable Language selected) {
