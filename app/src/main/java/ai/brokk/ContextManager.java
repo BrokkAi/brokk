@@ -510,10 +510,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // ignore "load external changes" done by internal writes or build agent
                     // the analyzer pause is our indicator for suppressed self-writes
                     if (!analyzerWrapper.isPause()) {
-                        processExternalFileChangesIfNeeded();
-                        io.updateWorkspace();
+                        Set<ProjectFile> changed = drainPendingFileChanges();
+                        if (!changed.isEmpty() && processExternalFileChangesIfNeeded(changed)) {
+                            io.updateWorkspace();
+                        }
                     } else {
-                        logger.debug("Skipping processExternalFileChangesIfNeeded because analyzer is paused (internal write in progress)");
+                        logger.debug(
+                                "Skipping processExternalFileChangesIfNeeded because analyzer is paused (internal write in progress)");
                     }
 
                     if (externalRequest && io instanceof Chrome chrome) {
@@ -1643,26 +1646,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return false;
     }
 
-    /**
-     * Convenience overload used when we don't have an explicit changed-files set (e.g., after analyzer rebuilds).
-     * Refreshes any fragment that references any file in the current context.
-     */
-    @Blocking
-    private void processExternalFileChangesIfNeeded() {
-        // Avoid indefinite blocking on fragment computations. Time-bound each files() retrieval.
-        var fragments = liveContext().allFragments().toList();
-        Set<ProjectFile> allReferenced = new HashSet<>();
-        for (var f : fragments) {
-            try {
-                var files =
-                        f.files().await(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
-                allReferenced.addAll(files);
-            } catch (TimeoutException te) {
-                logger.warn("Timed out waiting for files() of fragment {}", f.id());
-            }
-        }
-        processExternalFileChangesIfNeeded(allReferenced);
-    }
 
     /**
      * Pushes context changes using a generator function. The generator is applied to the current `liveContext`. The
