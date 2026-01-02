@@ -485,10 +485,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         Color fg = UIManager.getColor("TextArea.foreground");
 
         if (bg == null) {
-            bg = guiTheme.isDarkTheme() ? new Color(32, 32, 32) : Color.WHITE;
+            bg = ThemeColors.getEditorBackground();
         }
         if (fg == null) {
-            fg = guiTheme.isDarkTheme() ? new Color(221, 221, 221) : Color.BLACK;
+            fg = ThemeColors.getLabelForeground();
         }
 
         final Color bgFinal = bg;
@@ -730,18 +730,21 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             label.setText(icon + timeText + " • " + filesText + " • " + dur);
             label.setToolTipText(run.command());
 
+            Color statusColor = run.isSuccess()
+                    ? ThemeColors.getColor(ThemeColors.GIT_STATUS_ADDED)
+                    : ThemeColors.getColor(ThemeColors.GIT_STATUS_DELETED);
+
+            JPanel panel = new JPanel(new BorderLayout(4, 0));
+            panel.setOpaque(true);
+            panel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+
+            label.setOpaque(false);
             if (!isSelected) {
-                Color statusColor = run.isSuccess() ? new Color(100, 200, 100) : new Color(255, 100, 100);
                 label.setForeground(statusColor);
             }
+            panel.add(label, BorderLayout.CENTER);
 
             if (run.isFailed()) {
-                JPanel panel = new JPanel(new BorderLayout(4, 0));
-                panel.setOpaque(true);
-                panel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
-                label.setOpaque(false);
-                panel.add(label, BorderLayout.CENTER);
-
                 JButton fixButton = new JButton(Icons.WAND);
                 fixButton.setToolTipText("Fix this failing test with Lutz Mode");
                 fixButton.setMargin(new Insets(0, 2, 0, 2));
@@ -750,10 +753,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 fixButton.setFocusPainted(false);
                 fixButton.setOpaque(false);
                 panel.add(fixButton, BorderLayout.EAST);
-                return panel;
             }
 
-            return label;
+            return panel;
         }
     }
 }
