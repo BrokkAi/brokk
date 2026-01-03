@@ -55,7 +55,21 @@ class ContextManagerTest {
                 "src/foo/bar/x_test.py",
                 "src/foo/bar/x_tests.py",
                 "src/foo/bar/under_test_score.py",
-                "src/foo/bar/under_tests_score.py");
+                "src/foo/bar/under_tests_score.py",
+
+                // js/ts conventions
+                "component.spec.ts",
+                "component.spec.js",
+                "component.spec.tsx",
+                "component.spec.jsx",
+                "my-component.spec.ts",
+                "MyComponent.spec.ts",
+                "foo.test.ts",
+                "foo.test.js",
+                "src/__tests__/utils.ts",
+                "__tests__/helper.js",
+                "__tests__/Component.test.js",
+                "packages/core/__tests__/util.ts");
 
         var pattern = ContextManager.TEST_FILE_PATTERN;
         var mismatches = new ArrayList<String>();
@@ -77,7 +91,11 @@ class ContextManagerTest {
                 "contest/file.java",
                 "testament/Foo.java",
                 "src/main/java/Testament.java",
-                "src/main/java/Contest.java");
+                "src/main/java/Contest.java",
+                "inspector/code.ts",
+                "spectacle/show.js",
+                "src/respect.ts",
+                "aspect-ratio.ts");
 
         var pattern = ContextManager.TEST_FILE_PATTERN;
         var unexpectedMatches = new ArrayList<String>();

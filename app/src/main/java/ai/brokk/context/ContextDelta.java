@@ -63,7 +63,16 @@ public record ContextDelta(
      * @param to   the target context (typically the current state)
      * @return a ContextDelta describing the changes
      */
-    public static ContextDelta between(Context from, Context to) {
+    public static ComputedValue<ContextDelta> between(Context from, Context to) {
+        var executor = ExecutorServiceUtil.newVirtualThreadExecutor("delta-between-", 1);
+        return new ComputedValue<>(
+                "delta",
+                CompletableFuture.supplyAsync(() -> betweenInternal(from, to), executor)
+                        .whenComplete((r, e) -> executor.shutdown()));
+    }
+
+    @Blocking
+    private static ContextDelta betweenInternal(Context from, Context to) {
         boolean sessionReset = !from.isEmpty() && to.isEmpty();
 
         var added = to.fragments.stream()

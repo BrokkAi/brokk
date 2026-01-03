@@ -366,7 +366,9 @@ public class BuildAgent {
         String wrapperScriptInstruction;
         if (Environment.isWindows()) {
             wrapperScriptInstruction =
-                    "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. gradlew.cmd, mvnw.cmd).";
+                    """
+                    Prefer the repository-local *wrapper script* when it exists in the project root (e.g. gradlew.cmd, mvnw.cmd).
+                    Since the command will run in PowerShell, use the `--%` stop-parsing token immediately after the command or wrapper script to avoid quoting issues (e.g., `mvnw.cmd --% compile`, `gradlew.bat --% classes`).""";
         } else {
             wrapperScriptInstruction =
                     "Prefer the repository-local *wrapper script* when it exists in the project root (e.g. ./gradlew, ./mvnw).";
@@ -408,7 +410,7 @@ public class BuildAgent {
                 | Build tool        | One-liner a user could write
                 | ----------------- | ------------------------------------------------------------------------
                 | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
-                | **Maven**         | `mvn --quiet test -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
+                | **Maven**         | `mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
                 | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
                 | **Go**            | `go test -run '{{#classes}}{{value}}{{^last}} | {{/last}}{{/classes}}`
                 | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}} | {{/last}}{{/classes}}"`

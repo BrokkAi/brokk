@@ -548,16 +548,14 @@ public class Context {
     }
 
     public ComputedValue<String> getAction(@Nullable Context previous) {
-        if (previous == null) {
-            previous = EMPTY;
-        }
+        var prev = (previous == null) ? EMPTY : previous;
 
-        var delta = ContextDelta.between(previous, this);
-        if (delta.isEmpty() && isEmpty()) {
-            return ComputedValue.completed(WELCOME_ACTION);
-        }
-
-        return delta.description(contextManager);
+        return ContextDelta.between(prev, this).flatMap(delta -> {
+            if (delta.isEmpty() && isEmpty()) {
+                return ComputedValue.completed(WELCOME_ACTION);
+            }
+            return delta.description(contextManager);
+        });
     }
 
     public IContextManager getContextManager() {

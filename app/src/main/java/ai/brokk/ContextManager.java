@@ -84,16 +84,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final UserActionManager userActions;
 
     // Regex to identify test files. Matches the word "test"/"tests" (case-insensitive)
-    // when it appears as its own path segment or at a camel-case boundary.
-    static final Pattern TEST_FILE_PATTERN = Pattern.compile(".*" + // anything before
-            "(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z])|(?<=[A-Z]))"
-            + // valid prefix boundary
-            "(?i:tests?)"
-            + // the word test/tests (case-insensitive only here)
-            "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)"
-            + // suffix: separator, word-boundary, underscore,
-            //         UC not followed by lc  OR UC followed by lc, or EOS
-            ".*");
+    // when it appears as its own path segment or at a camel-case boundary, as well as
+    // common JS/TS conventions: *.spec.<ext>, *.test.<ext>, and files under __tests__/.
+    static final Pattern TEST_FILE_PATTERN = Pattern.compile(".*"
+            + "(?:"
+            + "(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z])|(?<=[A-Z]))"
+            + "(?i:tests?)"
+            + "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)"
+            + "|"
+            + "(?i:\\.(?:spec|test)\\.[^/\\\\.]+$)"
+            + ")"
+            + ".*");
 
     public static final String DEFAULT_SESSION_NAME = "New Session";
     // Cutoff: sessions modified on or after this UTC instant will NOT be migrated
@@ -1788,7 +1789,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** Submits a background task to the internal background executor (non-user actions). */
     @Override
     public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
-        var future = backgroundTasks.submit(() -> {
+        taskDescriptions.put(task, taskDescription);
+        return backgroundTasks.submit(() -> {
             try {
                 io.backgroundOutput(taskDescription);
                 return task.call();
@@ -1811,10 +1813,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 });
             }
         });
-
-        // Track the future with its description
-        taskDescriptions.put(task, taskDescription);
-        return future;
     }
 
     /**
@@ -2780,7 +2778,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return;
             }
 
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing task history...");
 
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
             List<Future<TaskEntry>> futures = new ArrayList<>(taskHistoryToCompress.size());

@@ -80,11 +80,10 @@ public class Finder {
 
     public static final String MACOS_JAVA_INSTALL_PATH = "/System/Volumes/Data/Library/Java/JavaVirtualMachines/";
     public static final String WINDOWS_JAVA_INSTALL_PATH = "C:\\Program Files\\Java\\";
+    public static final String WINDOWS_OPENJDK_INSTALL_PATH = "C:\\Program Files\\OpenJDK\\";
     public static final String LINUX_JAVA_INSTALL_PATH = "/usr/lib/jvm";
     private static final Pattern GRAALVM_VERSION_PATTERN = Pattern.compile("(.*graalvm\\s)(.*)(\\s\\(.*)");
-    private static final Matcher GRAALVM_VERSION_MATCHER = GRAALVM_VERSION_PATTERN.matcher("");
     private static final Pattern ZULU_BUILD_PATTERN = Pattern.compile("\\((build\\s)(.*)\\)");
-    private static final Matcher ZULU_BUILD_MATCHER = ZULU_BUILD_PATTERN.matcher("");
     private static final String[] MAC_JAVA_HOME_CMDS = {"/bin/sh", "-c", "echo $JAVA_HOME"};
     private static final String[] LINUX_JAVA_HOME_CMDS = {"/bin/sh", "-c", "echo $JAVA_HOME"};
     private static final String[] WIN_JAVA_HOME_CMDS = {"cmd.exe", "/c", "echo %JAVA_HOME%"};
@@ -95,7 +94,6 @@ public class Finder {
     private static final String[] MAC_DETECT_ROSETTA2_CMDS = {"/bin/sh", "-c", "sysctl -in sysctl.proc_translated"};
     private static final String[] WIN_DETECT_ARCH_CMDS = {"cmd.exe", "/c", "SET Processor"};
     private static final Pattern ARCHITECTURE_PATTERN = Pattern.compile("(PROCESSOR_ARCHITECTURE)=([a-zA-Z0-9_\\-]+)");
-    private static final Matcher ARCHITECTURE_MATCHER = ARCHITECTURE_PATTERN.matcher("");
     private ExecutorService service = Executors.newSingleThreadExecutor();
     private Properties releaseProperties = new Properties();
     private OperatingSystem operatingSystem = detectOperatingSystem();
@@ -131,6 +129,14 @@ public class Finder {
                 && Detector.isSDKMANInstalled()) {
             if (!searchPaths.contains(Detector.SDKMAN_FOLDER)) {
                 searchPaths.add(Detector.SDKMAN_FOLDER);
+            }
+        }
+
+        // If on Windows, add the OpenJDK directory if it exists
+        if (operatingSystem == OperatingSystem.WINDOWS) {
+            Path openJdkPath = Paths.get(WINDOWS_OPENJDK_INSTALL_PATH);
+            if (Files.exists(openJdkPath) && Files.isDirectory(openJdkPath)) {
+                searchPaths.add(WINDOWS_OPENJDK_INSTALL_PATH);
             }
         }
 
@@ -207,9 +213,8 @@ public class Finder {
                     .collect(Collectors.joining("\n"));
             switch (operatingSystem) {
                 case WINDOWS -> {
-                    ARCHITECTURE_MATCHER.reset(result);
-                    final List<MatchResult> results =
-                            ARCHITECTURE_MATCHER.results().collect(Collectors.toList());
+                    final Matcher matcher = ARCHITECTURE_PATTERN.matcher(result);
+                    final List<MatchResult> results = matcher.results().collect(Collectors.toList());
                     final int noOfResults = results.size();
                     if (noOfResults > 0) {
                         final MatchResult res = results.get(0);
@@ -255,9 +260,8 @@ public class Finder {
                     .collect(Collectors.joining("\n"));
             switch (operatingSystem) {
                 case WINDOWS -> {
-                    ARCHITECTURE_MATCHER.reset(result);
-                    final List<MatchResult> results =
-                            ARCHITECTURE_MATCHER.results().collect(Collectors.toList());
+                    final Matcher matcher = ARCHITECTURE_PATTERN.matcher(result);
+                    final List<MatchResult> results = matcher.results().collect(Collectors.toList());
                     final int noOfResults = results.size();
                     if (noOfResults > 0) {
                         final MatchResult res = results.get(0);
@@ -493,9 +497,8 @@ public class Finder {
                 if (line2.contains("Zulu")) {
                     name = "Zulu";
                     apiString = "zulu";
-                    ZULU_BUILD_MATCHER.reset(line2);
-                    final List<MatchResult> results =
-                            ZULU_BUILD_MATCHER.results().collect(Collectors.toList());
+                    final Matcher matcher = ZULU_BUILD_PATTERN.matcher(line2);
+                    final List<MatchResult> results = matcher.results().collect(Collectors.toList());
                     if (!results.isEmpty()) {
                         MatchResult result = results.get(0);
                         version = VersionNumber.fromText(result.group(2));
@@ -503,9 +506,8 @@ public class Finder {
                 } else if (line2.contains("Zing") || line2.contains("Prime")) {
                     name = "ZuluPrime";
                     apiString = "zulu_prime";
-                    ZULU_BUILD_MATCHER.reset(line2);
-                    final List<MatchResult> results =
-                            ZULU_BUILD_MATCHER.results().collect(Collectors.toList());
+                    final Matcher matcher = ZULU_BUILD_PATTERN.matcher(line2);
+                    final List<MatchResult> results = matcher.results().collect(Collectors.toList());
                     if (!results.isEmpty()) {
                         MatchResult result = results.get(0);
                         version = VersionNumber.fromText(result.group(2));
@@ -722,9 +724,9 @@ public class Finder {
                                 apiString = "liberica_native";
                                 buildScope = BuildScope.BUILD_OF_GRAALVM;
 
-                                GRAALVM_VERSION_MATCHER.reset(line3);
+                                final Matcher matcher = GRAALVM_VERSION_PATTERN.matcher(line3);
                                 final List<MatchResult> results =
-                                        GRAALVM_VERSION_MATCHER.results().collect(Collectors.toList());
+                                        matcher.results().collect(Collectors.toList());
                                 if (!results.isEmpty()) {
                                     MatchResult result = results.get(0);
                                     version = VersionNumber.fromText(result.group(2));
@@ -771,9 +773,8 @@ public class Finder {
                                     : "";
                             buildScope = BuildScope.BUILD_OF_GRAALVM;
 
-                            GRAALVM_VERSION_MATCHER.reset(line3);
-                            final List<MatchResult> results =
-                                    GRAALVM_VERSION_MATCHER.results().collect(Collectors.toList());
+                            final Matcher matcher = GRAALVM_VERSION_PATTERN.matcher(line3);
+                            final List<MatchResult> results = matcher.results().collect(Collectors.toList());
                             if (!results.isEmpty()) {
                                 MatchResult result = results.get(0);
                                 version = VersionNumber.fromText(result.group(2));

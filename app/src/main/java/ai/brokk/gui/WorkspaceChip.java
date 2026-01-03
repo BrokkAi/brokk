@@ -476,7 +476,7 @@ public class WorkspaceChip extends JPanel {
         var ctx = contextManager.selectedContext();
         boolean showPinned = ctx != null && ctx.isPinned(fragment);
         if (showPinned) {
-            Icon icon = fitIconToChip(Icons.ATTACH_FILE, label);
+            Icon icon = fitIconToChip(Icons.PUSH_PIN, label);
             pinnedIcon.setIcon(icon);
             pinnedIcon.setVisible(true);
         } else {
@@ -710,7 +710,7 @@ public class WorkspaceChip extends JPanel {
             boolean onLatest = isOnLatestContext();
             var ctx = contextManager.selectedContext();
             boolean isPinned = ctx != null && ctx.isPinned(fragment);
-            JMenuItem togglePin = new JMenuItem(isPinned ? "Unpin" : "Pin", Icons.ATTACH_FILE);
+            JMenuItem togglePin = new JMenuItem(isPinned ? "Unpin" : "Pin", Icons.PUSH_PIN);
             togglePin.setEnabled(onLatest && !isPanelReadOnly());
             togglePin.addActionListener(e -> {
                 if (!ensureMutatingAllowed()) {

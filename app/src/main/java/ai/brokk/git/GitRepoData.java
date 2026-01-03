@@ -101,7 +101,7 @@ public class GitRepoData {
         trackedPaths.addAll(status.getMissing());
 
         if (trackedPaths.isEmpty()) {
-            logger.debug("No tracked changes found, returning empty diff");
+            logger.trace("No tracked changes found, returning empty diff");
             return "";
         }
 

@@ -986,9 +986,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         int pos = (currentRunOrder != null) ? currentRunOrder.indexOf(idx) : -1;
         final int numTask = (pos >= 0) ? pos + 1 : 1;
         SwingUtilities.invokeLater(() -> chrome.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Submitted " + totalToRun + " task(s) for execution. Running task " + numTask + " of " + totalToRun
-                        + "..."));
+                IConsoleIO.NotificationRole.INFO, "Running task " + numTask + " of " + totalToRun + "..."));
 
         var cm = chrome.getContextManager();
 

@@ -32,7 +32,6 @@ import org.jetbrains.annotations.Nullable;
 public class ToolsPane extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(ToolsPane.class);
 
-    private static final int SIDEBAR_COLLAPSED_THRESHOLD = 50;
     private static final int MIN_SIDEBAR_WIDTH_PX = 220;
     private static final long TAB_TOGGLE_DEBOUNCE_MS = 150;
 
@@ -151,28 +150,25 @@ public class ToolsPane extends JPanel implements ThemeAware {
         JSplitPane horizontalSplit = chrome.getHorizontalSplitPane();
         if (!sidebarCollapsed && toolsPane.getSelectedIndex() == tabIndex) {
             int currentLocation = horizontalSplit.getDividerLocation();
-            if (currentLocation >= SIDEBAR_COLLAPSED_THRESHOLD) {
+            int minPx = chrome.computeMinSidebarWidthPx();
+            if (currentLocation >= minPx) {
                 lastExpandedSidebarLocation = currentLocation;
             }
-            chrome.getLeftVerticalSplitPane().setMinimumSize(new Dimension(0, 0));
-            toolsPane.setMinimumSize(new Dimension(0, 0));
             toolsPane.setSelectedIndex(0);
-            horizontalSplit.setDividerSize(0);
             sidebarCollapsed = true;
-            horizontalSplit.setDividerLocation(40);
+            // Enforcing minimum sizes prevents Swing from compressing the icon strip below usable width; this
+            // works with Chrome.applySidebarState() to keep the collapsed sidebar visible and re-expandable.
+            chrome.applySidebarState(true);
             saveSidebarOpenSetting(false);
         } else {
             toolsPane.setSelectedIndex(tabIndex);
             if (sidebarCollapsed) {
-                horizontalSplit.setDividerSize(chrome.getOriginalBottomDividerSize());
                 int target = (lastExpandedSidebarLocation > 0)
                         ? lastExpandedSidebarLocation
                         : chrome.computeInitialSidebarWidth() + horizontalSplit.getDividerSize();
                 horizontalSplit.setDividerLocation(target);
                 sidebarCollapsed = false;
-                int minPx = chrome.computeMinSidebarWidthPx();
-                chrome.getLeftVerticalSplitPane().setMinimumSize(new Dimension(minPx, 0));
-                toolsPane.setMinimumSize(new Dimension(minPx, 0));
+                chrome.applySidebarState(false);
                 saveSidebarOpenSetting(true);
             }
             if (toolsPane.getComponentAt(tabIndex) == projectFilesPanel) {
@@ -429,11 +425,29 @@ public class ToolsPane extends JPanel implements ThemeAware {
 
     /**
      * Programmatically selects the Tests tab and expands the sidebar if it is collapsed.
+     * Unlike {@link #handleTabToggle(int)}, this will not collapse the sidebar if the
+     * tab is already selected.
      */
     public void selectTestsTab() {
         int testsTabIdx = toolsPane.indexOfComponent(testRunnerPanel);
-        if (testsTabIdx != -1) {
-            handleTabToggle(testsTabIdx);
+        if (testsTabIdx == -1) {
+            return;
+        }
+
+        if (!sidebarCollapsed && toolsPane.getSelectedIndex() == testsTabIdx) {
+            return;
+        }
+
+        toolsPane.setSelectedIndex(testsTabIdx);
+        if (sidebarCollapsed) {
+            JSplitPane horizontalSplit = chrome.getHorizontalSplitPane();
+            int target = (lastExpandedSidebarLocation > 0)
+                    ? lastExpandedSidebarLocation
+                    : chrome.computeInitialSidebarWidth() + horizontalSplit.getDividerSize();
+            horizontalSplit.setDividerLocation(target);
+            sidebarCollapsed = false;
+            chrome.applySidebarState(false);
+            saveSidebarOpenSetting(true);
         }
     }
 

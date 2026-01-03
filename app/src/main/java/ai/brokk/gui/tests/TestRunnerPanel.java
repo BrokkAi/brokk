@@ -3,8 +3,10 @@ package ai.brokk.gui.tests;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.IContextManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.InstructionsPanel;
 import ai.brokk.gui.components.MaterialButton;
@@ -15,49 +17,25 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.SerialByKeyExecutor;
-import java.awt.BorderLayout;
-import java.awt.Color;
-import java.awt.Component;
-import java.awt.Dimension;
-import java.awt.FlowLayout;
-import java.awt.Font;
-import java.awt.Insets;
+import java.awt.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.swing.BorderFactory;
-import javax.swing.DefaultListCellRenderer;
-import javax.swing.DefaultListModel;
-import javax.swing.JButton;
-import javax.swing.JLabel;
-import javax.swing.JList;
-import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.JSplitPane;
-import javax.swing.JTabbedPane;
-import javax.swing.JTextArea;
-import javax.swing.ListSelectionModel;
-import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
-import javax.swing.text.AttributeSet;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.PlainDocument;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -71,7 +49,7 @@ import org.jetbrains.annotations.Nullable;
 public class TestRunnerPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(TestRunnerPanel.class);
 
-    private final @Nullable Chrome chrome;
+    private final Chrome chrome;
     private final MaterialButton runAllButton = new MaterialButton();
     private final MaterialButton stopButton = new MaterialButton();
     private final MaterialButton clearAllButton = new MaterialButton();
@@ -79,25 +57,17 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private volatile @Nullable Process activeTestProcess;
 
     // Model
-    private final DefaultListModel<RunEntry> runListModel;
-    private final JList<RunEntry> runList;
+    private final DefaultListModel<CompletedEntry> runListModel;
+    private final JList<CompletedEntry> runList;
     private final JScrollPane runListScrollPane;
 
     // Output
-    private final JTextArea outputArea;
-    private final DisplayOnlyDocument document;
-    private final JScrollPane outputScrollPane;
-
-    private final JSplitPane splitPane;
-
-    // Runs by id
-    private final Map<String, RunEntry> runsById;
-
-    // FIFO of queued runIds; only accessed on EDT
-    private final Deque<String> runQueue;
+    private final JTextArea streamingOutputArea;
+    private final JScrollPane streamingOutputScrollPane;
+    private final JLabel runningLabel = new JLabel();
 
     // Current active run (where live output goes)
-    private volatile @Nullable String currentActiveRunId;
+    private volatile @Nullable RunEntry currentRun;
 
     // Maximum number of runs to retain
     private int maxRuns = 50;
@@ -115,18 +85,11 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private static final int MAX_COMMAND_LABEL_LEN = 40; // max length for command segment before ellipsis
     private static final int ELLIPSIS_LEN = 3;
 
-    public TestRunnerPanel(TestRunsStore runsStore) {
-        this(null, runsStore);
-    }
-
-    public TestRunnerPanel(@Nullable Chrome chrome, TestRunsStore runsStore) {
+    public TestRunnerPanel(Chrome chrome, TestRunsStore runsStore) {
         super(new BorderLayout(0, 0));
         this.chrome = chrome;
         this.runsStore = runsStore;
         runListModel = new DefaultListModel<>();
-        runsById = new ConcurrentHashMap<>();
-
-        runQueue = new ArrayDeque<>();
 
         runList = new JList<>(runListModel) {
             @Override
@@ -136,7 +99,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 java.awt.Rectangle cellBounds = getCellBounds(index, index);
                 if (cellBounds == null) return null;
 
-                RunEntry run = runListModel.get(index);
+                CompletedEntry run = runListModel.get(index);
                 if (run.isFailed()) {
                     int buttonX = cellBounds.x + cellBounds.width - FIX_BUTTON_WIDTH_PX;
                     if (e.getX() >= buttonX) {
@@ -147,11 +110,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
         };
         runList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        runList.setCellRenderer(new RunEntryRenderer());
+        runList.setCellRenderer(new CompletedEntryRenderer());
         runList.setVisibleRowCount(5);
         runList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                updateOutputForSelectedRun();
+                CompletedEntry selected = runList.getSelectedValue();
+                if (selected != null) {
+                    chrome.getPreviewManager().openFragmentPreview(selected.output());
+                }
             }
         });
 
@@ -161,14 +127,12 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 int index = runList.locationToIndex(e.getPoint());
                 if (index < 0) return;
 
-                RunEntry run = runListModel.get(index);
-                if (!run.isFailed() || chrome == null) return;
+                CompletedEntry run = runListModel.get(index);
+                if (!run.isFailed()) return;
 
-                // Check if click is in the button area (right side of the cell)
                 java.awt.Rectangle cellBounds = runList.getCellBounds(index, index);
                 if (cellBounds == null) return;
 
-                // Button is approximately 30px wide on the right (see FIX_BUTTON_WIDTH_PX)
                 int buttonX = cellBounds.x + cellBounds.width - FIX_BUTTON_WIDTH_PX;
                 if (e.getX() >= buttonX) {
                     fixFailedRun(run);
@@ -221,41 +185,43 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         add(topToolbar, BorderLayout.NORTH);
 
-        outputArea = new JTextArea();
-        document = new DisplayOnlyDocument();
-        outputArea.setDocument(document);
-        outputArea.setEditable(false);
-        outputArea.setLineWrap(false);
-        outputArea.setWrapStyleWord(false);
-        outputArea.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
+        streamingOutputArea = new JTextArea();
+        streamingOutputArea.setEditable(false);
+        streamingOutputArea.setLineWrap(true);
+        streamingOutputArea.setWrapStyleWord(true);
+        streamingOutputArea.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
 
         Font base = UIManager.getFont("TextArea.font");
         if (base == null) base = new Font(Font.MONOSPACED, Font.PLAIN, 12);
         Font mono = new Font(Font.MONOSPACED, Font.PLAIN, base.getSize());
-        outputArea.setFont(mono);
+        streamingOutputArea.setFont(mono);
 
-        outputScrollPane = new JScrollPane(
-                outputArea, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
-        outputScrollPane.setBorder(BorderFactory.createEmptyBorder());
-        outputScrollPane.setMinimumSize(new Dimension(100, 60));
-        outputScrollPane.setPreferredSize(new Dimension(100, 200));
-        outputScrollPane.setMaximumSize(new Dimension(Integer.MAX_VALUE, 200));
+        streamingOutputScrollPane = new JScrollPane(
+                streamingOutputArea,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        streamingOutputScrollPane.setBorder(BorderFactory.createEmptyBorder());
+        streamingOutputScrollPane.setPreferredSize(new Dimension(100, 150));
+        streamingOutputScrollPane.setVisible(false);
 
-        splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, runListScrollPane, outputScrollPane);
-        splitPane.setResizeWeight(0.3);
-        splitPane.setDividerLocation(150);
-        splitPane.setBorder(BorderFactory.createEmptyBorder());
-        splitPane.setMinimumSize(new Dimension(100, 200));
+        runningLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
+        runningLabel.setVisible(false);
 
-        setMinimumSize(new Dimension(100, 200));
+        JPanel centerPanel = new JPanel(new BorderLayout());
+        JPanel topCenter = new JPanel(new BorderLayout());
+        topCenter.add(runningLabel, BorderLayout.NORTH);
+        topCenter.add(streamingOutputScrollPane, BorderLayout.CENTER);
 
-        add(splitPane, BorderLayout.CENTER);
+        centerPanel.add(topCenter, BorderLayout.NORTH);
+        centerPanel.add(runListScrollPane, BorderLayout.CENTER);
+
+        add(centerPanel, BorderLayout.CENTER);
 
         applyThemeColorsFromUIManager();
 
         // Load persisted runs (per-project) if available
         try {
-            List<RunRecord> records = runsStore.load();
+            List<TestRunsStore.Run> records = runsStore.load();
             if (!records.isEmpty()) {
                 restoreRuns(records);
             }
@@ -266,22 +232,20 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         // Initialize Run All button state and enable asynchronously once build details are available
         runAllButton.setEnabled(false);
         // Enable/disable Run All based on current build details availability
-        if (chrome != null) {
-            chrome.getProject()
-                    .getBuildDetailsFuture()
-                    .thenAccept((details) -> {
-                        SwingUtilities.invokeLater(() -> {
-                            boolean validDetails = !details.equals(BuildAgent.BuildDetails.EMPTY)
-                                    && !details.testAllCommand().isBlank();
-                            runAllButton.setEnabled(validDetails);
-                        });
-                    })
-                    .exceptionally(ex -> {
-                        SwingUtilities.invokeLater(() -> runAllButton.setEnabled(false));
-                        logger.error("Failed to load build details for Run All button: {}", ex.getMessage(), ex);
-                        return null;
+        chrome.getProject()
+                .getBuildDetailsFuture()
+                .thenAccept((details) -> {
+                    SwingUtilities.invokeLater(() -> {
+                        boolean validDetails = !details.equals(BuildAgent.BuildDetails.EMPTY)
+                                && !details.testAllCommand().isBlank();
+                        runAllButton.setEnabled(validDetails);
                     });
-        }
+                })
+                .exceptionally(ex -> {
+                    SwingUtilities.invokeLater(() -> runAllButton.setEnabled(false));
+                    logger.error("Failed to load build details for Run All button: {}", ex.getMessage(), ex);
+                    return null;
+                });
         updateClearButtonTooltip();
     }
 
@@ -298,14 +262,14 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
      * the list (newest -> oldest). EDT safety: reads the Swing model on the EDT; if called off-EDT, blocks on
      * invokeAndWait.
      */
-    public List<RunRecord> snapshotRuns(int limit) {
+    public List<TestRunsStore.Run> snapshotRuns(int limit) {
         if (limit <= 0) {
             return List.of();
         }
         if (SwingUtilities.isEventDispatchThread()) {
             return snapshotRunsFromModel(limit);
         }
-        var ref = new AtomicReference<List<RunRecord>>(List.of());
+        var ref = new AtomicReference<List<TestRunsStore.Run>>(List.of());
         try {
             SwingUtilities.invokeAndWait(() -> ref.set(snapshotRunsFromModel(limit)));
         } catch (Exception e) {
@@ -314,27 +278,27 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         return requireNonNull(ref.get());
     }
 
-    private List<RunRecord> snapshotRunsFromModel(int limit) {
+    private List<TestRunsStore.Run> snapshotRunsFromModel(int limit) {
         int size = runListModel.getSize();
         if (size == 0) {
             return List.of();
         }
         int count = Math.min(limit, size);
-        var out = new ArrayList<RunRecord>(count);
+        var out = new ArrayList<TestRunsStore.Run>(count);
         for (int i = 0; i < count; i++) {
-            var run = runListModel.get(i);
-            String output = run.getOutput();
+            var entry = runListModel.get(i);
+            String output = entry.output().previewText();
             if (output.length() > MAX_SNAPSHOT_OUTPUT_CHARS) {
                 int keep = Math.max(0, MAX_SNAPSHOT_OUTPUT_CHARS - 3);
                 output = output.substring(0, keep) + "...";
             }
-            out.add(new RunRecord(
-                    run.id,
-                    run.fileCount,
-                    run.command,
-                    run.startedAt.toEpochMilli(),
-                    run.completedAt != null ? run.completedAt.toEpochMilli() : null,
-                    run.exitCode,
+            out.add(new TestRunsStore.Run(
+                    UUID.randomUUID().toString(),
+                    entry.fileCount(),
+                    entry.command(),
+                    entry.startedAt().toEpochMilli(),
+                    entry.completedAt().toEpochMilli(),
+                    entry.exitCode(),
                     output));
         }
         return out;
@@ -347,7 +311,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private void triggerSave() {
         var store = runsStore;
         Runnable snapshotAndSaveTask = () -> {
-            List<RunRecord> snapshot;
+            List<TestRunsStore.Run> snapshot;
             try {
                 snapshot = snapshotRunsFromModel(maxRuns);
             } catch (Exception e) {
@@ -375,7 +339,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
      * Restore runs into the UI. Preserves order (oldest -> newest), truncates to maxRuns most recent, rebuilds state,
      * selects newest, and updates the output area accordingly. EDT safety: uses runOnEdt to mutate Swing state.
      */
-    public void restoreRuns(List<RunRecord> records) {
+    public void restoreRuns(List<TestRunsStore.Run> records) {
         if (records.isEmpty()) {
             return;
         }
@@ -390,212 +354,89 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void doRestore(List<RunRecord> records) {
-        // Records are newest-to-oldest. We want to keep up to maxRuns of the newest.
+    private void doRestore(List<TestRunsStore.Run> records) {
         int count = Math.min(records.size(), maxRuns);
-        List<RunRecord> slice = records.subList(0, count);
+        List<TestRunsStore.Run> slice = records.subList(0, count);
 
-        runsById.clear();
         runListModel.clear();
 
-        String lastRunningId = null;
-        // To build a newest-to-oldest model, we process the slice from newest to oldest and add to the model.
+        IContextManager cm = chrome.getContextManager();
+
         for (var r : slice) {
-            var run = new RunEntry(r.id(), r.fileCount(), r.command(), Instant.ofEpochMilli(r.startedAtMillis()));
-            String out = r.output();
-            if (!out.isEmpty()) {
-                run.appendOutput(out);
-            }
-            if (r.completedAtMillis() != null) {
-                run.complete(r.exitCode(), Instant.ofEpochMilli(requireNonNull(r.completedAtMillis())));
-            }
-            runsById.put(r.id(), run);
-            runListModel.addElement(run);
-            if (run.isRunning()) {
-                lastRunningId = r.id();
-            }
+            var fragment = new ContextFragments.StringFragment(
+                    cm, r.output(), "Test Output", SyntaxConstants.SYNTAX_STYLE_NONE);
+            var entry = new CompletedEntry(
+                    r.fileCount(),
+                    r.command(),
+                    Instant.ofEpochMilli(r.startedAtMillis()),
+                    Instant.ofEpochMilli(requireNonNull(r.completedAtMillis())),
+                    r.exitCode(),
+                    fragment);
+            runListModel.addElement(entry);
         }
 
         if (runListModel.getSize() > 0) {
             runList.setSelectedIndex(0);
-            updateOutputForSelectedRun();
-        } else {
-            try {
-                document.withWritePermission(() -> outputArea.setText(""));
-            } catch (RuntimeException ex) {
-                logger.warn("Failed to clear output during restore", ex);
-            }
         }
-
-        currentActiveRunId = lastRunningId;
         updateClearButtonTooltip();
     }
 
-    /**
-     * Begin a new test run.
-     *
-     * @param fileCount number of files included in the run (may be 0/unknown)
-     * @param command the command used to launch the run
-     * @param startedAt start timestamp
-     * @return run id
-     */
-    public String beginRun(int fileCount, String command, Instant startedAt) {
-        String id = UUID.randomUUID().toString();
-        var run = new RunEntry(id, fileCount, command, startedAt);
-        runsById.put(id, run);
+    public void beginRun(int fileCount, String command, Instant startedAt) {
+        var run = new RunEntry(fileCount, command, startedAt);
+        currentRun = run;
 
         runOnEdt(() -> {
-            boolean hasActive = false;
-            if (currentActiveRunId != null) {
-                var active = runsById.get(currentActiveRunId);
-                hasActive = active != null && active.isRunning();
-            }
-
-            if (hasActive) {
-                // Queue this run
-                run.markQueued();
-                runQueue.addLast(id);
-                // Insert newest at top
-                runListModel.add(0, run);
-                // Enforce retention cap (drop oldest from bottom)
-                while (runListModel.getSize() > maxRuns) {
-                    int last = runListModel.getSize() - 1;
-                    RunEntry removed = runListModel.remove(last);
-                    runsById.remove(removed.id);
-                }
-                // Keep selection on the active run for clarity, unless it was just dropped
-                if (currentActiveRunId != null) {
-                    int idx = -1;
-                    for (int i = 0; i < runListModel.size(); i++) {
-                        if (runListModel.get(i).id.equals(currentActiveRunId)) {
-                            idx = i;
-                            break;
-                        }
-                    }
-                    if (idx >= 0) {
-                        runList.setSelectedIndex(idx);
-                    } else {
-                        // The active run was dropped by retention
-                        currentActiveRunId = null;
-                        runList.setSelectedIndex(0); // Select the newest run instead
-                    }
-                }
-            } else {
-                // No active run -> start immediately
-                currentActiveRunId = id;
-                run.markRunning();
-                // Insert newest at top
-                runListModel.add(0, run);
-                // Enforce retention cap (drop oldest from bottom)
-                while (runListModel.getSize() > maxRuns) {
-                    int last = runListModel.getSize() - 1;
-                    RunEntry removed = runListModel.remove(last);
-                    runsById.remove(removed.id);
-                }
-                // Select the active run and clear the output view
-                runList.setSelectedIndex(0);
-                try {
-                    document.withWritePermission(() -> {
-                        outputArea.setText("");
-                        scrollToBottom();
-                    });
-                } catch (RuntimeException ex) {
-                    logger.warn("Failed to initialize output area for new run", ex);
-                }
-            }
-
-            // Persist after updating the UI/model
-            triggerSave();
+            runningLabel.setText("Running tests: " + withEllipsis(command, 50));
+            runningLabel.setVisible(true);
+            streamingOutputArea.setText("");
+            streamingOutputScrollPane.setVisible(true);
             updateClearButtonTooltip();
         });
-        return id;
     }
 
-    /** Append output to a specific run. */
-    public void appendToRun(String runId, String text) {
+    public void appendToActiveRun(String text) {
         if (text.isEmpty()) return;
-        var run = runsById.get(runId);
+        var run = currentRun;
         if (run == null) {
-            logger.warn("appendToRun: unknown runId {}", runId);
-            return;
+            beginRun(0, "General Output", Instant.now());
+            run = currentRun;
         }
-        run.appendOutput(text);
+        if (run != null) {
+            run.appendOutput(text);
+        }
 
         runOnEdt(() -> {
-            var selected = runList.getSelectedValue();
-            if (selected != null && selected.id.equals(runId)) {
-                try {
-                    document.withWritePermission(() -> {
-                        outputArea.append(text);
-                        scrollToBottom();
-                    });
-                } catch (RuntimeException ex) {
-                    logger.warn("Failed to append run output", ex);
-                }
-                // Persist only when appending to the currently selected run to avoid excessive writes
-                triggerSave();
-            }
+            streamingOutputArea.append(text);
+            streamingOutputArea.setCaretPosition(
+                    streamingOutputArea.getDocument().getLength());
         });
     }
 
-    /** Append output to the active run. If no active run exists, creates a generic one. */
-    public void appendToActiveRun(String text) {
-        if (text.isEmpty()) return;
-
-        String runId = currentActiveRunId;
-        if (runId == null || !runsById.containsKey(runId)) {
-            // Create a generic "General Output" run
-            runId = beginRun(0, "General Output", Instant.now());
-        }
-        appendToRun(runId, text);
-    }
-
-    /** Complete the run, setting exit code and completion time. */
-    public void completeRun(String runId, int exitCode, Instant completedAt) {
+    public void completeRun(int exitCode, Instant completedAt) {
         runOnEdt(() -> {
-            var run = runsById.get(runId);
-            if (run == null) {
-                logger.warn("completeRun: unknown runId {}", runId);
-                return;
+            var run = currentRun;
+            if (run == null) return;
+            currentRun = null;
+
+            runningLabel.setVisible(false);
+            streamingOutputScrollPane.setVisible(false);
+
+            ContextFragments.StringFragment fragment = new ContextFragments.StringFragment(
+                    chrome.getContextManager(),
+                    run.getOutput(),
+                    "Test Output",
+                    SyntaxConstants.SYNTAX_STYLE_NONE,
+                    Set.of());
+            var entry = new CompletedEntry(run.fileCount, run.command, run.startedAt, completedAt, exitCode, fragment);
+
+            runListModel.add(0, entry);
+            while (runListModel.getSize() > maxRuns) {
+                runListModel.remove(runListModel.getSize() - 1);
             }
+            runList.setSelectedIndex(0);
 
-            run.complete(exitCode, completedAt);
-            runList.repaint();
+            chrome.getPreviewManager().openFragmentPreview(fragment);
 
-            // If we just completed the active run, promote the next queued run (if any)
-            if (runId.equals(currentActiveRunId)) {
-                currentActiveRunId = null;
-                if (!runQueue.isEmpty()) {
-                    String nextId = runQueue.removeFirst();
-                    var next = runsById.get(nextId);
-                    if (next != null) {
-                        currentActiveRunId = nextId;
-                        next.markRunning();
-                        // Move selection to the newly active run and display its buffered output
-                        int idx = -1;
-                        for (int i = 0; i < runListModel.size(); i++) {
-                            if (runListModel.get(i).id.equals(nextId)) {
-                                idx = i;
-                                break;
-                            }
-                        }
-                        if (idx >= 0) {
-                            runList.setSelectedIndex(idx);
-                        }
-                        try {
-                            String text = next.getOutput();
-                            document.withWritePermission(() -> {
-                                outputArea.setText(text);
-                                scrollToBottom();
-                            });
-                        } catch (RuntimeException ex) {
-                            logger.warn("Failed to display output for promoted run {}", nextId, ex);
-                        }
-                    }
-                }
-            }
-
-            // Persist updated completion state
             triggerSave();
             updateClearButtonTooltip();
         });
@@ -613,23 +454,11 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         this.maxRuns = newCap;
 
         runOnEdt(() -> {
-            // Enforce retention cap immediately in memory (remove from bottom)
             while (runListModel.getSize() > this.maxRuns) {
-                int last = runListModel.getSize() - 1;
-                RunEntry removed = runListModel.remove(last);
-                runsById.remove(removed.id);
+                runListModel.remove(runListModel.getSize() - 1);
             }
-
-            // Keep selection on newest (top) if any runs remain; update output area
             if (runListModel.getSize() > 0) {
                 runList.setSelectedIndex(0);
-                updateOutputForSelectedRun();
-            } else {
-                try {
-                    document.withWritePermission(() -> outputArea.setText(""));
-                } catch (RuntimeException ex) {
-                    logger.warn("Failed to clear output after maxRuns change", ex);
-                }
             }
 
             // Persist after updating the UI/model
@@ -641,95 +470,13 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         return saveExecutor.awaitCompletion("test_runs_save");
     }
 
-    /** Clear runs. If an active run exists, clear only completed runs; otherwise clear all. */
+    /** Clear runs. */
     public void clearAllRuns() {
         runOnEdt(() -> {
-            boolean hasActive = false;
-            for (int i = 0; i < runListModel.getSize(); i++) {
-                RunEntry re = runListModel.get(i);
-                if (re.isRunning()) {
-                    hasActive = true;
-                    break;
-                }
-            }
-
-            if (!hasActive) {
-                runsById.clear();
-                currentActiveRunId = null;
-                runListModel.clear();
-                try {
-                    document.withWritePermission(() -> outputArea.setText(""));
-                } catch (RuntimeException ex) {
-                    logger.warn("Failed to clear output", ex);
-                }
-                // Persist cleared state
-                triggerSave();
-                updateClearButtonTooltip();
-                return;
-            }
-
-            // Active run exists: remove only completed runs; keep running and queued
-            for (int i = runListModel.getSize() - 1; i >= 0; i--) {
-                RunEntry run = runListModel.get(i);
-                if (!run.isRunning() && !run.isQueued()) {
-                    runListModel.remove(i);
-                    runsById.remove(run.id);
-                }
-            }
-
-            // Ensure a sensible selection after removals
-            RunEntry selected = runList.getSelectedValue();
-            boolean selectionValid = selected != null && runListModel.contains(selected);
-            if (!selectionValid) {
-                int runningIdx = -1;
-                for (int i = 0; i < runListModel.getSize(); i++) {
-                    if (runListModel.get(i).isRunning()) {
-                        runningIdx = i;
-                        break;
-                    }
-                }
-                if (runningIdx >= 0) {
-                    runList.setSelectedIndex(runningIdx);
-                } else if (runListModel.getSize() > 0) {
-                    runList.setSelectedIndex(0);
-                } else {
-                    try {
-                        document.withWritePermission(() -> outputArea.setText(""));
-                    } catch (RuntimeException ex) {
-                        logger.warn("Failed to clear output", ex);
-                    }
-                }
-            }
-            updateOutputForSelectedRun();
+            runListModel.clear();
             triggerSave();
             updateClearButtonTooltip();
         });
-    }
-
-    private void updateOutputForSelectedRun() {
-        if (!SwingUtilities.isEventDispatchThread()) {
-            SwingUtilities.invokeLater(this::updateOutputForSelectedRun);
-            return;
-        }
-        RunEntry selected = runList.getSelectedValue();
-        if (selected == null) {
-            try {
-                document.withWritePermission(() -> outputArea.setText(""));
-            } catch (RuntimeException ex) {
-                logger.warn("Failed to clear output", ex);
-            }
-            return;
-        }
-
-        String text = selected.getOutput();
-        try {
-            document.withWritePermission(() -> {
-                outputArea.setText(text);
-                scrollToBottom();
-            });
-        } catch (RuntimeException ex) {
-            logger.warn("Failed to update output", ex);
-        }
     }
 
     @Override
@@ -738,10 +485,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         Color fg = UIManager.getColor("TextArea.foreground");
 
         if (bg == null) {
-            bg = guiTheme.isDarkTheme() ? new Color(32, 32, 32) : Color.WHITE;
+            bg = ThemeColors.getEditorBackground();
         }
         if (fg == null) {
-            fg = guiTheme.isDarkTheme() ? new Color(221, 221, 221) : Color.BLACK;
+            fg = ThemeColors.getLabelForeground();
         }
 
         final Color bgFinal = bg;
@@ -755,10 +502,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     private void runAllTests() {
-        if (chrome == null) {
-            logger.debug("Run All Tests clicked without Chrome context; ignoring.");
-            return;
-        }
         // Guard basic configuration
         var project = chrome.getProject();
         BuildAgent.BuildDetails details = project.awaitBuildDetails();
@@ -774,10 +517,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     public void runTests(Set<ProjectFile> testFiles) throws InterruptedException {
-        if (chrome == null) {
-            logger.debug("Run Tests clicked without Chrome context; ignoring.");
-            return;
-        }
         // Guard basic configuration
         var project = chrome.getProject();
         BuildAgent.BuildDetails details = project.awaitBuildDetails();
@@ -804,10 +543,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     private void executeTests(String command, int fileCount, Map<String, String> environment) {
-        if (chrome == null) {
-            logger.warn("executeTests called without Chrome context; ignoring.");
-            return;
-        }
         if (!testProcessRunning.compareAndSet(false, true)) {
             chrome.toolError("A test process is already running.", "Test Runner");
             return;
@@ -819,7 +554,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             stopButton.setBackground(stopColor);
         });
 
-        String runId = beginRun(fileCount, command, Instant.now());
+        beginRun(fileCount, command, Instant.now());
         var project = chrome.getProject();
         var cm = chrome.getContextManager();
         cm.submitBackgroundTask("Running tests", () -> {
@@ -830,25 +565,27 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 Environment.instance.runShellCommand(
                         command,
                         project.getRoot(),
-                        line -> appendToRun(runId, line + "\n"),
+                        line -> appendToActiveRun(line + "\n"),
                         Environment.UNLIMITED_TIMEOUT,
                         execCfg,
                         environment,
                         process -> activeTestProcess = process);
                 exitCode = 0;
             } catch (Environment.SubprocessException e) {
-                appendToRun(runId, "\n" + e.getMessage() + "\n" + e.getOutput() + "\n");
+                appendToActiveRun("\n" + e.getMessage() + "\n" + e.getOutput() + "\n");
                 exitCode = -1;
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // Retain interrupted status
-                appendToRun(runId, "\n--- TEST EXECUTION INTERRUPTED ---\n");
+                Thread.currentThread().interrupt();
+                appendToActiveRun("\n--- TEST EXECUTION INTERRUPTED ---\n");
                 exitCode = -1;
             } catch (Exception e) {
-                appendToRun(runId, "\nError: " + e + "\n");
+                appendToActiveRun("\nError: " + e + "\n");
                 exitCode = -1;
             } finally {
-                completeRun(runId, exitCode, Instant.now());
-                updateContextWithTestResult(runId, exitCode == 0);
+                var runOutput = currentRun != null ? currentRun.getOutput() : "";
+                boolean success = (exitCode == 0);
+                completeRun(exitCode, Instant.now());
+                cm.pushContext(ctx -> ctx.withBuildResult(success, runOutput));
 
                 testProcessRunning.set(false);
                 activeTestProcess = null;
@@ -862,15 +599,6 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private void updateContextWithTestResult(String runId, boolean success) {
-        if (chrome == null) return;
-        var run = runsById.get(runId);
-        if (run == null) return;
-
-        var cm = chrome.getContextManager();
-        cm.pushContext(ctx -> ctx.withBuildResult(success, run.getOutput()));
-    }
-
     private void applyThemeColorsFromUIManager() {
         Color bg = UIManager.getColor("TextArea.background");
         Color fg = UIManager.getColor("TextArea.foreground");
@@ -880,9 +608,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     }
 
     private void applyColors(Color bg, Color fg) {
-        outputArea.setBackground(bg);
-        outputArea.setForeground(fg);
-        outputArea.setCaretColor(fg);
+        streamingOutputArea.setBackground(bg);
+        streamingOutputArea.setForeground(fg);
+        streamingOutputArea.setCaretColor(fg);
 
         runList.setBackground(bg);
         runList.setForeground(fg);
@@ -893,56 +621,29 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
     private void updateClearButtonTooltip() {
         runOnEdt(() -> {
-            String tip = hasActiveRun() ? "Clear finished runs." : "Clear all test runs.";
-            clearAllButton.setToolTipText(tip);
+            clearAllButton.setToolTipText("Clear all test runs.");
         });
     }
 
-    private boolean hasActiveRun() {
-        for (int i = 0; i < runListModel.getSize(); i++) {
-            if (runListModel.get(i).isRunning()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Initiates a fix workflow for a failed test run:
-     * 1. Creates a new session
-     * 2. Switches to the Instructions tab
-     * 3. Adds the failed test output to the workspace
-     * 4. Sets instruction text
-     * 5. Starts Lutz Mode
-     */
-    private void fixFailedRun(RunEntry run) {
-        if (chrome == null) {
-            logger.warn("Cannot fix failed run without Chrome context");
-            return;
-        }
-
+    private void fixFailedRun(CompletedEntry run) {
         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Starting fix for failed tests...");
 
-        String output = run.getOutput();
-        String sessionName = "Fix: " + withEllipsis(run.command, MAX_COMMAND_LABEL_LEN);
+        String output = run.output().previewText();
+        String sessionName = "Fix: " + withEllipsis(run.command(), MAX_COMMAND_LABEL_LEN);
 
         var cm = chrome.getContextManager();
 
-        // Create a new session and then perform the fix workflow
         cm.createSessionAsync(sessionName)
                 .thenRun(() -> {
                     SwingUtilities.invokeLater(() -> {
-                        // Switch to Instructions tab in the right tabbed panel
                         JTabbedPane rightTabs = chrome.getCommandPane();
                         int idx = rightTabs.indexOfTab("Instructions");
                         if (idx != -1) {
                             rightTabs.setSelectedIndex(idx);
                         }
 
-                        // Add the failed test output to the workspace
                         cm.addPastedTextFragment(output);
 
-                        // Set the instruction and run Lutz Mode when text is ready
                         InstructionsPanel instructionsPanel = chrome.getInstructionsPanel();
                         String instruction =
                                 "Analyze the failing test output and fix the issue. The problem may be in the test code or the tested code. Explain what's wrong before making changes.";
@@ -956,80 +657,42 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 });
     }
 
-    private void scrollToBottom() {
-        outputArea.setCaretPosition(outputArea.getDocument().getLength());
-    }
-
     private static String withEllipsis(String s, int maxLen) {
         if (s.length() <= maxLen) return s;
         int cut = Math.max(0, maxLen - ELLIPSIS_LEN);
         return s.substring(0, cut) + "...";
     }
 
-    /**
-     * Compatibility API for legacy tests: update a TestEntry's status and timestamps. This panel is now run-centric,
-     * but tests still validate timestamp behavior on TestEntry.
-     */
-    public void updateTestStatus(TestEntry entry, TestEntry.Status status) {
-        Instant now = Instant.now();
-        switch (status) {
-            case RUNNING -> entry.setStartedAtIfAbsent(now);
-            case PASSED, FAILED, ERROR -> {
-                entry.setStartedAtIfAbsent(now);
-                entry.setCompletedAtIfAbsent(now);
-            }
+    private record CompletedEntry(
+            int fileCount,
+            String command,
+            Instant startedAt,
+            Instant completedAt,
+            int exitCode,
+            ContextFragments.StringFragment output) {
+        boolean isSuccess() {
+            return exitCode == 0;
         }
-        entry.setStatus(status);
-        runOnEdt(() -> {
-            revalidate();
-            repaint();
-        });
-    }
 
-    /**
-     * Factory for tests: ensures TestEntryRenderer is referenced by production code so Error Prone does not flag it as
-     * UnusedNestedClass.
-     */
-    public static DefaultListCellRenderer newTestEntryRendererForTests() {
-        return new TestEntryRenderer();
-    }
+        boolean isFailed() {
+            return exitCode != 0;
+        }
 
-    // ==========================
-    // Internal model and classes
-    // ==========================
+        long getDurationSeconds() {
+            return Math.max(0L, Duration.between(startedAt, completedAt).toSeconds());
+        }
+    }
 
     private static final class RunEntry {
-        private static final int EXIT_CODE_UNKNOWN = Integer.MIN_VALUE;
-
-        private enum RunState {
-            QUEUED,
-            RUNNING,
-            COMPLETED
-        }
-
-        private final String id;
-        private final int fileCount;
-        private final String command;
-        private final Instant startedAt;
-        private volatile @Nullable Instant completedAt;
-        private volatile int exitCode = EXIT_CODE_UNKNOWN;
-        private volatile RunState state = RunState.RUNNING;
-
+        final int fileCount;
+        final String command;
+        final Instant startedAt;
         private final StringBuilder output = new StringBuilder();
 
-        RunEntry(String id, int fileCount, String command, Instant startedAt) {
-            this.id = id;
+        RunEntry(int fileCount, String command, Instant startedAt) {
             this.fileCount = fileCount;
             this.command = command;
             this.startedAt = startedAt;
-        }
-
-        void markQueued() {
-            this.state = RunState.QUEUED;
-        }
-
-        void markRunning() {
-            this.state = RunState.RUNNING;
         }
 
         void appendOutput(String text) {
@@ -1043,86 +706,45 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 return output.toString();
             }
         }
-
-        void complete(int exitCode, Instant completedAt) {
-            if (this.completedAt == null) {
-                this.completedAt = completedAt;
-            }
-            this.exitCode = exitCode;
-            this.state = RunState.COMPLETED;
-        }
-
-        boolean isQueued() {
-            return state == RunState.QUEUED;
-        }
-
-        boolean isRunning() {
-            return state == RunState.RUNNING;
-        }
-
-        boolean isSuccess() {
-            return state == RunState.COMPLETED && exitCode == 0;
-        }
-
-        boolean isFailed() {
-            return state == RunState.COMPLETED && exitCode != 0;
-        }
-
-        long getDurationSeconds() {
-            if (state == RunState.QUEUED) {
-                return 0L;
-            }
-            Instant end = (completedAt != null) ? completedAt : Instant.now();
-            return Math.max(0L, Duration.between(startedAt, end).toSeconds());
-        }
     }
 
-    private class RunEntryRenderer extends DefaultListCellRenderer {
+    private static class CompletedEntryRenderer extends DefaultListCellRenderer {
         private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
         @Override
         public Component getListCellRendererComponent(
                 JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
             JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (!(value instanceof RunEntry run)) {
+            if (!(value instanceof CompletedEntry run)) {
                 return label;
             }
 
-            String icon = run.isQueued() ? "... " : (run.isRunning() ? "⟳ " : (run.isSuccess() ? "✓ " : "✗ "));
-            // Start time HH:mm:ss (local tz)
-            String timeText = TIME_FORMAT.format(run.startedAt.atZone(ZoneId.systemDefault()));
-            // Files
-            String filesText;
-            if (run.fileCount < 0) {
-                filesText = "all files";
-            } else {
-                filesText = run.fileCount == 1 ? "1 file" : (run.fileCount + " files");
-            }
-            // Duration mm:ss
+            String icon = run.isSuccess() ? "✓ " : "✗ ";
+            String timeText = TIME_FORMAT.format(run.startedAt().atZone(ZoneId.systemDefault()));
+            String filesText = run.fileCount() < 0
+                    ? "all files"
+                    : (run.fileCount() == 1 ? "1 file" : (run.fileCount() + " files"));
             long secs = run.getDurationSeconds();
             String dur = "%02d:%02d".formatted(secs / 60, secs % 60);
 
             label.setText(icon + timeText + " • " + filesText + " • " + dur);
-            label.setToolTipText(run.command);
+            label.setToolTipText(run.command());
 
+            Color statusColor = run.isSuccess()
+                    ? ThemeColors.getColor(ThemeColors.GIT_STATUS_ADDED)
+                    : ThemeColors.getColor(ThemeColors.GIT_STATUS_DELETED);
+
+            JPanel panel = new JPanel(new BorderLayout(4, 0));
+            panel.setOpaque(true);
+            panel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+
+            label.setOpaque(false);
             if (!isSelected) {
-                Color statusColor = run.isQueued()
-                        ? new Color(170, 170, 170)
-                        : (run.isRunning()
-                                ? new Color(100, 150, 255)
-                                : (run.isSuccess() ? new Color(100, 200, 100) : new Color(255, 100, 100)));
                 label.setForeground(statusColor);
             }
+            panel.add(label, BorderLayout.CENTER);
 
-            // For failed runs (completed but not successful), add a Fix button
-            if (run.isFailed() && chrome != null) {
-                JPanel panel = new JPanel(new BorderLayout(4, 0));
-                panel.setOpaque(true);
-                panel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
-
-                label.setOpaque(false);
-                panel.add(label, BorderLayout.CENTER);
-
+            if (run.isFailed()) {
                 JButton fixButton = new JButton(Icons.WAND);
                 fixButton.setToolTipText("Fix this failing test with Lutz Mode");
                 fixButton.setMargin(new Insets(0, 2, 0, 2));
@@ -1131,79 +753,9 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
                 fixButton.setFocusPainted(false);
                 fixButton.setOpaque(false);
                 panel.add(fixButton, BorderLayout.EAST);
-
-                return panel;
             }
 
-            return label;
-        }
-    }
-
-    /**
-     * Compatibility renderer for legacy tests that expect TestRunnerPanel$TestEntryRenderer. Renders TestEntry display
-     * name with a timestamp suffix and sets tooltip to ISO-8601 instant. Prefers completedAt; falls back to startedAt;
-     * omits time if both are null.
-     */
-    private static class TestEntryRenderer extends DefaultListCellRenderer {
-        private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
-
-        @Override
-        public Component getListCellRendererComponent(
-                JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-            JLabel label = (JLabel) super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (!(value instanceof TestEntry te)) {
-                return label;
-            }
-
-            Instant ts = te.getCompletedAt() != null ? te.getCompletedAt() : te.getStartedAt();
-            StringBuilder text = new StringBuilder(te.getDisplayName());
-            if (ts != null) {
-                String timeText = TIME_FORMAT.format(ts.atZone(ZoneId.systemDefault()));
-                text.append(" ").append(timeText);
-                label.setToolTipText(DateTimeFormatter.ISO_INSTANT.format(ts));
-            } else {
-                label.setToolTipText(null);
-            }
-            label.setText(text.toString());
-            return label;
-        }
-    }
-
-    private static final class DisplayOnlyDocument extends PlainDocument {
-        private boolean allowWrite = false;
-
-        void withWritePermission(Runnable r) {
-            boolean prev = allowWrite;
-            allowWrite = true;
-            try {
-                r.run();
-            } finally {
-                allowWrite = prev;
-            }
-        }
-
-        @Override
-        public void insertString(int offs, String str, AttributeSet a) throws BadLocationException {
-            if (!allowWrite) {
-                return;
-            }
-            super.insertString(offs, str, a);
-        }
-
-        @Override
-        public void remove(int offs, int len) throws BadLocationException {
-            if (!allowWrite) {
-                return;
-            }
-            super.remove(offs, len);
-        }
-
-        @Override
-        public void replace(int offset, int length, String text, AttributeSet attrs) throws BadLocationException {
-            if (!allowWrite) {
-                return;
-            }
-            super.replace(offset, length, text, attrs);
+            return panel;
         }
     }
 }
