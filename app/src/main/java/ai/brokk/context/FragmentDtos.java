@@ -303,6 +303,14 @@ public class FragmentDtos {
         }
     }
 
+    /** DTO representing history grouping metadata. */
+    public record GroupInfoDto(Map<String, String> contextToGroupId, Map<String, String> groupLabels) {
+        public GroupInfoDto {
+            contextToGroupId = Map.copyOf(contextToGroupId);
+            groupLabels = Map.copyOf(groupLabels);
+        }
+    }
+
     /** DTO for holding all unique fragments in a session history. Used as the top-level object for fragments.json. */
     public record AllFragmentsDto(
             int version, // Version of the fragment DTO structure
