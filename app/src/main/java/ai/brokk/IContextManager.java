@@ -260,6 +260,11 @@ public interface IContextManager {
 
     @Blocking
     default void compressGlobalHistory() throws InterruptedException {
+        if (liveContext().getTaskHistory().isEmpty()) {
+            getIo().showNotification(IConsoleIO.NotificationRole.INFO, "No history to compress.");
+            return;
+        }
+
         var interrupted = new AtomicReference<InterruptedException>();
         pushContext(ctx -> {
             try {

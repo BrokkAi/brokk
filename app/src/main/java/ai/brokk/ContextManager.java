@@ -2701,12 +2701,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Context compressHistory(Context ctx) throws InterruptedException {
         io.disableHistoryPanel();
         try {
-            // Operate on the task history
-            if (ctx.getTaskHistory().isEmpty()) {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "No history to compress.");
-                return ctx;
-            }
-
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
             List<Future<TaskEntry>> futures =
                     new ArrayList<>(ctx.getTaskHistory().size());
