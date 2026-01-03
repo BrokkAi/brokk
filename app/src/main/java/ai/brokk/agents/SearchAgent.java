@@ -837,7 +837,7 @@ public class SearchAgent {
         if (reason == TaskResult.StopReason.SUCCESS) {
             // housekeeping
             new GitWorkflow(cm).performAutoCommit(instructions);
-            cm.compressHistory(context.getGroupId(), context.getGroupLabel());
+            context = cm.compressHistory(context);
             // CodeAgent appended its own result; we don't need to llmOutput anything redundant
             logger.debug("SearchAgent.callCodeAgent finished successfully");
             return "CodeAgent finished with a successful build!";
