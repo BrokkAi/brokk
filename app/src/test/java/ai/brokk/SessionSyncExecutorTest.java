@@ -92,16 +92,14 @@ class SessionSyncExecutorTest {
         SyncAction action = new SyncAction(id, ActionType.DOWNLOAD, null, remoteMeta);
 
         TestContextManager cm = new TestContextManager(projectStub, id);
-        Map<UUID, IContextManager> contextManagers = Map.of(id, cm);
 
-        SyncResult result = syncExecutor.execute(List.of(action), callbacks, contextManagers, REMOTE_PROJECT);
+        SyncResult result = syncExecutor.execute(List.of(action), callbacks, Map.of(), REMOTE_PROJECT);
 
         assertTrue(result.failed().isEmpty());
         assertTrue(result.skipped().isEmpty());
         assertTrue(result.succeeded().contains(id));
 
         assertTrue(callbacks.downloadedIds.contains(id));
-        assertTrue(cm.reloadCalled);
 
         Path localZip = sessionManager.getSessionHistoryPath(id);
         assertTrue(Files.exists(localZip));

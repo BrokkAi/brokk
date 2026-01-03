@@ -203,7 +203,7 @@ class SessionSynchronizer {
                         case DELETE_REMOTE -> handleDeleteRemote(action, callbacks, result);
                         case DELETE_LOCAL -> handleDeleteLocal(action, openContextManagers, result);
                         case DOWNLOAD -> handleDownload(action, callbacks, openContextManagers, result);
-                        case UPLOAD -> handleUpload(action, callbacks, remoteProject, result);
+                        case UPLOAD -> handleUpload(action, callbacks, remoteProject, openContextManagers, result);
                         case NO_OP -> {}
                     }
                 } catch (ExecutionException executionException) {
@@ -281,21 +281,26 @@ class SessionSynchronizer {
                         if (action.localInfo() == null) {
                             saveRemoteSession(id, content);
                         } else {
-                            mergeAndSave(id, content, Objects.requireNonNull(action.localInfo()), remoteMeta, false);
+                            mergeAndSave(
+                                    id,
+                                    content,
+                                    Objects.requireNonNull(action.localInfo()),
+                                    remoteMeta,
+                                    false,
+                                    openContextManagers.get(id));
                         }
-
-                        IContextManager cm = openContextManagers.get(id);
-                        if (cm != null) {
-                            cm.reloadCurrentSessionAsync();
-                        }
-
                         result.succeeded.add(id);
                         return null;
                     })
                     .get();
         }
 
-        private void handleUpload(SyncAction action, SyncCallbacks callbacks, String remoteProject, SyncResult result)
+        private void handleUpload(
+                SyncAction action,
+                SyncCallbacks callbacks,
+                String remoteProject,
+                Map<UUID, IContextManager> openContextManagers,
+                SyncResult result)
                 throws IOException, ExecutionException, InterruptedException {
             UUID id = action.sessionId();
             if (isLocalModified(action, result)) return;
@@ -327,7 +332,8 @@ class SessionSynchronizer {
                                     contentToMerge,
                                     Objects.requireNonNull(action.localInfo()),
                                     Objects.requireNonNull(action.remoteMeta()),
-                                    true);
+                                    true,
+                                    openContextManagers.get(id));
                         }
 
                         Path localPath = sessionManager.getSessionHistoryPath(id);
@@ -467,7 +473,8 @@ class SessionSynchronizer {
             byte[] remoteContent,
             SessionInfo localInfo,
             RemoteSessionMeta remoteMeta,
-            boolean localIsNewer)
+            boolean localIsNewer,
+            @Nullable IContextManager openContextManager)
             throws IOException {
         Objects.requireNonNull(localInfo);
 
@@ -484,7 +491,7 @@ class SessionSynchronizer {
             if (Files.exists(localZipPath)) {
                 try {
                     localHistory = HistoryIo.readZip(localZipPath, contextManager);
-                } catch (Exception e) {
+                } catch (IOException e) {
                     logger.warn("Could not read local history for merge, overwriting with remote", e);
                 }
             }
@@ -539,10 +546,11 @@ class SessionSynchronizer {
 
             sessionManager.writeSessionInfoToZip(localZipPath, newInfo);
             sessionManager.getSessionsCache().put(id, newInfo);
-            logger.info(
-                    "Saved session {} (merged={})",
-                    id,
-                    merged != null);
+            logger.info("Saved session {} (merged={})", id, merged != null);
+
+            if (newModified != localInfo.modified() && openContextManager != null) {
+                openContextManager.reloadCurrentSessionAsync();
+            }
 
         } finally {
             try {

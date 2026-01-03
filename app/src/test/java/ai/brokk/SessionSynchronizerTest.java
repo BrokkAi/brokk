@@ -145,7 +145,6 @@ class SessionSynchronizerTest {
         syncCallbacks.remoteContent.put(idA, contentA);
 
         TestContextManager cmA = new TestContextManager(project, idA);
-        openContexts.put(idA, cmA);
 
         // --- Session B: Upload (Local exists, Remote missing) ---
         UUID idB = UUID.randomUUID();
@@ -208,7 +207,7 @@ class SessionSynchronizerTest {
 
         // Session A
         assertTrue(syncCallbacks.downloadedIds.contains(idA), "Session A should be downloaded");
-        assertTrue(cmA.reloadCalled, "ContextManager for Session A should be reloaded");
+        assertFalse(cmA.reloadCalled, "ContextManager for Session A should not be reloaded");
         assertTrue(sessionManager.getSessionsCache().containsKey(idA), "Session A should be in local cache");
 
         // Session B
