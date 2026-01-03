@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import ai.brokk.context.Context;
 import ai.brokk.util.ComputedValue;
 import java.util.*;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 /**
@@ -66,15 +67,14 @@ public final class HistoryGrouping {
          * @param contexts the full list of contexts to group, in display order
          * @param isBoundary boundary predicate; true indicates a boundary context that terminates any group
          * @param resetTargetIds set of context IDs that are reset targets (for label generation)
-         * @param history the context history providing group ID and label lookups
          * @return ordered list of group descriptors covering all input contexts
          */
         public static List<GroupDescriptor> discoverGroups(
                 List<Context> contexts,
                 Predicate<Context> isBoundary,
                 Set<UUID> resetTargetIds,
-                java.util.function.Function<UUID, UUID> groupLookup,
-                java.util.function.Function<UUID, String> labelLookup) {
+                Function<UUID, UUID> groupLookup,
+                Function<UUID, String> labelLookup) {
             if (contexts.isEmpty()) {
                 return List.of();
             }
@@ -120,8 +120,8 @@ public final class HistoryGrouping {
                 List<GroupDescriptor> out,
                 java.util.function.Predicate<Context> isBoundary,
                 Set<UUID> resetTargetIds,
-                java.util.function.Function<UUID, UUID> groupLookup,
-                java.util.function.Function<UUID, String> labelLookup) {
+                Function<UUID, UUID> groupLookup,
+                Function<UUID, String> labelLookup) {
             int i = start;
             while (i < end) {
                 Context ctx = contexts.get(i);

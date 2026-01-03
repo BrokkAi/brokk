@@ -386,7 +386,7 @@ public final class HistoryIo {
             entryInfosBytes = objectMapper.writeValueAsBytes(entryInfosDto);
         }
 
-        byte[] groupInfoBytes = null;
+        byte[] groupInfoBytes;
         Map<UUID, UUID> ctxToGrp = ch.getContextToGroupId();
         Map<UUID, String> grpLabels = ch.getGroupLabels();
 

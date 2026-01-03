@@ -2198,7 +2198,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return updated.addHistoryEntry(finalEntry, result.output());
             });
 
-            registerGroupingIfNeeded(updatedContext.id());
+            UUID contextId = updatedContext.id();
+            contextHistory.addContextToGroup(contextId, groupId, groupLabel);
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
@@ -2214,13 +2215,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
             pushContext(currentLiveCtx -> context);
-            registerGroupingIfNeeded(liveContext().id());
-        }
-
-        /**
-         * Registers the given context in the current task's group.
-         */
-        private void registerGroupingIfNeeded(UUID contextId) {
+            UUID contextId = liveContext().id();
             contextHistory.addContextToGroup(contextId, groupId, groupLabel);
         }
 

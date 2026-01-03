@@ -86,7 +86,7 @@ public class ContextHistory {
         this(contexts, resetEdges, gitStates, entryInfos, Map.of(), Map.of());
     }
 
-    public synchronized void replaceTopInternal(Context newLive) {
+    private synchronized void replaceTopInternal(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
         history.removeLast();
         history.addLast(newLive);
@@ -404,12 +404,16 @@ public class ContextHistory {
             var removed = history.removeFirst();
             gitStates.remove(removed.id());
             entryInfos.remove(removed.id());
+            contextToGroupId.remove(removed.id());
             var historyIds = getContextIds();
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             if (logger.isDebugEnabled()) {
                 logger.debug("Truncated history (removed oldest context: {})", removed);
             }
         }
+        // Clean up orphaned group labels (groups no longer referenced by any context)
+        var referencedGroupIds = new HashSet<>(contextToGroupId.values());
+        groupLabels.keySet().removeIf(groupId -> !referencedGroupIds.contains(groupId));
     }
 
     /**
