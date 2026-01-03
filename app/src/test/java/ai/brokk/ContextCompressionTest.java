@@ -290,7 +290,8 @@ public class ContextCompressionTest {
         UUID groupId = UUID.randomUUID();
         String groupLabel = "Compression Group Test";
 
-        cm.compressHistory(groupId, groupLabel);
+        cm.pushContext(ctx -> ctx.withGroup(groupId, groupLabel));
+        cm.compressGlobalHistory();
 
         Context result = cm.liveContext();
         assertEquals(groupId, result.getGroupId(), "compressHistory should set groupId on pushed context");
@@ -308,7 +309,7 @@ public class ContextCompressionTest {
         var entry = new TaskEntry(1, taskFragment, null);
         cm.pushContext(ctx -> ctx.withHistory(List.of(entry)));
 
-        cm.compressHistory(null, null);
+        cm.compressGlobalHistory();
 
         Context result = cm.liveContext();
         assertNull(result.getGroupId(), "compressHistory with null groupId should not set groupId");

@@ -22,17 +22,16 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
-import org.jetbrains.annotations.Nullable;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
@@ -260,11 +259,31 @@ public interface IContextManager {
     }
 
     @Blocking
-    default void compressHistory() throws InterruptedException {}
+    default void compressGlobalHistory() throws InterruptedException {
+        if (liveContext().getTaskHistory().isEmpty()) {
+            getIo().showNotification(IConsoleIO.NotificationRole.INFO, "No history to compress.");
+            return;
+        }
+
+        var interrupted = new AtomicReference<InterruptedException>();
+        pushContext(ctx -> {
+            try {
+                return compressHistory(ctx);
+            } catch (InterruptedException e) {
+                // user may interrupt
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        if (interrupted.get() != null) {
+            throw interrupted.get();
+        }
+        getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
+    }
 
     @Blocking
-    default void compressHistory(@Nullable UUID groupId, @Nullable String groupLabel) throws InterruptedException {
-        compressHistory();
+    default Context compressHistory(Context ctx) throws InterruptedException {
+        return ctx;
     }
 
     @Blocking

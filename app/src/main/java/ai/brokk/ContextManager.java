@@ -1526,10 +1526,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                 new GitWorkflow(this).performAutoCommit(prompt);
-                compressHistory(scope.groupId(), scope.groupLabel()); // synchronous
-                var ctx = markTaskDone(result.context(), task, scope.groupId(), scope.groupLabel());
-                pushContext(currentLiveCtx -> ctx);
+                var compressed = compressHistory(result.context()); // synchronous
+                var ctx = markTaskDone(compressed, task, scope.groupId(), scope.groupLabel());
                 result = result.withContext(ctx);
+                pushContext(currentLiveCtx -> ctx);
             }
         } finally {
             // mirror panel behavior
@@ -2689,7 +2689,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<?> compressHistoryAsync() {
         return submitLlmAction(() -> {
             try {
-                compressHistory();
+                compressGlobalHistory();
             } catch (InterruptedException ie) {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "History compression canceled");
             }
@@ -2698,34 +2698,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     @Blocking
-    public void compressHistory() throws InterruptedException {
-        compressHistory(null, null);
-    }
-
-    @Override
-    @Blocking
-    public void compressHistory(@Nullable UUID groupId, @Nullable String groupLabel) throws InterruptedException {
+    public Context compressHistory(Context ctx) throws InterruptedException {
         io.disableHistoryPanel();
         try {
-            // Operate on the task history
-            var taskHistoryToCompress = liveContext().getTaskHistory();
-            if (taskHistoryToCompress.isEmpty()) {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "No history to compress.");
-                return;
-            }
-
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing task history...");
-
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
-            List<Future<TaskEntry>> futures = new ArrayList<>(taskHistoryToCompress.size());
+            List<Future<TaskEntry>> futures =
+                    new ArrayList<>(ctx.getTaskHistory().size());
             try (var exec = ExecutorServiceUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
                 // Submit all compression tasks
-                for (TaskEntry entry : taskHistoryToCompress) {
+                for (TaskEntry entry : ctx.getTaskHistory()) {
                     futures.add(exec.submit(() -> compressHistory(entry)));
                 }
 
                 // Collect results in order, with fallback to original on failure
-                List<TaskEntry> compressedTaskEntries = new ArrayList<>(taskHistoryToCompress.size());
+                List<TaskEntry> compressedTaskEntries =
+                        new ArrayList<>(ctx.getTaskHistory().size());
                 for (int i = 0; i < futures.size(); i++) {
                     try {
                         compressedTaskEntries.add(futures.get(i).get());
@@ -2739,31 +2726,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     } catch (ExecutionException ee) {
                         // Individual task failed - use original entry and continue
                         logger.warn("History compression task failed", ee);
-                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                        compressedTaskEntries.add(ctx.getTaskHistory().get(i));
                     }
                 }
 
                 // Check if any entries were actually modified (got a summary attached)
-                boolean changed = IntStream.range(0, taskHistoryToCompress.size())
+                boolean changed = IntStream.range(0, ctx.getTaskHistory().size())
                         .anyMatch(i -> {
-                            TaskEntry original = taskHistoryToCompress.get(i);
+                            TaskEntry original = ctx.getTaskHistory().get(i);
                             TaskEntry compressed = compressedTaskEntries.get(i);
                             // Entry changed if it now has a summary when it didn't before
                             return compressed.isCompressed() && !original.isCompressed();
                         });
 
                 if (!changed) {
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, "History is already compressed.");
-                    return;
+                    return ctx;
                 }
 
-                if (groupId != null) {
-                    pushContext(currentLiveCtx ->
-                            currentLiveCtx.withHistory(compressedTaskEntries).withGroup(groupId, groupLabel));
-                } else {
-                    pushContext(currentLiveCtx -> currentLiveCtx.withHistory(compressedTaskEntries));
-                }
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
+                return ctx.withHistory(compressedTaskEntries).withGroup(ctx.getGroupId(), ctx.getGroupLabel());
             }
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);
