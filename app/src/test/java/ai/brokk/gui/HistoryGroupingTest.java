@@ -40,7 +40,7 @@ public class HistoryGroupingTest {
     }
 
     private static List<GroupDescriptor> discover(List<Context> contexts, Predicate<Context> boundary) {
-        return GroupingBuilder.discoverGroups(contexts, boundary, java.util.Set.of());
+        return GroupingBuilder.discoverGroups(contexts, boundary, java.util.Set.of(), contextId -> null);
     }
 
     @Test

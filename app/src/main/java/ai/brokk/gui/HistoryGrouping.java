@@ -65,10 +65,14 @@ public final class HistoryGrouping {
          *
          * @param contexts the full list of contexts to group, in display order
          * @param isBoundary boundary predicate; true indicates a boundary context that terminates any group
+         * @param groupLookup function to look up the groupId for a given context ID
          * @return ordered list of group descriptors covering all input contexts
          */
         public static List<GroupDescriptor> discoverGroups(
-                List<Context> contexts, Predicate<Context> isBoundary, Set<UUID> resetTargetIds) {
+                List<Context> contexts,
+                Predicate<Context> isBoundary,
+                Set<UUID> resetTargetIds,
+                java.util.function.Function<UUID, UUID> groupLookup) {
             if (contexts.isEmpty()) {
                 return List.of();
             }
@@ -82,12 +86,12 @@ public final class HistoryGrouping {
             for (int i = 1; i < n; i++) {
                 if (isBoundary.test(contexts.get(i))) {
                     // emit [segStart, i)
-                    emitSegment(contexts, segStart, i, out, isBoundary, resetTargetIds);
+                    emitSegment(contexts, segStart, i, out, isBoundary, resetTargetIds, groupLookup);
                     segStart = i;
                 }
             }
             // emit final segment [segStart, n)
-            emitSegment(contexts, segStart, n, out, isBoundary, resetTargetIds);
+            emitSegment(contexts, segStart, n, out, isBoundary, resetTargetIds, groupLookup);
 
             // 2) Mark last descriptor, if any
             if (!out.isEmpty()) {
@@ -105,7 +109,7 @@ public final class HistoryGrouping {
         /**
          * Emit group descriptors for a boundary-free segment [start, end).
          * Within a segment, produce maximal runs of contiguous items that are not boundaries.
-         * A header is shown only when the run length is >= 2.
+         * A header is shown only when the run length is >= 2 or explicit groupIds are present.
          */
         private static void emitSegment(
                 List<Context> contexts,
@@ -113,10 +117,12 @@ public final class HistoryGrouping {
                 int end,
                 List<GroupDescriptor> out,
                 java.util.function.Predicate<Context> isBoundary,
-                Set<UUID> resetTargetIds) {
+                Set<UUID> resetTargetIds,
+                java.util.function.Function<UUID, UUID> groupLookup) {
             int i = start;
             while (i < end) {
                 Context ctx = contexts.get(i);
+                UUID groupId = groupLookup.apply(ctx.id());
 
                 // If this item is a boundary, it is emitted as a singleton without a header.
                 if (isBoundary.test(ctx)) {
@@ -132,9 +138,23 @@ public final class HistoryGrouping {
                     continue;
                 }
 
-                // Group run: contiguous items that are not boundaries.
+                // Case A: Grouped by explicit ID
+                if (groupId != null) {
+                    int j = i + 1;
+                    while (j < end && groupId.equals(groupLookup.apply(contexts.get(j).id()))) {
+                        j++;
+                    }
+                    List<Context> children = contexts.subList(i, j);
+                    var label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
+                    out.add(new GroupDescriptor(
+                            GroupType.GROUP_BY_ID, groupId.toString(), label, children, true, false));
+                    i = j;
+                    continue;
+                }
+
+                // Case B: Legacy/Action grouping (runs of contiguous items that are not boundaries and have no groupId)
                 int j = i + 1;
-                while (j < end && !isBoundary.test(contexts.get(j))) {
+                while (j < end && !isBoundary.test(contexts.get(j)) && groupLookup.apply(contexts.get(j).id()) == null) {
                     j++;
                 }
                 int len = j - i;
