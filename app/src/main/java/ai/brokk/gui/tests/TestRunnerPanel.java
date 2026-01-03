@@ -708,7 +708,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private class CompletedEntryRenderer extends DefaultListCellRenderer {
+    private static class CompletedEntryRenderer extends DefaultListCellRenderer {
         private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("HH:mm:ss");
 
         @Override
