@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.IContextManager;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.HistoryGrouping.GroupDescriptor;
 import ai.brokk.gui.HistoryGrouping.GroupType;
 import ai.brokk.gui.HistoryGrouping.GroupingBuilder;
@@ -12,9 +13,8 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.function.Predicate;
 import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,8 +41,16 @@ public class HistoryGroupingTest {
     }
 
     private static List<GroupDescriptor> discover(List<Context> contexts, Predicate<Context> boundary) {
-        return GroupingBuilder.discoverGroups(
-                contexts, boundary, java.util.Set.of(), contextId -> null, groupId -> null);
+        // Build a minimal ContextHistory from the contexts list
+        var history = new ContextHistory(
+                contexts,
+                List.of(), // no reset edges
+                Map.of(), // no git states
+                Map.of(), // no entry infos
+                Map.of(), // no context-to-group mappings
+                Map.of() // no group labels
+                );
+        return GroupingBuilder.discoverGroups(contexts, boundary, history);
     }
 
     @Test
@@ -204,12 +212,15 @@ public class HistoryGroupingTest {
         UUID groupId = UUID.randomUUID();
         String expectedLabel = "My Custom Task";
 
-        // Group lookup returns the same groupId for both
-        Function<UUID, UUID> groupLookup = ctxId -> groupId;
-        // Label lookup returns our custom label
-        Function<UUID, String> labelLookup = gId -> gId.equals(groupId) ? expectedLabel : null;
+        // Build contextToGroupId map: both contexts belong to the same group
+        Map<UUID, UUID> contextToGroupId = Map.of(
+                c1.id(), groupId,
+                c2.id(), groupId);
+        Map<UUID, String> groupLabels = Map.of(groupId, expectedLabel);
 
-        var groups = GroupingBuilder.discoverGroups(List.of(c1, c2), c -> false, Set.of(), groupLookup, labelLookup);
+        var history = new ContextHistory(List.of(c1, c2), List.of(), Map.of(), Map.of(), contextToGroupId, groupLabels);
+
+        var groups = GroupingBuilder.discoverGroups(List.of(c1, c2), c -> false, history);
 
         assertEquals(1, groups.size(), "Should have one GROUP_BY_ID group");
         var g = groups.getFirst();
@@ -224,9 +235,11 @@ public class HistoryGroupingTest {
         var c1 = ctx("Single action");
         UUID groupId = UUID.randomUUID();
 
+        var history = new ContextHistory(
+                List.of(c1), List.of(), Map.of(), Map.of(), Map.of(c1.id(), groupId), Map.of(groupId, "Label"));
+
         // Even with a groupId, a single context should not show a header
-        var groups =
-                GroupingBuilder.discoverGroups(List.of(c1), c -> false, Set.of(), ctxId -> groupId, gId -> "Label");
+        var groups = GroupingBuilder.discoverGroups(List.of(c1), c -> false, history);
 
         assertEquals(1, groups.size());
         var g = groups.getFirst();
@@ -242,10 +255,15 @@ public class HistoryGroupingTest {
         UUID groupId = UUID.randomUUID();
         String expectedLabel = "My Task";
 
-        Function<UUID, UUID> groupLookup = ctxId -> groupId;
-        Function<UUID, String> labelLookup = gId -> gId.equals(groupId) ? expectedLabel : null;
+        var history = new ContextHistory(
+                List.of(c1, c2),
+                List.of(),
+                Map.of(),
+                Map.of(),
+                Map.of(c1.id(), groupId, c2.id(), groupId),
+                Map.of(groupId, expectedLabel));
 
-        var groups = GroupingBuilder.discoverGroups(List.of(c1, c2), c -> false, Set.of(), groupLookup, labelLookup);
+        var groups = GroupingBuilder.discoverGroups(List.of(c1, c2), c -> false, history);
 
         assertEquals(1, groups.size(), "Should have one GROUP_BY_ID group");
         var g = groups.getFirst();
@@ -265,12 +283,13 @@ public class HistoryGroupingTest {
         var aiResult = ctx("AI response"); // Pretend this is an AI result
         var c2 = ctx("After AI");
 
+        var history = new ContextHistory(List.of(c1, aiResult, c2), List.of(), Map.of(), Map.of(), Map.of(), Map.of());
+
         // Boundary predicate: only true if context has a groupId
-        // Since we pass null for groupLookup, nothing has a groupId
+        // Since we pass empty maps for groupLookup, nothing has a groupId
         Predicate<Context> isBoundary = c -> false; // No boundaries
 
-        var groups = GroupingBuilder.discoverGroups(
-                List.of(c1, aiResult, c2), isBoundary, Set.of(), ctxId -> null, gId -> null);
+        var groups = GroupingBuilder.discoverGroups(List.of(c1, aiResult, c2), isBoundary, history);
 
         // All three should be in one legacy group (no boundaries)
         assertEquals(1, groups.size(), "Without boundaries, all contexts form one group");

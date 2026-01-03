@@ -1,10 +1,12 @@
 package ai.brokk.gui;
 
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.util.ComputedValue;
 import java.util.*;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * Unified grouping model for context history rendering.
@@ -62,22 +64,32 @@ public final class HistoryGrouping {
         private GroupingBuilder() {}
 
         /**
+         * Discover logical group descriptors from the provided contexts using default boundary logic.
+         */
+        public static List<GroupDescriptor> discoverGroups(List<Context> contexts, ContextHistory history) {
+            return discoverGroups(contexts, ctx -> isDefaultBoundary(ctx, history), history);
+        }
+
+        /**
          * Discover logical group descriptors from the provided contexts.
          *
          * @param contexts the full list of contexts to group, in display order
          * @param isBoundary boundary predicate; true indicates a boundary context that terminates any group
-         * @param resetTargetIds set of context IDs that are reset targets (for label generation)
+         * @param history the context history to use for lookups
          * @return ordered list of group descriptors covering all input contexts
          */
         public static List<GroupDescriptor> discoverGroups(
-                List<Context> contexts,
-                Predicate<Context> isBoundary,
-                Set<UUID> resetTargetIds,
-                Function<UUID, UUID> groupLookup,
-                Function<UUID, String> labelLookup) {
+                List<Context> contexts, Predicate<Context> isBoundary, ContextHistory history) {
             if (contexts.isEmpty()) {
                 return List.of();
             }
+
+            Set<UUID> resetTargetIds = history.getResetEdges().stream()
+                    .map(ContextHistory.ResetEdge::targetId)
+                    .collect(Collectors.toSet());
+
+            Function<UUID, UUID> groupLookup = history::getGroupId;
+            Function<UUID, String> labelLookup = gId -> history.getGroupLabels().get(gId);
 
             final int n = contexts.size();
             List<GroupDescriptor> out = new ArrayList<>();
@@ -252,6 +264,31 @@ public final class HistoryGrouping {
             }
             int idx = text.indexOf(' ');
             return (idx < 0) ? text : text.substring(0, idx);
+        }
+
+        private static boolean isDefaultBoundary(Context ctx, ContextHistory history) {
+            // AI result without explicit group is a boundary
+            if (ctx.isAiResult() && history.getGroupId(ctx.id()) == null) {
+                return true;
+            }
+
+            Context prev = history.previousOf(ctx);
+            if (prev == null) {
+                return false;
+            }
+
+            // Dropped all context: fragments became empty
+            if (prev.allFragments().findAny().isPresent()
+                    && ctx.allFragments().findAny().isEmpty()) {
+                return true;
+            }
+
+            // Cleared task history: history became empty
+            if (!prev.getTaskHistory().isEmpty() && ctx.getTaskHistory().isEmpty()) {
+                return true;
+            }
+
+            return false;
         }
     }
 
