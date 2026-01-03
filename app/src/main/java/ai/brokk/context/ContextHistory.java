@@ -173,29 +173,13 @@ public class ContextHistory {
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
         var base = liveContext();
 
-        // Identify the affected fragments by referenced ProjectFiles
-        var toReplace = base.allFragments()
-                .filter(f -> {
-                    var filesOpt = f.files().await(SNAPSHOT_AWAIT_TIMEOUT);
-                    return filesOpt.map(projectFiles -> projectFiles.stream().anyMatch(changed::contains))
-                            .orElse(false);
-                })
-                .toList();
+        // Refresh only the affected fragments. copyAndRefresh(changed) handles:
+        // 1. Identifying affected fragments.
+        // 2. Returning the same instance if no content actually changed.
+        // 3. Mapping pinned/read-only status to the new fragment instances.
+        var merged = base.copyAndRefresh(changed);
 
-        if (toReplace.isEmpty()) {
-            return null; // nothing to refresh
-        }
-
-        // Refresh only the affected fragments; do NOT precompute text(), to keep snapshots cleared pre-serialization.
-        var replacements = toReplace.stream().map(ContextFragment::refreshCopy).toList();
-
-        // Merge: keep all unaffected fragments, but swap in the refreshed ones.
-        Context merged = base.removeFragments(toReplace).addFragments(replacements);
-
-        // Guard: if refresh produced no actual content differences, avoid adding a no-op
-        // Note: this may block briefly while diffs are computed; this method is @Blocking.
-        var delta = ContextDelta.between(base, merged).join();
-        if (delta.isEmpty()) {
+        if (merged.equals(base)) {
             return null; // nothing meaningful changed; do not push/replace
         }
 

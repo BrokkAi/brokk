@@ -464,6 +464,36 @@ public class ContextHistoryTest {
     }
 
     @Test
+    public void testProcessExternalFileChangesPreservesPinnedStatus() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Pinned.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "v1\n");
+
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        frag.text().await(Duration.ofSeconds(2));
+
+        var initialContext = new Context(contextManager, List.of(frag), List.of(), null).withPinned(frag, true);
+        assertTrue(initialContext.isPinned(frag));
+
+        var history = new ContextHistory(initialContext);
+
+        // Simulate external change
+        Files.writeString(pf.absPath(), "v1\nv2\n");
+
+        var updated = history.processExternalFileChangesIfNeeded(Set.of(pf));
+        assertNotNull(updated);
+
+        // Find the refreshed fragment for the same file
+        var refreshedFrag = updated.fileFragments()
+                .filter(f -> f.files().join().contains(pf))
+                .findFirst()
+                .orElseThrow();
+
+        assertNotSame(frag, refreshedFrag, "Fragment should have been replaced");
+        assertTrue(updated.isPinned(refreshedFrag), "Pinned status should be preserved on refreshed fragment");
+    }
+
+    @Test
     public void testDiffServiceIncludesUsageFragmentDiffWhenUsageContentChanges() {
         var usageFrag1 = new MockUsageFragment(contextManager, "U-usage", "alpha\n");
         var initialContext = new Context(contextManager, List.of(usageFrag1), List.of(), null);
