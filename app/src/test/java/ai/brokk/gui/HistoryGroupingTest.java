@@ -15,7 +15,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.function.Predicate;
+import java.util.function.Function;
 import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,7 +40,8 @@ public class HistoryGroupingTest {
         return base.addFragments(fragment);
     }
 
-    private static List<GroupDescriptor> discover(List<Context> contexts, Predicate<Context> boundary) {
+    private static List<GroupDescriptor> discover(
+            List<Context> contexts, Function<Context, HistoryGrouping.Boundary> boundary) {
         // Build a minimal ContextHistory from the contexts list
         var history = new ContextHistory(
                 contexts,
@@ -56,7 +57,7 @@ public class HistoryGroupingTest {
     @Test
     public void singleUngrouped_isStandaloneNoHeader() {
         var c1 = ctx("Build project");
-        var groups = discover(List.of(c1), c -> false);
+        var groups = discover(List.of(c1), c -> HistoryGrouping.Boundary.NONE);
 
         assertEquals(1, groups.size(), "Expected one descriptor");
         var g = groups.getFirst();
@@ -72,7 +73,7 @@ public class HistoryGroupingTest {
         var c1 = ctx("Compile module A");
         var c2 = ctx("Compile module A");
 
-        var groups = discover(List.of(c1, c2), c -> false);
+        var groups = discover(List.of(c1, c2), c -> HistoryGrouping.Boundary.NONE);
 
         assertEquals(
                 1, groups.size(), "Two contiguous ungrouped contexts should be grouped into one legacy action group");
@@ -86,18 +87,19 @@ public class HistoryGroupingTest {
     @Test
     public void boundaryBreaksGroups() {
         var a1 = ctx("A action");
-        var boundary = ctx("B boundary"); // mark this as boundary via predicate
+        var boundary = ctx("B boundary"); // mark this as boundary via function
         var a2 = ctx("C action");
 
-        Predicate<Context> isBoundary = c -> c == boundary;
+        Function<Context, HistoryGrouping.Boundary> boundaryFn =
+                c -> c == boundary ? HistoryGrouping.Boundary.STANDALONE : HistoryGrouping.Boundary.NONE;
 
-        var groups = discover(List.of(a1, boundary, a2), isBoundary);
+        var groups = discover(List.of(a1, boundary, a2), boundaryFn);
 
         // Expect three groups: [a1] singleton, [boundary] singleton, then [a2] singleton
         assertEquals(
                 3,
                 groups.size(),
-                "Boundary should terminate prior group, and boundary (ungrouped) is its own singleton");
+                "Boundary should terminate prior group, and standalone boundary (ungrouped) is its own singleton");
 
         var g0 = groups.get(0);
         assertFalse(g0.shouldShowHeader(), "First should be singleton without header");
@@ -121,7 +123,7 @@ public class HistoryGroupingTest {
         var a = ctx("Edit file");
         var b = ctx("Run tests");
 
-        var groups = discover(List.of(a, b), c -> false);
+        var groups = discover(List.of(a, b), c -> HistoryGrouping.Boundary.NONE);
 
         assertEquals(1, groups.size(), "Contiguous ungrouped contexts should form one legacy group");
         var g = groups.getFirst();
@@ -136,7 +138,7 @@ public class HistoryGroupingTest {
     public void anonymousGroup_singleChild_showsJustDescription() {
         // A single ungrouped context should show its description directly (no header since it's a singleton)
         var c1 = ctx("Build project");
-        var groups = discover(List.of(c1), c -> false);
+        var groups = discover(List.of(c1), c -> HistoryGrouping.Boundary.NONE);
 
         assertEquals(1, groups.size());
         var g = groups.getFirst();
@@ -155,19 +157,19 @@ public class HistoryGroupingTest {
         var c1 = empty1.addFragments(frag1);
         var frag2 = new ContextFragments.StringFragment(cm, "c2", "file2", "text");
         var c2 = c1.addFragments(frag2);
-        var g1 = discover(List.of(c1, c2), c -> false);
+        var g1 = discover(List.of(c1, c2), c -> HistoryGrouping.Boundary.NONE);
         assertEquals("Add x2", g1.getFirst().label().join());
 
         // 2. Three adds -> 2 descriptions after skipping first -> "Add x2"
         var frag3 = new ContextFragments.StringFragment(cm, "c3", "file3", "text");
         var c3 = c2.addFragments(frag3);
-        var g2 = discover(List.of(c1, c2, c3), c -> false);
+        var g2 = discover(List.of(c1, c2, c3), c -> HistoryGrouping.Boundary.NONE);
         assertEquals("Add x3", g2.getFirst().label().join());
 
         // 3. Four adds -> 3 descriptions after skipping first -> "Add x3"
         var frag4 = new ContextFragments.StringFragment(cm, "c4", "file4", "text");
         var c4 = c3.addFragments(frag4);
-        var g3 = discover(List.of(c1, c2, c3, c4), c -> false);
+        var g3 = discover(List.of(c1, c2, c3, c4), c -> HistoryGrouping.Boundary.NONE);
         assertEquals("Add x4", g3.getFirst().label().join());
     }
 
@@ -194,7 +196,7 @@ public class HistoryGroupingTest {
         // ctx1 is at index 0 and gets skipped in label computation
         // Remaining: ctx2=Add, ctx3=Remove, ctx4=Add, ctx5=Remove -> "Add x2 + Remove x2"
         var contexts = List.of(ctx1, ctx2, ctx3, ctx4, ctx5);
-        var groups = discover(contexts, c -> false);
+        var groups = discover(contexts, c -> HistoryGrouping.Boundary.NONE);
 
         assertEquals(1, groups.size(), "All contexts should be in one legacy group");
         var g = groups.getFirst();
@@ -220,7 +222,7 @@ public class HistoryGroupingTest {
 
         var history = new ContextHistory(List.of(c1, c2), List.of(), Map.of(), Map.of(), contextToGroupId, groupLabels);
 
-        var groups = GroupingBuilder.discoverGroups(List.of(c1, c2), c -> false, history);
+        var groups = GroupingBuilder.discoverGroups(List.of(c1, c2), c -> HistoryGrouping.Boundary.NONE, history);
 
         assertEquals(1, groups.size(), "Should have one GROUP_BY_ID group");
         var g = groups.getFirst();
@@ -239,7 +241,7 @@ public class HistoryGroupingTest {
                 List.of(c1), List.of(), Map.of(), Map.of(), Map.of(c1.id(), groupId), Map.of(groupId, "Label"));
 
         // Even with a groupId, a single context should not show a header
-        var groups = GroupingBuilder.discoverGroups(List.of(c1), c -> false, history);
+        var groups = GroupingBuilder.discoverGroups(List.of(c1), c -> HistoryGrouping.Boundary.NONE, history);
 
         assertEquals(1, groups.size());
         var g = groups.getFirst();
@@ -263,7 +265,7 @@ public class HistoryGroupingTest {
                 Map.of(c1.id(), groupId, c2.id(), groupId),
                 Map.of(groupId, expectedLabel));
 
-        var groups = GroupingBuilder.discoverGroups(List.of(c1, c2), c -> false, history);
+        var groups = GroupingBuilder.discoverGroups(List.of(c1, c2), c -> HistoryGrouping.Boundary.NONE, history);
 
         assertEquals(1, groups.size(), "Should have one GROUP_BY_ID group");
         var g = groups.getFirst();
@@ -276,8 +278,8 @@ public class HistoryGroupingTest {
     @Test
     public void aiResultWithoutGroupIdIsNotBoundary() {
         // This tests the conceptual behavior: an AI result without a groupId
-        // (single-action task) should NOT be a boundary
-        // The boundary predicate checks: isAiResult && hasGroupId
+        // (single-action task) should NOT be a standalone boundary
+        // The boundary check in this test passes NONE
 
         var c1 = ctx("Before AI");
         var aiResult = ctx("AI response"); // Pretend this is an AI result
@@ -285,14 +287,58 @@ public class HistoryGroupingTest {
 
         var history = new ContextHistory(List.of(c1, aiResult, c2), List.of(), Map.of(), Map.of(), Map.of(), Map.of());
 
-        // Boundary predicate: only true if context has a groupId
-        // Since we pass empty maps for groupLookup, nothing has a groupId
-        Predicate<Context> isBoundary = c -> false; // No boundaries
+        Function<Context, HistoryGrouping.Boundary> boundaryFn = c -> HistoryGrouping.Boundary.NONE;
 
-        var groups = GroupingBuilder.discoverGroups(List.of(c1, aiResult, c2), isBoundary, history);
+        var groups = GroupingBuilder.discoverGroups(List.of(c1, aiResult, c2), boundaryFn, history);
 
         // All three should be in one legacy group (no boundaries)
         assertEquals(1, groups.size(), "Without boundaries, all contexts form one group");
         assertEquals(3, groups.getFirst().children().size());
+    }
+
+    @Test
+    public void cutAfterBoundaryGroupsWithPreceding() {
+        var c1 = ctx("Action 1");
+        var cutAfter = ctx("Action 2 (Boundary)");
+        var c3 = ctx("Action 3");
+
+        Function<Context, HistoryGrouping.Boundary> boundaryFn =
+                c -> c == cutAfter ? HistoryGrouping.Boundary.CUT_AFTER : HistoryGrouping.Boundary.NONE;
+
+        var groups = discover(List.of(c1, cutAfter, c3), boundaryFn);
+
+        // Expect two groups: [c1, cutAfter] grouped together, then [c3] as a new group.
+        assertEquals(2, groups.size());
+
+        var g1 = groups.get(0);
+        assertEquals(2, g1.children().size());
+        assertEquals(c1.id(), g1.children().get(0).id());
+        assertEquals(cutAfter.id(), g1.children().get(1).id());
+        assertTrue(g1.shouldShowHeader());
+
+        var g2 = groups.get(1);
+        assertEquals(1, g2.children().size());
+        assertEquals(c3.id(), g2.children().getFirst().id());
+        assertFalse(g2.shouldShowHeader());
+    }
+
+    @Test
+    public void standaloneBoundaryIsAlwaysSingleton() {
+        var c1 = ctx("Action 1");
+        var standalone = ctx("Standalone Boundary");
+        var c3 = ctx("Action 3");
+
+        Function<Context, HistoryGrouping.Boundary> boundaryFn =
+                c -> c == standalone ? HistoryGrouping.Boundary.STANDALONE : HistoryGrouping.Boundary.NONE;
+
+        var groups = discover(List.of(c1, standalone, c3), boundaryFn);
+
+        // Expect three groups: [c1], [standalone], [c3]
+        assertEquals(3, groups.size());
+
+        var g2 = groups.get(1);
+        assertEquals(1, g2.children().size());
+        assertEquals(standalone.id(), g2.children().getFirst().id());
+        assertFalse(g2.shouldShowHeader());
     }
 }

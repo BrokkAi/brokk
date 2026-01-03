@@ -5,7 +5,6 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.util.ComputedValue;
 import java.util.*;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -38,6 +37,12 @@ public final class HistoryGrouping {
     public enum GroupType {
         GROUP_BY_ID,
         GROUP_BY_ACTION
+    }
+
+    public enum Boundary {
+        NONE,
+        CUT_AFTER,
+        STANDALONE
     }
 
     /**
@@ -74,12 +79,12 @@ public final class HistoryGrouping {
          * Discover logical group descriptors from the provided contexts.
          *
          * @param contexts the full list of contexts to group, in display order
-         * @param isBoundary boundary predicate; true indicates a boundary context that terminates any group
+         * @param boundaryFn function returning boundary behavior for a context
          * @param history the context history to use for lookups
          * @return ordered list of group descriptors covering all input contexts
          */
         public static List<GroupDescriptor> discoverGroups(
-                List<Context> contexts, Predicate<Context> isBoundary, ContextHistory history) {
+                List<Context> contexts, Function<Context, Boundary> boundaryFn, ContextHistory history) {
             if (contexts.isEmpty()) {
                 return List.of();
             }
@@ -95,17 +100,20 @@ public final class HistoryGrouping {
             List<GroupDescriptor> out = new ArrayList<>();
 
             // 1) Pre-split into boundary-separated segments.
-            // A boundary means "there is a cut before this item," so it starts a new segment.
+            // A boundary means "there is a cut after this item," so it ends a segment.
             int segStart = 0;
-            for (int i = 1; i < n; i++) {
-                if (isBoundary.test(contexts.get(i))) {
-                    // emit [segStart, i)
-                    emitSegment(contexts, segStart, i, out, isBoundary, resetTargetIds, groupLookup, labelLookup);
-                    segStart = i;
+            for (int i = 0; i < n; i++) {
+                Boundary b = boundaryFn.apply(contexts.get(i));
+                if (b != Boundary.NONE) {
+                    // emit [segStart, i+1)
+                    emitSegment(contexts, segStart, i + 1, out, boundaryFn, resetTargetIds, groupLookup, labelLookup);
+                    segStart = i + 1;
                 }
             }
             // emit final segment [segStart, n)
-            emitSegment(contexts, segStart, n, out, isBoundary, resetTargetIds, groupLookup, labelLookup);
+            if (segStart < n) {
+                emitSegment(contexts, segStart, n, out, boundaryFn, resetTargetIds, groupLookup, labelLookup);
+            }
 
             // 2) Mark last descriptor, if any
             if (!out.isEmpty()) {
@@ -121,8 +129,9 @@ public final class HistoryGrouping {
         }
 
         /**
-         * Emit group descriptors for a boundary-free segment [start, end).
-         * Within a segment, produce maximal runs of contiguous items that are not boundaries.
+         * Emit group descriptors for a segment [start, end).
+         * Within a segment, produce maximal runs of contiguous items.
+         * STANDALONE items are forced into singletons without headers.
          * A header is shown only when the run length is >= 2 or explicit groupIds are present.
          */
         private static void emitSegment(
@@ -130,7 +139,7 @@ public final class HistoryGrouping {
                 int start,
                 int end,
                 List<GroupDescriptor> out,
-                java.util.function.Predicate<Context> isBoundary,
+                Function<Context, Boundary> boundaryFn,
                 Set<UUID> resetTargetIds,
                 Function<UUID, UUID> groupLookup,
                 Function<UUID, String> labelLookup) {
@@ -139,8 +148,8 @@ public final class HistoryGrouping {
                 Context ctx = contexts.get(i);
                 UUID groupId = groupLookup.apply(ctx.id());
 
-                // If this item is a boundary, it is emitted as a singleton without a header.
-                if (isBoundary.test(ctx)) {
+                // If this item is a STANDALONE boundary, it is emitted as a singleton without a header.
+                if (boundaryFn.apply(ctx) == Boundary.STANDALONE) {
                     List<Context> single = List.of(ctx);
                     out.add(new GroupDescriptor(
                             GroupType.GROUP_BY_ACTION,
@@ -178,11 +187,12 @@ public final class HistoryGrouping {
                     continue;
                 }
 
-                // Case B: Legacy/Action grouping (runs of contiguous items that are not boundaries and have no groupId)
+                // Case B: Legacy/Action grouping (runs of contiguous items that are not standalone and have no groupId)
                 int j = i + 1;
-                while (j < end
-                        && !isBoundary.test(contexts.get(j))
-                        && groupLookup.apply(contexts.get(j).id()) == null) {
+                while (j < end && boundaryFn.apply(contexts.get(j)) != Boundary.STANDALONE) {
+                    if (groupLookup.apply(contexts.get(j).id()) != null) {
+                        break;
+                    }
                     j++;
                 }
                 int len = j - i;
@@ -266,29 +276,27 @@ public final class HistoryGrouping {
             return (idx < 0) ? text : text.substring(0, idx);
         }
 
-        private static boolean isDefaultBoundary(Context ctx, ContextHistory history) {
-            // AI result without explicit group is a boundary
-            if (ctx.isAiResult() && history.getGroupId(ctx.id()) == null) {
-                return true;
-            }
-
+        private static Boundary isDefaultBoundary(Context ctx, ContextHistory history) {
             Context prev = history.previousOf(ctx);
-            if (prev == null) {
-                return false;
+            if (prev != null) {
+                // Dropped all context: fragments became empty
+                if (prev.allFragments().findAny().isPresent()
+                        && ctx.allFragments().findAny().isEmpty()) {
+                    return Boundary.STANDALONE;
+                }
+
+                // Cleared task history: history became empty
+                if (!prev.getTaskHistory().isEmpty() && ctx.getTaskHistory().isEmpty()) {
+                    return Boundary.STANDALONE;
+                }
             }
 
-            // Dropped all context: fragments became empty
-            if (prev.allFragments().findAny().isPresent()
-                    && ctx.allFragments().findAny().isEmpty()) {
-                return true;
+            // AI result without explicit group is a CUT_AFTER boundary
+            if (ctx.isAiResult() && history.getGroupId(ctx.id()) == null) {
+                return Boundary.CUT_AFTER;
             }
 
-            // Cleared task history: history became empty
-            if (!prev.getTaskHistory().isEmpty() && ctx.getTaskHistory().isEmpty()) {
-                return true;
-            }
-
-            return false;
+            return Boundary.NONE;
         }
     }
 
