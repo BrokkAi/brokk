@@ -200,7 +200,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
                 java.util.List<TabEntry> toClose = new java.util.ArrayList<>();
                 for (int i = 0; i < listModel.size(); i++) {
                     TabEntry current = listModel.get(i);
-                    if (current != entry) {
+                    if (!entry.equals(current)) {
                         toClose.add(current);
                     }
                 }
