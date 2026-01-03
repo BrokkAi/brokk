@@ -645,9 +645,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                     .map(ai.brokk.context.ContextHistory.ResetEdge::targetId)
                     .collect(java.util.stream.Collectors.toSet());
 
+            var history = contextManager.getContextHistory();
             var descriptors =
                     HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary, resetTargetIds,
-                            contextId -> contextManager.getContextHistory().getGroupId(contextId));
+                            history::getGroupId);
             latestDescriptors = descriptors;
 
             for (var descriptor : descriptors) {
