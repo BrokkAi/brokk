@@ -104,9 +104,8 @@ public final class HistoryGrouping {
 
         /**
          * Emit group descriptors for a boundary-free segment [start, end).
-         * Within a segment, produce maximal runs of:
-         * - same non-null groupId (GROUP_BY_ID, header always shown)
-         * - contiguous null groupId (legacy), header shown only when length >= 2
+         * Within a segment, produce maximal runs of contiguous items that are not boundaries.
+         * A header is shown only when the run length is >= 2.
          */
         private static void emitSegment(
                 List<Context> contexts,
@@ -118,66 +117,44 @@ public final class HistoryGrouping {
             int i = start;
             while (i < end) {
                 Context ctx = contexts.get(i);
-                UUID groupId = ctx.getGroupId();
 
-                if (groupId != null) {
-                    int j = i + 1;
-                    while (j < end && groupId.equals(contexts.get(j).getGroupId())) {
-                        j++;
-                    }
-                    List<Context> children = Collections.unmodifiableList(new ArrayList<>(contexts.subList(i, j)));
-                    // Header always shown for id-groups, including size 1
-                    String preferredLabel = children.stream()
-                            .map(Context::getGroupLabel)
-                            .filter(s -> s != null && !s.isBlank())
-                            .findFirst()
-                            .orElse(null);
-
-                    ComputedValue<String> labelVal =
-                            ComputedValue.completed(preferredLabel != null ? preferredLabel : groupId.toString());
-
+                // If this item is a boundary, it is emitted as a singleton without a header.
+                if (isBoundary.test(ctx)) {
+                    List<Context> single = List.of(ctx);
                     out.add(new GroupDescriptor(
-                            GroupType.GROUP_BY_ID, groupId.toString(), labelVal, children, true, false));
-                    i = j;
-                } else {
-                    // If this item is a boundary and ungrouped, it must not be absorbed into a legacy run.
-                    if (isBoundary.test(ctx)) {
-                        List<Context> single = List.of(ctx);
-                        out.add(new GroupDescriptor(
-                                GroupType.GROUP_BY_ACTION,
-                                ctx.id().toString(),
-                                ComputedValue.completed(""),
-                                single,
-                                false,
-                                false));
-                        i = i + 1;
-                        continue;
-                    }
-
-                    // Legacy run: contiguous ungrouped items that are not boundaries
-                    int j = i + 1;
-                    while (j < end && contexts.get(j).getGroupId() == null && !isBoundary.test(contexts.get(j))) {
-                        j++;
-                    }
-                    int len = j - i;
-                    if (len >= 2) {
-                        List<Context> children = contexts.subList(i, j);
-                        var label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
-                        String key = children.get(0).id().toString();
-                        out.add(new GroupDescriptor(GroupType.GROUP_BY_ACTION, key, label, children, true, false));
-                    } else {
-                        // Singleton legacy (no header)
-                        List<Context> single = List.of(ctx);
-                        out.add(new GroupDescriptor(
-                                GroupType.GROUP_BY_ACTION,
-                                ctx.id().toString(),
-                                ComputedValue.completed(""),
-                                single,
-                                false,
-                                false));
-                    }
-                    i = j;
+                            GroupType.GROUP_BY_ACTION,
+                            ctx.id().toString(),
+                            ComputedValue.completed(""),
+                            single,
+                            false,
+                            false));
+                    i = i + 1;
+                    continue;
                 }
+
+                // Group run: contiguous items that are not boundaries.
+                int j = i + 1;
+                while (j < end && !isBoundary.test(contexts.get(j))) {
+                    j++;
+                }
+                int len = j - i;
+                if (len >= 2) {
+                    List<Context> children = contexts.subList(i, j);
+                    var label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
+                    String key = children.get(0).id().toString();
+                    out.add(new GroupDescriptor(GroupType.GROUP_BY_ACTION, key, label, children, true, false));
+                } else {
+                    // Singleton (no header)
+                    List<Context> single = List.of(ctx);
+                    out.add(new GroupDescriptor(
+                            GroupType.GROUP_BY_ACTION,
+                            ctx.id().toString(),
+                            ComputedValue.completed(""),
+                            single,
+                            false,
+                            false));
+                }
+                i = j;
             }
         }
 

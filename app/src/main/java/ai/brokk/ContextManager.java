@@ -1527,7 +1527,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                 new GitWorkflow(this).performAutoCommit(prompt);
                 var compressed = compressHistory(result.context()); // synchronous
-                var ctx = markTaskDone(compressed, task, scope.groupId(), scope.groupLabel());
+                var ctx = markTaskDone(compressed, task);
                 result = result.withContext(ctx);
                 pushContext(currentLiveCtx -> ctx);
             }
@@ -1541,7 +1541,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Replace the given task with its 'done=true' variant. */
     private Context markTaskDone(
-            Context context, TaskList.TaskItem task, @Nullable UUID groupId, @Nullable String groupLabel) {
+            Context context, TaskList.TaskItem task) {
         var tasks = context.getTaskListDataOrEmpty().tasks();
 
         // Find index: prefer exact match, fall back to first incomplete task with matching text
@@ -1559,8 +1559,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var updated = new ArrayList<>(tasks);
         updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
-        return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)))
-                .withGroup(groupId, groupLabel);
+        return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)));
     }
 
     private void captureGitState(Context frozenContext) {
@@ -2112,9 +2111,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return beginTask(input, compressAtCommit, null);
     }
 
-    /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional grouping label. */
-    public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String groupLabel) {
-        TaskScope scope = new TaskScope(compressAtCommit, groupLabel);
+    /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
+    public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String taskDescription) {
+        TaskScope scope = new TaskScope(compressAtCommit);
 
         // prepare MOP
         var history = liveContext().getTaskHistory();
@@ -2150,23 +2149,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
         private final AtomicBoolean closed = new AtomicBoolean(false);
-        private final @Nullable UUID groupId;
-        private final @Nullable String groupLabel;
 
-        private TaskScope(boolean compressResults, @Nullable String groupLabel) {
+        private TaskScope(boolean compressResults) {
             this.compressResults = compressResults;
-            this.groupLabel = groupLabel;
-            this.groupId = (groupLabel != null) ? UUID.randomUUID() : null;
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
-        }
-
-        public @Nullable UUID groupId() {
-            return groupId;
-        }
-
-        public @Nullable String groupLabel() {
-            return groupLabel;
         }
 
         /**
@@ -2200,13 +2187,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
 
             // optionally compress
-            var updated = result.context().withGroup(groupId, groupLabel);
+            var updated = result.context();
             TaskEntry entry = updated.createTaskEntry(result);
             TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
 
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(finalEntry, result.output()).withGroup(groupId, groupLabel);
+                return updated.addHistoryEntry(finalEntry, result.output());
             });
 
             // prepare MOP to display new history with the next streamed message
@@ -2222,8 +2209,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
          */
         public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
-            var updated = context.withGroup(groupId, groupLabel);
-            pushContext(currentLiveCtx -> updated);
+            pushContext(currentLiveCtx -> context);
         }
 
         @Override
@@ -2743,7 +2729,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return ctx;
                 }
 
-                return ctx.withHistory(compressedTaskEntries).withGroup(ctx.getGroupId(), ctx.getGroupLabel());
+                return ctx.withHistory(compressedTaskEntries);
             }
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);

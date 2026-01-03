@@ -69,12 +69,6 @@ public class Context {
     @Nullable
     final transient ContextFragments.TaskFragment parsedOutput;
 
-    @Nullable
-    private final UUID groupId;
-
-    @Nullable
-    private final String groupLabel;
-
     private final Set<ContextFragment> markedReadonlyFragments;
     private final Set<ContextFragment> pinnedFragments;
 
@@ -82,7 +76,7 @@ public class Context {
      * Constructor for initial empty context
      */
     public Context(IContextManager contextManager) {
-        this(newContextId(), contextManager, List.of(), List.of(), null, null, null, Set.of(), Set.of());
+        this(newContextId(), contextManager, List.of(), List.of(), null, Set.of(), Set.of());
     }
 
     private Context(
@@ -91,8 +85,6 @@ public class Context {
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
             @Nullable ContextFragments.TaskFragment parsedOutput,
-            @Nullable UUID groupId,
-            @Nullable String groupLabel,
             Set<ContextFragment> markedReadonlyFragments,
             Set<ContextFragment> pinnedFragments) {
         this.id = id;
@@ -100,8 +92,6 @@ public class Context {
         this.fragments = List.copyOf(fragments);
         this.taskHistory = List.copyOf(taskHistory);
         this.parsedOutput = parsedOutput;
-        this.groupId = groupId;
-        this.groupLabel = groupLabel;
         this.markedReadonlyFragments = validateReadOnlyFragments(markedReadonlyFragments, fragments);
         this.pinnedFragments = validatePinnedFragments(pinnedFragments, fragments);
     }
@@ -111,7 +101,7 @@ public class Context {
             List<ContextFragment> fragments,
             List<TaskEntry> taskHistory,
             @Nullable ContextFragments.TaskFragment parsedOutput) {
-        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, null, null, Set.of(), Set.of());
+        this(newContextId(), contextManager, fragments, taskHistory, parsedOutput, Set.of(), Set.of());
     }
 
     public Map<ProjectFile, String> buildRelatedIdentifiers(int k) throws InterruptedException {
@@ -230,14 +220,11 @@ public class Context {
     }
 
     private Context withFragments(List<ContextFragment> newFragments) {
-        // By default, derived contexts should NOT inherit grouping or overrides
         return new Context(
                 newContextId(),
                 contextManager,
                 newFragments,
                 taskHistory,
-                null,
-                null,
                 null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
@@ -344,16 +331,6 @@ public class Context {
         return id;
     }
 
-    @Nullable
-    public UUID getGroupId() {
-        return groupId;
-    }
-
-    @Nullable
-    public String getGroupLabel() {
-        return groupLabel;
-    }
-
     /**
      * Convenience overload to test if a fragment instance is tracked as read-only in this Context.
      */
@@ -441,11 +418,11 @@ public class Context {
                 .collect(Collectors.toSet());
 
         return new Context(
-                newContextId(), contextManager, newFragments, taskHistory, null, null, null, newReadOnly, newPinned);
+                newContextId(), contextManager, newFragments, taskHistory, null, newReadOnly, newPinned);
     }
 
     public Context removeAll() {
-        return new Context(newContextId(), contextManager, List.of(), List.of(), null, null, null, Set.of(), Set.of());
+        return new Context(newContextId(), contextManager, List.of(), List.of(), null, Set.of(), Set.of());
     }
 
     public Context withPinned(ContextFragment fragment, boolean pinned) {
@@ -464,8 +441,6 @@ public class Context {
                 fragments,
                 taskHistory,
                 parsedOutput,
-                null,
-                null,
                 this.markedReadonlyFragments,
                 newPinned);
     }
@@ -487,8 +462,6 @@ public class Context {
                 contextManager,
                 fragments,
                 taskHistory,
-                null,
-                null,
                 null,
                 newReadOnly,
                 this.pinnedFragments);
@@ -514,15 +487,12 @@ public class Context {
     public Context addHistoryEntry(TaskEntry taskEntry, @Nullable ContextFragments.TaskFragment parsed) {
         var newTaskHistory =
                 Streams.concat(taskHistory.stream(), Stream.of(taskEntry)).toList();
-        // Do not inherit grouping on derived contexts; grouping is explicit
         return new Context(
                 newContextId(),
                 contextManager,
                 fragments,
                 newTaskHistory,
                 parsed,
-                null,
-                null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
     }
@@ -533,8 +503,6 @@ public class Context {
                 contextManager,
                 fragments,
                 List.of(),
-                null,
-                null,
                 null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
@@ -595,28 +563,12 @@ public class Context {
     }
 
     public Context withParsedOutput(@Nullable ContextFragments.TaskFragment parsedOutput) {
-        // Clear grouping by default on derived contexts
         return new Context(
                 newContextId(),
                 contextManager,
                 fragments,
                 taskHistory,
                 parsedOutput,
-                null,
-                null,
-                this.markedReadonlyFragments,
-                this.pinnedFragments);
-    }
-
-    public Context withGroup(@Nullable UUID groupId, @Nullable String groupLabel) {
-        return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                taskHistory,
-                parsedOutput,
-                groupId,
-                groupLabel,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
     }
@@ -631,11 +583,9 @@ public class Context {
             List<ContextFragment> fragments,
             List<TaskEntry> history,
             @Nullable ContextFragments.TaskFragment parsed,
-            @Nullable UUID groupId,
-            @Nullable String groupLabel,
             Set<ContextFragment> readOnlyFragments,
             Set<ContextFragment> pinnedFragments) {
-        return new Context(id, cm, fragments, history, parsed, groupId, groupLabel, readOnlyFragments, pinnedFragments);
+        return new Context(id, cm, fragments, history, parsed, readOnlyFragments, pinnedFragments);
     }
 
     /**
@@ -647,8 +597,6 @@ public class Context {
                 contextManager,
                 fragments,
                 newHistory,
-                null,
-                null,
                 null,
                 this.markedReadonlyFragments,
                 this.pinnedFragments);
@@ -683,8 +631,6 @@ public class Context {
                 fragments,
                 newHistory,
                 null,
-                sourceContext.getGroupId(),
-                sourceContext.getGroupLabel(),
                 sourceContext.markedReadonlyFragments,
                 sourceContext.pinnedFragments);
     }
@@ -770,8 +716,6 @@ public class Context {
                 newFragments,
                 afterClear.taskHistory,
                 afterClear.parsedOutput,
-                null,
-                null,
                 afterClear.markedReadonlyFragments,
                 newPinned);
     }
@@ -1179,8 +1123,6 @@ public class Context {
                 newFragments,
                 taskHistory,
                 parsedOutput,
-                this.groupId,
-                this.groupLabel,
                 newReadOnly,
                 newPinned);
     }

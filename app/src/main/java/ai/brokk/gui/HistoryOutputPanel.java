@@ -2536,9 +2536,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private boolean isGroupingBoundary(Context ctx) {
         // Grouping boundaries are independent of diff presence.
-        // Boundary when this is an AI result WITHOUT a groupId, or a state reset (empty fragments or history cleared).
-        // Note: AI results that carry a groupId are NOT boundaries and may merge into a single GROUP_BY_ID run.
-        if (ctx.isAiResult() && ctx.getGroupId() == null) {
+        // Boundary when this is an AI result, or a state reset (empty fragments or history cleared).
+        if (ctx.isAiResult()) {
             return true;
         }
 

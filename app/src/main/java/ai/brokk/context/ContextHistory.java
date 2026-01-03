@@ -45,8 +45,6 @@ public class ContextHistory {
     private final List<ResetEdge> resetEdges = new ArrayList<>();
     private final Map<UUID, GitState> gitStates = new HashMap<>();
     private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
-    private final Map<UUID, UUID> contextToGroup = new HashMap<>();
-    private final Map<UUID, String> groupLabels = new HashMap<>();
 
     /**
      * Tracks the ID of the last context created by an external file change to handle continuations.
@@ -71,15 +69,19 @@ public class ContextHistory {
     }
 
     public ContextHistory(List<Context> contexts) {
-        this(contexts, List.of(), Map.of(), Map.of(), Map.of(), Map.of());
+        this(contexts, List.of(), Map.of(), Map.of());
     }
 
     public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
-        this(contexts, resetEdges, Map.of(), Map.of(), Map.of(), Map.of());
+        this(contexts, resetEdges, Map.of(), Map.of());
     }
 
-    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
-        this(contexts, resetEdges, gitStates, Map.of(), Map.of(), Map.of());
+    public synchronized void replaceTopInternal(Context newLive) {
+        assert !history.isEmpty() : "Cannot replace top context in empty history";
+        history.removeLast();
+        history.addLast(newLive);
+        redo.clear();
+        selected = newLive;
     }
 
     public ContextHistory(
@@ -87,16 +89,6 @@ public class ContextHistory {
             List<ResetEdge> resetEdges,
             Map<UUID, GitState> gitStates,
             Map<UUID, ContextHistoryEntryInfo> entryInfos) {
-        this(contexts, resetEdges, gitStates, entryInfos, Map.of(), Map.of());
-    }
-
-    public ContextHistory(
-            List<Context> contexts,
-            List<ResetEdge> resetEdges,
-            Map<UUID, GitState> gitStates,
-            Map<UUID, ContextHistoryEntryInfo> entryInfos,
-            Map<UUID, UUID> contextToGroup,
-            Map<UUID, String> groupLabels) {
         if (contexts.isEmpty()) {
             throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
         }
@@ -104,8 +96,6 @@ public class ContextHistory {
         this.resetEdges.addAll(resetEdges);
         this.gitStates.putAll(gitStates);
         this.entryInfos.putAll(entryInfos);
-        this.contextToGroup.putAll(contextToGroup);
-        this.groupLabels.putAll(groupLabels);
         selected = history.peekLast();
         this.diffService = new DiffService(this);
     }
@@ -421,16 +411,6 @@ public class ContextHistory {
         selected = ctx;
     }
 
-    /**
-     * Internal helper to replace the top of the history with control over immediate snapshotting.
-     */
-    private synchronized void replaceTopInternal(Context newLive) {
-        assert !history.isEmpty() : "Cannot replace top context in empty history";
-        history.removeLast();
-        history.addLast(newLive);
-        redo.clear();
-        selected = newLive;
-    }
 
     /**
      * Performs synchronous snapshotting of the given context to ensure stable, historical restoration.
@@ -486,31 +466,6 @@ public class ContextHistory {
 
     public synchronized Map<UUID, ContextHistoryEntryInfo> getEntryInfos() {
         return Map.copyOf(entryInfos);
-    }
-
-    public synchronized void addContextToGroup(UUID contextId, UUID groupId, @Nullable String label) {
-        contextToGroup.put(contextId, groupId);
-        if (label != null) {
-            groupLabels.put(groupId, label);
-        }
-    }
-
-    @Nullable
-    public synchronized UUID getGroupIdForContext(UUID contextId) {
-        return contextToGroup.get(contextId);
-    }
-
-    @Nullable
-    public synchronized String getGroupLabelForGroup(UUID groupId) {
-        return groupLabels.get(groupId);
-    }
-
-    public synchronized Map<UUID, UUID> getContextToGroupMap() {
-        return Map.copyOf(contextToGroup);
-    }
-
-    public synchronized Map<UUID, String> getGroupLabelsMap() {
-        return Map.copyOf(groupLabels);
     }
 
     @Blocking

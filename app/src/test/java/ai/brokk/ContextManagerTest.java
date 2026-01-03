@@ -194,38 +194,4 @@ class ContextManagerTest {
         assertEquals(beforeSize + 1, afterSize, "Adding a file should push a new context");
     }
 
-    @Test
-    public void testCompressGlobalHistoryAndMarkTaskDonePreserveGrouping() throws Exception {
-        var tempDir = Files.createTempDirectory("ctxmgr-grouping-test");
-        var project = new MainProject(tempDir);
-        var cm = new ContextManager(project);
-        cm.createHeadless();
-
-        // Create a task list with one task
-        var taskItem = new TaskList.TaskItem("Test title", "Test task text", false);
-        var taskListData = new TaskList.TaskListData(List.of(taskItem));
-        cm.pushContext(ctx -> ctx.withTaskList(taskListData));
-
-        // Define a group
-        UUID groupId = UUID.randomUUID();
-        String groupLabel = "Test Task Group";
-
-        // Add a history entry to compress (simulate a task result)
-        List<ChatMessage> msgs = List.of(UserMessage.from("test request"), new AiMessage("test response"));
-        var taskFragment = new ContextFragments.TaskFragment(cm, msgs, "Test task");
-        var entry = new TaskEntry(1, taskFragment, null);
-        cm.pushContext(ctx -> ctx.withHistory(List.of(entry)).withGroup(groupId, groupLabel));
-
-        Context ctxBefore = cm.liveContext();
-        assertEquals(groupId, ctxBefore.getGroupId(), "Group ID should be set before markTaskDone");
-        assertEquals(groupLabel, ctxBefore.getGroupLabel(), "Group label should be set before markTaskDone");
-
-        var updated = cm.deriveContextWithTaskList(
-                        ctxBefore,
-                        new TaskList.TaskListData(List.of(new TaskList.TaskItem("Test title", "Test task text", true))))
-                .withGroup(groupId, groupLabel);
-
-        assertEquals(groupId, updated.getGroupId(), "Group ID should be preserved after task list update");
-        assertEquals(groupLabel, updated.getGroupLabel(), "Group label should be preserved after task list update");
-    }
 }

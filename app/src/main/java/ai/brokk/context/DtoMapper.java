@@ -131,19 +131,12 @@ public class DtoMapper {
         var combined = Streams.concat(editableFragments.stream(), virtualFragments.stream())
                 .toList();
 
-        UUID groupUuid = null;
-        if (dto.groupId() != null && !dto.groupId().isEmpty()) {
-            groupUuid = UUID.fromString(dto.groupId());
-        }
-
         return Context.createWithId(
                 ctxId,
                 mgr,
                 combined,
                 taskHistory,
                 parsedOutputFragment,
-                groupUuid,
-                dto.groupLabel(),
                 readonlyFragments,
                 pinnedFragments);
     }
@@ -187,10 +180,7 @@ public class DtoMapper {
                 virtualIds,
                 pinnedIds,
                 taskEntryRefs,
-                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
-                "",
-                ctx.getGroupId() != null ? ctx.getGroupId().toString() : null,
-                ctx.getGroupLabel());
+                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null);
     }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent

@@ -82,7 +82,7 @@ public class V3_DtoMapper {
                 .toList();
 
         return Context.createWithId(
-                ctxId, mgr, combined, taskHistory, parsedOutputFragment, null, null, Set.of(), Set.of());
+                ctxId, mgr, combined, taskHistory, parsedOutputFragment, Set.of(), Set.of());
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
