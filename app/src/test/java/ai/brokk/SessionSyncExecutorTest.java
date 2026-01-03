@@ -265,7 +265,8 @@ class SessionSyncExecutorTest {
         SyncAction action = new SyncAction(id, ActionType.UPLOAD, localInfo, remoteMeta);
 
         // 4. Execute
-        SyncResult result = syncExecutor.execute(List.of(action), callbacks, Collections.emptyMap(), REMOTE_PROJECT);
+        TestContextManager cm = new TestContextManager(projectStub, id);
+        SyncResult result = syncExecutor.execute(List.of(action), callbacks, Map.of(id, cm), REMOTE_PROJECT);
 
         assertTrue(result.succeeded().contains(id));
         assertTrue(callbacks.uploadedIds.contains(id));
@@ -274,6 +275,8 @@ class SessionSyncExecutorTest {
         ContextHistory merged = HistoryIo.readZip(zipPath, new TestContextManager(projectStub, id));
         // Expect merged history to contain both divergences
         assertTrue(merged.getHistory().size() > 1, "Merged history should contain multiple contexts");
+
+        assertTrue(cm.reloadCalled, "reloadCurrentSessionAsync should be called on diverged merge");
     }
 
     @Test
