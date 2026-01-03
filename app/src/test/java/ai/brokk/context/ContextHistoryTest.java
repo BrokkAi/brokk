@@ -33,7 +33,6 @@ public class ContextHistoryTest {
     public void setUp() {
         TestConsoleIO consoleIO = new TestConsoleIO();
         contextManager = new TestContextManager(tempDir, consoleIO);
-        ContextFragments.setMinimumId(1);
     }
 
     /**

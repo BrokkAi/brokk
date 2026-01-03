@@ -34,7 +34,6 @@ public class ContextCompressionTest {
     @BeforeEach
     void setup() throws IOException {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        ContextFragments.setMinimumId(1);
     }
 
     private static ContextManager createHeadlessContextManagerWithDeterministicSummarizer(Path projectDir)

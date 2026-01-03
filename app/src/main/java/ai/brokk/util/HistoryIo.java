@@ -245,19 +245,6 @@ public final class HistoryIo {
                     }
                 }));
 
-        // Ensure nextId is updated to avoid collisions with loaded fragment IDs
-        fragmentCache.keySet().stream()
-                .map(id -> {
-                    try {
-                        return Integer.parseInt(id);
-                    } catch (NumberFormatException e) {
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .max(Integer::compareTo)
-                .ifPresent(maxId -> ContextFragments.setMinimumId(maxId + 1));
-
         var contexts = new ArrayList<Context>();
         for (String line : compactContextDtoLines) {
             CompactContextDto compactDto = objectMapper.readValue(line, CompactContextDto.class);

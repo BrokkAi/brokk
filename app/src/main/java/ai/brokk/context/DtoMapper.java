@@ -203,9 +203,6 @@ public class DtoMapper {
             @Nullable Map<String, byte[]> imageBytesMap,
             Map<String, ContextFragment> fragmentCacheForRecursion,
             ContentReader contentReader) {
-        // Ensure ID continuity for numeric IDs
-        ContextFragments.setMinimumId(parseNumericId(idToResolve));
-
         if (referencedDtos.containsKey(idToResolve)) {
             var dto = referencedDtos.get(idToResolve);
             if (dto instanceof FrozenFragmentDto ffd && isDeprecatedBuildFragment(ffd)) {
@@ -237,31 +234,20 @@ public class DtoMapper {
         throw new IllegalStateException("Fragment DTO not found for ID: " + idToResolve);
     }
 
-    private static int parseNumericId(String id) {
-        try {
-            return Integer.parseInt(id);
-        } catch (NumberFormatException e) {
-            return 0; // Non-numeric IDs (hash-based) don't affect nextId
-        }
-    }
-
     private static @Nullable ContextFragment _buildReferencedFragment(
             ReferencedFragmentDto dto, IContextManager mgr, ContentReader reader) {
         return switch (dto) {
             case ProjectFileDto pfd -> {
-                ContextFragments.setMinimumId(parseNumericId(pfd.id()));
                 // Use current project root for cross-platform compatibility
                 String snapshot = pfd.snapshotText() != null ? reader.readContent(pfd.snapshotText()) : null;
                 yield ContextFragments.ProjectPathFragment.withId(mgr.toFile(pfd.relPath()), pfd.id(), mgr, snapshot);
             }
             case ExternalFileDto efd -> {
-                ContextFragments.setMinimumId(parseNumericId(efd.id()));
                 String snapshot = efd.snapshotText() != null ? reader.readContent(efd.snapshotText()) : null;
                 yield ContextFragments.ExternalPathFragment.withId(
                         new ExternalFile(Path.of(efd.absPath())), efd.id(), mgr, snapshot);
             }
             case ImageFileDto ifd -> {
-                ContextFragments.setMinimumId(parseNumericId(ifd.id()));
                 BrokkFile file = fromImageFileDtoToBrokkFile(ifd, mgr);
                 yield ContextFragments.ImageFileFragment.withId(file, ifd.id(), mgr);
             }
@@ -294,8 +280,6 @@ public class DtoMapper {
             Map<String, TaskFragmentDto> allTaskDtos,
             ContentReader reader) {
         if (dto == null) return null;
-        // Ensure ID continuity for numeric IDs
-        ContextFragments.setMinimumId(parseNumericId(dto.id()));
         return switch (dto) {
             case FrozenFragmentDto ffd -> {
                 if (isDeprecatedBuildFragment(ffd)) {

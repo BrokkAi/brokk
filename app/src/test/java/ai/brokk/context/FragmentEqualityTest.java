@@ -56,7 +56,6 @@ class FragmentEqualityTest {
     @BeforeEach
     void setup() {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        ContextFragments.setMinimumId(1);
     }
 
     private <T extends ComputedFragment> T track(T fragment) {

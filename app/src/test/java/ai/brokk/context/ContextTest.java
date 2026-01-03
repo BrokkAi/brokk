@@ -52,9 +52,6 @@ class ContextTest {
 
         analyzer = new TestAnalyzer(List.of(cu1, cu2), Map.of());
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO(), analyzer);
-
-        // Reset fragment ID counter for test isolation
-        ContextFragments.setMinimumId(1);
     }
 
     @Test
