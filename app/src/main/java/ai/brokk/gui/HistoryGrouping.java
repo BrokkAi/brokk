@@ -73,7 +73,8 @@ public final class HistoryGrouping {
                 List<Context> contexts,
                 Predicate<Context> isBoundary,
                 Set<UUID> resetTargetIds,
-                ai.brokk.context.ContextHistory history) {
+                java.util.function.Function<UUID, UUID> groupLookup,
+                java.util.function.Function<UUID, String> labelLookup) {
             if (contexts.isEmpty()) {
                 return List.of();
             }
@@ -87,12 +88,12 @@ public final class HistoryGrouping {
             for (int i = 1; i < n; i++) {
                 if (isBoundary.test(contexts.get(i))) {
                     // emit [segStart, i)
-                    emitSegment(contexts, segStart, i, out, isBoundary, resetTargetIds, history);
+                    emitSegment(contexts, segStart, i, out, isBoundary, resetTargetIds, groupLookup, labelLookup);
                     segStart = i;
                 }
             }
             // emit final segment [segStart, n)
-            emitSegment(contexts, segStart, n, out, isBoundary, resetTargetIds, history);
+            emitSegment(contexts, segStart, n, out, isBoundary, resetTargetIds, groupLookup, labelLookup);
 
             // 2) Mark last descriptor, if any
             if (!out.isEmpty()) {
@@ -119,11 +120,12 @@ public final class HistoryGrouping {
                 List<GroupDescriptor> out,
                 java.util.function.Predicate<Context> isBoundary,
                 Set<UUID> resetTargetIds,
-                ai.brokk.context.ContextHistory history) {
+                java.util.function.Function<UUID, UUID> groupLookup,
+                java.util.function.Function<UUID, String> labelLookup) {
             int i = start;
             while (i < end) {
                 Context ctx = contexts.get(i);
-                UUID groupId = history.getGroupId(ctx.id());
+                UUID groupId = groupLookup.apply(ctx.id());
 
                 // If this item is a boundary, it is emitted as a singleton without a header.
                 if (isBoundary.test(ctx)) {
@@ -143,13 +145,13 @@ public final class HistoryGrouping {
                 if (groupId != null) {
                     int j = i + 1;
                     while (j < end
-                            && groupId.equals(history.getGroupId(contexts.get(j).id()))) {
+                            && groupId.equals(groupLookup.apply(contexts.get(j).id()))) {
                         j++;
                     }
                     List<Context> children = contexts.subList(i, j);
 
                     // Use provided label if available, otherwise compute
-                    String providedLabel = history.getGroupLabels().get(groupId);
+                    String providedLabel = labelLookup.apply(groupId);
                     ComputedValue<String> label;
                     if (providedLabel != null && !providedLabel.isBlank()) {
                         label = ComputedValue.completed(providedLabel);
@@ -157,8 +159,9 @@ public final class HistoryGrouping {
                         label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
                     }
 
+                    boolean showHeader = children.size() > 1;
                     out.add(new GroupDescriptor(
-                            GroupType.GROUP_BY_ID, groupId.toString(), label, children, true, false));
+                            GroupType.GROUP_BY_ID, groupId.toString(), label, children, showHeader, false));
                     i = j;
                     continue;
                 }
@@ -167,7 +170,7 @@ public final class HistoryGrouping {
                 int j = i + 1;
                 while (j < end
                         && !isBoundary.test(contexts.get(j))
-                        && history.getGroupId(contexts.get(j).id()) == null) {
+                        && groupLookup.apply(contexts.get(j).id()) == null) {
                     j++;
                 }
                 int len = j - i;

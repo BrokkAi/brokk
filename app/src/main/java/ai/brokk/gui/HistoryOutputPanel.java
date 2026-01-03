@@ -647,7 +647,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             var history = contextManager.getContextHistory();
             var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(
-                    contexts, this::isGroupingBoundary, resetTargetIds, history);
+                    contexts,
+                    this::isGroupingBoundary,
+                    resetTargetIds,
+                    history::getGroupId,
+                    gId -> history.getGroupLabels().get(gId));
             latestDescriptors = descriptors;
 
             for (var descriptor : descriptors) {

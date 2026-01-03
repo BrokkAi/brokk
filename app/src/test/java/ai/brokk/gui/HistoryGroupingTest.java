@@ -219,24 +219,40 @@ public class HistoryGroupingTest {
     }
 
     @Test
-    public void singleContextWithGroupIdIsNotGrouped() {
-        // A single context that has a groupId should NOT show a header
-        // (because TaskScope only registers grouping when count > 1)
+    public void singleContextWithGroupIdDoesNotShowHeader() {
+        // A single context that has a groupId should NOT show a header (even though it is registered)
         var c1 = ctx("Single action");
+        UUID groupId = UUID.randomUUID();
 
-        // Even with a groupId, a single context should not be grouped
-        // This tests the display logic - single items don't need headers
-        var groups = GroupingBuilder.discoverGroups(
-                List.of(c1),
-                c -> false,
-                Set.of(),
-                ctxId -> null, // No groupId (TaskScope didn't register it)
-                gId -> null);
+        // Even with a groupId, a single context should not show a header
+        var groups =
+                GroupingBuilder.discoverGroups(List.of(c1), c -> false, Set.of(), ctxId -> groupId, gId -> "Label");
 
         assertEquals(1, groups.size());
         var g = groups.getFirst();
-        assertFalse(g.shouldShowHeader(), "Single context should not show header");
-        assertEquals(HistoryGrouping.GroupType.GROUP_BY_ACTION, g.type());
+        assertEquals(HistoryGrouping.GroupType.GROUP_BY_ID, g.type());
+        assertFalse(g.shouldShowHeader(), "Single context group should not show header");
+    }
+
+    @Test
+    public void twoContextsWithGroupIdShowHeader() {
+        var c1 = ctx("Action 1");
+        var c2 = ctx("Action 2");
+
+        UUID groupId = UUID.randomUUID();
+        String expectedLabel = "My Task";
+
+        Function<UUID, UUID> groupLookup = ctxId -> groupId;
+        Function<UUID, String> labelLookup = gId -> gId.equals(groupId) ? expectedLabel : null;
+
+        var groups = GroupingBuilder.discoverGroups(List.of(c1, c2), c -> false, Set.of(), groupLookup, labelLookup);
+
+        assertEquals(1, groups.size(), "Should have one GROUP_BY_ID group");
+        var g = groups.getFirst();
+        assertEquals(HistoryGrouping.GroupType.GROUP_BY_ID, g.type());
+        assertTrue(g.shouldShowHeader(), "Multi-context group should show header");
+        assertEquals(2, g.children().size());
+        assertEquals(expectedLabel, g.label().join());
     }
 
     @Test

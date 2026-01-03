@@ -2151,8 +2151,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private final UUID groupId = UUID.randomUUID();
         private final String groupLabel;
 
-        private int publishCount = 0;
-
         private TaskScope(boolean compressResults, @Nullable String taskDescription) {
             this.compressResults = compressResults;
             this.groupLabel = taskDescription == null ? "Task" : taskDescription;
@@ -2220,15 +2218,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         /**
-         * Registers the given context in the current task's group if this is not the first publish.
-         * The first context in a task scope does not need grouping; grouping only applies when
-         * multiple contexts are published within the same scope.
+         * Registers the given context in the current task's group.
          */
         private void registerGroupingIfNeeded(UUID contextId) {
-            publishCount++;
-            if (publishCount > 1) {
-                contextHistory.addContextToGroup(contextId, groupId, groupLabel);
-            }
+            contextHistory.addContextToGroup(contextId, groupId, groupLabel);
         }
 
         @Override
