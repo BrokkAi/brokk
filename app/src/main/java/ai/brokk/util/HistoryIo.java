@@ -56,6 +56,7 @@ public final class HistoryIo {
     private static final String RESET_EDGES_FILENAME = "reset_edges.json";
     private static final String GIT_STATES_FILENAME = "git_states.json";
     private static final String ENTRY_INFOS_FILENAME = "entry_infos.json";
+    private static final String GROUP_INFO_FILENAME = "group_info.json";
     private static final String IMAGES_DIR_PREFIX = "images/";
 
     private static final int CURRENT_FORMAT_VERSION = 4;
@@ -144,6 +145,7 @@ public final class HistoryIo {
         Map<String, ContextHistory.GitState> gitStateDtos = new HashMap<>();
         Map<String, DtoMapper.GitStateDto> rawGitStateDtos = null;
         Map<String, ContextHistory.ContextHistoryEntryInfo> entryInfoDtos = new HashMap<>();
+        GroupInfoDto groupInfoDto = null;
         Map<String, ContentMetadataDto> contentMetadata = Map.of();
         var contentBytesMap = new HashMap<String, byte[]>();
 
@@ -182,6 +184,9 @@ public final class HistoryIo {
                             var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {};
                             Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
                             entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap, mgr);
+                        }
+                        case GROUP_INFO_FILENAME -> {
+                            groupInfoDto = objectMapper.readValue(zis.readAllBytes(), GroupInfoDto.class);
                         }
                         default -> {
                             if (entryName.startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
@@ -275,7 +280,16 @@ public final class HistoryIo {
         var entryInfos = new HashMap<UUID, ContextHistory.ContextHistoryEntryInfo>();
         entryInfoDtos.forEach((key, value) -> entryInfos.put(UUID.fromString(key), value));
 
-        return new ContextHistory(contexts, resetEdges, gitStates, entryInfos);
+        Map<UUID, UUID> contextToGroupId = new HashMap<>();
+        Map<UUID, String> groupLabels = new HashMap<>();
+        if (groupInfoDto != null) {
+            groupInfoDto
+                    .contextToGroupId()
+                    .forEach((ctxId, grpId) -> contextToGroupId.put(UUID.fromString(ctxId), UUID.fromString(grpId)));
+            groupInfoDto.groupLabels().forEach((grpId, label) -> groupLabels.put(UUID.fromString(grpId), label));
+        }
+
+        return new ContextHistory(contexts, resetEdges, gitStates, entryInfos, contextToGroupId, groupLabels);
     }
 
     @Blocking
@@ -372,6 +386,13 @@ public final class HistoryIo {
             entryInfosBytes = objectMapper.writeValueAsBytes(entryInfosDto);
         }
 
+        byte[] groupInfoBytes;
+        Map<UUID, UUID> ctxToGrp = ch.getContextToGroupId();
+        Map<UUID, String> grpLabels = ch.getGroupLabels();
+
+        var groupDto = DtoMapper.toGroupInfoDto(ctxToGrp, grpLabels);
+        groupInfoBytes = objectMapper.writeValueAsBytes(groupDto);
+
         byte[] resetEdgesBytes = null;
         if (!ch.getResetEdges().isEmpty()) {
             record EdgeDto(String sourceId, String targetId) {}
@@ -383,6 +404,7 @@ public final class HistoryIo {
 
         final var finalGitStatesBytes = gitStatesBytes;
         final var finalEntryInfosBytes = entryInfosBytes;
+        final var finalGroupInfoBytes = groupInfoBytes;
         final var finalResetEdgesBytes = resetEdgesBytes;
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
@@ -416,6 +438,12 @@ public final class HistoryIo {
                 if (finalEntryInfosBytes != null) {
                     zos.putNextEntry(new ZipEntry(ENTRY_INFOS_FILENAME));
                     zos.write(finalEntryInfosBytes);
+                    zos.closeEntry();
+                }
+
+                if (finalGroupInfoBytes != null) {
+                    zos.putNextEntry(new ZipEntry(GROUP_INFO_FILENAME));
+                    zos.write(finalGroupInfoBytes);
                     zos.closeEntry();
                 }
 

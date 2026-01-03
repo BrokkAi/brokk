@@ -2184,4 +2184,33 @@ public class ContextSerializationTest {
         assertEquals(Set.of(file), fragment.files().join());
         assertEquals("Paste of text content", fragment.description().join());
     }
+
+    @Test
+    void testRoundTripGroupingMetadata() throws IOException {
+        var ctx1 = new Context(mockContextManager);
+        var ctx2 = new Context(mockContextManager);
+        var ctx3 = new Context(mockContextManager);
+
+        var history = new ContextHistory(List.of(ctx1, ctx2, ctx3));
+
+        var groupId = UUID.randomUUID();
+        var groupLabel = "Test Group Label";
+        history.addContextToGroup(ctx1.id(), groupId, groupLabel);
+        history.addContextToGroup(ctx2.id(), groupId, "ignored because group already exists");
+
+        var zip = tempDir.resolve("grouping_test.zip");
+        HistoryIo.writeZip(history, zip);
+
+        var loaded = HistoryIo.readZip(zip, mockContextManager);
+
+        // Verify groupId mappings
+        assertEquals(groupId, loaded.getGroupId(ctx1.id()));
+        assertEquals(groupId, loaded.getGroupId(ctx2.id()));
+        assertNull(loaded.getGroupId(ctx3.id()));
+
+        // Verify group label (keyed by groupId, first label wins)
+        var loadedLabels = loaded.getGroupLabels();
+        assertEquals(groupLabel, loadedLabels.get(groupId));
+        assertEquals(1, loadedLabels.size(), "Should have exactly one group label");
+    }
 }

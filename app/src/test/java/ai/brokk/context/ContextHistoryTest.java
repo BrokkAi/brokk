@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -515,5 +516,59 @@ public class ContextHistoryTest {
         assertNotNull(usageDiff, "Diffs should include the UsageFragment");
         assertFalse(usageDiff.diff().isEmpty(), "Usage diff output should not be empty");
         assertTrue(usageDiff.linesAdded() > 0 || usageDiff.linesDeleted() > 0, "Expected changes in usage diff");
+    }
+
+    @Test
+    public void testUndoRedoPreservesGroupMetadata() throws Exception {
+        // Setup: create initial context
+        var pf = new ProjectFile(tempDir, "src/GroupTest.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "v1");
+
+        var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        var ctx1 = new Context(contextManager, List.of(frag1), List.of(), null);
+        var history = new ContextHistory(ctx1);
+
+        // Create group 1 with ctx2
+        var groupId1 = UUID.randomUUID();
+        Files.writeString(pf.absPath(), "v2");
+        var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null);
+        history.pushContext(ctx2);
+        history.addContextToGroup(ctx2.id(), groupId1, "Group 1");
+
+        // Create group 2 with ctx3
+        var groupId2 = UUID.randomUUID();
+        Files.writeString(pf.absPath(), "v3");
+        var frag3 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        var ctx3 = new Context(contextManager, List.of(frag3), List.of(), null);
+        history.pushContext(ctx3);
+        history.addContextToGroup(ctx3.id(), groupId2, "Group 2");
+
+        // Verify initial group state
+        assertEquals(groupId1, history.getGroupId(ctx2.id()));
+        assertEquals(groupId2, history.getGroupId(ctx3.id()));
+        assertEquals("Group 1", history.getGroupLabels().get(groupId1));
+        assertEquals("Group 2", history.getGroupLabels().get(groupId2));
+
+        // Undo back to ctx2 (across group boundary)
+        history.undo(1, contextManager.getIo(), contextManager.getProject());
+        assertEquals(ctx2.id(), history.liveContext().id());
+
+        // Group metadata should still be preserved for ctx2
+        assertEquals(groupId1, history.getGroupId(ctx2.id()));
+        assertEquals("Group 1", history.getGroupLabels().get(groupId1));
+        // ctx3's group info should still exist (it's in redo stack, not deleted)
+        assertEquals(groupId2, history.getGroupId(ctx3.id()));
+
+        // Redo back to ctx3
+        history.redo(contextManager.getIo(), contextManager.getProject());
+        assertEquals(ctx3.id(), history.liveContext().id());
+
+        // All group metadata should be intact
+        assertEquals(groupId1, history.getGroupId(ctx2.id()));
+        assertEquals(groupId2, history.getGroupId(ctx3.id()));
+        assertEquals("Group 1", history.getGroupLabels().get(groupId1));
+        assertEquals("Group 2", history.getGroupLabels().get(groupId2));
     }
 }

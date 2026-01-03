@@ -2,10 +2,8 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.project.MainProject;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.AiMessage;
@@ -13,10 +11,8 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -270,88 +266,5 @@ public class ContextCompressionTest {
         // logOnly -> withBoth: compression attaches summary
         // logOnly -> summaryOnly: old compression discarded log
         // Both State 2 and State 3 use summary for AI (isSummarized() is true)
-    }
-
-    @Test
-    void testCompressHistoryWithGroupIdPushesGroupedContext() throws Exception {
-        var tempDir = Files.createTempDirectory("compress-group-test");
-        var cm = createHeadlessContextManagerWithDeterministicSummarizer(tempDir);
-
-        var taskItem = new TaskList.TaskItem("Test title", "Test task text", false);
-        var taskListData = new TaskList.TaskListData(List.of(taskItem));
-        cm.pushContext(ctx -> ctx.withTaskList(taskListData));
-
-        // Add an UNCOMPRESSED entry so compressHistory must do work and push a new context.
-        List<ChatMessage> msgs = List.of(UserMessage.from("test request"), AiMessage.from("test response"));
-        var taskFragment = new ContextFragments.TaskFragment(cm, msgs, "Test task");
-        var entry = new TaskEntry(1, taskFragment, null);
-        cm.pushContext(ctx -> ctx.withHistory(List.of(entry)));
-
-        UUID groupId = UUID.randomUUID();
-        String groupLabel = "Compression Group Test";
-
-        cm.pushContext(ctx -> ctx.withGroup(groupId, groupLabel));
-        cm.compressGlobalHistory();
-
-        Context result = cm.liveContext();
-        assertEquals(groupId, result.getGroupId(), "compressHistory should set groupId on pushed context");
-        assertEquals(groupLabel, result.getGroupLabel(), "compressHistory should set groupLabel on pushed context");
-    }
-
-    @Test
-    void testCompressHistoryWithNullGroupIdDoesNotSetGroup() throws Exception {
-        var tempDir = Files.createTempDirectory("compress-no-group-test");
-        var cm = createHeadlessContextManagerWithDeterministicSummarizer(tempDir);
-
-        // Add an UNCOMPRESSED entry so compressHistory actually pushes a context.
-        List<ChatMessage> msgs = List.of(UserMessage.from("test request"), AiMessage.from("test response"));
-        var taskFragment = new ContextFragments.TaskFragment(cm, msgs, "Test task");
-        var entry = new TaskEntry(1, taskFragment, null);
-        cm.pushContext(ctx -> ctx.withHistory(List.of(entry)));
-
-        cm.compressGlobalHistory();
-
-        Context result = cm.liveContext();
-        assertNull(result.getGroupId(), "compressHistory with null groupId should not set groupId");
-        assertNull(result.getGroupLabel(), "compressHistory with null groupLabel should not set groupLabel");
-    }
-
-    @Test
-    void testMarkTaskDonePreservesGroupFromTaskScope() throws Exception {
-        var tempDir = Files.createTempDirectory("mark-done-group-test");
-        var project = new MainProject(tempDir);
-        var cm = new ContextManager(project);
-        cm.createHeadless();
-
-        var taskItem = new TaskList.TaskItem("Test title", "Test task text", false);
-        var taskListData = new TaskList.TaskListData(List.of(taskItem));
-        cm.pushContext(ctx -> ctx.withTaskList(taskListData));
-
-        UUID groupId = UUID.randomUUID();
-        String groupLabel = "Task Execution Group";
-
-        List<ChatMessage> msgs = List.of(UserMessage.from("test request"), new AiMessage("test response"));
-        var taskFragment = new ContextFragments.TaskFragment(cm, msgs, "Test task");
-        var entry = new TaskEntry(1, taskFragment, null);
-        cm.pushContext(ctx -> ctx.withHistory(List.of(entry)).withGroup(groupId, groupLabel));
-
-        Context ctxBeforeMarkDone = cm.liveContext();
-        assertEquals(groupId, ctxBeforeMarkDone.getGroupId(), "Context should have groupId before markTaskDone");
-        assertEquals(
-                groupLabel, ctxBeforeMarkDone.getGroupLabel(), "Context should have groupLabel before markTaskDone");
-
-        var updatedTasks = List.of(new TaskList.TaskItem("Test title", "Test task text", true));
-        var updatedCtx = cm.deriveContextWithTaskList(ctxBeforeMarkDone, new TaskList.TaskListData(updatedTasks))
-                .withGroup(groupId, groupLabel);
-        cm.pushContext(currentLiveCtx -> updatedCtx);
-
-        assertEquals(
-                groupId,
-                cm.liveContext().getGroupId(),
-                "Pushed context should have groupId after markTaskDone simulation");
-        assertEquals(
-                groupLabel,
-                cm.liveContext().getGroupLabel(),
-                "Pushed context should have groupLabel after markTaskDone simulation");
     }
 }

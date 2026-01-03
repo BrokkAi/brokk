@@ -171,7 +171,15 @@ public record ContextDelta(
     private String descriptionInternal(IContextManager icm) {
         // Prioritize task history (user/AI turn)
         if (!addedTasks.isEmpty()) {
-            return buildTaskDescription(addedTasks.getLast(), icm);
+            // If it's just a single CONTEXT task, we ignore it and build description normally.
+            // Otherwise, we pick the last non-CONTEXT task to describe the turn.
+            var nonContextTasks = addedTasks.stream()
+                    .filter(t -> t.meta() == null || t.meta().type() != TaskResult.Type.CONTEXT)
+                    .toList();
+
+            if (!nonContextTasks.isEmpty()) {
+                return buildTaskDescription(nonContextTasks.getLast(), icm);
+            }
         }
 
         // Aggregate other changes
@@ -213,9 +221,7 @@ public record ContextDelta(
 
     @Blocking
     private String buildTaskDescription(TaskEntry entry, IContextManager icm) {
-        String prefix = (entry.meta() == null || entry.meta().type() == TaskResult.Type.CONTEXT)
-                ? ""
-                : entry.meta().type().displayName() + ": ";
+        String prefix = (entry.meta() == null) ? "" : entry.meta().type().displayName() + ": ";
 
         String taskText =
                 entry.isCompressed() ? requireNonNull(entry.summary()) : requireNonNull(entry.log()).shortDescription;
