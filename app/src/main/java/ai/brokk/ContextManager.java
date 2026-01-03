@@ -1540,8 +1540,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Replace the given task with its 'done=true' variant. */
-    private Context markTaskDone(
-            Context context, TaskList.TaskItem task) {
+    private Context markTaskDone(Context context, TaskList.TaskItem task) {
         var tasks = context.getTaskListDataOrEmpty().tasks();
 
         // Find index: prefer exact match, fall back to first incomplete task with matching text

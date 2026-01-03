@@ -132,13 +132,7 @@ public class DtoMapper {
                 .toList();
 
         return Context.createWithId(
-                ctxId,
-                mgr,
-                combined,
-                taskHistory,
-                parsedOutputFragment,
-                readonlyFragments,
-                pinnedFragments);
+                ctxId, mgr, combined, taskHistory, parsedOutputFragment, readonlyFragments, pinnedFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -800,7 +794,8 @@ public class DtoMapper {
 
     public static GroupInfoDto toGroupInfoDto(Map<UUID, UUID> contextToGroupId, Map<UUID, String> groupLabels) {
         Map<String, String> ctxToGrp = contextToGroupId.entrySet().stream()
-                .collect(Collectors.toMap(e -> e.getKey().toString(), e -> e.getValue().toString()));
+                .collect(Collectors.toMap(
+                        e -> e.getKey().toString(), e -> e.getValue().toString()));
         Map<String, String> grpLabels = groupLabels.entrySet().stream()
                 .collect(Collectors.toMap(e -> e.getKey().toString(), Map.Entry::getValue));
         return new GroupInfoDto(ctxToGrp, grpLabels);

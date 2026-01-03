@@ -411,7 +411,6 @@ public class ContextHistory {
         selected = ctx;
     }
 
-
     /**
      * Performs synchronous snapshotting of the given context to ensure stable, historical restoration.
      */

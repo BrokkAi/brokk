@@ -7,15 +7,12 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.project.MainProject;
-import ai.brokk.tasks.TaskList;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /** Unit tests for {@link ContextManager#TEST_FILE_PATTERN}. */
@@ -193,5 +190,4 @@ class ContextManagerTest {
         var afterSize = cm.getContextHistoryList().size();
         assertEquals(beforeSize + 1, afterSize, "Adding a file should push a new context");
     }
-
 }

@@ -11,8 +11,6 @@ import ai.brokk.gui.HistoryGrouping.GroupingBuilder;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.function.Predicate;
 import org.jspecify.annotations.NullMarked;

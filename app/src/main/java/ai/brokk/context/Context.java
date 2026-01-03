@@ -417,8 +417,7 @@ public class Context {
                 .filter(f -> !toRemoveSet.contains(f))
                 .collect(Collectors.toSet());
 
-        return new Context(
-                newContextId(), contextManager, newFragments, taskHistory, null, newReadOnly, newPinned);
+        return new Context(newContextId(), contextManager, newFragments, taskHistory, null, newReadOnly, newPinned);
     }
 
     public Context removeAll() {
@@ -458,13 +457,7 @@ public class Context {
         }
 
         return new Context(
-                newContextId(),
-                contextManager,
-                fragments,
-                taskHistory,
-                null,
-                newReadOnly,
-                this.pinnedFragments);
+                newContextId(), contextManager, fragments, taskHistory, null, newReadOnly, this.pinnedFragments);
     }
 
     public boolean isEmpty() {
@@ -1118,13 +1111,7 @@ public class Context {
         }
 
         return new Context(
-                newContextId(),
-                contextManager,
-                newFragments,
-                taskHistory,
-                parsedOutput,
-                newReadOnly,
-                newPinned);
+                newContextId(), contextManager, newFragments, taskHistory, parsedOutput, newReadOnly, newPinned);
     }
 
     /**

@@ -141,7 +141,8 @@ public final class HistoryGrouping {
                 // Case A: Grouped by explicit ID
                 if (groupId != null) {
                     int j = i + 1;
-                    while (j < end && groupId.equals(groupLookup.apply(contexts.get(j).id()))) {
+                    while (j < end
+                            && groupId.equals(groupLookup.apply(contexts.get(j).id()))) {
                         j++;
                     }
                     List<Context> children = contexts.subList(i, j);
@@ -154,7 +155,9 @@ public final class HistoryGrouping {
 
                 // Case B: Legacy/Action grouping (runs of contiguous items that are not boundaries and have no groupId)
                 int j = i + 1;
-                while (j < end && !isBoundary.test(contexts.get(j)) && groupLookup.apply(contexts.get(j).id()) == null) {
+                while (j < end
+                        && !isBoundary.test(contexts.get(j))
+                        && groupLookup.apply(contexts.get(j).id()) == null) {
                     j++;
                 }
                 int len = j - i;

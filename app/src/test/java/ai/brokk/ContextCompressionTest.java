@@ -2,10 +2,8 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.project.MainProject;
-import ai.brokk.tasks.TaskList;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.AiMessage;
@@ -13,7 +11,6 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -270,5 +267,4 @@ public class ContextCompressionTest {
         // logOnly -> summaryOnly: old compression discarded log
         // Both State 2 and State 3 use summary for AI (isSummarized() is true)
     }
-
 }
