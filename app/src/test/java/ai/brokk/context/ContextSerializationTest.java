@@ -406,6 +406,62 @@ public class ContextSerializationTest {
     }
 
     @Test
+    void testFragmentIdPersistenceAndUniquenessAfterLoad() throws IOException {
+        var projectFile = new ProjectFile(tempDir, "dummy.txt");
+        Files.createDirectories(projectFile.absPath().getParent()); // Ensure parent directory exists
+        Files.writeString(projectFile.absPath(), "content");
+
+        // Create fragments
+        var ctxFragment = new ContextFragments.ProjectPathFragment(projectFile, mockContextManager);
+        var strFragment = new ContextFragments.StringFragment(
+                mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        String originalCtxId = ctxFragment.id();
+        String originalStrId = strFragment.id();
+
+        var context = new Context(mockContextManager)
+                .addFragments(List.of(ctxFragment))
+                .addFragments(strFragment);
+        var history = new ContextHistory(context);
+
+        Path zipFile = tempDir.resolve("id_persistence_uniqueness.zip");
+        HistoryIo.writeZip(history, zipFile);
+
+        // Load history
+        ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+        Context loadedContext = loadedHistory.getHistory().get(0);
+
+        // Verify Persistence
+        var loadedCtxFragment = loadedContext
+                .allFragments()
+                .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Loaded ProjectPathFragment not found"));
+
+        var loadedStrFragment = loadedContext
+                .allFragments()
+                .filter(f -> f instanceof ContextFragments.StringFragment)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Loaded StringFragment not found"));
+
+        assertEquals(originalCtxId, loadedCtxFragment.id(), "ProjectPathFragment ID should be preserved exactly.");
+        assertEquals(originalStrId, loadedStrFragment.id(), "StringFragment ID should be preserved exactly.");
+
+        // Verify Uniqueness for new fragment
+        var newDynamicFragment = new ContextFragments.ProjectPathFragment(
+                new ProjectFile(tempDir, "new_dynamic.txt"), mockContextManager);
+
+        assertNotEquals(
+                originalCtxId,
+                newDynamicFragment.id(),
+                "New dynamic fragment ID should not collide with loaded dynamic fragment ID.");
+        assertNotEquals(
+                originalStrId,
+                newDynamicFragment.id(),
+                "New dynamic fragment ID should not collide with loaded static fragment ID.");
+    }
+
+    @Test
     void testDescriptionComputedAfterSerializationRoundTrip() throws Exception {
         // Initial state
         var context1 = new Context(mockContextManager);
