@@ -573,4 +573,84 @@ public class ContextHistoryTest {
         assertEquals(gsOlder, merged.getGitState(c.id()).orElse(null), "Should preserve git state from older");
         assertEquals(gsNewer, merged.getGitState(d.id()).orElse(null), "Should preserve git state from newer");
     }
+
+    @Test
+    public void testMergeRenumbersConflictingIds() throws Exception {
+        // 1. Initialize ContextFragments.setMinimumId(100).
+        ContextFragments.setMinimumId(100);
+
+        // 2. Create a common base context (A) with a fragment (ID 100).
+        var pfA = new ProjectFile(tempDir, "src/FileA.txt");
+        Files.createDirectories(pfA.absPath().getParent());
+        Files.writeString(pfA.absPath(), "Content A");
+
+        var fragA = ContextFragments.ProjectPathFragment.withId(pfA, "100", contextManager);
+        assertEquals("100", fragA.id(), "Base fragment should have ID 100");
+
+        Context ctxA = new Context(contextManager, List.of(fragA), List.of(), null);
+
+        // 3. Create an "older" history branch: [A, B]. Create fragment B (ID 200).
+        var pfB = new ProjectFile(tempDir, "src/FileB.txt");
+        Files.writeString(pfB.absPath(), "Content B");
+
+        // Force ID 200 via withId to ensure collision setup regardless of global counter
+        var fragB = ContextFragments.ProjectPathFragment.withId(pfB, "200", contextManager);
+        assertEquals("200", fragB.id(), "Older branch fragment should have ID 200");
+
+        // Context B contains fragA and fragB
+        Context ctxB = new Context(contextManager, List.of(fragA, fragB), List.of(), null);
+
+        ContextHistory older = new ContextHistory(ctxA);
+        older.pushContext(ctxB);
+
+        // 4. Create a "newer" history branch: [A, C]. Create fragment C (ID 200).
+        // Force collision with ID 200
+        var pfC = new ProjectFile(tempDir, "src/FileC.txt");
+        Files.writeString(pfC.absPath(), "Content C");
+
+        var fragC = ContextFragments.ProjectPathFragment.withId(pfC, "200", contextManager);
+        assertEquals("200", fragC.id(), "Newer branch fragment should have ID 200");
+
+        // Context C contains fragA and fragC
+        Context ctxC = new Context(contextManager, List.of(fragA, fragC), List.of(), null);
+
+        ContextHistory newer = new ContextHistory(ctxA);
+        newer.pushContext(ctxC);
+
+        // 5. Call ContextHistory.merge(older, newer).
+        ContextHistory merged = ContextHistory.merge(older, newer);
+
+        // 6. Assert that the merged history has 3 contexts.
+        List<Context> mergedHistory = merged.getHistory();
+        assertEquals(3, mergedHistory.size(), "Merged history should have 3 contexts [A, B, C']");
+
+        Context mCtxA = mergedHistory.get(0);
+        Context mCtxB = mergedHistory.get(1);
+        Context mCtxC = mergedHistory.get(2);
+
+        // 7. Assert that A's fragment ID is 100 (preserved).
+        ContextFragment mFragA = mCtxA.fragments.getFirst();
+        assertEquals("100", mFragA.id());
+
+        // 8. Assert that B's fragment ID is 200 (preserved).
+        ContextFragment mFragB = mCtxB.allFragments()
+                .filter(f -> f instanceof ContextFragments.PathFragment
+                        && ((ContextFragments.PathFragment) f).file().equals(pfB))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("200", mFragB.id(), "Fragment B should preserve ID 200");
+
+        // 9. Assert that C's fragment ID is NOT 200 (renumbered) and is greater than 200.
+        ContextFragment mFragC = mCtxC.allFragments()
+                .filter(f -> f instanceof ContextFragments.PathFragment
+                        && ((ContextFragments.PathFragment) f).file().equals(pfC))
+                .findFirst()
+                .orElseThrow();
+        String mIdC = mFragC.id();
+        assertNotEquals("200", mIdC, "Fragment C should be renumbered");
+        assertTrue(Integer.parseInt(mIdC) > 200, "Fragment C ID should be > 200");
+
+        // 10. Assert that C's content (e.g. file path) is preserved.
+        assertEquals(pfC, ((ContextFragments.PathFragment) mFragC).file(), "Fragment C file path should be preserved");
+    }
 }

@@ -233,6 +233,14 @@ public interface ContextFragment {
     boolean hasSameSource(ContextFragment other);
 
     /**
+     * Returns a copy of this fragment with the specified ID.
+     */
+    default ContextFragment withId(String newId) {
+        throw new UnsupportedOperationException(
+                "withId not implemented for " + getClass().getName());
+    }
+
+    /**
      * Return a copy with cleared ComputedValues; identity (id) is preserved by default.
      * Implementations that track external state may override to trigger recomputation.
      */

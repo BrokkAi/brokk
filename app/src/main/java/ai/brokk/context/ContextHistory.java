@@ -123,10 +123,44 @@ public class ContextHistory {
         }
 
         List<Context> mergedList = new ArrayList<>(oldList.subList(0, commonPrefixLength));
+
+        // Identify common IDs to preserve
+        Set<String> commonIds = new HashSet<>();
+        for (Context ctx : mergedList) {
+            try (var stream = ctx.allFragments()) {
+                stream.map(ContextFragment::id)
+                        .filter(ContextHistory::isNumeric)
+                        .forEach(commonIds::add);
+            }
+        }
+
         // Add remaining from older (diverged part)
         mergedList.addAll(oldList.subList(commonPrefixLength, oldList.size()));
-        // Add remaining from newer (diverged part)
-        mergedList.addAll(newList.subList(commonPrefixLength, newList.size()));
+
+        // Find max ID in the merged list so far (common + older diverged)
+        int maxId = getMaxNumericId(mergedList);
+
+        // Prepare for renumbering newer diverged part
+        List<Context> newerDiverged = newList.subList(commonPrefixLength, newList.size());
+        List<Context> renumberedNewer = new ArrayList<>();
+        Map<String, String> idMapping = new HashMap<>();
+        int[] currentMaxId = {maxId};
+
+        for (Context ctx : newerDiverged) {
+            renumberedNewer.add(renumberContext(ctx, commonIds, idMapping, currentMaxId));
+        }
+        mergedList.addAll(renumberedNewer);
+
+        // Also renumber the redo stack from newer
+        Deque<Context> newerRedo = new ArrayDeque<>();
+        for (Context ctx : newer.redo) {
+            newerRedo.add(renumberContext(ctx, commonIds, idMapping, currentMaxId));
+        }
+
+        // Ensure global counter is updated if we generated higher IDs
+        if (currentMaxId[0] > maxId) {
+            ContextFragments.setMinimumId(currentMaxId[0] + 1);
+        }
 
         // Merge auxiliary data
         List<ResetEdge> mergedResetEdges = new ArrayList<>();
@@ -143,9 +177,83 @@ public class ContextHistory {
 
         ContextHistory mergedHistory =
                 new ContextHistory(mergedList, mergedResetEdges, mergedGitStates, mergedEntryInfos);
-        mergedHistory.redo.addAll(newer.redo);
+        mergedHistory.redo.addAll(newerRedo);
 
         return mergedHistory;
+    }
+
+    private static int getMaxNumericId(List<Context> contexts) {
+        int max = 0;
+        for (Context ctx : contexts) {
+            try (var stream = ctx.allFragments()) {
+                var it = stream.iterator();
+                while (it.hasNext()) {
+                    String id = it.next().id();
+                    if (isNumeric(id)) {
+                        max = Math.max(max, Integer.parseInt(id));
+                    }
+                }
+            }
+        }
+        return max;
+    }
+
+    private static boolean isNumeric(String str) {
+        if (str.isEmpty()) return false;
+        for (int i = 0; i < str.length(); i++) {
+            if (!Character.isDigit(str.charAt(i))) return false;
+        }
+        return true;
+    }
+
+    private static Context renumberContext(
+            Context ctx, Set<String> commonIds, Map<String, String> mapping, int[] maxId) {
+        List<ContextFragment> newFragments = ctx.fragments.stream()
+                .map(f -> renumberFragment(f, commonIds, mapping, maxId))
+                .toList();
+
+        Set<ContextFragment> newPinned = ctx.getPinnedFragments()
+                .map(f -> renumberFragment(f, commonIds, mapping, maxId))
+                .collect(Collectors.toSet());
+
+        Set<ContextFragment> newReadonly = ctx.getMarkedReadonlyFragments()
+                .map(f -> renumberFragment(f, commonIds, mapping, maxId))
+                .collect(Collectors.toSet());
+
+        ContextFragments.TaskFragment newParsed = ctx.getParsedOutput();
+        if (newParsed != null) {
+            newParsed = (ContextFragments.TaskFragment) renumberFragment(newParsed, commonIds, mapping, maxId);
+        }
+
+        return Context.createWithId(
+                ctx.id(),
+                ctx.getContextManager(),
+                newFragments,
+                ctx.getTaskHistory(),
+                newParsed,
+                ctx.getGroupId(),
+                ctx.getGroupLabel(),
+                newReadonly,
+                newPinned);
+    }
+
+    private static ContextFragment renumberFragment(
+            ContextFragment f, Set<String> commonIds, Map<String, String> mapping, int[] maxId) {
+        String id = f.id();
+        if (!isNumeric(id)) return f;
+        if (commonIds.contains(id)) return f;
+
+        String newId;
+        if (mapping.containsKey(id)) {
+            newId = mapping.get(id);
+        } else {
+            maxId[0]++;
+            newId = String.valueOf(maxId[0]);
+            mapping.put(id, newId);
+        }
+
+        if (newId.equals(id)) return f;
+        return f.withId(newId);
     }
 
     /* ───────────────────────── public API ─────────────────────────── */

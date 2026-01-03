@@ -305,6 +305,17 @@ public class ContextFragments {
             return (this.repr().equals(other.repr()) && !this.repr().isEmpty())
                     || this.id().equals(other.id());
         }
+
+        protected AbstractComputedFragment(String id, AbstractComputedFragment other) {
+            this(
+                    id,
+                    other.contextManager,
+                    other.descriptionCv,
+                    other.shortDescriptionCv,
+                    other.syntaxStyleCv,
+                    null,
+                    () -> other.snapshotCv.join());
+        }
     }
 
     // Base implementation for fragments with static/known content
@@ -322,6 +333,10 @@ public class ContextFragments {
             this.shortDescription = shortDescription;
             this.syntaxStyle = syntaxStyle;
             this.snapshot = snapshot;
+        }
+
+        protected AbstractStaticFragment(String id, AbstractStaticFragment other) {
+            this(id, other.description, other.shortDescription, other.syntaxStyle, other.snapshot);
         }
 
         @Override
@@ -450,6 +465,16 @@ public class ContextFragments {
             this.file = file;
         }
 
+        private ProjectPathFragment(String id, ProjectPathFragment other) {
+            super(id, other);
+            this.file = other.file;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new ProjectPathFragment(newId, this);
+        }
+
         @Override
         public ProjectFile file() {
             return file;
@@ -535,6 +560,18 @@ public class ContextFragments {
             }
         }
 
+        private GitFileFragment(String id, GitFileFragment other) {
+            super(id, other);
+            this.file = other.file;
+            this.revision = other.revision;
+            this.content = other.content;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new GitFileFragment(newId, this);
+        }
+
         public String revision() {
             return revision;
         }
@@ -606,6 +643,16 @@ public class ContextFragments {
             this.file = file;
         }
 
+        private ExternalPathFragment(String id, ExternalPathFragment other) {
+            super(id, other);
+            this.file = other.file;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new ExternalPathFragment(newId, this);
+        }
+
         @Override
         public ExternalFile file() {
             return file;
@@ -646,6 +693,16 @@ public class ContextFragments {
                     null,
                     () -> computeSnapshotFor(file));
             this.file = file;
+        }
+
+        private ImageFileFragment(String id, ImageFileFragment other) {
+            super(id, other);
+            this.file = other.file;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new ImageFileFragment(newId, this);
         }
 
         private static String computeDescription(BrokkFile file) {
@@ -892,6 +949,15 @@ public class ContextFragments {
             return FragmentType.STRING;
         }
 
+        private StringFragment(String id, StringFragment other) {
+            super(id, other);
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new StringFragment(newId, this);
+        }
+
         public Optional<SpecialTextType> specialType() {
             return SpecialTextType.fromDescription(description);
         }
@@ -989,6 +1055,15 @@ public class ContextFragments {
                     () -> computeSnapshotFor(text, contextManager));
         }
 
+        private PasteTextFragment(String id, PasteTextFragment other) {
+            super(id, other);
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new PasteTextFragment(newId, this);
+        }
+
         private static ContentSnapshot computeSnapshotFor(String text, IContextManager contextManager) {
             var files = ContextFragment.extractFilesFromText(text, contextManager);
             return ContentSnapshot.textSnapshot(text, Set.of(), files);
@@ -1038,6 +1113,16 @@ public class ContextFragments {
                     null,
                     () -> computeSnapshotFor(image));
             this.descriptionFuture = descriptionFuture;
+        }
+
+        private AnonymousImageFragment(String id, AnonymousImageFragment other) {
+            super(id, other);
+            this.descriptionFuture = other.descriptionFuture;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new AnonymousImageFragment(newId, this);
         }
 
         @Nullable
@@ -1131,6 +1216,18 @@ public class ContextFragments {
             return FragmentType.STACKTRACE;
         }
 
+        private StacktraceFragment(String id, StacktraceFragment other) {
+            super(id, other);
+            this.original = other.original;
+            this.exception = other.exception;
+            this.code = other.code;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new StacktraceFragment(newId, this);
+        }
+
         public String getOriginal() {
             return original;
         }
@@ -1198,6 +1295,17 @@ public class ContextFragments {
                             : null);
             this.targetIdentifier = targetIdentifier;
             this.includeTestFiles = includeTestFiles;
+        }
+
+        private UsageFragment(String id, UsageFragment other) {
+            super(id, other);
+            this.targetIdentifier = other.targetIdentifier;
+            this.includeTestFiles = other.includeTestFiles;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new UsageFragment(newId, this);
         }
 
         private static ContentSnapshot decodeFrozen(IContextManager contextManager, byte[] bytes) {
@@ -1389,6 +1497,16 @@ public class ContextFragments {
             this.fullyQualifiedName = fullyQualifiedName;
         }
 
+        private CodeFragment(String id, CodeFragment other) {
+            super(id, other);
+            this.fullyQualifiedName = other.fullyQualifiedName;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new CodeFragment(newId, this);
+        }
+
         private static ContentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             Set<CodeUnit> units = Set.of();
@@ -1498,6 +1616,18 @@ public class ContextFragments {
             this.methodName = methodName;
             this.depth = depth;
             this.isCalleeGraph = isCalleeGraph;
+        }
+
+        private CallGraphFragment(String id, CallGraphFragment other) {
+            super(id, other);
+            this.methodName = other.methodName;
+            this.depth = other.depth;
+            this.isCalleeGraph = other.isCalleeGraph;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new CallGraphFragment(newId, this);
         }
 
         @Override
@@ -1687,6 +1817,17 @@ public class ContextFragments {
             this.summaryType = summaryType;
         }
 
+        private SummaryFragment(String id, SummaryFragment other) {
+            super(id, other);
+            this.targetIdentifier = other.targetIdentifier;
+            this.summaryType = other.summaryType;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new SummaryFragment(newId, this);
+        }
+
         @Override
         public FragmentType getType() {
             return FragmentType.SKELETON;
@@ -1872,6 +2013,16 @@ public class ContextFragments {
             return FragmentType.HISTORY;
         }
 
+        private HistoryFragment(String id, HistoryFragment other) {
+            super(id, other);
+            this.history = other.history;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new HistoryFragment(newId, this);
+        }
+
         @Override
         public List<TaskEntry> entries() {
             return history;
@@ -1929,6 +2080,17 @@ public class ContextFragments {
         @Override
         public FragmentType getType() {
             return FragmentType.TASK;
+        }
+
+        private TaskFragment(String id, TaskFragment other) {
+            super(id, other);
+            this.messages = other.messages;
+            this.escapeHtml = other.escapeHtml;
+        }
+
+        @Override
+        public ContextFragment withId(String newId) {
+            return new TaskFragment(newId, this);
         }
 
         @Override
