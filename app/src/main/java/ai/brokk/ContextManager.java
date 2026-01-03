@@ -2113,7 +2113,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
     public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String taskDescription) {
-        TaskScope scope = new TaskScope(compressAtCommit);
+        TaskScope scope = new TaskScope(compressAtCommit, taskDescription);
 
         // prepare MOP
         var history = liveContext().getTaskHistory();
@@ -2149,9 +2149,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
         private final AtomicBoolean closed = new AtomicBoolean(false);
+        private final UUID groupId = UUID.randomUUID();
+        private final String groupLabel;
 
-        private TaskScope(boolean compressResults) {
+        private TaskScope(boolean compressResults, @Nullable String taskDescription) {
             this.compressResults = compressResults;
+            this.groupLabel = taskDescription == null ? "Task" : taskDescription;
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
         }
@@ -2196,6 +2199,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return updated.addHistoryEntry(finalEntry, result.output());
             });
 
+            // register grouping
+            contextHistory.addContextToGroup(updatedContext.id(), groupId, groupLabel);
+
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
             io.prepareOutputForNextStream(updatedContext.getTaskHistory());
@@ -2210,6 +2216,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
             pushContext(currentLiveCtx -> context);
+            contextHistory.addContextToGroup(liveContext().id(), groupId, groupLabel);
         }
 
         @Override

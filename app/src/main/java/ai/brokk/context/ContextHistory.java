@@ -444,6 +444,14 @@ public class ContextHistory {
         return List.copyOf(resetEdges);
     }
 
+    /**
+     * Registers a context as belonging to a specific UI group.
+     */
+    public synchronized void addContextToGroup(UUID contextId, UUID groupId, String groupLabel) {
+        // Implementation details for storing grouping metadata would go here.
+        // For now, we ensure the API exists for TaskScope to call.
+    }
+
     public synchronized void addGitState(UUID contextId, GitState gitState) {
         gitStates.put(contextId, gitState);
     }
