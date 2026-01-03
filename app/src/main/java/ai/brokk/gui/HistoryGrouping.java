@@ -65,15 +65,15 @@ public final class HistoryGrouping {
          *
          * @param contexts the full list of contexts to group, in display order
          * @param isBoundary boundary predicate; true indicates a boundary context that terminates any group
-         * @param groupLookup function to look up the groupId for a given context ID
+         * @param resetTargetIds set of context IDs that are reset targets (for label generation)
+         * @param history the context history providing group ID and label lookups
          * @return ordered list of group descriptors covering all input contexts
          */
         public static List<GroupDescriptor> discoverGroups(
                 List<Context> contexts,
                 Predicate<Context> isBoundary,
                 Set<UUID> resetTargetIds,
-                java.util.function.Function<UUID, UUID> groupLookup,
-                java.util.function.Function<UUID, String> groupLabelLookup) {
+                ai.brokk.context.ContextHistory history) {
             if (contexts.isEmpty()) {
                 return List.of();
             }
@@ -87,12 +87,12 @@ public final class HistoryGrouping {
             for (int i = 1; i < n; i++) {
                 if (isBoundary.test(contexts.get(i))) {
                     // emit [segStart, i)
-                    emitSegment(contexts, segStart, i, out, isBoundary, resetTargetIds, groupLookup, groupLabelLookup);
+                    emitSegment(contexts, segStart, i, out, isBoundary, resetTargetIds, history);
                     segStart = i;
                 }
             }
             // emit final segment [segStart, n)
-            emitSegment(contexts, segStart, n, out, isBoundary, resetTargetIds, groupLookup, groupLabelLookup);
+            emitSegment(contexts, segStart, n, out, isBoundary, resetTargetIds, history);
 
             // 2) Mark last descriptor, if any
             if (!out.isEmpty()) {
@@ -119,12 +119,11 @@ public final class HistoryGrouping {
                 List<GroupDescriptor> out,
                 java.util.function.Predicate<Context> isBoundary,
                 Set<UUID> resetTargetIds,
-                java.util.function.Function<UUID, UUID> groupLookup,
-                java.util.function.Function<UUID, String> groupLabelLookup) {
+                ai.brokk.context.ContextHistory history) {
             int i = start;
             while (i < end) {
                 Context ctx = contexts.get(i);
-                UUID groupId = groupLookup.apply(ctx.id());
+                UUID groupId = history.getGroupId(ctx.id());
 
                 // If this item is a boundary, it is emitted as a singleton without a header.
                 if (isBoundary.test(ctx)) {
@@ -144,13 +143,13 @@ public final class HistoryGrouping {
                 if (groupId != null) {
                     int j = i + 1;
                     while (j < end
-                            && groupId.equals(groupLookup.apply(contexts.get(j).id()))) {
+                            && groupId.equals(history.getGroupId(contexts.get(j).id()))) {
                         j++;
                     }
                     List<Context> children = contexts.subList(i, j);
 
                     // Use provided label if available, otherwise compute
-                    String providedLabel = groupLabelLookup.apply(groupId);
+                    String providedLabel = history.getGroupLabels().get(groupId);
                     ComputedValue<String> label;
                     if (providedLabel != null && !providedLabel.isBlank()) {
                         label = ComputedValue.completed(providedLabel);
@@ -168,7 +167,7 @@ public final class HistoryGrouping {
                 int j = i + 1;
                 while (j < end
                         && !isBoundary.test(contexts.get(j))
-                        && groupLookup.apply(contexts.get(j).id()) == null) {
+                        && history.getGroupId(contexts.get(j).id()) == null) {
                     j++;
                 }
                 int len = j - i;

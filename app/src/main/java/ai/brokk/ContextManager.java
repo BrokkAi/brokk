@@ -2200,11 +2200,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return updated.addHistoryEntry(finalEntry, result.output());
             });
 
-            // register grouping
-            publishCount++;
-            if (publishCount > 1) {
-                contextHistory.addContextToGroup(updatedContext.id(), groupId, groupLabel);
-            }
+            registerGroupingIfNeeded(updatedContext.id());
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
@@ -2220,10 +2216,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
             pushContext(currentLiveCtx -> context);
+            registerGroupingIfNeeded(liveContext().id());
+        }
 
+        /**
+         * Registers the given context in the current task's group if this is not the first publish.
+         * The first context in a task scope does not need grouping; grouping only applies when
+         * multiple contexts are published within the same scope.
+         */
+        private void registerGroupingIfNeeded(UUID contextId) {
             publishCount++;
             if (publishCount > 1) {
-                contextHistory.addContextToGroup(liveContext().id(), groupId, groupLabel);
+                contextHistory.addContextToGroup(contextId, groupId, groupLabel);
             }
         }
 
