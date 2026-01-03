@@ -80,7 +80,8 @@ public class GitLogTab extends JPanel implements ThemeAware {
     private JTextField tagsSearchField;
 
     // Branch-specific UI
-    private JMenuItem captureDiffVsBranchItem;
+    private JMenuItem captureDiffFromBranchItem;
+    private JMenuItem captureDiffToBranchItem;
     // createBranchFromCommitItem is managed by GitCommitBrowserPanel if needed, or was removed by prior refactoring.
 
     private GitCommitBrowserPanel gitCommitBrowserPanel;
@@ -397,12 +398,14 @@ public class GitLogTab extends JPanel implements ThemeAware {
         JMenuItem mergeItem = new JMenuItem("Merge into...");
         JMenuItem renameItem = new JMenuItem("Rename");
         JMenuItem deleteItem = new JMenuItem("Delete");
-        captureDiffVsBranchItem = new JMenuItem("Capture Diff vs Branch");
+        captureDiffFromBranchItem = new JMenuItem("Capture Diff from Branch");
+        captureDiffToBranchItem = new JMenuItem("Capture Diff to Branch");
 
         branchContextMenu.add(checkoutItem);
         branchContextMenu.add(newBranchItem);
         branchContextMenu.add(mergeItem);
-        branchContextMenu.add(captureDiffVsBranchItem);
+        branchContextMenu.add(captureDiffFromBranchItem);
+        branchContextMenu.add(captureDiffToBranchItem);
         branchContextMenu.add(renameItem);
         branchContextMenu.add(deleteItem);
 
@@ -460,7 +463,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 showMergeDialog(branchToMerge);
             }
         });
-        captureDiffVsBranchItem.addActionListener(e -> {
+        captureDiffFromBranchItem.addActionListener(e -> {
             int row = branchTable.getSelectedRow();
             if (row != -1) {
                 String selectedBranch = (String) branchTableModel.getValueAt(row, 1);
@@ -478,6 +481,29 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 }
                 if (selectedBranch.equals(currentActualBranch)) return;
 
+                // Diff FROM selectedBranch TO currentBranch (selectedBranch is base)
+                GitDiffUiUtil.captureDiffBetweenBranches(contextManager, chrome, selectedBranch, currentActualBranch);
+            }
+        });
+        captureDiffToBranchItem.addActionListener(e -> {
+            int row = branchTable.getSelectedRow();
+            if (row != -1) {
+                String selectedBranch = (String) branchTableModel.getValueAt(row, 1);
+                if (STASHES_VIRTUAL_BRANCH.equals(selectedBranch)) return;
+
+                String currentActualBranch;
+                try {
+                    currentActualBranch = getRepo().getCurrentBranch();
+                } catch (Exception ex) {
+                    logger.error("Could not get current branch for diff operation", ex);
+                    chrome.toolError(
+                            "Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage(),
+                            "Error");
+                    return;
+                }
+                if (selectedBranch.equals(currentActualBranch)) return;
+
+                // Diff FROM currentBranch TO selectedBranch (currentBranch is base)
                 GitDiffUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedBranch);
             }
         });
@@ -505,12 +531,14 @@ public class GitLogTab extends JPanel implements ThemeAware {
         JMenuItem remoteCheckoutItem = new JMenuItem("Checkout");
         JMenuItem remoteNewBranchItem = new JMenuItem("New Branch From This");
         JMenuItem remoteMergeItem = new JMenuItem(); // text set dynamically
-        JMenuItem remoteDiffItem = new JMenuItem("Capture Diff vs Branch");
+        JMenuItem remoteDiffFromItem = new JMenuItem("Capture Diff from Branch");
+        JMenuItem remoteDiffToItem = new JMenuItem("Capture Diff to Branch");
 
         remoteBranchContextMenu.add(remoteCheckoutItem);
         remoteBranchContextMenu.add(remoteNewBranchItem);
         remoteBranchContextMenu.add(remoteMergeItem);
-        remoteBranchContextMenu.add(remoteDiffItem);
+        remoteBranchContextMenu.add(remoteDiffFromItem);
+        remoteBranchContextMenu.add(remoteDiffToItem);
 
         remoteBranchTable.addMouseListener(new MouseAdapter() {
             @Override
@@ -553,7 +581,8 @@ public class GitLogTab extends JPanel implements ThemeAware {
         remoteCheckoutItem.addActionListener(e -> performRemoteBranchAction(this::checkoutBranch));
         remoteNewBranchItem.addActionListener(e -> performRemoteBranchAction(this::createNewBranchFrom));
         remoteMergeItem.addActionListener(e -> performRemoteBranchAction(this::showMergeDialog));
-        remoteDiffItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffVsRemoteBranch));
+        remoteDiffFromItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffFromRemoteBranch));
+        remoteDiffToItem.addActionListener(e -> performRemoteBranchAction(this::captureDiffToRemoteBranch));
 
         // Tag selection
         tagsTable.getSelectionModel().addListSelectionListener(e -> {
@@ -1254,15 +1283,19 @@ public class GitLogTab extends JPanel implements ThemeAware {
 
         // renameItem and deleteItem checks
         boolean isStashesSelected = STASHES_VIRTUAL_BRANCH.equals(selectedBranchName);
-        menu.getComponent(4).setEnabled(isAnyItemSelected && !isStashesSelected); // renameItem
-        menu.getComponent(5).setEnabled(isAnyItemSelected && !isCurrentBranch && !isStashesSelected); // deleteItem
+        menu.getComponent(5).setEnabled(isAnyItemSelected && !isStashesSelected); // renameItem
+        menu.getComponent(6).setEnabled(isAnyItemSelected && !isCurrentBranch && !isStashesSelected); // deleteItem
 
         if (isAnyItemSelected && selectedBranchName != null && !isStashesSelected) {
-            captureDiffVsBranchItem.setText("Capture Diff vs " + selectedBranchName);
-            captureDiffVsBranchItem.setEnabled(!isCurrentBranch);
+            captureDiffFromBranchItem.setText("Capture Diff from " + selectedBranchName);
+            captureDiffFromBranchItem.setEnabled(!isCurrentBranch);
+            captureDiffToBranchItem.setText("Capture Diff to " + selectedBranchName);
+            captureDiffToBranchItem.setEnabled(!isCurrentBranch);
         } else {
-            captureDiffVsBranchItem.setText("Capture Diff vs Branch");
-            captureDiffVsBranchItem.setEnabled(false);
+            captureDiffFromBranchItem.setText("Capture Diff from Branch");
+            captureDiffFromBranchItem.setEnabled(false);
+            captureDiffToBranchItem.setText("Capture Diff to Branch");
+            captureDiffToBranchItem.setEnabled(false);
         }
     }
 
@@ -1278,9 +1311,22 @@ public class GitLogTab extends JPanel implements ThemeAware {
         }
     }
 
-    private void captureDiffVsRemoteBranch(String selectedRemoteBranch) {
+    private void captureDiffFromRemoteBranch(String selectedRemoteBranch) {
         try {
             String currentActualBranch = getRepo().getCurrentBranch();
+            // Diff FROM selectedRemoteBranch TO currentBranch
+            GitDiffUiUtil.captureDiffBetweenBranches(contextManager, chrome, selectedRemoteBranch, currentActualBranch);
+        } catch (Exception ex) {
+            logger.error("Could not get current branch for diff operation", ex);
+            chrome.toolError(
+                    "Failed to determine current branch. Cannot perform diff. Error: " + ex.getMessage(), "Error");
+        }
+    }
+
+    private void captureDiffToRemoteBranch(String selectedRemoteBranch) {
+        try {
+            String currentActualBranch = getRepo().getCurrentBranch();
+            // Diff FROM currentBranch TO selectedRemoteBranch
             GitDiffUiUtil.captureDiffBetweenBranches(contextManager, chrome, currentActualBranch, selectedRemoteBranch);
         } catch (Exception ex) {
             logger.error("Could not get current branch for diff operation", ex);
