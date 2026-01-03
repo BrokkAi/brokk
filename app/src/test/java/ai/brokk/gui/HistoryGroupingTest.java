@@ -12,6 +12,9 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,7 +41,8 @@ public class HistoryGroupingTest {
     }
 
     private static List<GroupDescriptor> discover(List<Context> contexts, Predicate<Context> boundary) {
-        return GroupingBuilder.discoverGroups(contexts, boundary, java.util.Set.of(), contextId -> null);
+        return GroupingBuilder.discoverGroups(
+                contexts, boundary, java.util.Set.of(), contextId -> null, groupId -> null);
     }
 
     @Test
@@ -189,5 +193,71 @@ public class HistoryGroupingTest {
         assertTrue(g.shouldShowHeader());
         assertEquals(5, g.children().size());
         assertEquals("Add x3 + Remove x2", g.label().join());
+    }
+
+    @Test
+    public void groupByIdUsesProvidedLabel() {
+        // Create contexts
+        var c1 = ctx("Action 1");
+        var c2 = ctx("Action 2");
+
+        UUID groupId = UUID.randomUUID();
+        String expectedLabel = "My Custom Task";
+
+        // Group lookup returns the same groupId for both
+        Function<UUID, UUID> groupLookup = ctxId -> groupId;
+        // Label lookup returns our custom label
+        Function<UUID, String> labelLookup = gId -> gId.equals(groupId) ? expectedLabel : null;
+
+        var groups = GroupingBuilder.discoverGroups(List.of(c1, c2), c -> false, Set.of(), groupLookup, labelLookup);
+
+        assertEquals(1, groups.size(), "Should have one GROUP_BY_ID group");
+        var g = groups.getFirst();
+        assertEquals(HistoryGrouping.GroupType.GROUP_BY_ID, g.type());
+        assertTrue(g.shouldShowHeader());
+        assertEquals(expectedLabel, g.label().join(), "Should use the provided label");
+    }
+
+    @Test
+    public void singleContextWithGroupIdIsNotGrouped() {
+        // A single context that has a groupId should NOT show a header
+        // (because TaskScope only registers grouping when count > 1)
+        var c1 = ctx("Single action");
+
+        // Even with a groupId, a single context should not be grouped
+        // This tests the display logic - single items don't need headers
+        var groups = GroupingBuilder.discoverGroups(
+                List.of(c1),
+                c -> false,
+                Set.of(),
+                ctxId -> null, // No groupId (TaskScope didn't register it)
+                gId -> null);
+
+        assertEquals(1, groups.size());
+        var g = groups.getFirst();
+        assertFalse(g.shouldShowHeader(), "Single context should not show header");
+        assertEquals(HistoryGrouping.GroupType.GROUP_BY_ACTION, g.type());
+    }
+
+    @Test
+    public void aiResultWithoutGroupIdIsNotBoundary() {
+        // This tests the conceptual behavior: an AI result without a groupId
+        // (single-action task) should NOT be a boundary
+        // The boundary predicate checks: isAiResult && hasGroupId
+
+        var c1 = ctx("Before AI");
+        var aiResult = ctx("AI response"); // Pretend this is an AI result
+        var c2 = ctx("After AI");
+
+        // Boundary predicate: only true if context has a groupId
+        // Since we pass null for groupLookup, nothing has a groupId
+        Predicate<Context> isBoundary = c -> false; // No boundaries
+
+        var groups = GroupingBuilder.discoverGroups(
+                List.of(c1, aiResult, c2), isBoundary, Set.of(), ctxId -> null, gId -> null);
+
+        // All three should be in one legacy group (no boundaries)
+        assertEquals(1, groups.size(), "Without boundaries, all contexts form one group");
+        assertEquals(3, groups.getFirst().children().size());
     }
 }

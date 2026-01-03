@@ -647,7 +647,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             var history = contextManager.getContextHistory();
             var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(
-                    contexts, this::isGroupingBoundary, resetTargetIds, history::getGroupId);
+                    contexts,
+                    this::isGroupingBoundary,
+                    resetTargetIds,
+                    history::getGroupId,
+                    groupId -> history.getGroupLabels().get(groupId));
             latestDescriptors = descriptors;
 
             for (var descriptor : descriptors) {
@@ -2538,7 +2542,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private boolean isGroupingBoundary(Context ctx) {
         // Grouping boundaries are independent of diff presence.
         // Boundary when this is an AI result, or a state reset (empty fragments or history cleared).
-        if (ctx.isAiResult()) {
+        // Only treat AI results as boundaries if they have an explicit group (multi-step task)
+        if (ctx.isAiResult() && contextManager.getContextHistory().getGroupId(ctx.id()) != null) {
             return true;
         }
 

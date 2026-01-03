@@ -2151,6 +2151,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private final UUID groupId = UUID.randomUUID();
         private final String groupLabel;
 
+        private int publishCount = 0;
+
         private TaskScope(boolean compressResults, @Nullable String taskDescription) {
             this.compressResults = compressResults;
             this.groupLabel = taskDescription == null ? "Task" : taskDescription;
@@ -2199,7 +2201,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
 
             // register grouping
-            contextHistory.addContextToGroup(updatedContext.id(), groupId, groupLabel);
+            publishCount++;
+            if (publishCount > 1) {
+                contextHistory.addContextToGroup(updatedContext.id(), groupId, groupLabel);
+            }
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
@@ -2215,7 +2220,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
             pushContext(currentLiveCtx -> context);
-            contextHistory.addContextToGroup(liveContext().id(), groupId, groupLabel);
+
+            publishCount++;
+            if (publishCount > 1) {
+                contextHistory.addContextToGroup(liveContext().id(), groupId, groupLabel);
+            }
         }
 
         @Override

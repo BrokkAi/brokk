@@ -72,7 +72,8 @@ public final class HistoryGrouping {
                 List<Context> contexts,
                 Predicate<Context> isBoundary,
                 Set<UUID> resetTargetIds,
-                java.util.function.Function<UUID, UUID> groupLookup) {
+                java.util.function.Function<UUID, UUID> groupLookup,
+                java.util.function.Function<UUID, String> groupLabelLookup) {
             if (contexts.isEmpty()) {
                 return List.of();
             }
@@ -86,12 +87,12 @@ public final class HistoryGrouping {
             for (int i = 1; i < n; i++) {
                 if (isBoundary.test(contexts.get(i))) {
                     // emit [segStart, i)
-                    emitSegment(contexts, segStart, i, out, isBoundary, resetTargetIds, groupLookup);
+                    emitSegment(contexts, segStart, i, out, isBoundary, resetTargetIds, groupLookup, groupLabelLookup);
                     segStart = i;
                 }
             }
             // emit final segment [segStart, n)
-            emitSegment(contexts, segStart, n, out, isBoundary, resetTargetIds, groupLookup);
+            emitSegment(contexts, segStart, n, out, isBoundary, resetTargetIds, groupLookup, groupLabelLookup);
 
             // 2) Mark last descriptor, if any
             if (!out.isEmpty()) {
@@ -118,7 +119,8 @@ public final class HistoryGrouping {
                 List<GroupDescriptor> out,
                 java.util.function.Predicate<Context> isBoundary,
                 Set<UUID> resetTargetIds,
-                java.util.function.Function<UUID, UUID> groupLookup) {
+                java.util.function.Function<UUID, UUID> groupLookup,
+                java.util.function.Function<UUID, String> groupLabelLookup) {
             int i = start;
             while (i < end) {
                 Context ctx = contexts.get(i);
@@ -146,7 +148,16 @@ public final class HistoryGrouping {
                         j++;
                     }
                     List<Context> children = contexts.subList(i, j);
-                    var label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
+
+                    // Use provided label if available, otherwise compute
+                    String providedLabel = groupLabelLookup.apply(groupId);
+                    ComputedValue<String> label;
+                    if (providedLabel != null && !providedLabel.isBlank()) {
+                        label = ComputedValue.completed(providedLabel);
+                    } else {
+                        label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
+                    }
+
                     out.add(new GroupDescriptor(
                             GroupType.GROUP_BY_ID, groupId.toString(), label, children, true, false));
                     i = j;
