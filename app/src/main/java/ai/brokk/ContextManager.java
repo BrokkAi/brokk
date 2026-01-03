@@ -2714,7 +2714,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return;
             }
 
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing task history...");
 
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
             List<Future<TaskEntry>> futures = new ArrayList<>(taskHistoryToCompress.size());
