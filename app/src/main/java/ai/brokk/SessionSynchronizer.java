@@ -476,7 +476,6 @@ class SessionSynchronizer {
             boolean localIsNewer,
             @Nullable IContextManager openContextManager)
             throws IOException {
-        Objects.requireNonNull(localInfo);
 
         Path tmpDir = sessionsDir.resolve(TMP_DIR);
         Files.createDirectories(tmpDir);
