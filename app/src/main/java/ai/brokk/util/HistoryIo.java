@@ -280,15 +280,16 @@ public final class HistoryIo {
         var entryInfos = new HashMap<UUID, ContextHistory.ContextHistoryEntryInfo>();
         entryInfoDtos.forEach((key, value) -> entryInfos.put(UUID.fromString(key), value));
 
-        ContextHistory ch = new ContextHistory(contexts, resetEdges, gitStates, entryInfos);
+        Map<UUID, UUID> contextToGroupId = new HashMap<>();
+        Map<UUID, String> groupLabels = new HashMap<>();
         if (groupInfoDto != null) {
-            final var finalGroupInfo = groupInfoDto;
-            finalGroupInfo.contextToGroupId().forEach((ctxId, grpId) -> {
-                String label = finalGroupInfo.groupLabels().get(grpId);
-                ch.addContextToGroup(UUID.fromString(ctxId), UUID.fromString(grpId), label != null ? label : "");
-            });
+            groupInfoDto
+                    .contextToGroupId()
+                    .forEach((ctxId, grpId) -> contextToGroupId.put(UUID.fromString(ctxId), UUID.fromString(grpId)));
+            groupInfoDto.groupLabels().forEach((grpId, label) -> groupLabels.put(UUID.fromString(grpId), label));
         }
-        return ch;
+
+        return new ContextHistory(contexts, resetEdges, gitStates, entryInfos, contextToGroupId, groupLabels);
     }
 
     @Blocking
@@ -386,22 +387,11 @@ public final class HistoryIo {
         }
 
         byte[] groupInfoBytes = null;
-        // Note: We need access to ContextHistory's internal grouping maps to serialize them.
-        // Assuming ContextHistory will provide getContextToGroupId() and getGroupLabels()
-        // similar to getGitStates() or getEntryInfos().
-        // I am implementing the serialization logic here; if these methods are missing,
-        // they must be added to ContextHistory.java.
-        Map<UUID, UUID> ctxToGrp = new HashMap<>(); // Placeholder: ch.getContextToGroupId();
-        Map<UUID, String> grpLabels = new HashMap<>(); // Placeholder: ch.getGroupLabels();
+        Map<UUID, UUID> ctxToGrp = ch.getContextToGroupId();
+        Map<UUID, String> grpLabels = ch.getGroupLabels();
 
-        // This is a best-effort implementation given the missing ContextHistory.java file.
-        // If the methods don't exist yet, this will cause a compilation error.
-        try {
-            var groupDto = DtoMapper.toGroupInfoDto(ctxToGrp, grpLabels);
-            groupInfoBytes = objectMapper.writeValueAsBytes(groupDto);
-        } catch (Exception e) {
-            logger.debug("Grouping info serialization skipped or failed: {}", e.getMessage());
-        }
+        var groupDto = DtoMapper.toGroupInfoDto(ctxToGrp, grpLabels);
+        groupInfoBytes = objectMapper.writeValueAsBytes(groupDto);
 
         byte[] resetEdgesBytes = null;
         if (!ch.getResetEdges().isEmpty()) {

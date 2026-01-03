@@ -45,6 +45,8 @@ public class ContextHistory {
     private final List<ResetEdge> resetEdges = new ArrayList<>();
     private final Map<UUID, GitState> gitStates = new HashMap<>();
     private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
+    private final Map<UUID, UUID> contextToGroupId = new HashMap<>();
+    private final Map<UUID, String> groupLabels = new HashMap<>();
 
     /**
      * Tracks the ID of the last context created by an external file change to handle continuations.
@@ -69,11 +71,19 @@ public class ContextHistory {
     }
 
     public ContextHistory(List<Context> contexts) {
-        this(contexts, List.of(), Map.of(), Map.of());
+        this(contexts, List.of(), Map.of(), Map.of(), Map.of(), Map.of());
     }
 
     public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
-        this(contexts, resetEdges, Map.of(), Map.of());
+        this(contexts, resetEdges, Map.of(), Map.of(), Map.of(), Map.of());
+    }
+
+    public ContextHistory(
+            List<Context> contexts,
+            List<ResetEdge> resetEdges,
+            Map<UUID, GitState> gitStates,
+            Map<UUID, ContextHistoryEntryInfo> entryInfos) {
+        this(contexts, resetEdges, gitStates, entryInfos, Map.of(), Map.of());
     }
 
     public synchronized void replaceTopInternal(Context newLive) {
@@ -88,7 +98,9 @@ public class ContextHistory {
             List<Context> contexts,
             List<ResetEdge> resetEdges,
             Map<UUID, GitState> gitStates,
-            Map<UUID, ContextHistoryEntryInfo> entryInfos) {
+            Map<UUID, ContextHistoryEntryInfo> entryInfos,
+            Map<UUID, UUID> contextToGroupId,
+            Map<UUID, String> groupLabels) {
         if (contexts.isEmpty()) {
             throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
         }
@@ -96,6 +108,8 @@ public class ContextHistory {
         this.resetEdges.addAll(resetEdges);
         this.gitStates.putAll(gitStates);
         this.entryInfos.putAll(entryInfos);
+        this.contextToGroupId.putAll(contextToGroupId);
+        this.groupLabels.putAll(groupLabels);
         selected = history.peekLast();
         this.diffService = new DiffService(this);
     }
@@ -443,13 +457,13 @@ public class ContextHistory {
         return List.copyOf(resetEdges);
     }
 
-    private final Map<UUID, UUID> contextToGroupId = new HashMap<>();
-
     /**
      * Registers a context as belonging to a specific UI group.
      */
     public synchronized void addContextToGroup(UUID contextId, UUID groupId, String groupLabel) {
         contextToGroupId.put(contextId, groupId);
+        // Store label only on first context added to this group
+        groupLabels.putIfAbsent(groupId, groupLabel);
     }
 
     /**
@@ -457,6 +471,14 @@ public class ContextHistory {
      */
     public synchronized @Nullable UUID getGroupId(UUID contextId) {
         return contextToGroupId.get(contextId);
+    }
+
+    public synchronized Map<UUID, UUID> getContextToGroupId() {
+        return Map.copyOf(contextToGroupId);
+    }
+
+    public synchronized Map<UUID, String> getGroupLabels() {
+        return Map.copyOf(groupLabels);
     }
 
     public synchronized void addGitState(UUID contextId, GitState gitState) {
