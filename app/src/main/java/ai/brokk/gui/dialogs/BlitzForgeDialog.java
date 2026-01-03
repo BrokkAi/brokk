@@ -16,6 +16,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
@@ -27,6 +28,7 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.ScaledIcon;
 import ai.brokk.project.MainProject;
 import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.Environment;
 import ai.brokk.util.Messages;
@@ -1666,7 +1668,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var ctx = new Context(cm)
                             .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages)))
                             .addFragments(cm.toPathFragments(List.of(file)));
-                    var messages = CodePrompts.instance.collectAskMessages(ctx, instructions);
+                    var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions);
                     var llm = cm.getLlm(model, "Ask", true);
                     var meta = new TaskResult.TaskMeta(
                             TaskResult.Type.ASK, Service.ModelConfig.from(model, cm.getService()));
@@ -1700,7 +1702,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 dialogIo.toolError(errorMessage, "Agent Processing Error");
             }
 
-            boolean edited = !tr.context().getChangedFiles(initialContext).isEmpty();
+            boolean edited =
+                    !DiffService.getChangedFiles(tr.context(), initialContext).isEmpty();
             String llmOutput = dialogIo.getLlmOutput();
 
             // Optional context filtering

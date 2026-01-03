@@ -21,6 +21,7 @@ import ai.brokk.gui.git.GitLogTab;
 import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.FileChooserUtil;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.issues.IssueProviderType;
 import ai.brokk.project.MainProject;
@@ -30,7 +31,6 @@ import java.awt.*;
 import java.awt.Desktop;
 import java.awt.desktop.PreferencesEvent;
 import java.awt.desktop.PreferencesHandler;
-import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
@@ -151,19 +151,12 @@ public class MenuBar {
     private static void handleNewProject(Chrome chrome) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        var chooser = new JFileChooser();
-        chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        chooser.setMultiSelectionEnabled(false);
-        chooser.setDialogTitle("New Project");
+        var lastDir = new File(GlobalUiSettings.getLastCloneDirectory());
+        var initialDir = lastDir.isDirectory() ? lastDir : null;
+        var selectedDir =
+                FileChooserUtil.showDirectoryChooserWithNewFolder(chrome.getFrame(), "New Project", initialDir);
 
-        int result = chooser.showSaveDialog(chrome.getFrame());
-        if (result != JFileChooser.APPROVE_OPTION) {
-            return;
-        }
-
-        File selectedDir = chooser.getSelectedFile();
         if (selectedDir == null) {
-            chrome.toolError("No directory selected.", "New Project");
             return;
         }
 
@@ -244,30 +237,15 @@ public class MenuBar {
         });
 
         // Use platform conventions on macOS: Preferences live in the application menu.
-        // Also ensure Cmd+, opens Settings as a fallback by registering a key binding.
+        // Global Cmd+, binding is handled in Chrome.setupKeyBindings()
         boolean isMac = Environment.instance.isMacOs();
-        // Accelerator uses current binding; action also available via Chrome root pane binding
         settingsItem.setAccelerator(GlobalUiSettings.getKeybinding(
                 "global.openSettings",
                 KeyStroke.getKeyStroke(
                         KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx())));
 
-        if (isMac) {
-            // Ensure Cmd+, opens settings even if the system does not dispatch the shortcut to the handler.
-            var rootPane = chrome.getFrame().getRootPane();
-            var im = rootPane.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-            var am = rootPane.getActionMap();
-            var ks = KeyStroke.getKeyStroke(
-                    KeyEvent.VK_COMMA, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-            im.put(ks, "open-settings");
-            am.put("open-settings", new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    SwingUtilities.invokeLater(() -> openSettingsDialog(chrome));
-                }
-            });
-        } else {
-            // Non-macOS: place Settings in File menu as before.
+        if (!isMac) {
+            // Non-macOS: place Settings in File menu
             fileMenu.add(settingsItem);
         }
 

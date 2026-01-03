@@ -663,6 +663,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
     /**
      * Rollback selected files to their HEAD state with undo support via ContextHistory. Snapshots the workspace before
      * rollback to enable undo.
+     *
+     * FIXME: this is mostly broken, we shouldn't be adding arbitrary shit to Context like this
      */
     private void rollbackChangesWithUndo(List<ProjectFile> selectedFiles) {
         if (selectedFiles.isEmpty()) {
@@ -734,10 +736,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 }
 
                 // 7. Create a new context history entry for the rollback action.
-                String fileList = GitDiffUiUtil.formatFileList(selectedFiles);
-                var rollbackDescription =
-                        otherFiles.isEmpty() ? "Deleted " + fileList : "Rollback " + fileList + " to HEAD";
-                contextManager.pushContext(ctx -> ctx.withParsedOutput(null, rollbackDescription));
+                contextManager.pushContext(ctx -> ctx.withParsedOutput(null));
 
                 // 8. Now that the context is pushed, add the EntryInfo for the deleted files.
                 if (!deletedFilesInfo.isEmpty()) {
@@ -768,6 +767,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 }
 
                 // 10. Update UI on EDT.
+                var fileList =
+                        selectedFiles.stream().map(pf -> pf.getFileName()).collect(Collectors.joining(", "));
                 SwingUtilities.invokeLater(() -> {
                     String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMessage);

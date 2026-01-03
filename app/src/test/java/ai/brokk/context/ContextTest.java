@@ -17,7 +17,6 @@ import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -67,12 +66,14 @@ class ContextTest {
         var p1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var p2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
 
-        var ctx = new Context(contextManager);
-        ctx = ctx.addFragments(List.of(p1, p2));
+        // Start with a non-empty context so getDescription doesn't hit the empty check if we had one
+        var originalCtx = new Context(contextManager)
+                .addFragments(new ContextFragments.StringFragment(
+                        contextManager, "base", "base", SyntaxConstants.SYNTAX_STYLE_NONE));
+        var ctx = originalCtx.addFragments(List.of(p1, p2));
 
         // Dedup: only one path fragment
         assertEquals(1, ctx.fileFragments().count(), "Duplicate path fragments should be deduped");
-        assertTrue(ctx.getAction().startsWith("Added "), ctx.getAction());
     }
 
     @Test
@@ -196,12 +197,12 @@ class ContextTest {
     void testIsAiResultDetection() {
         List<ChatMessage> msgs = List.of(UserMessage.from("U"), AiMessage.from("A"));
         var tf = new ContextFragments.TaskFragment(contextManager, msgs, "task");
-        var ctx = new Context(contextManager).withParsedOutput(tf, "action");
+        var ctx = new Context(contextManager).withParsedOutput(tf);
         assertTrue(ctx.isAiResult(), "AI result should be true when AI message is present");
 
         List<ChatMessage> msgs2 = List.of(UserMessage.from("Only user"));
         var tf2 = new ContextFragments.TaskFragment(contextManager, msgs2, "task");
-        var ctx2 = new Context(contextManager).withParsedOutput(tf2, "action");
+        var ctx2 = new Context(contextManager).withParsedOutput(tf2);
         assertFalse(ctx2.isAiResult(), "AI result should be false with no AI messages");
     }
 
@@ -216,7 +217,7 @@ class ContextTest {
         var ctx = new Context(contextManager).addFragments(List.of(ppf)).addFragments(sf);
 
         pf.write("class RefreshR0 { public static void main() {} }");
-        var refreshed = ctx.copyAndRefresh(Set.of(pf), "Test Action");
+        var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
         // ProjectPathFragment should be replaced (new instance), StringFragment should be reused (same instance)
         var oldPpf = ctx.fileFragments().findFirst().orElseThrow();
@@ -230,7 +231,6 @@ class ContextTest {
                         .findFirst()
                         .orElseThrow(),
                 "Unrelated virtual fragments should be reused");
-        assertEquals("Test Action", refreshed.getAction(), "Action should be set accordingly");
     }
 
     @Test
@@ -246,7 +246,7 @@ class ContextTest {
 
         // Update and trigger refresh
         pf.write("class RefreshR0 { public static void main() {} }");
-        var refreshed = ctx.copyAndRefresh(Set.of(pf), "Test");
+        var refreshed = ctx.copyAndRefresh(Set.of(pf));
 
         var newFrag = refreshed.fileFragments().findFirst().orElseThrow();
         assertNotSame(ppf, newFrag, "Project fragment should be refreshed to a new instance");
@@ -284,7 +284,7 @@ class ContextTest {
         var msgs = List.<ChatMessage>of(UserMessage.from("User"), AiMessage.from("AI"));
         var log = new ContextFragments.TaskFragment(contextManager, msgs, "Log");
         var entry = new TaskEntry(1, log, null);
-        ctx = ctx.addHistoryEntry(entry, log, CompletableFuture.completedFuture("act"));
+        ctx = ctx.addHistoryEntry(entry, log);
 
         var all = ctx.getAllFragmentsInDisplayOrder();
         assertFalse(all.isEmpty());
@@ -295,12 +295,6 @@ class ContextTest {
                 .filter(f -> f instanceof ContextFragments.HistoryFragment)
                 .count();
         assertEquals(1L, historyCount, "Exactly one history fragment should be present");
-    }
-
-    @Test
-    void testGetActionSummarizingWhenIncomplete() {
-        var ctx = new Context(contextManager).withAction(new CompletableFuture<>());
-        assertEquals(Context.SUMMARIZING, ctx.getAction(), "Should show summarizing when action is incomplete");
     }
 
     @Test

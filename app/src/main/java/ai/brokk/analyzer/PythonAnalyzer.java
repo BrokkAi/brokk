@@ -690,24 +690,17 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                             if (wildcardModule != null && !wildcardModule.isEmpty()) {
                                 var moduleFile = resolveModuleFile(wildcardModule);
                                 if (moduleFile != null) {
-                                    try {
-                                        var decls = getDeclarations(moduleFile);
-                                        for (CodeUnit child : decls) {
-                                            // Import public classes and functions (no underscore prefix)
-                                            // TODO: Consider including public top-level constants (fields)
-                                            if ((child.isClass() || child.isFunction())
-                                                    && !child.identifier().startsWith("_")) {
-                                                resolvedByName.put(child.identifier(), child);
-                                            }
+                                    var decls = getDeclarations(moduleFile);
+                                    for (CodeUnit child : decls) {
+                                        // Import public classes and functions (no underscore prefix)
+                                        // TODO: Consider including public top-level constants (fields)
+                                        if ((child.isClass() || child.isFunction())
+                                                && !child.identifier().startsWith("_")) {
+                                            resolvedByName.put(child.identifier(), child);
                                         }
-                                    } catch (Exception e) {
-                                        log.warn(
-                                                "Could not expand wildcard import from {}: {}",
-                                                wildcardModule,
-                                                e.getMessage());
                                     }
                                 } else {
-                                    log.warn("Could not find module file for wildcard import: {}", wildcardModule);
+                                    log.trace("Could not find module file for wildcard import: {}", wildcardModule);
                                 }
                             }
                         }
@@ -722,22 +715,14 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                                 // Try to find the symbol in the module file
                                 var moduleFile = resolveModuleFile(currentModule);
                                 if (moduleFile != null) {
-                                    try {
-                                        var decls = getDeclarations(moduleFile);
-                                        decls.stream()
-                                                .filter(cu -> cu.identifier().equals(text)
-                                                        && (cu.isClass() || cu.isFunction()))
-                                                .findFirst()
-                                                .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
-                                    } catch (Exception e) {
-                                        log.warn(
-                                                "Could not resolve import '{}' from module {}: {}",
-                                                text,
-                                                currentModule,
-                                                e.getMessage());
-                                    }
+                                    var decls = getDeclarations(moduleFile);
+                                    decls.stream()
+                                            .filter(cu ->
+                                                    cu.identifier().equals(text) && (cu.isClass() || cu.isFunction()))
+                                            .findFirst()
+                                            .ifPresent(cu -> resolvedByName.put(cu.identifier(), cu));
                                 } else {
-                                    log.debug("Could not find module file for import: {}", currentModule);
+                                    log.trace("Could not find module file for import: {}", currentModule);
                                 }
                             } else if (currentModule == null && wildcardModule == null) {
                                 // For "import X" style (no module context)

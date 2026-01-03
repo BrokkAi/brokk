@@ -17,6 +17,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.AdaptiveExecutor;
 import ai.brokk.util.Messages;
@@ -68,6 +69,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public class ContextAgent {
     private static final Logger logger = LogManager.getLogger(ContextAgent.class);
+
+    private static final int DESIRED_CANDIDATES = 100;
 
     private enum GroupType {
         ANALYZED,
@@ -236,7 +239,7 @@ public class ContextAgent {
             candidates = cm.getProject().getAllFiles().stream().sorted().toList();
             logger.debug("Empty workspace; using all files ({}) for context recommendation.", candidates.size());
         } else {
-            int maxNeighbors = 100;
+            int maxNeighbors = DESIRED_CANDIDATES;
             var envMaxNeighbors = System.getenv("BRK_MAX_NEIGHBORS");
             if (envMaxNeighbors != null) {
                 try {
@@ -273,8 +276,6 @@ public class ContextAgent {
                 .toList();
         logger.debug("Grouped candidates: analyzed={}, unAnalyzed={}", analyzedFiles.size(), unAnalyzedFiles.size());
 
-        // GPT-5 Nano is currently the best combination of smart + low price. (Smarter than Flash 2.0 or Flash 2.5
-        // lite.)  We don't care as much about speed here, so 5 Nano gets the nod.
         var filesModel = cm.getService().getModel(ModelType.SUMMARIZE);
 
         // Create Llm instances - only analyzed group streams to UI
@@ -404,7 +405,8 @@ public class ContextAgent {
         // If too large for evaluation, ask for interesting files (files-pruning stage with 100k cap)
         @Nullable Llm.ResponseMetadata usage = null;
 
-        if (initialTokens > evalBudgetRemaining) {
+        boolean forcePrune = "true".equalsIgnoreCase(System.getenv("BRK_FORCE_FILENAME_PRUNE"));
+        if (forcePrune || initialTokens > evalBudgetRemaining) {
             logger.debug(
                     "{} group exceeds evaluation budget ({} > {}); pruning filenames first.",
                     type,
@@ -415,21 +417,25 @@ public class ContextAgent {
                     filenames, workspaceRepresentation, pruneBudgetRemaining, filesLlm, type == GroupType.ANALYZED);
             usage = Llm.ResponseMetadata.sum(usage, pruneRec.tokenUsage());
 
-            workingFiles = pruneRec.recommendedFiles().stream().sorted().toList();
-
-            int postPruneTokens;
-            if (type == GroupType.ANALYZED) {
-                postPruneTokens = estimateAnalyzedTokens(workingFiles);
-            } else {
-                var contentsMap = readFileContents(workingFiles);
-                postPruneTokens = Messages.getApproximateTokens(contentsMap.values());
-            }
-            logger.debug("{} group post-prune token estimate: ~{}", type, postPruneTokens);
-
-            if (workingFiles.isEmpty()) {
+            var prunedFiles = pruneRec.recommendedFiles();
+            if (prunedFiles.isEmpty()) {
                 logger.debug("{} group: filename pruning produced an empty set.", type);
                 return new LlmRecommendation(Set.of(), Set.of(), Set.of(), usage);
             }
+
+            // Expand to include most-relevant neighbors
+            if (type == GroupType.ANALYZED && workingFiles.size() < DESIRED_CANDIDATES) {
+                workingFiles = expandCandidates(prunedFiles, groupFiles);
+            }
+
+            int postExpansionTokens;
+            if (type == GroupType.ANALYZED) {
+                postExpansionTokens = estimateAnalyzedTokens(workingFiles);
+            } else {
+                var contentsMap = readFileContents(workingFiles);
+                postExpansionTokens = Messages.getApproximateTokens(contentsMap.values());
+            }
+            logger.debug("{} group post-expansion token estimate: ~{}", type, postExpansionTokens);
         }
 
         // Evaluate-for-relevance stage: call LLM with a context window containing ONLY this group's data.
@@ -437,6 +443,26 @@ public class ContextAgent {
         LlmRecommendation evalRec = evaluateWithHalving(type, workingFiles, workspaceRepresentation, llm);
         usage = Llm.ResponseMetadata.sum(usage, evalRec.tokenUsage());
         return evalRec.withUsage(usage);
+    }
+
+    private List<ProjectFile> expandCandidates(Set<ProjectFile> seedFiles, List<ProjectFile> eligiblePool)
+            throws InterruptedException {
+        // Create a temporary context containing the pruned files
+        Context tempContext = new Context(cm).addFragments(cm.toPathFragments(seedFiles));
+
+        // 2* b/c we're going to filter to eligiblePool
+        var relevantNeighbors = tempContext.getMostRelevantFiles(2 * DESIRED_CANDIDATES);
+
+        // Union seeds and neighbors, restricted to the eligible group pool
+        var expandedSet = new HashSet<>(seedFiles);
+        var eligibleSet = new HashSet<>(eligiblePool);
+        relevantNeighbors.stream()
+                .filter(eligibleSet::contains)
+                .limit(DESIRED_CANDIDATES - seedFiles.size())
+                .forEach(expandedSet::add);
+
+        logger.debug("Expanded candidates to {}", expandedSet);
+        return expandedSet.stream().sorted().toList();
     }
 
     /**
@@ -653,8 +679,9 @@ public class ContextAgent {
         }
         userPrompt.append(filenamePrompt);
 
+        var sys = new SystemMessage(SearchPrompts.instance.searchAgentIdentity());
         List<ChatMessage> messages = Stream.concat(
-                        Stream.of(SearchAgent.getSystemMessage()),
+                        Stream.of(sys),
                         Stream.concat(
                                 workspaceRepresentation.stream(), Stream.of(new UserMessage(userPrompt.toString()))))
                 .toList();

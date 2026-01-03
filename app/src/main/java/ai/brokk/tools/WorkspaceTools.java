@@ -70,7 +70,7 @@ public class WorkspaceTools {
      * Used by {@link #dropWorkspaceFragments(List)} to structure the input.
      */
     public record FragmentRemoval(
-            @Description("The numeric ID exactly as listed in <workspace-toc>") String fragmentId,
+            @Description("The alphanumeric ID exactly as listed in <workspace_toc>") String fragmentId,
             @Description("Why this fragment is being discarded") String explanation) {}
 
     /** Updates the working Context for this WorkspaceTools instance. */
@@ -428,7 +428,6 @@ public class WorkspaceTools {
             - Output: starts with a strong verb, names concrete artifact(s) (class/method/file, config, test). Use Markdown formatting for readability, especially `inline code` (for file, directory, function, class names and other symbols).
             - Flexibility: the executing agent may adjust scope and ordering based on more up-to-date context discovered during implementation.
             - Incremental additions: when adding a task to an existing list, copy all existing incomplete tasks verbatim (preserving their exact wording and order) and insert the new task at the appropriate position based on dependencies.
-
 
             Rubric for slicing:
             - TOO LARGE if it spans multiple subsystems, sweeping refactors, or ambiguous outcomes - split by subsystem or by 'behavior change' vs 'refactor'.

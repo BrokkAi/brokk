@@ -277,6 +277,7 @@ public class JavaAnalyzerTest {
                 "C",
                 "C.Foo",
                 "CamelClass",
+                "ClassUsagePatterns",
                 "CustomAnnotation",
                 "CyclicMethods",
                 "D",

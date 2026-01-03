@@ -23,6 +23,7 @@ public final class ComputedSubscription {
     // ClientProperty keys; use Object instances to avoid collisions and magic strings.
     private static final Object SUBS_KEY = new Object();
     private static final Object LISTENER_KEY = new Object();
+    private static final Object BOUND_CVS_KEY = new Object();
 
     private ComputedSubscription() {}
 
@@ -50,12 +51,12 @@ public final class ComputedSubscription {
     }
 
     /**
-     * Bind a ComputedFragment's computed values to a Swing component, automatically managing subscriptions
-     * and running UI updates on the EDT. Starts all relevant computed values (text, description, files)
-     * and registers completion handlers that run uiUpdate on the EDT when any of them complete.
+     * Bind a fragment's computed values to a Swing component, automatically managing subscriptions
+     * and running UI updates on the EDT. If the fragment is asynchronous (ComputedFragment),
+     * registers completion handlers that run uiUpdate on the EDT when the computation completes.
      * Subscriptions are automatically disposed when the owner component is removed from its parent.
      *
-     * @param fragment the ComputedFragment whose values will be bound
+     * @param fragment the ContextFragment whose values will be bound
      * @param owner the Swing component that owns these subscriptions
      * @param uiUpdate a runnable to execute on the EDT when any computed value completes
      */
@@ -63,13 +64,46 @@ public final class ComputedSubscription {
         // Helper to run UI update, coalesced onto EDT
         Runnable scheduleUpdate = () -> SwingUtilities.invokeLater(uiUpdate);
 
-        if (!(fragment instanceof ContextFragments.AbstractComputedFragment acf)) {
+        if (fragment instanceof ContextFragment.ComputedFragment cf) {
+            // Subscribe to completion for asynchronous fragments
+            var sub = cf.onComplete(scheduleUpdate);
+            if (sub != null) {
+                register(owner, sub);
+            }
+        } else {
+            // For synchronous fragments, run the update immediately (on EDT)
             scheduleUpdate.run();
+        }
+    }
+
+    /**
+     * Bind a {@link ComputedValue} to a Swing component, automatically managing the subscription
+     * and running the UI update on the EDT when the value completes.
+     * Subscriptions are automatically disposed when the owner component is removed from its parent.
+     *
+     * @param cv the ComputedValue to bind
+     * @param owner the Swing component that owns this subscription
+     * @param uiUpdate a runnable to execute on the EDT when the value completes
+     */
+    public static void bind(ComputedValue<?> cv, JComponent owner, Runnable uiUpdate) {
+        if (cv.future().isDone()) {
+            SwingUtilities.invokeLater(uiUpdate);
             return;
         }
 
-        // Subscribe to completion
-        var sub = acf.snapshotCv.onComplete((v, ex) -> scheduleUpdate.run());
+        synchronized (owner) {
+            @SuppressWarnings("unchecked")
+            java.util.Set<ComputedValue<?>> bound =
+                    (java.util.Set<ComputedValue<?>>) owner.getClientProperty(BOUND_CVS_KEY);
+            if (bound == null) {
+                bound = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+                owner.putClientProperty(BOUND_CVS_KEY, bound);
+            }
+            if (!bound.add(cv)) {
+                return;
+            }
+        }
+        var sub = cv.onComplete((val, ex) -> SwingUtilities.invokeLater(uiUpdate));
         register(owner, sub);
     }
 
@@ -95,6 +129,7 @@ public final class ComputedSubscription {
                 owner.removeAncestorListener(listener);
             }
             owner.putClientProperty(LISTENER_KEY, null);
+            owner.putClientProperty(BOUND_CVS_KEY, null);
         }
     }
 

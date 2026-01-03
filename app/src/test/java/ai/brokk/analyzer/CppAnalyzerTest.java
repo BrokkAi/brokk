@@ -1,6 +1,9 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
@@ -1580,5 +1583,27 @@ public class CppAnalyzerTest {
                     headerFooCount,
                     "Header skeletons should prefer a single function entry for 'foo', but found: " + headerFooCount);
         }
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        var finder = newFinder(testProject, analyzer);
+        var symbol = "BaseClass";
+        var either = finder.findUsages(symbol).toEither();
+
+        assumeFalse(either.hasErrorMessage(), "C++ analyzer unavailable");
+
+        var hits = either.getUsages();
+        var files = fileNamesFromHits(hits);
+        assertTrue(
+                files.contains("class_usage_patterns.cpp"),
+                "Expected comprehensive usage patterns in class_usage_patterns.cpp; actual: " + files);
+
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("class_usage_patterns.cpp"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 2,
+                "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
     }
 }

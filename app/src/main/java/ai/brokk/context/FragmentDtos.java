@@ -331,7 +331,7 @@ public class FragmentDtos {
             List<String> pinned,
             List<TaskEntryRefDto> tasks,
             @Nullable String parsedOutputId,
-            String action,
+            String actionUnused,
             @Nullable String groupId,
             @Nullable String groupLabel) {
         public CompactContextDto {

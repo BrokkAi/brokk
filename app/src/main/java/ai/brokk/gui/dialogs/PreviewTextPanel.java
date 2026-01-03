@@ -21,6 +21,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.VoiceInputButton;
 import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.search.GenericSearchBar;
 import ai.brokk.gui.search.RTextAreaSearchableComponent;
 import ai.brokk.gui.theme.FontSizeAware;
@@ -44,6 +45,7 @@ import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -72,9 +74,11 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private final PreviewTextArea textArea;
     private final GenericSearchBar searchBar;
     private final RTextScrollPane scrollPane;
+    private final JLabel emptyStateLabel;
+    private final JLayeredPane layeredPane;
 
     @Nullable
-    private MaterialButton editButton;
+    private MaterialButton attachButton;
 
     @Nullable
     private MaterialButton captureButton;
@@ -87,6 +91,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     private MaterialButton btnIncreaseFont;
 
     private final ContextManager cm;
+    private final Chrome chrome;
 
     // Nullable
     @Nullable
@@ -103,6 +108,9 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
     @Nullable
     private final Future<Map<Language, AnalyzerCapabilities>> analyzerCapabilities;
+
+    @Nullable
+    private Future<Set<String>> symbolsFuture;
 
     private final List<JComponent> dynamicMenuItems = new ArrayList<>(); // For usage capture items
 
@@ -122,6 +130,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
     }
 
     public PreviewTextPanel(
+            Chrome chrome,
             ContextManager cm,
             @Nullable ProjectFile file,
             String content,
@@ -130,6 +139,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             @Nullable ContextFragment fragment) {
         super(new BorderLayout());
 
+        this.chrome = chrome;
         this.cm = cm;
         this.file = file;
         this.contentBeforeSave = content; // Store initial content
@@ -150,7 +160,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Initialize buttons that might not be created
         this.saveButton = null;
         this.captureButton = null;
-        this.editButton = null;
+        this.attachButton = null;
 
         // Save button (conditionally added for ProjectFile)
         if (file != null) {
@@ -179,30 +189,30 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             actionButtonPanel.add(captureButton); // Add capture button
         }
 
-        // Edit button (conditionally added for ProjectFile)
+        // Attach button (conditionally added for ProjectFile)
         if (file != null) {
             var text = (fragment != null && fragment.getType() == ContextFragment.FragmentType.GIT_FILE)
-                    ? "Edit Current Version"
-                    : "Edit File";
-            editButton = new MaterialButton(text);
-            SwingUtilities.invokeLater(() -> requireNonNull(editButton).setIcon(Icons.EDIT_DOCUMENT));
-            var finalEditButton = editButton; // Final reference for lambda
+                    ? "Attach Current Version"
+                    : "Attach File";
+            attachButton = new MaterialButton(text);
+            SwingUtilities.invokeLater(() -> requireNonNull(attachButton).setIcon(Icons.ATTACH_FILE));
+            var finalAttachButton = attachButton; // Final reference for lambda
 
             cm.submitBackgroundTask("Determining files in the current context", () -> {
                 var files = cm.getFilesInContext();
 
                 SwingUtilities.invokeLater(() -> {
                     if (files.contains(file)) {
-                        finalEditButton.setEnabled(false);
-                        finalEditButton.setToolTipText("File is in Edit context");
+                        finalAttachButton.setEnabled(false);
+                        finalAttachButton.setToolTipText("File is in Workspace context");
                     } else {
-                        finalEditButton.addActionListener(e -> {
+                        finalAttachButton.addActionListener(e -> {
                             cm.addFiles(List.of(this.file));
-                            finalEditButton.setEnabled(false);
-                            finalEditButton.setToolTipText("File is in Edit context");
+                            finalAttachButton.setEnabled(false);
+                            finalAttachButton.setToolTipText("File is in Workspace context");
                         });
                     }
-                    actionButtonPanel.add(editButton); // Add edit button to the action panel
+                    actionButtonPanel.add(attachButton); // Add attach button to the action panel
                 });
             });
         }
@@ -260,14 +270,59 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
 
+        // Empty state label
+        emptyStateLabel = new JLabel();
+        emptyStateLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        emptyStateLabel.setOpaque(true);
+        emptyStateLabel.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
+        emptyStateLabel.setFont(new Font(Font.DIALOG, Font.BOLD, 14));
+        emptyStateLabel.setVisible(false);
+
+        // Use a layered pane to overlay the label on top of the scroll pane
+        layeredPane = new JLayeredPane() {
+            @Override
+            public void doLayout() {
+                scrollPane.setBounds(0, 0, getWidth(), getHeight());
+                if (emptyStateLabel.isVisible()) {
+                    Dimension pref = emptyStateLabel.getPreferredSize();
+                    emptyStateLabel.setBounds(
+                            (getWidth() - pref.width) / 2,
+                            (getHeight() - pref.height) / 3, // slightly above center
+                            pref.width,
+                            pref.height);
+                }
+            }
+        };
+        layeredPane.add(scrollPane, JLayeredPane.DEFAULT_LAYER);
+        layeredPane.add(emptyStateLabel, JLayeredPane.PALETTE_LAYER);
+
+        // Update empty state whenever text changes
+        textArea.getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                updateEmptyState();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                updateEmptyState();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                updateEmptyState();
+            }
+        });
+        updateEmptyState();
+
         // Initialize font index from saved settings or default
         // This must happen BEFORE theme application (which Chrome.java will do after construction)
         // so the theme preserves the font when applyTheme() is called
         ensureFontIndexInitialized();
 
-        // Add top panel (search + edit) + text area to this panel
+        // Add top panel (search + edit) + layered pane to this panel
         add(topPanel, BorderLayout.NORTH);
-        add(scrollPane, BorderLayout.CENTER);
+        add(layeredPane, BorderLayout.CENTER);
 
         // Register global shortcuts for the search bar
         searchBar.registerGlobalShortcuts(this);
@@ -330,8 +385,28 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Explicitly theme the text area (updateComponentTreeUIPreservingFonts doesn't recurse into ThemeAware
         // children)
         textArea.applyTheme(guiTheme);
+
+        // Apply colors to empty state label
+        emptyStateLabel.setBackground(ThemeColors.getColor(ThemeColors.NOTIF_INFO_BG));
+        emptyStateLabel.setForeground(ThemeColors.getColor(ThemeColors.NOTIF_INFO_FG));
+
         revalidate();
         repaint();
+    }
+
+    private void updateEmptyState() {
+        String text = textArea.getText();
+        if (text.isEmpty()) {
+            emptyStateLabel.setText("Empty Content");
+            emptyStateLabel.setVisible(true);
+        } else if (text.isBlank()) {
+            emptyStateLabel.setText("Whitespace-Only Content");
+            emptyStateLabel.setVisible(true);
+        } else {
+            emptyStateLabel.setVisible(false);
+        }
+        layeredPane.revalidate();
+        layeredPane.repaint();
     }
 
     /** Custom RSyntaxTextArea implementation for preview panels with custom popup menu */
@@ -745,7 +820,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         // Informational label below the input area
         var infoLabel = new JLabel("Quick Edit will apply to the selected lines only");
         infoLabel.setFont(new Font(Font.DIALOG, Font.ITALIC, 11));
-        infoLabel.setForeground(Color.DARK_GRAY);
+        infoLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
         infoLabel.setBorder(new EmptyBorder(5, 5, 0, 5));
 
         // Voice input button
@@ -753,7 +828,6 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         var gbc = new GridBagConstraints();
 
         // Start calculation of symbols specific to the current file in the background
-        Future<Set<String>> symbolsFuture = null;
         // Only try to get symbols if we have a file and its corresponding fragment is a PathFragment
         if (file != null) {
             // Submit the task to fetch symbols in the background
@@ -891,6 +965,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         systemArea.setLineWrap(true);
         systemArea.setWrapStyleWord(true);
         systemArea.setRows(5);
+        systemArea.setForeground(UIManager.getColor("TextArea.foreground"));
+        systemArea.setBackground(UIManager.getColor("TextArea.background"));
         var systemScrollPane = new JScrollPane(systemArea);
         systemScrollPane.setBorder(BorderFactory.createTitledBorder(
                 BorderFactory.createEtchedBorder(),
@@ -919,11 +995,13 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             final AtomicBoolean hasError = new AtomicBoolean();
 
             private void appendSystemMessage(String text) {
-                if (!systemArea.getText().isEmpty() && !systemArea.getText().endsWith("\n")) {
+                SwingUtilities.invokeLater(() -> {
+                    if (!systemArea.getText().isEmpty() && !systemArea.getText().endsWith("\n")) {
+                        systemArea.append("\n");
+                    }
+                    systemArea.append(text);
                     systemArea.append("\n");
-                }
-                systemArea.append(text);
-                systemArea.append("\n");
+                });
             }
 
             @Override
@@ -951,7 +1029,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // Submit the quick-edit session to a background future
         var future = cm.submitExclusiveAction(() -> {
-            var agent = new CodeAgent(cm, cm.getService().quickEditModel());
+            var agent = new CodeAgent(cm, cm.getService().quickEditModel(), resultsIo);
             return agent.runQuickTask(file, selectedText, instructions);
         });
 
@@ -1010,16 +1088,8 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                             }
                         });
                     } else {
-                        // Display an error dialog with the failure message
-                        var errorMessage = quickEditResult.error();
-                        SwingUtilities.invokeLater(() -> {
-                            JOptionPane.showMessageDialog(
-                                    SwingUtilities.getWindowAncestor(textArea),
-                                    errorMessage,
-                                    "Quick Edit Failed",
-                                    JOptionPane.ERROR_MESSAGE);
-                            textArea.setEditable(true);
-                        });
+                        // Error already displayed in system messages area, just re-enable editing
+                        SwingUtilities.invokeLater(() -> textArea.setEditable(true));
                     }
                 })
                 .start();
@@ -1061,7 +1131,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
         // LLM call succeeded; try to parse a snippet
         var response = sessionResult.output().messages().getLast();
-        assert response instanceof AiMessage;
+        if (!(response instanceof AiMessage)) {
+            throw new IllegalStateException(
+                    "Expected AiMessage but got: " + response.getClass().getSimpleName());
+        }
         var responseText = Messages.getText(response);
         var snippet = EditBlock.extractCodeFromTripleBackticks(responseText).trim();
         if (snippet.isEmpty()) {
@@ -1074,13 +1147,23 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             try {
                 // Find position of the selected text
                 var currentText = textArea.getText();
-                int startPos = currentText.indexOf(selectedText.stripLeading());
+                var strippedSelection = selectedText.stripLeading();
+                int startPos = currentText.indexOf(strippedSelection);
+
+                if (startPos == -1) {
+                    logger.warn("Quick edit failed: selected text no longer found in document");
+                    JOptionPane.showMessageDialog(
+                            SwingUtilities.getWindowAncestor(textArea),
+                            "The selected text has changed and can no longer be found.",
+                            "Quick Edit Failed",
+                            JOptionPane.ERROR_MESSAGE);
+                    return;
+                }
 
                 // Use beginAtomicEdit and endAtomicEdit to group operations as a single undo unit
                 textArea.beginAtomicEdit();
                 try {
-                    textArea.getDocument()
-                            .remove(startPos, selectedText.stripLeading().length());
+                    textArea.getDocument().remove(startPos, strippedSelection.length());
                     textArea.getDocument().insertString(startPos, snippet.stripLeading(), null);
                 } finally {
                     textArea.endAtomicEdit();
@@ -1088,7 +1171,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             } catch (BadLocationException ex) {
                 logger.error("Error applying quick edit change", ex);
                 // Fallback to direct text replacement
-                textArea.setText(textArea.getText().replace(selectedText.stripLeading(), snippet.stripLeading()));
+                textArea.setText(textArea.getText()
+                        .replaceFirst(
+                                Pattern.quote(selectedText.stripLeading()),
+                                Matcher.quoteReplacement(snippet.stripLeading())));
             }
         });
         return new QuickEditResult(snippet, null);
@@ -1151,24 +1237,33 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
      * @return true if the window should close, false otherwise.
      */
     public boolean confirmClose() {
+        boolean shouldClose;
+
         if (saveButton == null || !saveButton.isEnabled()) {
-            return true; // No unsaved changes or not a savable file, okay to close
+            shouldClose = true; // No unsaved changes or not a savable file, okay to close
+        } else {
+            // Prompt the user via the application's IConsoleIO (omits the Frame parameter)
+            int choice = cm.getIo()
+                    .showConfirmDialog(
+                            SwingUtilities.getWindowAncestor(this),
+                            "You have unsaved changes. Do you want to save them before closing?",
+                            "Unsaved Changes",
+                            JOptionPane.YES_NO_CANCEL_OPTION,
+                            JOptionPane.WARNING_MESSAGE);
+
+            shouldClose = switch (choice) {
+                case JOptionPane.YES_OPTION -> performSave(saveButton);
+                case JOptionPane.NO_OPTION -> true; // Allow closing, discard changes
+                default -> false; // Prevent closing
+            };
         }
 
-        // Prompt the user via the application's IConsoleIO (omits the Frame parameter)
-        int choice = cm.getIo()
-                .showConfirmDialog(
-                        SwingUtilities.getWindowAncestor(this),
-                        "You have unsaved changes. Do you want to save them before closing?",
-                        "Unsaved Changes",
-                        JOptionPane.YES_NO_CANCEL_OPTION,
-                        JOptionPane.WARNING_MESSAGE);
+        // Clean up background tasks if closing
+        if (shouldClose && symbolsFuture != null) {
+            symbolsFuture.cancel(true);
+        }
 
-        return switch (choice) {
-            case JOptionPane.YES_OPTION -> performSave(saveButton);
-            case JOptionPane.NO_OPTION -> true; // Allow closing, discard changes
-            default -> false; // Prevent closing
-        };
+        return shouldClose;
     }
 
     /** Registers the Ctrl+S (or Cmd+S on Mac) keyboard shortcut to trigger the save action. */
@@ -1199,15 +1294,14 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                 var contentChangedFromInitial = !newContent.equals(contentBeforeSave);
                 if (contentChangedFromInitial) {
                     try {
-                        var fileNameForDiff = file.toString();
                         var diffResult = ContentDiffUtils.computeDiffResult(
-                                contentBeforeSave, newContent, fileNameForDiff, fileNameForDiff, 3);
+                                contentBeforeSave, newContent, file.toString(), file.toString(), 3);
                         var diffText = diffResult.diff();
                         // Create the SessionResult representing the net change
-                        var actionDescription = "Edited " + fileNameForDiff;
+                        var actionDescription = "Edited " + file.getFileName();
                         // Include filtered quick edit messages (without XML context) + the current diff
                         var messagesForHistory = filterQuickEditMessagesForHistory(quickEditMessages);
-                        messagesForHistory.add(Messages.customSystem("### " + fileNameForDiff));
+                        messagesForHistory.add(Messages.customSystem("### " + file.toString()));
                         messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
                         // Build resulting Context by adding the saved file if it is not already editable
                         var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
@@ -1344,8 +1438,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             if (!java.nio.file.Files.exists(file.absPath())) {
                 logger.debug("File no longer exists: {}", file);
                 SwingUtilities.invokeLater(() -> {
-                    JOptionPane.showMessageDialog(
-                            this, "File has been deleted: " + file, "File Deleted", JOptionPane.WARNING_MESSAGE);
+                    chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File has been deleted: " + file);
                 });
                 return;
             }

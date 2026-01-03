@@ -505,7 +505,7 @@ public class SessionManager implements AutoCloseable {
             return null;
         }
 
-        var refreshed = ch.liveContext().copyAndRefresh("Load External Changes");
+        var refreshed = ch.liveContext().copyAndRefresh();
         if (!refreshed.equals(ch.liveContext())) {
             ch.pushContext(refreshed);
         }
