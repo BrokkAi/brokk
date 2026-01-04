@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
+import java.util.regex.Pattern;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -437,8 +438,11 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         return ClassNameExtractor.extractForGo(reference);
     }
 
+    private static final Pattern GO_TEST_SIG_PATTERN = Pattern.compile(
+            "\\bfunc\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\s+\\*?\\s*testing\\.T\\s*\\)");
+
     @Override
-    protected boolean containsTestMarkers(TSTree tree) {
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         TSQuery query = getThreadLocalQuery();
         TSQueryCursor cursor = new TSQueryCursor();
         cursor.exec(query, tree.getRootNode());
@@ -447,7 +451,20 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         while (cursor.nextMatch(match)) {
             for (TSQueryCapture capture : match.getCaptures()) {
                 if (TEST_MARKER.equals(query.getCaptureNameForId(capture.getIndex()))) {
-                    return true;
+                    TSNode node = capture.getNode();
+                    if (node == null || node.isNull()) continue;
+
+                    // Extract the signature area. 300 bytes is plenty for a func declaration line.
+                    String snippet = sourceContent.substringFromBytes(
+                            node.getStartByte(), Math.min(node.getEndByte(), node.getStartByte() + 300));
+
+                    var matcher = GO_TEST_SIG_PATTERN.matcher(snippet);
+                    if (matcher.find()) {
+                        String funcName = matcher.group(1);
+                        if (funcName != null && funcName.startsWith("Test")) {
+                            return true;
+                        }
+                    }
                 }
             }
         }

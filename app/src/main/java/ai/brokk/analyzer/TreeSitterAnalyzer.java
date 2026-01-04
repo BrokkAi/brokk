@@ -1319,6 +1319,18 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Determines if the given syntax tree contains markers indicating that the file contains tests,
+     * providing access to the source content for manual filtering.
+     *
+     * @param tree the parsed Tree-sitter tree for the file.
+     * @param sourceContent the source code of the file.
+     * @return true if the file is identified as containing tests.
+     */
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        return containsTestMarkers(tree);
+    }
+
+    /**
      * Builds the parent FQName from scope chain for parent-child relationship lookup.
      * This overload provides type-safe access to enclosing scope information.
      *
@@ -2209,7 +2221,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 localSourceRanges,
                 localChildren);
 
-        boolean containsTests = containsTestMarkers(tree);
+        boolean containsTests = containsTestMarkers(tree, sourceContent);
 
         log.trace(
                 "Finished analyzing {}: found {} top-level CUs (includes {} imports), {} total signatures, {} parent entries, {} source range entries, containsTests={}",

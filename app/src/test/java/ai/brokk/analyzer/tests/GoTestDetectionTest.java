@@ -8,8 +8,8 @@ import ai.brokk.analyzer.GoAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import org.jspecify.annotations.NullMarked;
 import java.io.IOException;
+import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.Test;
 
 @NullMarked
@@ -17,43 +17,93 @@ public class GoTestDetectionTest {
 
     @Test
     void testContainsTestsDetection() throws IOException {
-        String testFileContent = """
+        String testPointerContent = """
                 package foo
                 import "testing"
-                func TestFeature(t *testing.T) {
-                    t.Log("running test")
-                }
+                func TestPointer(t *testing.T) {}
                 """;
 
-        String nonTestFileContent = """
+        // Coverage for the non-pointer parameter form; file contains ONLY the value-param test.
+        String testValueContent = """
                 package foo
-                func Feature(x int) int {
-                    return x + 1
-                }
+                import "testing"
+                func TestValue(t testing.T) {}
                 """;
 
-        // Path does NOT match TEST_FILE_PATTERN but content contains markers
-        String testFilePath = "pkg/feature.go";
-        String nonTestFilePath = "pkg/lib.go";
+        // Explicit negative case: benchmark-only file must not be detected as tests.
+        String benchmarkOnlyContent = """
+                package foo
+                import "testing"
+                func BenchmarkOnly(b *testing.B) {}
+                """;
 
-        IProject project = InlineTestProjectCreator.code(testFileContent, testFilePath)
-                .addFileContents(nonTestFileContent, nonTestFilePath)
+        // Negative case: benchmark + receiver method named like a test must not be detected.
+        // We intentionally do not treat receiver methods as tests.
+        String receiverAndBenchmarkContent = """
+                package foo
+                import "testing"
+
+                func BenchmarkStuff(b *testing.B) {}
+
+                type S struct {}
+                func (s *S) TestMethod(t *testing.T) {}
+                """;
+
+        // Paths do NOT match TEST_FILE_PATTERN but content contains semantic markers.
+        String pointerPath = "pkg/ptr.go";
+        String valuePath = "pkg/val.go";
+        String benchmarkOnlyPath = "pkg/bench.go";
+        String receiverAndBenchmarkPath = "pkg/lib.go";
+
+        IProject project = InlineTestProjectCreator.code(testPointerContent, pointerPath)
+                .addFileContents(testValueContent, valuePath)
+                .addFileContents(benchmarkOnlyContent, benchmarkOnlyPath)
+                .addFileContents(receiverAndBenchmarkContent, receiverAndBenchmarkPath)
                 .build();
 
         GoAnalyzer analyzer = new GoAnalyzer(project);
-        analyzer.update();
+        analyzer = (GoAnalyzer) analyzer.update();
 
-        ProjectFile testFile = new ProjectFile(project.getRoot(), testFilePath);
-        ProjectFile nonTestFile = new ProjectFile(project.getRoot(), nonTestFilePath);
+        ProjectFile pointerFile = new ProjectFile(project.getRoot(), pointerPath);
+        ProjectFile valueFile = new ProjectFile(project.getRoot(), valuePath);
+        ProjectFile benchmarkOnlyFile = new ProjectFile(project.getRoot(), benchmarkOnlyPath);
+        ProjectFile receiverAndBenchmarkFile = new ProjectFile(project.getRoot(), receiverAndBenchmarkPath);
 
-        // Verify analyzer detection
-        assertTrue(analyzer.containsTests(testFile), "Analyzer should detect tests in " + testFilePath);
-        assertFalse(analyzer.containsTests(nonTestFile), "Analyzer should NOT detect tests in " + nonTestFilePath);
+        // Verify analyzer semantic detection
+        assertTrue(analyzer.containsTests(pointerFile), "Should detect pointer-based test: " + pointerPath);
+        assertTrue(analyzer.containsTests(valueFile), "Should detect value-based test: " + valuePath);
 
-        // Verify ContextManager heuristic fallback/override
-        // ContextManager.isTestFile(file, analyzer) should return true because the analyzer found markers,
-        // even though the filename doesn't match the regex.
-        assertTrue(ContextManager.isTestFile(testFile, analyzer), 
-                "ContextManager should identify file as test via analyzer despite path");
+        assertFalse(
+                analyzer.containsTests(benchmarkOnlyFile),
+                "Benchmarks are not tests; a file with only BenchmarkXxx should not be detected as containing tests: "
+                        + benchmarkOnlyPath);
+
+        // Receiver methods should not trigger test detection even if named TestXxx.
+        assertFalse(
+                analyzer.containsTests(receiverAndBenchmarkFile),
+                "We intentionally do not treat receiver methods as tests; file should not be detected as containing tests: "
+                        + receiverAndBenchmarkPath);
+
+        // Additional negative case: Function named Test but wrong parameter type
+        String wrongParamContent = """
+                package foo
+                import "testing"
+                func TestNotReally(t *testing.B) {}
+                """;
+        String wrongParamPath = "pkg/wrong_param.go";
+        IProject project2 = InlineTestProjectCreator.code(wrongParamContent, wrongParamPath).build();
+        GoAnalyzer analyzer2 = new GoAnalyzer(project2);
+        analyzer2 = (GoAnalyzer) analyzer2.update();
+        assertFalse(
+                analyzer2.containsTests(new ProjectFile(project2.getRoot(), wrongParamPath)),
+                "Should NOT detect test if parameter is *testing.B instead of *testing.T");
+
+        // Verify ContextManager integration (should use semantic analyzer signal, not filename heuristics)
+        assertTrue(
+                ContextManager.isTestFile(pointerFile, analyzer),
+                "ContextManager should identify pointer test file via analyzer");
+        assertTrue(
+                ContextManager.isTestFile(valueFile, analyzer),
+                "ContextManager should identify value test file via analyzer");
     }
 }
