@@ -125,10 +125,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             List<CodeUnit> topLevelCodeUnits,
             @JsonIgnore @Nullable TSTree parsedTree,
             List<String> importStatements,
-            Set<CodeUnit> resolvedImports) {
+            Set<CodeUnit> resolvedImports,
+            boolean containsTests) {
 
         public static FileProperties empty() {
-            return new FileProperties(Collections.emptyList(), null, Collections.emptyList(), Set.of());
+            return new FileProperties(Collections.emptyList(), null, Collections.emptyList(), Set.of(), false);
         }
     }
 
@@ -614,6 +615,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     @Override
     public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
         return fileProperties(file).topLevelCodeUnits();
+    }
+
+    @Override
+    public boolean containsTests(ProjectFile file) {
+        return fileProperties(file).containsTests();
     }
 
     @Override
@@ -3266,7 +3272,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         analysisResult.topLevelCUs(),
                         analysisResult.parsedTree(),
                         analysisResult.importStatements(),
-                        Collections.unmodifiableSet(new HashSet<>())));
+                        Collections.unmodifiableSet(new HashSet<>()),
+                        false));
 
         long __mergeEnd = System.nanoTime();
         if (timing != null) {
@@ -3560,7 +3567,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                             fileProps.topLevelCodeUnits(),
                                             fileProps.parsedTree(),
                                             fileProps.importStatements(),
-                                            Collections.unmodifiableSet(resolvedImports)));
+                                            Collections.unmodifiableSet(resolvedImports),
+                                            fileProps.containsTests()));
                             progressReporter.increment();
                         });
                     })

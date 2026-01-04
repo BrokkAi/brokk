@@ -399,7 +399,8 @@ public final class TreeSitterStateIO {
                     topLevel,
                     null, // parsedTree intentionally omitted
                     v.importStatements(),
-                    resolved);
+                    resolved,
+                    false);
             fileStateMap.put(fromDto(entry.key()), fp);
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
