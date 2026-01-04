@@ -4,7 +4,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.util.ContentDiffUtils;
@@ -14,10 +13,10 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -105,9 +104,9 @@ public final class DiffService {
             try {
                 // If getFileContent returns an empty string for the revision, the file is not yet committed.
                 return repo.getFileContent(revision, file).isEmpty();
-            } catch (Exception e) {
+            } catch (GitAPIException e) {
                 // If an error occurs (e.g. GitAPIException), we treat it as not committed.
-                logger.debug("Failed to get content from {} for file {}: {}", revision, file, e.getMessage());
+                logger.warn("Failed to get content from {} for file {}: {}", revision, file, e.getMessage());
                 return true;
             }
         });
@@ -310,48 +309,6 @@ public final class DiffService {
         }
         String diff = "[Image changed]";
         return new DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
-    }
-
-    /**
-     * Compute the set of ProjectFile objects that differ between curr (new/right) and other (old/left).
-     */
-    @Blocking
-    public static Set<ProjectFile> getChangedFiles(Context curr, Context other) {
-        // Use default "HEAD" revision for static utility calls that don't have history context
-        var diffs = computeDiffInternal(curr, other, "HEAD");
-        return diffs.stream()
-                .flatMap(de -> de.fragment().files().join().stream())
-                .collect(Collectors.toSet());
-    }
-
-    @Blocking
-    private static List<DiffEntry> computeDiffInternal(Context ctx, Context other, String revision) {
-        var editableFragments =
-                ctx.getEditableFragments().filter(f -> f.getType() != ContextFragment.FragmentType.EXTERNAL_PATH);
-        var imageFragments = ctx.allFragments().filter(f -> !f.isText());
-
-        var candidates = Stream.concat(editableFragments, imageFragments);
-        var diffFutures = candidates
-                .map(cf -> {
-                    var otherFragment = other.allFragments()
-                            .filter(cf::hasSameSource)
-                            .findFirst()
-                            .orElse(null);
-
-                    if (otherFragment == null) {
-                        if (!cf.isText()) return CompletableFuture.<DiffEntry>completedFuture(null);
-                        var repo = ctx.getContextManager().getRepo();
-                        if (!isNewInGit(cf, repo, revision)) return CompletableFuture.<DiffEntry>completedFuture(null);
-                    }
-                    return computeDiff(otherFragment, cf);
-                })
-                .toList();
-
-        return diffFutures.stream()
-                .map(CompletableFuture::join)
-                .filter(Objects::nonNull)
-                .distinct()
-                .toList();
     }
 
     /**

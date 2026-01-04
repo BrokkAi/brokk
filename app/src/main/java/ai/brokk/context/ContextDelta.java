@@ -11,8 +11,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import org.jetbrains.annotations.Blocking;
@@ -28,7 +30,7 @@ public record ContextDelta(
         List<TaskEntry> addedTasks,
         boolean clearedHistory,
         boolean compressedHistory,
-        boolean contentsChanged,
+        List<ContextFragment> modifiedFragments,
         boolean sessionReset,
         List<ContextFragments.StringFragment> updatedSpecialFragments,
         List<ContextFragment> pinnedFragments,
@@ -46,7 +48,7 @@ public record ContextDelta(
                 && addedTasks.isEmpty()
                 && !clearedHistory
                 && !compressedHistory
-                && !contentsChanged
+                && modifiedFragments.isEmpty()
                 && !sessionReset
                 && updatedSpecialFragments.isEmpty()
                 && pinnedFragments.isEmpty()
@@ -114,12 +116,13 @@ public record ContextDelta(
         }
 
         // 2. Check for content changes in any overlapping non-special fragments
-        boolean contentsChanged = to.fragments.stream()
+        var modifiedFragments = to.fragments.stream()
                 .filter(toFrag -> !(toFrag instanceof ContextFragments.StringFragment sf
                         && sf.specialType().isPresent()))
-                .anyMatch(toFrag -> from.findWithSameSource(toFrag)
+                .filter(toFrag -> from.findWithSameSource(toFrag)
                         .map(fromFrag -> !fromFrag.contentEquals(toFrag))
-                        .orElse(false));
+                        .orElse(false))
+                .toList();
 
         // 3. Check for pin/protect status changes
         var pinned = new ArrayList<ContextFragment>();
@@ -142,7 +145,7 @@ public record ContextDelta(
                 addedTasks,
                 clearedHistory,
                 compressedHistory,
-                contentsChanged,
+                modifiedFragments,
                 sessionReset,
                 updatedSpecials,
                 pinned,
@@ -212,7 +215,7 @@ public record ContextDelta(
         for (var sf : updatedSpecialFragments) {
             parts.add("Update " + sf.specialType().orElseThrow().description());
         }
-        if (parts.isEmpty() && contentsChanged) {
+        if (parts.isEmpty() && !modifiedFragments.isEmpty()) {
             parts.add("Load External Changes");
         }
 
@@ -261,5 +264,13 @@ public record ContextDelta(
             message += ", " + (items.size() - 2) + " more";
         }
         return message;
+    }
+
+    public Set<ContextFragment> getChangedFragments() {
+        var changed = new HashSet<ContextFragment>();
+        changed.addAll(addedFragments);
+        changed.addAll(removedFragments);
+        changed.addAll(modifiedFragments);
+        return changed;
     }
 }
