@@ -224,7 +224,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, CodeUnitProperties> codeUnitState,
             Map<String, Set<CodeUnit>> codeUnitsBySymbol,
             List<String> importStatements,
-            @Nullable TSTree parsedTree) {}
+            @Nullable TSTree parsedTree,
+            boolean containsTests) {}
 
     // Public record for stage timing information exposed to external tools
     public record StageTiming(
@@ -1307,6 +1308,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Determines if the given syntax tree contains markers (e.g., annotations, specific keywords)
+     * indicating that the file contains tests.
+     *
+     * @param tree the parsed Tree-sitter tree for the file.
+     * @return true if the file is identified as containing tests.
+     */
+    protected boolean containsTestMarkers(TSTree tree) {
+        return false;
+    }
+
+    /**
      * Builds the parent FQName from scope chain for parent-child relationship lookup.
      * This overload provides type-safe access to enclosing scope information.
      *
@@ -1703,7 +1715,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Skip binary files early if pre-filtered upstream (readFileBytes returns empty for binary)
         if (fileBytes.length == 0) {
             log.trace("Skipping binary/empty file: {}", file);
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), null, false);
         }
 
         fileBytes = TextCanonicalizer.stripUtf8Bom(fileBytes);
@@ -1738,7 +1750,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 timing.processStageFirstStartNanos().accumulateAndGet(__processStart, Math::min);
                 timing.processStageLastEndNanos().accumulateAndGet(__processEnd, Math::max);
             }
-            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), tree);
+            return new FileAnalysisResult(List.of(), Map.of(), Map.of(), List.of(), tree, false);
         }
         String rootNodeType = rootNode.getType();
         log.trace("Root node type for {}: {}", file, rootNodeType);
@@ -2197,14 +2209,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 localSourceRanges,
                 localChildren);
 
+        boolean containsTests = containsTestMarkers(tree);
+
         log.trace(
-                "Finished analyzing {}: found {} top-level CUs (includes {} imports), {} total signatures, {} parent entries, {} source range entries.",
+                "Finished analyzing {}: found {} top-level CUs (includes {} imports), {} total signatures, {} parent entries, {} source range entries, containsTests={}",
                 file,
                 localTopLevelCUs.size(),
                 localImportStatements.size(),
                 localSignatures.size(),
                 localChildren.size(),
-                localSourceRanges.size());
+                localSourceRanges.size(),
+                containsTests);
 
         Map<CodeUnit, List<CodeUnit>> finalLocalChildren = new HashMap<>();
         localChildren.forEach((p, kids) -> finalLocalChildren.put(p, Collections.unmodifiableList(kids)));
@@ -2271,7 +2286,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 Collections.unmodifiableMap(localStates),
                 localCodeUnitsBySymbol,
                 Collections.unmodifiableList(localImportStatements),
-                tree);
+                tree,
+                containsTests);
     }
 
     /**
@@ -3273,7 +3289,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                         analysisResult.parsedTree(),
                         analysisResult.importStatements(),
                         Collections.unmodifiableSet(new HashSet<>()),
-                        false));
+                        analysisResult.containsTests()));
 
         long __mergeEnd = System.nanoTime();
         if (timing != null) {
