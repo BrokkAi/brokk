@@ -379,8 +379,7 @@ public class ContextActionsHandler {
                                                 "File ref action not implemented: " + WorkspaceAction.this);
                                 };
                         var repoFile = fileRef.getRepoFile();
-                        var fragment =
-                                new ContextFragments.ProjectPathFragment(repoFile, actions.contextManager);
+                        var fragment = new ContextFragments.ProjectPathFragment(repoFile, actions.contextManager);
                         actions.performContextActionAsync(contextAction, List.of(fragment));
                     } else {
                         actions.chrome.toolError("Cannot " + label.toLowerCase(Locale.ROOT) + ": "

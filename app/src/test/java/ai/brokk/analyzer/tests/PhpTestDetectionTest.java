@@ -47,7 +47,8 @@ public class PhpTestDetectionTest {
 
     @Test
     void testNegativeDetection() throws IOException {
-        String code = """
+        String code =
+                """
             <?php
             function normalFunction() { }
             class NormalClass {
@@ -58,7 +59,9 @@ public class PhpTestDetectionTest {
         PhpAnalyzer analyzer = new PhpAnalyzer(project);
         analyzer.update();
 
-        assertFalse(analyzer.containsTests(new ProjectFile(project.getRoot(), "Normal.php")), "Should not detect tests in normal file");
+        assertFalse(
+                analyzer.containsTests(new ProjectFile(project.getRoot(), "Normal.php")),
+                "Should not detect tests in normal file");
     }
 
     @Test
@@ -67,7 +70,8 @@ public class PhpTestDetectionTest {
             <?php
             function testFoo() { }
             """;
-        IProject project = InlineTestProjectCreator.code(code, "Integration.php").build();
+        IProject project =
+                InlineTestProjectCreator.code(code, "Integration.php").build();
         PhpAnalyzer analyzer = new PhpAnalyzer(project);
         analyzer.update();
 

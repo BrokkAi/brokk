@@ -166,7 +166,9 @@ public interface IContextManager {
     default List<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
         var analyzer = getAnalyzerWrapper().getNonBlocking();
-        return allFiles.stream().filter(f -> ContextManager.isTestFile(f, analyzer)).toList();
+        return allFiles.stream()
+                .filter(f -> ContextManager.isTestFile(f, analyzer))
+                .toList();
     }
 
     default IAnalyzerWrapper getAnalyzerWrapper() {

@@ -386,7 +386,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                     TSNode parent = node.getParent();
                     if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
                         TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
-                        if (nameNode != null && nameNode.getStartByte() == node.getStartByte()
+                        if (nameNode != null
+                                && nameNode.getStartByte() == node.getStartByte()
                                 && nameNode.getEndByte() == node.getEndByte()) {
                             String text = sourceContent.substringFrom(node);
                             if (text.startsWith("test_")) {

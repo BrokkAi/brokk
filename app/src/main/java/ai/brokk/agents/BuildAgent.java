@@ -732,8 +732,9 @@ public class BuildAgent {
 
         // Check if any of the identified project test files are present in the current workspace set
         var analyzer = cm.getAnalyzer();
-        var workspaceTestFiles =
-                workspaceFiles.stream().filter(f -> ContextManager.isTestFile(f, analyzer)).toList();
+        var workspaceTestFiles = workspaceFiles.stream()
+                .filter(f -> ContextManager.isTestFile(f, analyzer))
+                .toList();
 
         // Decide which command to use
         if (workspaceTestFiles.isEmpty()) {

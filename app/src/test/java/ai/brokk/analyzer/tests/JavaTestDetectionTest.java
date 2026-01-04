@@ -15,7 +15,8 @@ public class JavaTestDetectionTest {
 
     @Test
     void testContainsTestsDetection() throws Exception {
-        String testContent = """
+        String testContent =
+                """
             package com.example;
             import org.junit.jupiter.api.Test;
             public class MyServiceProbe {
@@ -24,7 +25,8 @@ public class JavaTestDetectionTest {
             }
             """;
 
-        String nonTestContent = """
+        String nonTestContent =
+                """
             package com.example;
             public class MyService {
                 public void doWork() {}
@@ -50,7 +52,8 @@ public class JavaTestDetectionTest {
         assertFalse(analyzer.containsTests(nonTestFile), "Should NOT detect tests in MyService.java");
 
         // 2. Integration check via ContextManager (which uses both pattern and analyzer)
-        assertTrue(ContextManager.isTestFile(testFile, analyzer),
+        assertTrue(
+                ContextManager.isTestFile(testFile, analyzer),
                 "ContextManager should classify file as test based on analyzer result");
     }
 }
