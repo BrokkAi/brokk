@@ -483,8 +483,9 @@ public class ContextMenuBuilder {
     private void runTests(FileMenuContext context) {
         context.contextManager().submitLlmAction(() -> {
             var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
-            var testProjectFiles =
-                    context.files().stream().filter(f -> ContextManager.isTestFile(f, analyzer)).collect(Collectors.toSet());
+            var testProjectFiles = context.files().stream()
+                    .filter(f -> ContextManager.isTestFile(f, analyzer))
+                    .collect(Collectors.toSet());
 
             if (testProjectFiles.isEmpty()) {
                 context.chrome().toolError("No test files were selected to run");

@@ -187,7 +187,8 @@ public class ContextActionsHandler {
             // Add Run Tests action if the fragment is associated with a test file
             var analyzer = actions.contextManager.getAnalyzerWrapper().getNonBlocking();
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                    && fragment.files().renderNowOr(Set.of()).stream().anyMatch(f -> ContextManager.isTestFile(f, analyzer))) {
+                    && fragment.files().renderNowOr(Set.of()).stream()
+                            .anyMatch(f -> ContextManager.isTestFile(f, analyzer))) {
                 list.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(actions, List.of(fragment)));
             } else {
                 var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
@@ -377,8 +378,9 @@ public class ContextActionsHandler {
                                         throw new UnsupportedOperationException(
                                                 "File ref action not implemented: " + WorkspaceAction.this);
                                 };
+                        var repoFile = fileRef.getRepoFile();
                         var fragment =
-                                new ContextFragments.ProjectPathFragment(fileRef.getRepoFile(), actions.contextManager);
+                                new ContextFragments.ProjectPathFragment(repoFile, actions.contextManager);
                         actions.performContextActionAsync(contextAction, List.of(fragment));
                     } else {
                         actions.chrome.toolError("Cannot " + label.toLowerCase(Locale.ROOT) + ": "
