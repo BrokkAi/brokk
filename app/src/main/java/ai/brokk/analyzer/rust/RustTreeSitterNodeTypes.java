@@ -36,5 +36,8 @@ public final class RustTreeSitterNodeTypes {
 
     public static final String IMPORT_DECLARATION = "use_declaration";
 
+    // ===== QUERY CAPTURE NAMES =====
+    public static final String TEST_MARKER = "test_marker";
+
     private RustTreeSitterNodeTypes() {}
 }

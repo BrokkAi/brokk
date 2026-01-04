@@ -9,9 +9,7 @@ import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.treesitter.TSLanguage;
-import org.treesitter.TSNode;
-import org.treesitter.TreeSitterRust;
+import org.treesitter.*;
 
 public final class RustAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
@@ -408,16 +406,16 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean containsTestMarkers(org.treesitter.TSTree tree) {
-        org.treesitter.TSQueryCursor cursor = new org.treesitter.TSQueryCursor();
-        org.treesitter.TSQuery rustQuery = getThreadLocalQuery();
+    protected boolean containsTestMarkers(TSTree tree) {
+        TSQueryCursor cursor = new TSQueryCursor();
+        TSQuery rustQuery = getThreadLocalQuery();
         cursor.exec(rustQuery, tree.getRootNode());
 
-        org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+        TSQueryMatch match = new TSQueryMatch();
         while (cursor.nextMatch(match)) {
-            for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
+            for (TSQueryCapture capture : match.getCaptures()) {
                 String captureName = rustQuery.getCaptureNameForId(capture.getIndex());
-                if ("test_marker".equals(captureName)) {
+                if (TEST_MARKER.equals(captureName)) {
                     return true;
                 }
             }
