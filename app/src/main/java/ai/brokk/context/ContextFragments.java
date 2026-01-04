@@ -1312,7 +1312,7 @@ public class ContextFragments {
                         .toList();
                 if (!includeTestFiles) {
                     uses = uses.stream()
-                            .filter(cu -> !ContextManager.isTestFile(cu.file()))
+                            .filter(cu -> !ContextManager.isTestFile(cu.file(), analyzer))
                             .toList();
                 }
                 List<AnalyzerUtil.CodeWithSource> parts = AnalyzerUtil.processUsages(
@@ -1326,7 +1326,7 @@ public class ContextFragments {
             Set<ProjectFile> files = sources.stream().map(CodeUnit::source).collect(Collectors.toSet());
             if (!includeTestFiles) {
                 files = files.stream()
-                        .filter(f -> !ContextManager.isTestFile(f))
+                        .filter(f -> !ContextManager.isTestFile(f, analyzer))
                         .collect(Collectors.toSet());
             }
 

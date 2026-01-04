@@ -238,7 +238,8 @@ public class ContextMenuBuilder {
         menu.add(openInItem);
 
         // Run Tests (only show if all files are test files)
-        boolean hasTestFiles = files.stream().allMatch(ContextManager::isTestFile);
+        var analyzer = fileContext.contextManager().getAnalyzerWrapper().getNonBlocking();
+        boolean hasTestFiles = files.stream().allMatch(f -> ContextManager.isTestFile(f, analyzer));
         if (hasTestFiles) {
             menu.addSeparator();
             var runTestsItem = new JMenuItem("Run Tests");
@@ -313,7 +314,8 @@ public class ContextMenuBuilder {
                 .contains(file);
         boolean analyzerReady =
                 singleFileContext.contextManager().getAnalyzerWrapper().isReady();
-        boolean isTestFile = ContextManager.isTestFile(file);
+        var analyzer = singleFileContext.contextManager().getAnalyzerWrapper().getNonBlocking();
+        boolean isTestFile = ContextManager.isTestFile(file, analyzer);
 
         // Show History
         var historyItem = new JMenuItem("Show History");
@@ -480,8 +482,9 @@ public class ContextMenuBuilder {
 
     private void runTests(FileMenuContext context) {
         context.contextManager().submitLlmAction(() -> {
+            var analyzer = context.contextManager().getAnalyzerWrapper().getNonBlocking();
             var testProjectFiles =
-                    context.files().stream().filter(ContextManager::isTestFile).collect(Collectors.toSet());
+                    context.files().stream().filter(f -> ContextManager.isTestFile(f, analyzer)).collect(Collectors.toSet());
 
             if (testProjectFiles.isEmpty()) {
                 context.chrome().toolError("No test files were selected to run");

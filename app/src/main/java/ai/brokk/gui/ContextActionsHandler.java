@@ -111,16 +111,18 @@ public class ContextActionsHandler {
         public List<Action> getActions(ContextActionsHandler actions) {
             var list = new ArrayList<Action>();
 
-            if (fileRef.getRepoFile() != null) {
-                list.add(WorkspaceAction.SHOW_IN_PROJECT.createFileAction(actions, fileRef.getRepoFile()));
-                list.add(WorkspaceAction.VIEW_FILE.createFileAction(actions, fileRef.getRepoFile()));
+            var repoFile = fileRef.getRepoFile();
+            if (repoFile != null) {
+                list.add(WorkspaceAction.SHOW_IN_PROJECT.createFileAction(actions, repoFile));
+                list.add(WorkspaceAction.VIEW_FILE.createFileAction(actions, repoFile));
 
                 if (actions.hasGit()) {
-                    list.add(WorkspaceAction.VIEW_HISTORY.createFileAction(actions, fileRef.getRepoFile()));
+                    list.add(WorkspaceAction.VIEW_HISTORY.createFileAction(actions, repoFile));
                 } else {
                     list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Git not available for this project."));
                 }
-                if (ContextManager.isTestFile(fileRef.getRepoFile())) {
+                var analyzer = actions.contextManager.getAnalyzerWrapper().getNonBlocking();
+                if (ContextManager.isTestFile(repoFile, analyzer)) {
                     list.add(WorkspaceAction.RUN_TESTS.createFileRefAction(actions, fileRef));
                 } else {
                     var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("Not a test file");
@@ -183,8 +185,9 @@ public class ContextActionsHandler {
             }
 
             // Add Run Tests action if the fragment is associated with a test file
+            var analyzer = actions.contextManager.getAnalyzerWrapper().getNonBlocking();
             if (fragment.getType() == ContextFragment.FragmentType.PROJECT_PATH
-                    && fragment.files().renderNowOr(Set.of()).stream().anyMatch(ContextManager::isTestFile)) {
+                    && fragment.files().renderNowOr(Set.of()).stream().anyMatch(f -> ContextManager.isTestFile(f, analyzer))) {
                 list.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(actions, List.of(fragment)));
             } else {
                 var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
@@ -256,9 +259,10 @@ public class ContextActionsHandler {
                     "Cannot view contents of multiple items at once."));
             list.add(WorkspaceAction.VIEW_HISTORY.createDisabledAction("Cannot view history for multiple items."));
             // Add Run Tests action if all selected fragment is associated with a test file
+            var analyzer = actions.contextManager.getAnalyzerWrapper().getNonBlocking();
             if (fragments.stream()
                     .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
-                    .allMatch(ContextManager::isTestFile)) {
+                    .allMatch(f -> ContextManager.isTestFile(f, analyzer))) {
                 list.add(WorkspaceAction.RUN_TESTS.createFragmentsAction(actions, fragments));
             } else {
                 var disabledAction = WorkspaceAction.RUN_TESTS.createDisabledAction("No test files in selection");
@@ -798,9 +802,10 @@ public class ContextActionsHandler {
                 logger.warn("Error awaiting fragment files for test execution", ex);
             }
 
+            var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
             testFiles.addAll(fileFutures.stream()
                     .flatMap(cf -> cf.getNow(Set.of()).stream())
-                    .filter(ContextManager::isTestFile)
+                    .filter(f -> ContextManager.isTestFile(f, analyzer))
                     .collect(Collectors.toSet()));
         }
 
