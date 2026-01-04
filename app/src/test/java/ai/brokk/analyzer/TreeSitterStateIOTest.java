@@ -233,8 +233,7 @@ public class TreeSitterStateIOTest {
                 "resolvedImports", List.of());
 
         var legacyFileEntry = Map.of(
-                "key", Map.of("root", tempDir.toString(), "relPath", "file.java"),
-                "value", legacyFileProperties);
+                "key", Map.of("root", tempDir.toString(), "relPath", "file.java"), "value", legacyFileProperties);
 
         var legacyState = Map.of(
                 "symbolIndex", Map.of(),
@@ -243,7 +242,8 @@ public class TreeSitterStateIOTest {
                 "symbolKeys", List.of(),
                 "snapshotEpochNanos", 12345L);
 
-        var mapper = new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
             mapper.writeValue(os, legacyState);
         }
@@ -271,7 +271,6 @@ public class TreeSitterStateIOTest {
 
         var loadedDto = TreeSitterStateIO.toDto(loadedOpt.get());
         assertEquals(originalDto, loadedDto, "Round-trip should preserve all fields including containsTests");
-        assertTrue(
-                loadedDto.fileState().getFirst().value().containsTests(), "containsTests=true should be preserved");
+        assertTrue(loadedDto.fileState().getFirst().value().containsTests(), "containsTests=true should be preserved");
     }
 }

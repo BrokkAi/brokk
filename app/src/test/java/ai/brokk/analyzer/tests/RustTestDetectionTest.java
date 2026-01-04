@@ -16,7 +16,8 @@ public class RustTestDetectionTest {
 
     @Test
     void testContainsTestsDetection() throws Exception {
-        String testFileContent = """
+        String testFileContent =
+                """
             #[cfg(test)]
             mod tests {
                 #[test]
@@ -26,7 +27,8 @@ public class RustTestDetectionTest {
             }
             """;
 
-        String regularFileContent = """
+        String regularFileContent =
+                """
             pub fn add(a: i32, b: i32) -> i32 {
                 a + b
             }
@@ -49,15 +51,18 @@ public class RustTestDetectionTest {
 
         // Assert analyzer semantic detection
         assertTrue(analyzer.containsTests(testFile), "File with #[cfg(test)] should be detected as containing tests");
-        assertFalse(analyzer.containsTests(regularFile), "File without markers should not be detected as containing tests");
+        assertFalse(
+                analyzer.containsTests(regularFile), "File without markers should not be detected as containing tests");
 
         // Assert ContextManager integration
         // ContextManager.isTestFile should return true for logic.rs because the analyzer confirms it contains tests,
         // even though "logic.rs" doesn't match the filename regex.
-        assertTrue(ContextManager.isTestFile(testFile, analyzer), 
-            "ContextManager should identify file as test file via analyzer despite non-matching filename");
-            
-        assertFalse(ContextManager.isTestFile(regularFile, analyzer),
-            "ContextManager should not identify regular lib.rs as test file");
+        assertTrue(
+                ContextManager.isTestFile(testFile, analyzer),
+                "ContextManager should identify file as test file via analyzer despite non-matching filename");
+
+        assertFalse(
+                ContextManager.isTestFile(regularFile, analyzer),
+                "ContextManager should not identify regular lib.rs as test file");
     }
 }

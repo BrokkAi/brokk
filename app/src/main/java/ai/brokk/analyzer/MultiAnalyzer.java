@@ -302,8 +302,6 @@ public class MultiAnalyzer
 
     @Override
     public boolean containsTests(ProjectFile file) {
-        return delegateFor(file)
-                .map(delegate -> delegate.containsTests(file))
-                .orElse(false);
+        return delegateFor(file).map(delegate -> delegate.containsTests(file)).orElse(false);
     }
 }
