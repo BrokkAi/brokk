@@ -45,5 +45,8 @@ public final class PythonTreeSitterNodeTypes {
     public static final String IMPORT_MODULE_WILDCARD = "import.module.wildcard";
     public static final String IMPORT_RELATIVE_WILDCARD = "import.relative.wildcard";
 
+    // Test markers
+    public static final String TEST_MARKER = "test_marker";
+
     private PythonTreeSitterNodeTypes() {}
 }
