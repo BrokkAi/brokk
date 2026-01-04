@@ -12,6 +12,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.SpecialTextType;
@@ -781,6 +782,40 @@ public class CodeAgent {
                         new JavaPreLintFalsePositiveException(message), Map.of("sourcefile", pf.getFileName()));
             }
             logger.debug("Build verification succeeded");
+
+            var lastAiText = cs.taskMessages().isEmpty() ? ""
+                    : Messages.getText(cs.taskMessages().getLast());
+            var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
+            var filesInContext = context.fileFragments()
+                    .flatMap(f -> f.files().join().stream())
+                    .collect(Collectors.toSet());
+
+            var notInContext = Sets.difference(mentionedFiles, filesInContext);
+            if (!notInContext.isEmpty()) {
+                var quickModel = contextManager.getService().quickestModel();
+                var llm = contextManager.getLlm(quickModel, "Check if asking for files");
+
+                var filterDescription =
+                        "The agent is explicitly asking or suggesting that additional files need to be added to the workspace/context to complete the task";
+                boolean isAskingForFiles;
+                try {
+                    isAskingForFiles = RelevanceClassifier.isRelevant(llm, filterDescription, lastAiText);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+                }
+
+                if (isAskingForFiles) {
+                    var fileNames = notInContext.stream()
+                            .map(ProjectFile::getFileName)
+                            .collect(Collectors.joining(", "));
+                    reportComplete("Agent is requesting additional files: " + fileNames);
+                    return new Step.Fatal(new TaskResult.StopDetails(
+                            TaskResult.StopReason.LLM_ABORTED,
+                            "Agent requested additional files not in context: " + fileNames));
+                }
+            }
+
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
         } else {
