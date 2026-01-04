@@ -187,6 +187,9 @@ public final class HistoryIo {
                         }
                         case GROUP_INFO_FILENAME -> {
                             groupInfoDto = objectMapper.readValue(zis.readAllBytes(), GroupInfoDto.class);
+                            logger.debug("readZip: loaded group_info.json with {} context mappings, {} group labels",
+                                    groupInfoDto.contextToGroupId().size(),
+                                    groupInfoDto.groupLabels().size());
                         }
                         default -> {
                             if (entryName.startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
@@ -269,6 +272,7 @@ public final class HistoryIo {
             // First build the context via DtoMapper, then reconstruct to inject read-only fragment IDs
             Context built = DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache, contentReader);
             contexts.add(built);
+            logger.debug("readZip: loaded context id={}", built.id());
         }
 
         if (contexts.isEmpty()) {
@@ -287,6 +291,15 @@ public final class HistoryIo {
                     .contextToGroupId()
                     .forEach((ctxId, grpId) -> contextToGroupId.put(UUID.fromString(ctxId), UUID.fromString(grpId)));
             groupInfoDto.groupLabels().forEach((grpId, label) -> groupLabels.put(UUID.fromString(grpId), label));
+        }
+
+        logger.debug("readZip: contextToGroupId map has {} entries", contextToGroupId.size());
+        for (var entry : contextToGroupId.entrySet()) {
+            logger.debug("  context {} -> group {}", entry.getKey(), entry.getValue());
+        }
+        logger.debug("readZip: groupLabels map has {} entries", groupLabels.size());
+        for (var entry : groupLabels.entrySet()) {
+            logger.debug("  group {} -> label '{}'", entry.getKey(), entry.getValue());
         }
 
         return new ContextHistory(contexts, resetEdges, gitStates, entryInfos, contextToGroupId, groupLabels);
@@ -356,6 +369,7 @@ public final class HistoryIo {
 
         var contextsJsonlContent = new StringBuilder();
         for (Context ctx : ch.getHistory()) {
+            logger.debug("writeZip: serializing context id={}", ctx.id());
             var compactDto = DtoMapper.toCompactDto(ctx, writer);
             contextsJsonlContent
                     .append(objectMapper.writeValueAsString(compactDto))
@@ -391,6 +405,14 @@ public final class HistoryIo {
         Map<UUID, String> grpLabels = ch.getGroupLabels();
 
         var groupDto = DtoMapper.toGroupInfoDto(ctxToGrp, grpLabels);
+        logger.debug("writeZip: ctxToGrp map has {} entries", ctxToGrp.size());
+        for (var entry : ctxToGrp.entrySet()) {
+            logger.debug("  context {} -> group {}", entry.getKey(), entry.getValue());
+        }
+        logger.debug("writeZip: groupLabels map has {} entries", grpLabels.size());
+        for (var entry : grpLabels.entrySet()) {
+            logger.debug("  group {} -> label '{}'", entry.getKey(), entry.getValue());
+        }
         groupInfoBytes = objectMapper.writeValueAsBytes(groupDto);
 
         byte[] resetEdgesBytes = null;
