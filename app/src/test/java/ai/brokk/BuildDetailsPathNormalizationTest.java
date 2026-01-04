@@ -179,14 +179,14 @@ public class BuildDetailsPathNormalizationTest {
         // Case A: exclusion "/build"
         var detailsSlash = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("/build")));
         project.saveBuildDetails(detailsSlash);
-        var filteredSlash = project.applyFiltering(files);
+        var filteredSlash = project.filterExcludedFiles(files);
         assertTrue(filteredSlash.contains(pfSrc), "src/Main.java should remain");
         assertFalse(filteredSlash.contains(pfBuild), "build/Generated.java should be excluded by '/build'");
 
         // Case B: exclusion "build"
         var detailsNoSlash = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("build")));
         project.saveBuildDetails(detailsNoSlash);
-        var filteredNoSlash = project.applyFiltering(files);
+        var filteredNoSlash = project.filterExcludedFiles(files);
         assertTrue(filteredNoSlash.contains(pfSrc), "src/Main.java should remain");
         assertFalse(filteredNoSlash.contains(pfBuild), "build/Generated.java should be excluded by 'build'");
     }
@@ -226,7 +226,7 @@ public class BuildDetailsPathNormalizationTest {
         // Exclude "app/src/test/resources" - should exclude both files under it
         var details = new BuildAgent.BuildDetails("", "", "", new LinkedHashSet<>(List.of("app/src/test/resources")));
         project.saveBuildDetails(details);
-        var filtered = project.applyFiltering(files);
+        var filtered = project.filterExcludedFiles(files);
 
         assertTrue(filtered.contains(pfMain), "Main.java should remain");
         assertFalse(filtered.contains(pfResources), "test-data.json should be excluded by path prefix");

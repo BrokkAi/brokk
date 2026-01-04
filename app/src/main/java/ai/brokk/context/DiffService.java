@@ -6,6 +6,7 @@ import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.project.IProject;
 import ai.brokk.util.ContentDiffUtils;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -99,11 +100,16 @@ public final class DiffService {
     }
 
     @Blocking
-    private static boolean isNewInGit(ContextFragment fragment, IGitRepo repo, String revision) {
+    private static boolean isNewFragmentInteresting(ContextFragment fragment, IProject project, String revision) {
+        var interestingFiles = project.filterExcludedFiles(fragment.files().join());
+        if (interestingFiles.isEmpty()) {
+            return false;
+        }
+
         return fragment.files().join().stream().anyMatch(file -> {
             try {
                 // If getFileContent returns an empty string for the revision, the file is not yet committed.
-                return repo.getFileContent(revision, file).isEmpty();
+                return project.getFileContent(revision, file).isEmpty();
             } catch (GitAPIException e) {
                 // If an error occurs (e.g. GitAPIException), we treat it as not committed.
                 logger.warn("Failed to get content from {} for file {}: {}", revision, file, e.getMessage());
@@ -164,8 +170,8 @@ public final class DiffService {
                 return CompletableFuture.completedFuture(null);
             }
 
-            var repo = curr.getContextManager().getRepo();
-            if (!isNewInGit(thisFragment, repo, revision)) {
+            var project = curr.getContextManager().getProject();
+            if (!isNewFragmentInteresting(thisFragment, project, revision)) {
                 return CompletableFuture.completedFuture(null);
             }
         }

@@ -32,7 +32,6 @@ import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
     protected static final Logger logger = LogManager.getLogger(AbstractProject.class);
@@ -741,14 +740,13 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public final synchronized Set<ProjectFile> getAllFiles() {
         if (allFilesCache == null) {
-            allFilesCache = applyFiltering(getAllFilesRaw());
+            allFilesCache = filterExcludedFiles(getAllFilesRaw());
         }
         return allFilesCache;
     }
 
-    @VisibleForTesting
-    public Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
-        // Always apply baseline exclusions and file patterns, regardless of Git presence
+    @Override
+    public Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
         var buildDetails = loadBuildDetails();
         return fileFilteringService.filterFiles(files, buildDetails.exclusionPatterns());
     }
