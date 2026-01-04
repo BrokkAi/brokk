@@ -1520,16 +1520,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         TaskResult result;
         var title = task.title() == null ? task.text() : task.title();
-        try (var scope = beginTask(prompt, false, "Task: " + title)) {
+        try (var scope = beginTask(prompt, true, "Task: " + title)) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithScan();
 
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                 new GitWorkflow(this).performAutoCommit(prompt);
-                var compressed = compressHistory(result.context()); // synchronous
-                var ctx = markTaskDone(compressed, task);
+                var ctx = markTaskDone(result.context(), task);
                 result = result.withContext(ctx);
-                pushContext(currentLiveCtx -> ctx);
+                scope.append(result);
             }
         } finally {
             // mirror panel behavior
