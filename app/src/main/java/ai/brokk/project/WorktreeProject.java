@@ -3,6 +3,7 @@ package ai.brokk.project;
 import ai.brokk.AbstractService;
 import ai.brokk.IssueProvider;
 import ai.brokk.SessionManager;
+import ai.brokk.SessionRegistry;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.mcp.McpConfig;
@@ -194,6 +195,16 @@ public final class WorktreeProject extends AbstractProject {
     @Override
     public SessionManager getSessionManager() {
         return parent.getSessionManager();
+    }
+
+    @Override
+    public SessionRegistry getSessionRegistry() {
+        return parent.getSessionRegistry();
+    }
+
+    @Override
+    public String getRemoteProjectName() {
+        return parent.getRemoteProjectName();
     }
 
     @Override

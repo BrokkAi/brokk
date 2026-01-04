@@ -1143,6 +1143,20 @@ public class Brokk {
     }
 
     /**
+     * Returns all Chrome windows associated with a project (the main project window plus all worktree windows).
+     */
+    public static List<Chrome> getProjectAndWorktreeChromes(IProject project) {
+        var mainProject = project.getMainProject();
+        var allChromes = new ArrayList<Chrome>();
+        var mainChrome = findOpenProjectWindow(mainProject.getRoot());
+        if (mainChrome != null) {
+            allChromes.add(mainChrome);
+        }
+        allChromes.addAll(getWorktreeChromes(mainProject));
+        return allChromes;
+    }
+
+    /**
      * Gracefully exit the application: - request each open project's ContextManager to close with a timeout - wait for
      * all closes to complete - then terminate the JVM
      */

@@ -4,7 +4,6 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.SessionRegistry;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
@@ -636,8 +635,11 @@ public class SessionsDialog extends BaseThemedDialog {
                     JOptionPane.WARNING_MESSAGE);
             if (confirm == JOptionPane.YES_OPTION) {
                 var partitionedSessions = selectedSessions.stream()
-                        .collect(Collectors.partitioningBy(s -> SessionRegistry.isSessionActiveElsewhere(
-                                contextManager.getProject().getRoot(), s.id())));
+                        .collect(Collectors.partitioningBy(s -> contextManager
+                                .getProject()
+                                .getSessionRegistry()
+                                .isSessionActiveElsewhere(
+                                        contextManager.getProject().getRoot(), s.id())));
                 // partitioning by boolean always returns mappings for both true and false keys
                 var activeSessions = castNonNull(partitionedSessions.get(true));
                 var deletableSessions = castNonNull(partitionedSessions.get(false));
