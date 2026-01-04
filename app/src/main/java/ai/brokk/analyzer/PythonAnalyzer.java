@@ -20,6 +20,7 @@ import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterPython;
 
 public final class PythonAnalyzer extends TreeSitterAnalyzer {
@@ -360,6 +361,96 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return ""; // Python uses indentation, no explicit closer for classes/functions
     }
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        var query = getThreadLocalQuery();
+        var cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+
+        var match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (var cap : match.getCaptures()) {
+                String captureName = query.getCaptureNameForId(cap.getIndex());
+                if (!TEST_MARKER.equals(captureName)) {
+                    continue;
+                }
+
+                TSNode node = cap.getNode();
+                if (node == null || node.isNull()) {
+                    continue;
+                }
+
+                // Case A: Function name starting with test_
+                if (node.getType().equals("identifier")) {
+                    TSNode parent = node.getParent();
+                    if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
+                        TSNode nameNode = parent.getChildByFieldName("name");
+                        if (nameNode != null && nameNode.getStartByte() == node.getStartByte()
+                                && nameNode.getEndByte() == node.getEndByte()) {
+                            String text = sourceContent.substringFrom(node);
+                            if (text.startsWith("test_")) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+
+                // Case B: Pytest marks
+                if (node.getType().equals(DECORATOR)) {
+                    if (isPytestMark(node, sourceContent)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean isPytestMark(TSNode decoratorNode, SourceContent sourceContent) {
+        // decorator -> expression (named child 0)
+        TSNode expression = decoratorNode.getNamedChild(0);
+        if (expression == null || expression.isNull()) {
+            return false;
+        }
+
+        TSNode target = expression;
+        // If it's a call (e.g. @pytest.mark.parametrize(...)), unwrap to the callee
+        if ("call".equals(target.getType())) {
+            target = target.getChildByFieldName("function");
+        }
+
+        if (target == null || target.isNull()) {
+            return false;
+        }
+
+        // Try AST navigation for attribute segments
+        List<String> segments = new ArrayList<>();
+        TSNode current = target;
+        while (current != null && !current.isNull()) {
+            if (ATTRIBUTE.equals(current.getType())) {
+                TSNode attributeNameNode = current.getChildByFieldName("attribute");
+                if (attributeNameNode != null) {
+                    segments.add(0, sourceContent.substringFrom(attributeNameNode));
+                }
+                current = current.getChildByFieldName("object");
+            } else if ("identifier".equals(current.getType())) {
+                segments.add(0, sourceContent.substringFrom(current));
+                break;
+            } else {
+                break;
+            }
+        }
+
+        if (segments.size() >= 2 && "pytest".equals(segments.get(0)) && "mark".equals(segments.get(1))) {
+            return true;
+        }
+
+        // Fallback: minimal string check on the sliced expression
+        String expressionText = sourceContent.substringFrom(expression);
+        return expressionText.startsWith("pytest.mark");
+    }
+
     /**
      * Determines the package name for a Python file based on its directory structure
      * and __init__.py markers.
