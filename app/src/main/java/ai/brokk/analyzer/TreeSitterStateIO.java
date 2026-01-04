@@ -240,7 +240,10 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
-            List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, Set<CodeUnitDto> resolvedImports) {}
+            List<CodeUnitDto> topLevelCodeUnits,
+            List<String> importStatements,
+            Set<CodeUnitDto> resolvedImports,
+            boolean containsTests) {}
 
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
@@ -350,7 +353,8 @@ public final class TreeSitterStateIO {
                     Math.max(16, fileProps.resolvedImports().size()));
             for (var cu : fileProps.resolvedImports()) resolvedDtos.add(toDto(cu));
 
-            var fpDto = new FilePropertiesDto(topLevelDtos, fileProps.importStatements(), resolvedDtos);
+            var fpDto = new FilePropertiesDto(
+                    topLevelDtos, fileProps.importStatements(), resolvedDtos, fileProps.containsTests());
             fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
         }
 
@@ -400,7 +404,7 @@ public final class TreeSitterStateIO {
                     null, // parsedTree intentionally omitted
                     v.importStatements(),
                     resolved,
-                    false);
+                    v.containsTests());
             fileStateMap.put(fromDto(entry.key()), fp);
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
