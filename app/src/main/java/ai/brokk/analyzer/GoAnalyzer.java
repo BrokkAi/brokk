@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -438,9 +437,6 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         return ClassNameExtractor.extractForGo(reference);
     }
 
-    private static final Pattern GO_TEST_SIG_PATTERN = Pattern.compile(
-            "\\bfunc\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\s+\\*?\\s*testing\\.T\\s*\\)");
-
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         TSQuery query = getThreadLocalQuery();
@@ -449,21 +445,59 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         TSQueryMatch match = new TSQueryMatch();
 
         while (cursor.nextMatch(match)) {
+            Map<String, TSNode> localCaptures = new HashMap<>();
             for (TSQueryCapture capture : match.getCaptures()) {
-                if (TEST_MARKER.equals(query.getCaptureNameForId(capture.getIndex()))) {
-                    TSNode node = capture.getNode();
-                    if (node == null || node.isNull()) continue;
+                localCaptures.put(query.getCaptureNameForId(capture.getIndex()), capture.getNode());
+            }
 
-                    // Extract the signature area. 300 bytes is plenty for a func declaration line.
-                    String snippet = sourceContent.substringFromBytes(
-                            node.getStartByte(), Math.min(node.getEndByte(), node.getStartByte() + 300));
+            if (!localCaptures.containsKey(TEST_MARKER)) {
+                continue;
+            }
 
-                    var matcher = GO_TEST_SIG_PATTERN.matcher(snippet);
-                    if (matcher.find()) {
-                        String funcName = matcher.group(1);
-                        if (funcName != null && funcName.startsWith("Test")) {
-                            return true;
+            TSNode nameNode = localCaptures.get("test_candidate.name");
+            TSNode paramsNode = localCaptures.get("test_candidate.params");
+
+            if (nameNode == null || paramsNode == null) {
+                continue;
+            }
+
+            // 1. Check function name starts with "Test"
+            String funcName = sourceContent.substringFrom(nameNode).trim();
+            if (!funcName.startsWith("Test")) {
+                continue;
+            }
+
+            // 2. Inspect parameters: must have exactly one parameter of type testing.T or *testing.T
+            int paramCount = 0;
+            TSNode singleParamDecl = null;
+            for (int i = 0; i < paramsNode.getNamedChildCount(); i++) {
+                TSNode child = paramsNode.getNamedChild(i);
+                if ("parameter_declaration".equals(child.getType())) {
+                    paramCount++;
+                    singleParamDecl = child;
+                }
+            }
+
+            if (paramCount == 1 && singleParamDecl != null) {
+                TSNode typeNode = singleParamDecl.getChildByFieldName("type");
+                // Fallback for types without field name (depending on TS version/grammar)
+                if (typeNode == null || typeNode.isNull()) {
+                    for (int i = 0; i < singleParamDecl.getNamedChildCount(); i++) {
+                        TSNode child = singleParamDecl.getNamedChild(i);
+                        String type = child.getType();
+                        if ("pointer_type".equals(type)
+                                || "qualified_type".equals(type)
+                                || "type_identifier".equals(type)) {
+                            typeNode = child;
+                            break;
                         }
+                    }
+                }
+
+                if (typeNode != null && !typeNode.isNull()) {
+                    String typeText = sourceContent.substringFrom(typeNode).trim();
+                    if ("testing.T".equals(typeText) || "*testing.T".equals(typeText)) {
+                        return true;
                     }
                 }
             }
