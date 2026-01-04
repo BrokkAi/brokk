@@ -70,28 +70,17 @@ public class ContextHistory {
         this.diffService = new DiffService(this);
     }
 
-    public ContextHistory(List<Context> contexts) {
+    ContextHistory(List<Context> contexts) {
         this(contexts, List.of(), Map.of(), Map.of(), Map.of(), Map.of());
     }
 
-    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
-        this(contexts, resetEdges, Map.of(), Map.of(), Map.of(), Map.of());
-    }
-
+    // for v3 migration
     public ContextHistory(
             List<Context> contexts,
             List<ResetEdge> resetEdges,
             Map<UUID, GitState> gitStates,
             Map<UUID, ContextHistoryEntryInfo> entryInfos) {
         this(contexts, resetEdges, gitStates, entryInfos, Map.of(), Map.of());
-    }
-
-    private synchronized void replaceTopInternal(Context newLive) {
-        assert !history.isEmpty() : "Cannot replace top context in empty history";
-        history.removeLast();
-        history.addLast(newLive);
-        redo.clear();
-        selected = newLive;
     }
 
     public ContextHistory(
@@ -112,6 +101,14 @@ public class ContextHistory {
         this.groupLabels.putAll(groupLabels);
         selected = history.peekLast();
         this.diffService = new DiffService(this);
+    }
+
+    private synchronized void replaceTopInternal(Context newLive) {
+        assert !history.isEmpty() : "Cannot replace top context in empty history";
+        history.removeLast();
+        history.addLast(newLive);
+        redo.clear();
+        selected = newLive;
     }
 
     /* ───────────────────────── public API ─────────────────────────── */

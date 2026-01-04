@@ -2284,7 +2284,8 @@ public class ContextSerializationTest {
         assertEquals(ctx2Id, loaded.getHistory().get(1).id(), "Context ID should be preserved");
 
         // Verify group mapping
-        assertEquals(groupId, loaded.getGroupId(ctx2Id), "Group ID should be preserved after round-trip with task history");
+        assertEquals(
+                groupId, loaded.getGroupId(ctx2Id), "Group ID should be preserved after round-trip with task history");
         assertEquals("Task Group", loaded.getGroupLabels().get(groupId));
     }
 

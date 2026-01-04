@@ -189,7 +189,8 @@ public final class HistoryIo {
                         }
                         case GROUP_INFO_FILENAME -> {
                             groupInfoDto = objectMapper.readValue(zis.readAllBytes(), GroupInfoDto.class);
-                            logger.debug("loaded group_info.json with {} context mappings, {} group labels",
+                            logger.debug(
+                                    "loaded group_info.json with {} context mappings, {} group labels",
                                     groupInfoDto.contextToGroupId().size(),
                                     groupInfoDto.groupLabels().size());
                         }
@@ -305,9 +306,7 @@ public final class HistoryIo {
         }
 
         // Validate that all context IDs in group mappings exist in loaded contexts
-        var loadedContextIds = contexts.stream()
-                .map(Context::id)
-                .collect(Collectors.toSet());
+        var loadedContextIds = contexts.stream().map(Context::id).collect(Collectors.toSet());
         for (var ctxId : contextToGroupId.keySet()) {
             if (!loadedContextIds.contains(ctxId)) {
                 logger.warn("context {} in group mapping not found in loaded contexts!", ctxId);
@@ -439,9 +438,7 @@ public final class HistoryIo {
         }
 
         // Validate that all context IDs in group mappings exist in the history
-        var historyContextIds = ch.getHistory().stream()
-                .map(Context::id)
-                .collect(Collectors.toSet());
+        var historyContextIds = ch.getHistory().stream().map(Context::id).collect(Collectors.toSet());
         for (var ctxId : ctxToGrp.keySet()) {
             if (!historyContextIds.contains(ctxId)) {
                 logger.warn("writeZip: context {} in group mapping not found in history!", ctxId);
