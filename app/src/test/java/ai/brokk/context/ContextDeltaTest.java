@@ -174,7 +174,7 @@ class ContextDeltaTest {
 
         var delta = ContextDelta.between(ctx1, ctx2).join();
 
-        assertTrue(delta.contentsChanged());
+        assertFalse(delta.modifiedFragments().isEmpty());
     }
 
     @Test
@@ -454,7 +454,7 @@ class ContextDeltaTest {
 
         var delta = ContextDelta.between(ctx1, ctx2).join();
 
-        assertFalse(delta.contentsChanged(), "Content should not be marked as changed when text is identical");
+        assertTrue(delta.modifiedFragments().isEmpty());
         assertTrue(delta.addedFragments().isEmpty(), "Same source should not appear as added");
         assertTrue(delta.removedFragments().isEmpty(), "Same source should not appear as removed");
     }
