@@ -352,6 +352,74 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        TSQuery query = getThreadLocalQuery();
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+        TSQueryMatch match = new TSQueryMatch();
+
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String captureName = query.getCaptureNameForId(capture.getIndex());
+                if (!TEST_MARKER.equals(captureName)) {
+                    continue;
+                }
+
+                TSNode node = capture.getNode();
+                if (node == null || node.isNull()) {
+                    continue;
+                }
+
+                String nodeType = node.getType();
+
+                // Name-based detection: @test_marker is captured on the function/method name node.
+                if ("name".equals(nodeType)) {
+                    TSNode parent = node.getParent();
+                    if (parent == null || parent.isNull()) {
+                        continue;
+                    }
+
+                    String parentType = parent.getType();
+                    if (!FUNCTION_DEFINITION.equals(parentType) && !METHOD_DECLARATION.equals(parentType)) {
+                        continue;
+                    }
+
+                    String nameText = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                    if (nameText.startsWith("test")) {
+                        return true;
+                    }
+                    continue;
+                }
+
+                // Docblock/Comment-based detection: @test_marker is also captured on comment nodes.
+                if ("comment".equals(nodeType)) {
+                    String commentText = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                    if (!commentText.contains("@test")) {
+                        continue;
+                    }
+
+                    // Prefer AST adjacency: treat the comment as "belonging to" the next declaration sibling.
+                    TSNode next = node.getNextSibling();
+                    while (next != null && !next.isNull() && isWhitespaceOnlyNode(next)) {
+                        next = next.getNextSibling();
+                    }
+
+                    if (next == null || next.isNull()) {
+                        continue;
+                    }
+
+                    String nextType = next.getType();
+                    if (FUNCTION_DEFINITION.equals(nextType) || METHOD_DECLARATION.equals(nextType)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForPhp(reference);
     }
