@@ -187,6 +187,11 @@ public interface IProject extends AutoCloseable {
         return null;
     }
 
+    /** Returns true if the user has explicitly configured a JDK override in this workspace. */
+    default boolean hasJdkOverride() {
+        return false;
+    }
+
     default void setJdk(@Nullable String jdkHome) {}
 
     default Rectangle getPreviewWindowBounds() {

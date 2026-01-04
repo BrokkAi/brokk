@@ -15,7 +15,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Legacy file watching implementation using Java's WatchService API.
+ * File watching implementation using Java's WatchService API.
  *
  * This implementation requires registering every directory individually, which can
  * lead to high file descriptor usage on large projects (especially with node_modules,
@@ -24,9 +24,9 @@ import org.jetbrains.annotations.Nullable;
  * For new code, consider using NativeProjectWatchService which uses platform-native
  * recursive watching APIs (FSEvents on macOS, optimized inotify on Linux).
  */
-public class LegacyProjectWatchService implements IWatchService {
+public class JavaProjectWatchService implements IWatchService {
 
-    private final Logger logger = LogManager.getLogger(LegacyProjectWatchService.class);
+    private final Logger logger = LogManager.getLogger(JavaProjectWatchService.class);
 
     private static final long DEBOUNCE_DELAY_MS = 500;
     private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
@@ -55,7 +55,7 @@ public class LegacyProjectWatchService implements IWatchService {
      * Create a LegacyProjectWatchService with multiple listeners.
      * All registered listeners will be notified of file system events.
      */
-    public LegacyProjectWatchService(
+    public JavaProjectWatchService(
             Path root, @Nullable Path gitRepoRoot, @Nullable Path globalGitignorePath, List<Listener> listeners) {
         this.root = root;
         this.gitRepoRoot = gitRepoRoot;

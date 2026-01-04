@@ -7,13 +7,16 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.AtomicWrites;
+import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import org.eclipse.jgit.api.Git;
@@ -195,6 +198,55 @@ public class BuildDetailsPathNormalizationTest {
      * Verify that path-based exclusion patterns (containing /) match both the directory
      * and all files/subdirectories underneath it.
      */
+    @Test
+    void testJavaHomeMigrationAndNonPersistence(@TempDir Path root) throws Exception {
+        // 1. Arrange: Write .brokk/project.properties with JAVA_HOME in buildDetailsJson
+        Path propsFile = brokkProps(root);
+        Files.createDirectories(propsFile.getParent());
+
+        String jdkPath = root.resolve("mock-jdk").toString();
+        Map<String, String> envVars = new HashMap<>();
+        envVars.put("JAVA_HOME", jdkPath);
+        envVars.put("OTHER_VAR", "value");
+
+        BuildAgent.BuildDetails legacyDetails =
+                new BuildAgent.BuildDetails("mvn compile", "mvn test", "", Set.of(), envVars);
+
+        Properties projectProps = new Properties();
+        projectProps.setProperty("buildDetailsJson", MAPPER.writeValueAsString(legacyDetails));
+        AtomicWrites.atomicSaveProperties(propsFile, projectProps, "migration test");
+
+        // 2. Act: Load details via MainProject
+        MainProject project = new MainProject(root);
+        BuildAgent.BuildDetails loadedDetails = project.loadBuildDetails();
+
+        // 3. Assert: .brokk/workspace.properties now contains jdk.home
+        Path workspacePropsFile = root.resolve(".brokk/workspace.properties");
+        assertTrue(Files.exists(workspacePropsFile), "workspace.properties should be created");
+        Properties wsProps = loadProps(workspacePropsFile);
+        String expectedJdkHome = PathNormalizer.canonicalizeEnvPathValue(jdkPath);
+        assertEquals(
+                expectedJdkHome,
+                wsProps.getProperty("jdk.home"),
+                "jdk.home should be migrated to workspace.properties");
+
+        // 4. Assert: Loaded details do NOT contain JAVA_HOME in environmentVariables map
+        assertFalse(
+                loadedDetails.environmentVariables().containsKey("JAVA_HOME"),
+                "Loaded details should strip JAVA_HOME from environmentVariables");
+        assertEquals("value", loadedDetails.environmentVariables().get("OTHER_VAR"));
+
+        // 5. Act: Save details
+        project.saveBuildDetails(loadedDetails);
+
+        // 6. Assert: .brokk/project.properties rewritten without JAVA_HOME in buildDetailsJson
+        Properties updatedProjectProps = loadProps(propsFile);
+        BuildAgent.BuildDetails persistedDetails = parseDetailsFromProps(updatedProjectProps);
+        assertFalse(
+                persistedDetails.environmentVariables().containsKey("JAVA_HOME"),
+                "Persisted JSON should not contain JAVA_HOME");
+    }
+
     @Test
     void testApplyFiltering_pathPrefixMatchesSubdirectories(@TempDir Path root) throws Exception {
         // Initialize a real Git repo so filtering path is exercised

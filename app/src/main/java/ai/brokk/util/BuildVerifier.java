@@ -4,6 +4,7 @@ import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -64,7 +65,7 @@ public final class BuildVerifier {
 
         ExecutorConfig execCfg = ExecutorConfig.fromProject(project);
         Path root = project.getRoot();
-        Map<String, String> env = extraEnv == null || extraEnv.isEmpty() ? Map.of() : extraEnv;
+        Map<String, String> env = buildEnvironmentForCommand(project, extraEnv);
 
         Deque<String> lines = new ArrayDeque<>(MAX_OUTPUT_LINES);
 
@@ -133,6 +134,35 @@ public final class BuildVerifier {
 
     private static String joinLines(Deque<String> lines) {
         return lines.stream().collect(Collectors.joining("\n"));
+    }
+
+    static Map<String, String> buildEnvironmentForCommand(IProject project, @Nullable Map<String, String> extraEnv) {
+        Map<String, String> env = extraEnv == null || extraEnv.isEmpty() ? new HashMap<>() : new HashMap<>(extraEnv);
+
+        String jdkSetting = project.getJdk();
+        if (jdkSetting == null || jdkSetting.isBlank() || EnvironmentJava.JAVA_HOME_SENTINEL.equals(jdkSetting)) {
+            return env;
+        }
+
+        try {
+            Path jdkPath = Path.of(jdkSetting);
+            if (!jdkPath.isAbsolute()) {
+                logger.debug(
+                        "Project JDK setting '{}' is not an absolute path; skipping JAVA_HOME injection.", jdkSetting);
+                return env;
+            }
+
+            if (ai.brokk.gui.dialogs.JdkSelector.validateJdkPath(jdkPath) == null) {
+                env.put("JAVA_HOME", jdkPath.toString());
+            } else {
+                logger.debug(
+                        "Project JDK setting '{}' is not a valid JDK home; skipping JAVA_HOME injection.", jdkPath);
+            }
+        } catch (Exception e) {
+            logger.debug("Project JDK setting '{}' is an invalid path: {}", jdkSetting, e.getMessage());
+        }
+
+        return env;
     }
 
     // Private helper to bound output to last MAX_OUTPUT_LINES

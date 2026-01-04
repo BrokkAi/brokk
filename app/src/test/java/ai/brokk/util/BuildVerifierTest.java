@@ -3,6 +3,8 @@ package ai.brokk.util;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.project.IProject;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.function.BiFunction;
@@ -107,15 +109,108 @@ class BuildVerifierTest {
         assertEquals(0, result.exitCode());
     }
 
-    private IProject createTestProject() {
-        return new IProject() {
-            @Override
-            public Path getRoot() {
-                return tempDir;
-            }
+    @Test
+    void testBuildEnvironmentJdkSentinel() {
+        var project = new TestProjectWrapper(tempDir, EnvironmentJava.JAVA_HOME_SENTINEL);
+        var env = BuildVerifier.buildEnvironmentForCommand(project, Map.of("FOO", "BAR"));
+        assertFalse(env.containsKey("JAVA_HOME"));
+        assertEquals("BAR", env.get("FOO"));
+    }
 
-            @Override
-            public void close() {}
-        };
+    @Test
+    void testBuildEnvironmentRelativeJdkPath() throws IOException {
+        Path jdkDir = tempDir.resolve("jdks/myjdk");
+        createFakeJdkHome(jdkDir);
+
+        // Relative paths should no longer be resolved against project root
+        var project = new TestProjectWrapper(tempDir, "jdks/myjdk");
+        var env = BuildVerifier.buildEnvironmentForCommand(project, null);
+
+        assertFalse(env.containsKey("JAVA_HOME"));
+    }
+
+    @Test
+    void testBuildEnvironmentInvalidJdkPath() throws IOException {
+        Path notAJdk = tempDir.resolve("not-a-jdk").toAbsolutePath();
+        Files.createDirectories(notAJdk);
+
+        var project = new TestProjectWrapper(tempDir, notAJdk.toString());
+        var env = BuildVerifier.buildEnvironmentForCommand(project, null);
+
+        assertFalse(env.containsKey("JAVA_HOME"));
+    }
+
+    @Test
+    void testBuildEnvironmentMacOsBundle() throws IOException {
+        Path bundleDir = tempDir.resolve("JavaApp.jdk").toAbsolutePath();
+        Path homeDir = bundleDir.resolve("Contents/Home");
+        createFakeJdkHome(homeDir);
+
+        // BuildVerifier uses the JDK setting "as-is". If validation accepts a bundle root as a JDK,
+        // then JAVA_HOME should be injected with that exact path (no Contents/Home normalization here).
+        var project = new TestProjectWrapper(tempDir, bundleDir.toString());
+        var env = BuildVerifier.buildEnvironmentForCommand(project, null);
+        assertEquals(bundleDir.toString(), env.get("JAVA_HOME"));
+
+        // Passing the explicit home path should also work
+        var projectHome = new TestProjectWrapper(tempDir, homeDir.toString());
+        var envHome = BuildVerifier.buildEnvironmentForCommand(projectHome, null);
+        assertEquals(homeDir.toString(), envHome.get("JAVA_HOME"));
+    }
+
+    private static void createFakeJdkHome(Path homeDir) throws IOException {
+        Files.createDirectories(homeDir);
+
+        Files.createDirectories(homeDir.resolve("bin"));
+        Path java = homeDir.resolve("bin").resolve(Environment.exeName("java"));
+        Path javac = homeDir.resolve("bin").resolve(Environment.exeName("javac"));
+        if (!Files.exists(java)) {
+            Files.writeString(java, "fake");
+        }
+        if (!Files.exists(javac)) {
+            Files.writeString(javac, "fake");
+        }
+        java.toFile().setExecutable(true);
+        javac.toFile().setExecutable(true);
+
+        // Common markers used by various JDK validators.
+        Path release = homeDir.resolve("release");
+        if (!Files.exists(release)) {
+            Files.writeString(release, "JAVA_VERSION=\"21\"\n");
+        }
+
+        Path jmodsDir = homeDir.resolve("jmods");
+        Files.createDirectories(jmodsDir);
+        Path javaBaseJmod = jmodsDir.resolve("java.base.jmod");
+        if (!Files.exists(javaBaseJmod)) {
+            Files.writeString(javaBaseJmod, "fake");
+        }
+    }
+
+    private IProject createTestProject() {
+        return new TestProjectWrapper(tempDir, null);
+    }
+
+    private static class TestProjectWrapper implements IProject {
+        private final Path root;
+        private final String jdk;
+
+        TestProjectWrapper(Path root, String jdk) {
+            this.root = root;
+            this.jdk = jdk;
+        }
+
+        @Override
+        public Path getRoot() {
+            return root;
+        }
+
+        @Override
+        public String getJdk() {
+            return jdk;
+        }
+
+        @Override
+        public void close() {}
     }
 }

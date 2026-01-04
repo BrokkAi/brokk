@@ -447,10 +447,15 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     public @Nullable String getJdk() {
         var value = workspaceProps.getProperty(PROP_JDK_HOME);
         if (value == null || value.isBlank()) {
-            value = EnvironmentJava.detectJdk();
-            setJdk(value);
+            return EnvironmentJava.detectJdk();
         }
         return value;
+    }
+
+    @Override
+    public boolean hasJdkOverride() {
+        var value = workspaceProps.getProperty(PROP_JDK_HOME);
+        return value != null && !value.isBlank();
     }
 
     @Override

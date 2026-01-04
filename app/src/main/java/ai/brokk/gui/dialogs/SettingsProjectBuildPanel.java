@@ -9,13 +9,10 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
-import ai.brokk.util.BuildVerifier;
-import ai.brokk.util.Environment;
-import ai.brokk.util.ExecutorConfig;
-import ai.brokk.util.ExecutorValidator;
-import ai.brokk.util.PathNormalizer;
+import ai.brokk.util.*;
 import com.google.common.io.Files;
 import java.awt.*;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.Objects;
@@ -474,12 +471,13 @@ public class SettingsProjectBuildPanel extends JPanel {
             @Override
             protected String doInBackground() {
 
+                var envVars = computeEnvFromUi();
+
                 // Step 1: Build/Lint command
                 String buildCmd = buildCleanCommandField.getText().trim();
                 if (!buildCmd.isEmpty()) {
                     publish("--- Verifying Build/Lint Command ---\n");
                     publish("$ " + buildCmd + "\n");
-                    var envVars = computeEnvFromUi();
                     var result =
                             BuildVerifier.verifyStreaming(project, buildCmd, envVars, line -> publish(line + "\n"));
                     if (result.success()) {
@@ -498,7 +496,6 @@ public class SettingsProjectBuildPanel extends JPanel {
                 if (!testAllCmd.isEmpty()) {
                     publish("--- Verifying Test All Command ---\n");
                     publish("$ " + testAllCmd + "\n");
-                    var envVars = computeEnvFromUi();
                     var result =
                             BuildVerifier.verifyStreaming(project, testAllCmd, envVars, line -> publish(line + "\n"));
                     if (result.success()) {
@@ -544,7 +541,6 @@ public class SettingsProjectBuildPanel extends JPanel {
                     }
 
                     publish("$ " + interpolatedCmd + "\n");
-                    var envVars = computeEnvFromUi();
                     var result = BuildVerifier.verifyStreaming(
                             project, interpolatedCmd, envVars, line -> publish(line + "\n"));
                     if (result.success()) {
@@ -776,16 +772,10 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         // Build environment variables map
         var envVars = new HashMap<>(baseDetails.environmentVariables());
+        // JAVA_HOME is now managed via project.setJdk() and stored in workspace.properties
         envVars.remove("JAVA_HOME");
         envVars.remove("VIRTUAL_ENV");
-        if (selectedPrimaryLang == Languages.JAVA) {
-            if (setJavaHomeCheckbox.isSelected()) {
-                var selPath = jdkSelector.getSelectedJdkPath();
-                if (selPath != null && !selPath.isBlank()) {
-                    envVars.put("JAVA_HOME", PathNormalizer.canonicalizeEnvPathValue(selPath));
-                }
-            }
-        } else if (selectedPrimaryLang == Languages.PYTHON) {
+        if (selectedPrimaryLang == Languages.PYTHON) {
             envVars.put("VIRTUAL_ENV", ".venv");
         }
 
@@ -818,6 +808,31 @@ public class SettingsProjectBuildPanel extends JPanel {
         }
 
         // JDK Controls (only for Java)
+        if (selectedPrimaryLang == Languages.JAVA) {
+            if (setJavaHomeCheckbox.isSelected()) {
+                String rawPath = jdkSelector.getSelectedJdkPath();
+                if (rawPath == null || rawPath.isBlank()) {
+                    JOptionPane.showMessageDialog(
+                            this, "Please select a valid JDK path.", "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+
+                String normalizedPath = normalizeJdkPath(rawPath);
+                Path path = Path.of(normalizedPath);
+                String error = JdkSelector.validateJdkPath(path);
+                if (error != null) {
+                    JOptionPane.showMessageDialog(this, error, "Invalid JDK Path", JOptionPane.ERROR_MESSAGE);
+                    return false;
+                }
+
+                project.setJdk(normalizedPath);
+                logger.debug("Applied JDK Home: {}", normalizedPath);
+            } else {
+                project.setJdk(null);
+                logger.debug("Removed JDK Home override");
+            }
+        }
+
         if (selectedPrimaryLang != null && selectedPrimaryLang != project.getBuildLanguage()) {
             project.setBuildLanguage(selectedPrimaryLang);
             logger.debug("Applied Primary Language: {}", selectedPrimaryLang);
@@ -851,19 +866,13 @@ public class SettingsProjectBuildPanel extends JPanel {
     }
 
     private void populateJdkControlsFromProject() {
-        project.getBuildDetailsFuture().thenAccept(details -> {
-            SwingUtilities.invokeLater(() -> {
-                var env = details.environmentVariables();
-                String desired = env.get("JAVA_HOME");
+        String effectiveJdk = project.getJdk();
+        boolean hasOverride = project.hasJdkOverride();
 
-                boolean useCustomJdk = desired != null && !desired.isBlank();
-                setJavaHomeCheckbox.setSelected(useCustomJdk);
-                jdkSelector.setEnabled(useCustomJdk);
-
-                // Always populate the selector; it will select 'desired' if provided
-                jdkSelector.loadJdksAsync(desired);
-            });
-        });
+        setJavaHomeCheckbox.setSelected(hasOverride);
+        jdkSelector.setEnabled(hasOverride);
+        // Show the effective JDK (detected or explicit) in the selector
+        jdkSelector.loadJdksAsync(effectiveJdk);
     }
 
     private void updateJdkControlsVisibility(@Nullable Language selected) {
@@ -875,10 +884,16 @@ public class SettingsProjectBuildPanel extends JPanel {
     private Map<String, String> computeEnvFromUi() {
         var env = new HashMap<String, String>();
         var selected = (Language) primaryLanguageComboBox.getSelectedItem();
-        if (selected == Languages.JAVA && setJavaHomeCheckbox.isSelected()) {
-            String sel = jdkSelector.getSelectedJdkPath();
-            if (sel != null && !sel.isBlank()) {
-                env.put("JAVA_HOME", sel);
+        if (selected == Languages.JAVA) {
+            if (setJavaHomeCheckbox.isSelected()) {
+                String sel = jdkSelector.getSelectedJdkPath();
+                if (sel != null && !sel.isBlank()) {
+                    env.put("JAVA_HOME", normalizeJdkPath(sel));
+                }
+            } else {
+                // If checkbox is NOT selected, we explicitly pass the sentinel to prevent
+                // BuildVerifier from falling back to project.getJdk()
+                env.put("JAVA_HOME", EnvironmentJava.JAVA_HOME_SENTINEL);
             }
         }
         if (selected == Languages.PYTHON) {
@@ -1018,6 +1033,28 @@ public class SettingsProjectBuildPanel extends JPanel {
             }
         };
         worker.execute();
+    }
+
+    /**
+     * Normalizes a JDK path: canonicalizes environment path strings and
+     * resolves macOS "Contents/Home" if pointing to a bundle root.
+     */
+    static String normalizeJdkPath(String rawPath) {
+        String canonical = PathNormalizer.canonicalizeEnvPathValue(rawPath);
+        if (canonical.isEmpty()) return "";
+
+        try {
+            Path path = Path.of(canonical);
+            // On macOS, if the selected path is a bundle root, use Contents/Home instead
+            Path contentsHome = path.resolve("Contents").resolve("Home");
+            if (JdkSelector.validateJdkPath(contentsHome) == null) {
+                return PathNormalizer.canonicalizeEnvPathValue(contentsHome.toString());
+            }
+        } catch (Exception e) {
+            logger.debug("Error during JDK path normalization for {}: {}", rawPath, e.getMessage());
+        }
+
+        return canonical;
     }
 
     private void showBuildAgentCancelledNotification() {

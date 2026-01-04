@@ -29,7 +29,7 @@ class AnalyzerWrapperTest {
 
     private Path tempDir;
     private AnalyzerWrapper analyzerWrapper;
-    private LegacyProjectWatchService watchService;
+    private JavaProjectWatchService watchService;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -61,7 +61,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new JavaProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper with injected watch service
         var listener = new TestAnalyzerListener();
@@ -88,7 +88,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service with no initial listeners
-        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new JavaProjectWatchService(projectRoot, null, null, List.of());
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Give watcher time to initialize
@@ -125,7 +125,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new JavaProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
@@ -147,7 +147,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new JavaProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, new TestAnalyzerListener(), watchService);
@@ -180,7 +180,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new JavaProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
@@ -238,7 +238,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create watch service
-        watchService = new LegacyProjectWatchService(projectRoot, null, null, List.of());
+        watchService = new JavaProjectWatchService(projectRoot, null, null, List.of());
 
         // Create AnalyzerWrapper
         analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), watchService);
