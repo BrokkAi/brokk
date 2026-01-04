@@ -373,7 +373,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 String nodeType = node.getType();
 
                 // Name-based detection: @test_marker is captured on the function/method name node.
-                if ("name".equals(nodeType)) {
+                if (NAME.equals(nodeType)) {
                     TSNode parent = node.getParent();
                     if (parent == null || parent.isNull()) {
                         continue;
@@ -392,9 +392,9 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                 }
 
                 // Docblock/Comment-based detection: @test_marker is also captured on comment nodes.
-                if ("comment".equals(nodeType)) {
+                if (COMMENT.equals(nodeType)) {
                     String commentText = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                    if (!commentText.contains("@test")) {
+                    if (!commentText.contains(TEST_TAG_AT_TEST)) {
                         continue;
                     }
 

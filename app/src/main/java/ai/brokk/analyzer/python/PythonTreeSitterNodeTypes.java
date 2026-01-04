@@ -32,6 +32,19 @@ public final class PythonTreeSitterNodeTypes {
     // Other common Python node types
     public static final String DECORATED_DEFINITION = "decorated_definition";
     public static final String ATTRIBUTE = "attribute";
+    public static final String IDENTIFIER = "identifier";
+    public static final String CALL = "call";
+
+    // Common field names used by Tree-sitter Python grammar
+    public static final String FIELD_NAME = "name";
+    public static final String FIELD_FUNCTION = "function";
+    public static final String FIELD_ATTRIBUTE = "attribute";
+    public static final String FIELD_OBJECT = "object";
+
+    // Pytest marker tokens/prefixes (used for semantic test detection)
+    public static final String PYTEST = "pytest";
+    public static final String MARK = "mark";
+    public static final String PYTEST_MARK_PREFIX = "pytest.mark";
 
     // Import-related captures
     public static final String IMPORT_DECLARATION = "import.declaration";

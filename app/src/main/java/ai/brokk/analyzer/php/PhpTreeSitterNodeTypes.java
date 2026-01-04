@@ -34,7 +34,13 @@ public final class PhpTreeSitterNodeTypes {
     // Import declarations
     public static final String IMPORT_DECLARATION = "namespace_use_declaration";
 
+    // Common leaf node types used by analyzers/queries
+    public static final String NAME = "name";
+    public static final String COMMENT = "comment";
+
+    // Test markers
     public static final String TEST_MARKER = "test_marker";
+    public static final String TEST_TAG_AT_TEST = "@test";
 
     private PhpTreeSitterNodeTypes() {}
 }

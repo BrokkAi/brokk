@@ -382,10 +382,10 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 }
 
                 // Case A: Function name starting with test_
-                if (node.getType().equals("identifier")) {
+                if (IDENTIFIER.equals(node.getType())) {
                     TSNode parent = node.getParent();
                     if (parent != null && FUNCTION_DEFINITION.equals(parent.getType())) {
-                        TSNode nameNode = parent.getChildByFieldName("name");
+                        TSNode nameNode = parent.getChildByFieldName(FIELD_NAME);
                         if (nameNode != null && nameNode.getStartByte() == node.getStartByte()
                                 && nameNode.getEndByte() == node.getEndByte()) {
                             String text = sourceContent.substringFrom(node);
@@ -397,7 +397,7 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
                 }
 
                 // Case B: Pytest marks
-                if (node.getType().equals(DECORATOR)) {
+                if (DECORATOR.equals(node.getType())) {
                     if (isPytestMark(node, sourceContent)) {
                         return true;
                     }
@@ -416,8 +416,8 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
 
         TSNode target = expression;
         // If it's a call (e.g. @pytest.mark.parametrize(...)), unwrap to the callee
-        if ("call".equals(target.getType())) {
-            target = target.getChildByFieldName("function");
+        if (CALL.equals(target.getType())) {
+            target = target.getChildByFieldName(FIELD_FUNCTION);
         }
 
         if (target == null || target.isNull()) {
@@ -429,12 +429,12 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
         TSNode current = target;
         while (current != null && !current.isNull()) {
             if (ATTRIBUTE.equals(current.getType())) {
-                TSNode attributeNameNode = current.getChildByFieldName("attribute");
+                TSNode attributeNameNode = current.getChildByFieldName(FIELD_ATTRIBUTE);
                 if (attributeNameNode != null) {
                     segments.add(0, sourceContent.substringFrom(attributeNameNode));
                 }
-                current = current.getChildByFieldName("object");
-            } else if ("identifier".equals(current.getType())) {
+                current = current.getChildByFieldName(FIELD_OBJECT);
+            } else if (IDENTIFIER.equals(current.getType())) {
                 segments.add(0, sourceContent.substringFrom(current));
                 break;
             } else {
@@ -442,13 +442,13 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        if (segments.size() >= 2 && "pytest".equals(segments.get(0)) && "mark".equals(segments.get(1))) {
+        if (segments.size() >= 2 && PYTEST.equals(segments.get(0)) && MARK.equals(segments.get(1))) {
             return true;
         }
 
         // Fallback: minimal string check on the sliced expression
         String expressionText = sourceContent.substringFrom(expression);
-        return expressionText.startsWith("pytest.mark");
+        return expressionText.startsWith(PYTEST_MARK_PREFIX);
     }
 
     /**
