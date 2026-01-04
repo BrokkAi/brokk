@@ -21,6 +21,8 @@ public final class GoTreeSitterNodeTypes {
 
     public static final String IMPORT_DECLARATION = "import_declaration";
 
+    public static final String TEST_MARKER = "test_marker";
+
     private GoTreeSitterNodeTypes() {
         // Utility class - no instantiation
     }

@@ -52,3 +52,17 @@
     ; result: (_) @interface.method.result ; Result is optional, removing from query to ensure match
   ) @interface.method.definition
 )
+
+; Semantic test marker detection
+(function_declaration
+  name: (identifier) @test_name
+  parameters: (parameter_list
+    . (parameter_declaration
+        type: (pointer_type
+          (qualified_type
+            package: (package_identifier) @pkg_id
+            name: (type_identifier) @type_id))))
+  (#match? @test_name "^Test.*")
+  (#eq? @pkg_id "testing")
+  (#eq? @type_id "T")
+) @test_marker
