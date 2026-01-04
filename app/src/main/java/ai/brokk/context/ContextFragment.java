@@ -12,7 +12,6 @@ import ai.brokk.util.*;
 import java.time.Duration;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.jetbrains.annotations.Blocking;
@@ -106,9 +105,6 @@ public interface ContextFragment {
                 .collect(Collectors.joining("\n"));
     }
 
-    // Static counter for dynamic fragments
-    AtomicInteger nextId = new AtomicInteger(1);
-
     /**
      * Extracts ProjectFile references from a pasted list of file paths.
      */
@@ -116,14 +112,6 @@ public interface ContextFragment {
         return contextManager.getProject().getAllFiles().parallelStream()
                 .filter(f -> text.contains(f.toString()))
                 .collect(Collectors.toSet());
-    }
-
-    /**
-     * Gets the current max integer fragment ID used for generating new dynamic fragment IDs. Note: This refers to the
-     * numeric part of dynamic IDs.
-     */
-    static int getCurrentMaxId() {
-        return nextId.get();
     }
 
     /**

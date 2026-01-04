@@ -61,8 +61,6 @@ public class ContextSerializationTest {
                 Map.of("com.example.MyClass.myMethod", List.of(codeFragmentTargetMthd)),
                 project);
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO(), testAnalyzer);
-        // Reset fragment ID counter for test isolation
-        ContextFragments.setMinimumId(1);
 
         // Clean .brokk/sessions directory for session tests
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
@@ -408,74 +406,59 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testFragmentIdContinuityAfterLoad() throws IOException {
+    void testFragmentIdPersistenceAndUniquenessAfterLoad() throws IOException {
         var projectFile = new ProjectFile(tempDir, "dummy.txt");
         Files.createDirectories(projectFile.absPath().getParent()); // Ensure parent directory exists
         Files.writeString(projectFile.absPath(), "content");
 
-        // ID of ctxFragment will be "1" (String)
+        // Create fragments
         var ctxFragment = new ContextFragments.ProjectPathFragment(projectFile, mockContextManager);
-        // ID of strFragment will be a hash string
         var strFragment = new ContextFragments.StringFragment(
                 mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        String originalCtxId = ctxFragment.id();
+        String originalStrId = strFragment.id();
 
         var context = new Context(mockContextManager)
                 .addFragments(List.of(ctxFragment))
                 .addFragments(strFragment);
         var history = new ContextHistory(context);
 
-        Path zipFile = tempDir.resolve("id_continuity_history.zip");
+        Path zipFile = tempDir.resolve("id_persistence_uniqueness.zip");
         HistoryIo.writeZip(history, zipFile);
 
-        // Save the next available numeric ID *before* loading, then load.
-        // Loading process (fragment constructors) will update ContextFragment.nextId.
-        // For this test, we want to see what the next available numeric ID *was* before any new fragment creations
-        // post-load.
-        // ContextFragment.getCurrentMaxId() gives the *next* ID to be used.
-        // After loading, ContextFragment.getCurrentMaxId() should be correctly set based on the max numeric ID found.
+        // Load history
         ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+        Context loadedContext = loadedHistory.getHistory().get(0);
 
-        int maxNumericIdInLoadedHistory = 0;
-        for (Context loadedCtx : loadedHistory.getHistory()) {
-            for (ContextFragment frag : loadedCtx.allFragments().toList()) {
-                try {
-                    // Only consider numeric IDs from dynamic fragments
-                    int numericId = Integer.parseInt(frag.id());
-                    if (numericId > maxNumericIdInLoadedHistory) {
-                        maxNumericIdInLoadedHistory = numericId;
-                    }
-                } catch (NumberFormatException e) {
-                    // Non-numeric ID (hash), ignore for max numeric ID calculation
-                }
-            }
-        }
+        // Verify Persistence
+        var loadedCtxFragment = loadedContext
+                .allFragments()
+                .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Loaded ProjectPathFragment not found"));
 
-        // The nextId counter should be at least maxNumericIdInLoadedHistory + 1.
-        // If no numeric IDs were found (e.g. all fragments were content-hashed or history was empty),
-        // then getCurrentMaxId() would be whatever it was set to initially (e.g. 1, or higher if other tests ran before
-        // without reset)
-        // or what it became after loading any initial numeric IDs from other fragments.
-        int nextAvailableNumericId = ContextFragment.getCurrentMaxId();
-        if (maxNumericIdInLoadedHistory > 0) {
-            assertTrue(
-                    nextAvailableNumericId > maxNumericIdInLoadedHistory,
-                    "ContextFragment.nextId (numeric counter) should be greater than the max numeric ID found in loaded fragments.");
-        } else {
-            // If no numeric IDs, nextAvailableNumericId should be at least 1 (or whatever it was reset to)
-            assertTrue(nextAvailableNumericId >= 1, "ContextFragment.nextId should be at least 1.");
-        }
+        var loadedStrFragment = loadedContext
+                .allFragments()
+                .filter(f -> f instanceof ContextFragments.StringFragment)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Loaded StringFragment not found"));
 
-        // Create a new *dynamic* fragment; it should get a string representation of `nextAvailableNumericId`
+        assertEquals(originalCtxId, loadedCtxFragment.id(), "ProjectPathFragment ID should be preserved exactly.");
+        assertEquals(originalStrId, loadedStrFragment.id(), "StringFragment ID should be preserved exactly.");
+
+        // Verify Uniqueness for new fragment
         var newDynamicFragment = new ContextFragments.ProjectPathFragment(
                 new ProjectFile(tempDir, "new_dynamic.txt"), mockContextManager);
-        assertEquals(
-                String.valueOf(nextAvailableNumericId),
+
+        assertNotEquals(
+                originalCtxId,
                 newDynamicFragment.id(),
-                "New dynamic fragment should get the expected next numeric ID as a string.");
-        assertEquals(
-                nextAvailableNumericId + 1,
-                ContextFragment.getCurrentMaxId(),
-                "ContextFragment.nextId (numeric counter) should increment after new dynamic fragment creation.");
+                "New dynamic fragment ID should not collide with loaded dynamic fragment ID.");
+        assertNotEquals(
+                originalStrId,
+                newDynamicFragment.id(),
+                "New dynamic fragment ID should not collide with loaded static fragment ID.");
     }
 
     @Test

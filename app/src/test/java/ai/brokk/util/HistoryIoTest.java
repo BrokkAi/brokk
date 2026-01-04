@@ -32,7 +32,6 @@ public class HistoryIoTest {
     @BeforeEach
     void setup() throws IOException {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        ContextFragments.setMinimumId(1);
     }
 
     @Test
