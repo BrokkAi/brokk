@@ -119,10 +119,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 
-    public static boolean isTestFile(ProjectFile file) {
-        return isTestFile(file, null);
-    }
-
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
         return new LoggingExecutorService(
                 toWrap,
