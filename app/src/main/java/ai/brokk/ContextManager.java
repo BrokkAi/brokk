@@ -2168,10 +2168,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public Context append(TaskResult result) throws InterruptedException {
             assert !closed.get() : "TaskScope already closed";
 
+            logger.debug("CTXGRP TaskScope.append called for action='{}', groupId={}, messages.size={}, stopReason={}",
+                    result.actionDescription(),
+                    groupId,
+                    result.output().messages().size(),
+                    result.stopDetails().reason());
+
             // If interrupted before any LLM output, skip
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
                     && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
-                logger.debug("Command cancelled before LLM responded");
+                logger.debug("Command cancelled before LLM responded — skipping append (no groupId assignment)");
                 return result.context();
             }
 
@@ -2181,9 +2187,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 Context other = liveContext();
                 var delta = ContextDelta.between(result.context(), other).join();
                 if (delta.isEmpty()) {
-                    logger.debug("Empty TaskResult delta, skipping publish step");
+                    logger.debug("Empty TaskResult delta, skipping publish step (no groupId assignment)");
                     return result.context();
                 }
+                logger.debug("CTXGRP Messages empty but delta non-empty, proceeding with append");
             }
 
             logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
@@ -2199,6 +2206,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
 
             UUID contextId = updatedContext.id();
+            logger.debug("CTXGRP TaskScope.append assigning contextId={} to groupId={} (label='{}')",
+                    contextId, groupId, groupLabel);
             contextHistory.addContextToGroup(contextId, groupId, groupLabel);
 
             // prepare MOP to display new history with the next streamed message

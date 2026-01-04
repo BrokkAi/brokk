@@ -179,11 +179,16 @@ public class ArchitectAgent {
             opts.add(CodeAgent.Option.DEFER_BUILD);
         }
         var result = agent.executeWithoutHistory(context, instructions, opts);
+        logger.debug("CTXGRP CodeAgent returned: stopReason={}, messages.size={}, contextId={}",
+                result.stopDetails().reason(),
+                result.output().messages().size(),
+                result.context().id());
         var stopDetails = result.stopDetails();
         var reason = stopDetails.reason();
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
         context = scope.append(result);
+        logger.debug("CTXGRP After scope.append for CodeAgent result: contextId={}", context.id());
         var changedFragments =
                 ContextDelta.between(initialContext, context).join().getChangedFragments();
 
@@ -310,7 +315,9 @@ public class ArchitectAgent {
 
     private void addPlanningToHistory() throws InterruptedException {
         var messages = io.getLlmRawMessages();
+        logger.debug("CTXGRP addPlanningToHistory: messages.size={}", messages.size());
         if (messages.isEmpty()) {
+            logger.debug("CTXGRP addPlanningToHistory: skipping append due to empty messages");
             return;
         }
         context = scope.append(resultWithMessages(StopReason.SUCCESS, goal));
