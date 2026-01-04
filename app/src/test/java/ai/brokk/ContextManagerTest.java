@@ -195,7 +195,7 @@ class ContextManagerTest {
     }
 
     @Test
-    public void testCompressHistoryAndMarkTaskDonePreserveGrouping() throws Exception {
+    public void testCompressGlobalHistoryAndMarkTaskDonePreserveGrouping() throws Exception {
         var tempDir = Files.createTempDirectory("ctxmgr-grouping-test");
         var project = new MainProject(tempDir);
         var cm = new ContextManager(project);

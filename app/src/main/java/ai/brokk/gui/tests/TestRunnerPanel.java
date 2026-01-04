@@ -72,6 +72,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     // Maximum number of runs to retain
     private int maxRuns = 50;
     private final TestRunsStore runsStore;
+    private boolean restoringRuns = false;
     private final ExecutorService sessionExecutor = Executors.newFixedThreadPool(2);
     private final SerialByKeyExecutor saveExecutor = new SerialByKeyExecutor(sessionExecutor);
 
@@ -113,7 +114,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         runList.setCellRenderer(new CompletedEntryRenderer());
         runList.setVisibleRowCount(5);
         runList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
+            if (!e.getValueIsAdjusting() && !restoringRuns) {
                 CompletedEntry selected = runList.getSelectedValue();
                 if (selected != null) {
                     chrome.getPreviewManager().openFragmentPreview(selected.output());
@@ -358,27 +359,28 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
         int count = Math.min(records.size(), maxRuns);
         List<TestRunsStore.Run> slice = records.subList(0, count);
 
-        runListModel.clear();
+        restoringRuns = true;
+        try {
+            runListModel.clear();
 
-        IContextManager cm = chrome.getContextManager();
+            IContextManager cm = chrome.getContextManager();
 
-        for (var r : slice) {
-            var fragment = new ContextFragments.StringFragment(
-                    cm, r.output(), "Test Output", SyntaxConstants.SYNTAX_STYLE_NONE);
-            var entry = new CompletedEntry(
-                    r.fileCount(),
-                    r.command(),
-                    Instant.ofEpochMilli(r.startedAtMillis()),
-                    Instant.ofEpochMilli(requireNonNull(r.completedAtMillis())),
-                    r.exitCode(),
-                    fragment);
-            runListModel.addElement(entry);
+            for (var r : slice) {
+                var fragment = new ContextFragments.StringFragment(
+                        cm, r.output(), "Test Output", SyntaxConstants.SYNTAX_STYLE_NONE);
+                var entry = new CompletedEntry(
+                        r.fileCount(),
+                        r.command(),
+                        Instant.ofEpochMilli(r.startedAtMillis()),
+                        Instant.ofEpochMilli(requireNonNull(r.completedAtMillis())),
+                        r.exitCode(),
+                        fragment);
+                runListModel.addElement(entry);
+            }
+            updateClearButtonTooltip();
+        } finally {
+            restoringRuns = false;
         }
-
-        if (runListModel.getSize() > 0) {
-            runList.setSelectedIndex(0);
-        }
-        updateClearButtonTooltip();
     }
 
     public void beginRun(int fileCount, String command, Instant startedAt) {

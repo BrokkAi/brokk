@@ -490,7 +490,7 @@ public final class JobRunner {
                 // - For ARCHITECT/LUTZ: per-task compression already honored via spec.autoCompress().
                 if (mode != Mode.ARCHITECT && mode != Mode.LUTZ && spec.autoCompress()) {
                     logger.info("Job {} auto-compressing history", jobId);
-                    cm.compressHistory();
+                    cm.compressGlobalHistory();
                 }
 
                 // Determine final status: completed or cancelled
