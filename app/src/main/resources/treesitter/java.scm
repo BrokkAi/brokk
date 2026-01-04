@@ -116,3 +116,13 @@
 
 ; Annotations to strip
 (annotation) @annotation
+
+; Test markers for JUnit/TestNG detection
+(annotation
+  name: [
+    (identifier) @test_marker
+    (scoped_identifier
+      name: (identifier) @test_marker)
+  ]
+  (#match? @test_marker "^(Test|ParameterizedTest|RepeatedTest)$")
+)
