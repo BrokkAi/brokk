@@ -106,9 +106,16 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * otherwise falls back to filename-based heuristics.
      */
     public static boolean isTestFile(ProjectFile file, @Nullable IAnalyzer analyzer) {
-        if (analyzer != null) {
-            return analyzer.containsTests(file);
+        // 1. If analyzer knows, trust it
+        if (analyzer != null && !analyzer.isEmpty()) {
+            if (analyzer.containsTests(file)) {
+                return true;
+            }
+            // Analyzer exists but says no tests — could still fall through
+            // to heuristics for languages where analyzer doesn't implement this
         }
+
+        // 2. Filename/path heuristics as fallback
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 

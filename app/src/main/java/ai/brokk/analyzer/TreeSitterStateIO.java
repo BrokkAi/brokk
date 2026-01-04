@@ -251,8 +251,7 @@ public final class TreeSitterStateIO {
                 @JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
                 @JsonProperty("importStatements") List<String> importStatements,
                 @JsonProperty("resolvedImports") Set<CodeUnitDto> resolvedImports,
-                @JsonProperty(value = "containsTests", required = true)
-                        boolean containsTests) {
+                @JsonProperty(value = "containsTests", required = true) boolean containsTests) {
             this.topLevelCodeUnits = topLevelCodeUnits;
             this.importStatements = importStatements;
             this.resolvedImports = resolvedImports;
