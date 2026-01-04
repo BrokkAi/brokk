@@ -97,7 +97,11 @@ public class OpenAiUtils {
         if (message instanceof AiMessage aiMessage) {
 
             if (!aiMessage.hasToolExecutionRequests()) {
-                return AssistantMessage.from(aiMessage.text());
+                return AssistantMessage.builder()
+                        .content(aiMessage.text())
+                        .reasoningContent(aiMessage.reasoningContent())
+                        .thoughtSignature(aiMessage.thoughtSignature())
+                        .build();
             }
 
             ToolExecutionRequest toolExecutionRequest =
@@ -108,7 +112,11 @@ public class OpenAiUtils {
                         .arguments(toolExecutionRequest.arguments())
                         .build();
 
-                return AssistantMessage.builder().functionCall(functionCall).build();
+                return AssistantMessage.builder()
+                        .functionCall(functionCall)
+                        .reasoningContent(aiMessage.reasoningContent())
+                        .thoughtSignature(aiMessage.thoughtSignature())
+                        .build();
             }
 
             List<ToolCall> toolCalls = aiMessage.toolExecutionRequests().stream()
@@ -124,6 +132,8 @@ public class OpenAiUtils {
 
             return AssistantMessage.builder()
                     .content(aiMessage.text())
+                    .reasoningContent(aiMessage.reasoningContent())
+                    .thoughtSignature(aiMessage.thoughtSignature())
                     .toolCalls(toolCalls)
                     .build();
         }
@@ -134,7 +144,10 @@ public class OpenAiUtils {
                 return FunctionMessage.from(toolExecutionResultMessage.toolName(), toolExecutionResultMessage.text());
             }
 
-            return ToolMessage.from(toolExecutionResultMessage.id(), toolExecutionResultMessage.text());
+            return ToolMessage.from(
+                    toolExecutionResultMessage.id(),
+                    toolExecutionResultMessage.text(),
+                    toolExecutionResultMessage.toolName());
         }
 
         throw illegalArgument("Unknown message type: " + message.type());
@@ -241,6 +254,7 @@ public class OpenAiUtils {
         AssistantMessage assistantMessage = response.choices().get(0).message();
         String text = assistantMessage.content();
         String reasoningContent = assistantMessage.reasoningContent();
+        String thoughtSignature = assistantMessage.thoughtSignature();
 
         List<ToolCall> toolCalls = assistantMessage.toolCalls();
         if (!isNullOrEmpty(toolCalls)) {
@@ -249,8 +263,8 @@ public class OpenAiUtils {
                     .map(OpenAiUtils::toToolExecutionRequest)
                     .collect(toList());
             return isNullOrBlank(text)
-                    ? AiMessage.from(toolExecutionRequests)
-                    : AiMessage.from(text, reasoningContent, toolExecutionRequests);
+                    ? AiMessage.from(text, reasoningContent, thoughtSignature, toolExecutionRequests)
+                    : AiMessage.from(text, reasoningContent, thoughtSignature, toolExecutionRequests);
         }
 
         FunctionCall functionCall = assistantMessage.functionCall();
@@ -259,12 +273,10 @@ public class OpenAiUtils {
                     .name(functionCall.name())
                     .arguments(functionCall.arguments())
                     .build();
-            return isNullOrBlank(text)
-                    ? AiMessage.from(toolExecutionRequest)
-                    : AiMessage.from(text, reasoningContent, singletonList(toolExecutionRequest));
+            return AiMessage.from(text, reasoningContent, thoughtSignature, singletonList(toolExecutionRequest));
         }
 
-        return AiMessage.from(text, reasoningContent);
+        return AiMessage.from(text, reasoningContent, thoughtSignature);
     }
 
     private static ToolExecutionRequest toToolExecutionRequest(ToolCall toolCall) {
@@ -401,6 +413,7 @@ public class OpenAiUtils {
                 .store(parameters.store())
                 .metadata(parameters.metadata())
                 .serviceTier(parameters.serviceTier())
+                .previousResponseId(parameters.previousResponseId())
                 .reasoningEffort(parameters.reasoningEffort());
     }
 }

@@ -310,6 +310,7 @@ public class SearchAgent {
 
             // Decide next action(s)
             io.showTransientMessage("Brokk Search is preparing the next actions…");
+            llm.resetTurn();
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             long llmTimeMs = System.currentTimeMillis() - turnStartTime;
@@ -998,6 +999,7 @@ public class SearchAgent {
                 </tool>
                 """
                         .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
+        summarizer.resetTurn();
         Llm.StreamingResult sr = summarizer.sendRequest(List.of(sys, user));
         if (sr.error() != null) {
             return rawResult; // fallback to raw

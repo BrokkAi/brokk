@@ -750,13 +750,6 @@ public class Llm {
         var toolChoice = toolContext.toolChoice();
 
         var messagesToSend = messages;
-        // Preprocess messages *only* if no tools are being requested for this call.
-        // This handles the case where prior TERMs exist in history but the current
-        // request doesn't involve tools (which makes some providers unhappy if they see tool history).
-        if (tools.isEmpty()) {
-            messagesToSend = Llm.emulateToolExecutionResults(messages);
-            validateEmulatedToolMessages(messagesToSend);
-        }
 
         if (!tools.isEmpty() && contextManager.getService().requiresEmulatedTools(model)) {
             // Emulation handles its own preprocessing and needs the toolContext to validate owner
@@ -1552,14 +1545,10 @@ public class Llm {
         }
 
         public AiMessage aiMessage() {
-            var messageText = text == null ? "" : text;
-            if (messageText.isBlank() && !toolRequests.isEmpty()) {
-                // Works around crazy-ass Anthropic bug where they don't allow empty text
-                // but sometimes return empty themselves as part of a tool call response.
-                // See https://github.com/BrokkAi/brokk/pull/1556
-                messageText = "Tool calls";
-            }
-            return new AiMessage(messageText, reasoningContent, toolRequests);
+            var thoughtSignature = originalResponse == null
+                    ? null
+                    : originalResponse.aiMessage().thoughtSignature();
+            return new AiMessage(text, reasoningContent, thoughtSignature, toolRequests);
         }
     }
 
@@ -1756,6 +1745,10 @@ public class Llm {
 
     public void setModel(StreamingChatModel model) {
         this.model = model;
+    }
+
+    public void resetTurn() {
+        previousResponseId = null;
     }
 
     @Override
