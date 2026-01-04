@@ -101,9 +101,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private static final long TASKLIST_MIGRATION_CUTOFF_MS =
             Instant.parse("2025-11-30T00:00:00Z").toEpochMilli();
 
-    public static boolean isTestFile(ProjectFile file) {
-
+    /**
+     * Identifies if a file contains tests. Uses the analyzer's semantic knowledge if available,
+     * otherwise falls back to filename-based heuristics.
+     */
+    public static boolean isTestFile(ProjectFile file, @Nullable IAnalyzer analyzer) {
+        if (analyzer != null) {
+            return analyzer.containsTests(file);
+        }
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
+    }
+
+    public static boolean isTestFile(ProjectFile file) {
+        return isTestFile(file, null);
     }
 
     private LoggingExecutorService createLoggingExecutorService(ExecutorService toWrap) {
