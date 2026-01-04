@@ -109,7 +109,7 @@ public final class DiffService {
         return fragment.files().join().stream().anyMatch(file -> {
             try {
                 // If getFileContent returns an empty string for the revision, the file is not yet committed.
-                return project.getFileContent(revision, file).isEmpty();
+                return project.getRepo().getFileContent(revision, file).isEmpty();
             } catch (GitAPIException e) {
                 // If an error occurs (e.g. GitAPIException), we treat it as not committed.
                 logger.warn("Failed to get content from {} for file {}: {}", revision, file, e.getMessage());
