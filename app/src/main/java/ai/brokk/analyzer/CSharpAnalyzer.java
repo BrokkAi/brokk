@@ -14,6 +14,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQuery;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterCSharp;
 
 public final class CSharpAnalyzer extends TreeSitterAnalyzer {
@@ -242,5 +246,21 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCSharp(reference);
+    }
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree) {
+        TSQuery query = getThreadLocalQuery();
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (var capture : match.getCaptures()) {
+                if (TEST_MARKER.equals(query.getCaptureNameForId(capture.getIndex()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

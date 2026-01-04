@@ -32,3 +32,9 @@
 
 ; Attributes/Annotations to ignore in skeleton map
 (attribute_list) @annotation
+
+; Test detection markers
+(method_declaration
+  (attribute_list
+    (attribute
+      name: (identifier) @test_attr (#any-of? @test_attr "Test" "Fact" "Theory")))) @test_marker
