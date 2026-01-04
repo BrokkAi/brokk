@@ -299,4 +299,11 @@ public class MultiAnalyzer
                 .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
                 .toList();
     }
+
+    @Override
+    public boolean containsTests(ProjectFile file) {
+        return delegateFor(file)
+                .map(delegate -> delegate.containsTests(file))
+                .orElse(false);
+    }
 }
