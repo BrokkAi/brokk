@@ -110,7 +110,7 @@ public class FragmentDtos {
     }
 
     /** DTO for TaskFragment - represents a session's chat messages. */
-    public record TaskFragmentDto(String id, List<ChatMessageDto> messages, String sessionName)
+    public record TaskFragmentDto(String id, List<ChatMessageDto> messages, String taskDescription)
             implements VirtualFragmentDto { // id changed to String
         public TaskFragmentDto {
             messages = List.copyOf(messages);

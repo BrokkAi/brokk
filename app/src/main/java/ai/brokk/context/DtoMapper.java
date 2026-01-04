@@ -265,7 +265,7 @@ public class DtoMapper {
         var messages = dto.messages().stream()
                 .map(msgDto -> fromChatMessageDto(msgDto, reader))
                 .toList();
-        return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
+        return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.taskDescription());
     }
 
     private static @Nullable ContextFragment _buildVirtualFragment(

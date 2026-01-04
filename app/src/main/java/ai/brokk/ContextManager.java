@@ -15,12 +15,12 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextFragments.PathFragment;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.ContextHistory.UndoResult;
-import ai.brokk.context.DiffService;
 import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
@@ -570,7 +570,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 // 3) Handle all file changes for file change listeners
                 if (!batch.files.isEmpty()) {
-                    logger.debug("File changes detected by ContextManager ({} files)", batch.files.size());
+                    logger.trace("File changes detected by ContextManager ({} files)", batch.files.size());
                     handleFileChange(batch.files);
                 }
             }
@@ -2164,6 +2164,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
          *
          * @param result   The TaskResult to append.
          */
+        @Blocking
         public Context append(TaskResult result) throws InterruptedException {
             assert !closed.get() : "TaskScope already closed";
 
@@ -2178,9 +2179,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
             if (result.output().messages().isEmpty()) {
                 // Treat result.context() as new (right) and current topContext() as old (left)
                 Context other = liveContext();
-                var diffs = DiffService.computeDiff(result.context(), other);
-                if (diffs.isEmpty()) {
-                    logger.debug("Empty TaskResult (no messages and no content changes)");
+                var delta = ContextDelta.between(result.context(), other).join();
+                if (delta.isEmpty()) {
+                    logger.debug("Empty TaskResult delta, skipping publish step");
                     return result.context();
                 }
             }
