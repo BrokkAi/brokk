@@ -243,7 +243,20 @@ public final class TreeSitterStateIO {
             List<CodeUnitDto> topLevelCodeUnits,
             List<String> importStatements,
             Set<CodeUnitDto> resolvedImports,
-            boolean containsTests) {}
+            boolean containsTests) {
+        @com.fasterxml.jackson.annotation.JsonCreator
+        public FilePropertiesDto(
+                @com.fasterxml.jackson.annotation.JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
+                @com.fasterxml.jackson.annotation.JsonProperty("importStatements") List<String> importStatements,
+                @com.fasterxml.jackson.annotation.JsonProperty("resolvedImports") Set<CodeUnitDto> resolvedImports,
+                @com.fasterxml.jackson.annotation.JsonProperty(value = "containsTests", required = true)
+                        boolean containsTests) {
+            this.topLevelCodeUnits = topLevelCodeUnits;
+            this.importStatements = importStatements;
+            this.resolvedImports = resolvedImports;
+            this.containsTests = containsTests;
+        }
+    }
 
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {

@@ -3,14 +3,21 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.TreeSitterStateIO.AnalyzerStateDto;
+import ai.brokk.analyzer.TreeSitterStateIO.FilePropertiesDto;
+import ai.brokk.analyzer.TreeSitterStateIO.FileStateEntryDto;
+import ai.brokk.analyzer.TreeSitterStateIO.ProjectFileDto;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -212,5 +219,59 @@ public class TreeSitterStateIOTest {
                 TreeSitterStateIO.toDto(original),
                 TreeSitterStateIO.toDto(loaded),
                 "DTO after replacing corrupt file should equal the original DTO");
+    }
+
+    @Test
+    void loadReturnsEmptyOnLegacyStateMissingContainsTests(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("legacy_state.smile.gz");
+
+        // Manually construct a JSON/Smile graph that looks like AnalyzerStateDto
+        // but whose FilePropertiesDto is missing the 'containsTests' field.
+        var legacyFileProperties = Map.of(
+                "topLevelCodeUnits", List.of(),
+                "importStatements", List.of(),
+                "resolvedImports", List.of());
+
+        var legacyFileEntry = Map.of(
+                "key", Map.of("root", tempDir.toString(), "relPath", "file.java"),
+                "value", legacyFileProperties);
+
+        var legacyState = Map.of(
+                "symbolIndex", Map.of(),
+                "codeUnitState", List.of(),
+                "fileState", List.of(legacyFileEntry),
+                "symbolKeys", List.of(),
+                "snapshotEpochNanos", 12345L);
+
+        var mapper = new ObjectMapper(new SmileFactory()).configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, legacyState);
+        }
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(
+                loaded.isEmpty(),
+                "Expected load to return empty because legacy state is missing required 'containsTests' field");
+    }
+
+    @Test
+    void roundTripPreservesContainsTests(@TempDir Path tempDir) throws Exception {
+        var fileDto = new ProjectFileDto(tempDir.toString(), "Test.java");
+        var propsDto = new FilePropertiesDto(List.of(), List.of(), Set.of(), true);
+        var entryDto = new FileStateEntryDto(fileDto, propsDto);
+
+        var originalDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(entryDto), List.of(), 555L);
+        var state = TreeSitterStateIO.fromDto(originalDto);
+
+        Path out = tempDir.resolve("test_props.smile.gz");
+        TreeSitterStateIO.save(state, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Should load state with containsTests");
+
+        var loadedDto = TreeSitterStateIO.toDto(loadedOpt.get());
+        assertEquals(originalDto, loadedDto, "Round-trip should preserve all fields including containsTests");
+        assertTrue(
+                loadedDto.fileState().getFirst().value().containsTests(), "containsTests=true should be preserved");
     }
 }
