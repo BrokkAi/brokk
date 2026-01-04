@@ -16,13 +16,16 @@
 
 ; Global function definition
 (function_definition
-  name: (name) @function.name) @function.definition
+  name: (name) @function.name @test_marker) @function.definition
 
 ; Method definitions (covers methods in classes, interfaces, and traits)
 ; The TreeSitterAnalyzer will determine the parent class/interface/trait.
 (method_declaration
-  name: (name) @function.name
+  name: (name) @function.name @test_marker
 ) @function.definition
+
+; Comments / Docblocks (potential test markers)
+(comment) @test_marker
 
 
 ; Class property / field

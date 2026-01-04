@@ -34,5 +34,7 @@ public final class PhpTreeSitterNodeTypes {
     // Import declarations
     public static final String IMPORT_DECLARATION = "namespace_use_declaration";
 
+    public static final String TEST_MARKER = "test_marker";
+
     private PhpTreeSitterNodeTypes() {}
 }
