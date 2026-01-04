@@ -23,6 +23,21 @@ public final class GoTreeSitterNodeTypes {
 
     public static final String TEST_MARKER = "test_marker";
 
+    public static final String CAPTURE_TEST_CANDIDATE_NAME = "test_candidate.name";
+    public static final String CAPTURE_TEST_CANDIDATE_PARAMS = "test_candidate.params";
+
+    public static final String PARAMETER_DECLARATION = "parameter_declaration";
+
+    public static final String FIELD_TYPE = "type";
+
+    public static final String POINTER_TYPE = "pointer_type";
+    public static final String QUALIFIED_TYPE = "qualified_type";
+    public static final String TYPE_IDENTIFIER = "type_identifier";
+
+    public static final String TEST_FUNCTION_PREFIX = "Test";
+    public static final String TESTING_T = "testing.T";
+    public static final String POINTER_TESTING_T = "*testing.T";
+
     private GoTreeSitterNodeTypes() {
         // Utility class - no instantiation
     }

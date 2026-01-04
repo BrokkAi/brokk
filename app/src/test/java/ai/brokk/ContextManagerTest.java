@@ -243,7 +243,8 @@ class ContextManagerTest {
         var targetFile = new ProjectFile(tempDir, "src/main/java/Foo.java");
 
         // 2. Sanity check: ensure the heuristic alone would NOT catch this file
-        assertFalse(ContextManager.TEST_FILE_PATTERN.matcher(targetFile.toString()).matches(),
+        assertFalse(
+                ContextManager.TEST_FILE_PATTERN.matcher(targetFile.toString()).matches(),
                 "Target file should not match filename heuristics");
 
         // 3. Stub Analyzer that semantically identifies this file as containing tests
@@ -312,7 +313,8 @@ class ContextManagerTest {
 
         // 7. Verify that getTestFiles() picks it up via the analyzer
         List<ProjectFile> testFiles = cm.getTestFiles();
-        assertTrue(testFiles.contains(targetFile),
+        assertTrue(
+                testFiles.contains(targetFile),
                 "getTestFiles should return the file because the analyzer flagged it, despite the filename");
     }
 }

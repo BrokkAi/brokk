@@ -431,8 +431,6 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         if (hasTargets) {
             contextMenu.addSeparator();
 
-            var analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-
             JMenuItem deleteItem = new JMenuItem(targetFiles.size() == 1 ? "Delete File" : "Delete Files");
             deleteItem.addActionListener(ev -> {
                 var filesToDelete = targetFiles;

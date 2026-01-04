@@ -454,8 +454,8 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 continue;
             }
 
-            TSNode nameNode = localCaptures.get("test_candidate.name");
-            TSNode paramsNode = localCaptures.get("test_candidate.params");
+            TSNode nameNode = localCaptures.get(CAPTURE_TEST_CANDIDATE_NAME);
+            TSNode paramsNode = localCaptures.get(CAPTURE_TEST_CANDIDATE_PARAMS);
 
             if (nameNode == null || paramsNode == null) {
                 continue;
@@ -463,7 +463,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
 
             // 1. Check function name starts with "Test"
             String funcName = sourceContent.substringFrom(nameNode).trim();
-            if (!funcName.startsWith("Test")) {
+            if (!funcName.startsWith(TEST_FUNCTION_PREFIX)) {
                 continue;
             }
 
@@ -472,22 +472,20 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             TSNode singleParamDecl = null;
             for (int i = 0; i < paramsNode.getNamedChildCount(); i++) {
                 TSNode child = paramsNode.getNamedChild(i);
-                if ("parameter_declaration".equals(child.getType())) {
+                if (PARAMETER_DECLARATION.equals(child.getType())) {
                     paramCount++;
                     singleParamDecl = child;
                 }
             }
 
             if (paramCount == 1 && singleParamDecl != null) {
-                TSNode typeNode = singleParamDecl.getChildByFieldName("type");
+                TSNode typeNode = singleParamDecl.getChildByFieldName(FIELD_TYPE);
                 // Fallback for types without field name (depending on TS version/grammar)
                 if (typeNode == null || typeNode.isNull()) {
                     for (int i = 0; i < singleParamDecl.getNamedChildCount(); i++) {
                         TSNode child = singleParamDecl.getNamedChild(i);
                         String type = child.getType();
-                        if ("pointer_type".equals(type)
-                                || "qualified_type".equals(type)
-                                || "type_identifier".equals(type)) {
+                        if (POINTER_TYPE.equals(type) || QUALIFIED_TYPE.equals(type) || TYPE_IDENTIFIER.equals(type)) {
                             typeNode = child;
                             break;
                         }
@@ -496,7 +494,7 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
 
                 if (typeNode != null && !typeNode.isNull()) {
                     String typeText = sourceContent.substringFrom(typeNode).trim();
-                    if ("testing.T".equals(typeText) || "*testing.T".equals(typeText)) {
+                    if (TESTING_T.equals(typeText) || POINTER_TESTING_T.equals(typeText)) {
                         return true;
                     }
                 }
