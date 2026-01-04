@@ -9,6 +9,8 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.IProject;
+import org.eclipse.jgit.api.errors.GitAPIException;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
@@ -153,11 +155,6 @@ public class TestProject implements IProject {
     @Override
     public Path getMasterRootPathForConfig() {
         return getRoot();
-    }
-
-    @Override
-    public IGitRepo getRepo() {
-        throw new UnsupportedOperationException();
     }
 
     @Override

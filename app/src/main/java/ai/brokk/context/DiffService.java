@@ -110,7 +110,7 @@ public final class DiffService {
             try {
                 // If getFileContent returns an empty string for the revision, the file is not yet committed.
                 return project.getRepo().getFileContent(revision, file).isEmpty();
-            } catch (GitAPIException e) {
+            } catch (Exception e) {
                 // If an error occurs (e.g. GitAPIException), we treat it as not committed.
                 logger.warn("Failed to get content from {} for file {}: {}", revision, file, e.getMessage());
                 return true;
