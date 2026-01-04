@@ -16,7 +16,8 @@ public class CSharpTestDetectionTest {
 
     @Test
     void testContainsTestsDetection() throws Exception {
-        String testCode = """
+        String testCode =
+                """
                 using NUnit.Framework;
 
                 public class MyTests {
@@ -33,7 +34,8 @@ public class CSharpTestDetectionTest {
                 }
                 """;
 
-        String nonTestCode = """
+        String nonTestCode =
+                """
                 public class Calculator {
                     public int Add(int a, int b) => a + b;
                 }
@@ -58,7 +60,11 @@ public class CSharpTestDetectionTest {
         assertFalse(analyzer.containsTests(nonTestFile), "File without test attributes should not be marked");
 
         // 2. Verify ContextManager's integration (which uses the analyzer)
-        assertTrue(ContextManager.isTestFile(testFile, analyzer), "ContextManager should identify file as test file via analyzer");
-        assertFalse(ContextManager.isTestFile(nonTestFile, analyzer), "ContextManager should not identify plain file as test file");
+        assertTrue(
+                ContextManager.isTestFile(testFile, analyzer),
+                "ContextManager should identify file as test file via analyzer");
+        assertFalse(
+                ContextManager.isTestFile(nonTestFile, analyzer),
+                "ContextManager should not identify plain file as test file");
     }
 }

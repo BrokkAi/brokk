@@ -17,21 +17,24 @@ public class GoTestDetectionTest {
 
     @Test
     void testContainsTestsDetection() throws IOException {
-        String testPointerContent = """
+        String testPointerContent =
+                """
                 package foo
                 import "testing"
                 func TestPointer(t *testing.T) {}
                 """;
 
         // Coverage for the non-pointer parameter form; file contains ONLY the value-param test.
-        String testValueContent = """
+        String testValueContent =
+                """
                 package foo
                 import "testing"
                 func TestValue(t testing.T) {}
                 """;
 
         // Explicit negative case: benchmark-only file must not be detected as tests.
-        String benchmarkOnlyContent = """
+        String benchmarkOnlyContent =
+                """
                 package foo
                 import "testing"
                 func BenchmarkOnly(b *testing.B) {}
@@ -39,7 +42,8 @@ public class GoTestDetectionTest {
 
         // Negative case: benchmark + receiver method named like a test must not be detected.
         // We intentionally do not treat receiver methods as tests.
-        String receiverAndBenchmarkContent = """
+        String receiverAndBenchmarkContent =
+                """
                 package foo
                 import "testing"
 
@@ -85,13 +89,15 @@ public class GoTestDetectionTest {
                         + receiverAndBenchmarkPath);
 
         // Additional negative case: Function named Test but wrong parameter type
-        String wrongParamContent = """
+        String wrongParamContent =
+                """
                 package foo
                 import "testing"
                 func TestNotReally(t *testing.B) {}
                 """;
         String wrongParamPath = "pkg/wrong_param.go";
-        IProject project2 = InlineTestProjectCreator.code(wrongParamContent, wrongParamPath).build();
+        IProject project2 =
+                InlineTestProjectCreator.code(wrongParamContent, wrongParamPath).build();
         GoAnalyzer analyzer2 = new GoAnalyzer(project2);
         analyzer2 = (GoAnalyzer) analyzer2.update();
         assertFalse(

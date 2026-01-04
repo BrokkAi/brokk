@@ -3,22 +3,22 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.go.GoTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
-import java.util.regex.Pattern;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.treesitter.TSTree;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
 import org.treesitter.TSQuery;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterGo;
 
 public final class GoAnalyzer extends TreeSitterAnalyzer {

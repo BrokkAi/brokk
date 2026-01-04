@@ -1,6 +1,8 @@
 package ai.brokk.analyzer;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
@@ -244,12 +246,12 @@ public final class TreeSitterStateIO {
             List<String> importStatements,
             Set<CodeUnitDto> resolvedImports,
             boolean containsTests) {
-        @com.fasterxml.jackson.annotation.JsonCreator
+        @JsonCreator
         public FilePropertiesDto(
-                @com.fasterxml.jackson.annotation.JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
-                @com.fasterxml.jackson.annotation.JsonProperty("importStatements") List<String> importStatements,
-                @com.fasterxml.jackson.annotation.JsonProperty("resolvedImports") Set<CodeUnitDto> resolvedImports,
-                @com.fasterxml.jackson.annotation.JsonProperty(value = "containsTests", required = true)
+                @JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
+                @JsonProperty("importStatements") List<String> importStatements,
+                @JsonProperty("resolvedImports") Set<CodeUnitDto> resolvedImports,
+                @JsonProperty(value = "containsTests", required = true)
                         boolean containsTests) {
             this.topLevelCodeUnits = topLevelCodeUnits;
             this.importStatements = importStatements;
