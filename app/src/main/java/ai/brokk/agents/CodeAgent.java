@@ -783,7 +783,8 @@ public class CodeAgent {
             }
             logger.debug("Build verification succeeded");
 
-            var lastAiText = cs.taskMessages().isEmpty() ? ""
+            var lastAiText = cs.taskMessages().isEmpty()
+                    ? ""
                     : Messages.getText(cs.taskMessages().getLast());
             var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
             var filesInContext = context.fileFragments()
@@ -806,9 +807,8 @@ public class CodeAgent {
                 }
 
                 if (isAskingForFiles) {
-                    var fileNames = notInContext.stream()
-                            .map(ProjectFile::getFileName)
-                            .collect(Collectors.joining(", "));
+                    var fileNames =
+                            notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
                     reportComplete("Agent is requesting additional files: " + fileNames);
                     return new Step.Fatal(new TaskResult.StopDetails(
                             TaskResult.StopReason.LLM_ABORTED,

@@ -83,8 +83,11 @@ public final class DiffService {
             if (k.prev() == null) {
                 return CompletableFuture.completedFuture(List.of());
             }
+            var revision = history.getGitState(k.prev().id())
+                    .map(ContextHistory.GitState::commitHash)
+                    .orElse("HEAD");
             return CompletableFuture.supplyAsync(
-                    () -> computeDiff(k.curr(), castNonNull(k.prev())), cm.getBackgroundTasks());
+                    () -> computeDiff(k.curr(), castNonNull(k.prev()), revision), cm.getBackgroundTasks());
         });
     }
 
@@ -97,14 +100,14 @@ public final class DiffService {
     }
 
     @Blocking
-    private static boolean isNewInGit(ContextFragment fragment, IGitRepo repo) {
+    private static boolean isNewInGit(ContextFragment fragment, IGitRepo repo, String revision) {
         return fragment.files().join().stream().anyMatch(file -> {
             try {
-                // If getFileContent returns an empty string for HEAD, the file is not yet committed.
-                return repo.getFileContent("HEAD", file).isEmpty();
+                // If getFileContent returns an empty string for the revision, the file is not yet committed.
+                return repo.getFileContent(revision, file).isEmpty();
             } catch (Exception e) {
-                // If an error occurs (e.g. GitAPIException), we treat it as not committed to HEAD.
-                logger.debug("Failed to get content from HEAD for file {}: {}", file, e.getMessage());
+                // If an error occurs (e.g. GitAPIException), we treat it as not committed.
+                logger.debug("Failed to get content from {} for file {}: {}", revision, file, e.getMessage());
                 return true;
             }
         });
@@ -115,7 +118,7 @@ public final class DiffService {
      * Triggers async computations and awaits their completion.
      */
     @Blocking
-    public static List<DiffEntry> computeDiff(Context ctx, Context other) {
+    private List<DiffEntry> computeDiff(Context ctx, Context other, String revision) {
         // Candidates:
         // - Editable fragments
         // - Image fragments (non-text), including pasted images and image files.
@@ -125,8 +128,9 @@ public final class DiffService {
         var imageFragments = ctx.allFragments().filter(f -> !f.isText());
 
         var candidates = Stream.concat(editableFragments, imageFragments);
-        var diffFutures =
-                candidates.map(cf -> computeDiffForFragment(ctx, cf, other)).toList();
+        var diffFutures = candidates
+                .map(cf -> computeDiffForFragment(ctx, cf, other, revision))
+                .toList();
 
         return diffFutures.stream()
                 .map(CompletableFuture::join)
@@ -146,8 +150,8 @@ public final class DiffService {
      * The DiffEntry returned is Nullable!
      */
     @Blocking
-    private static CompletableFuture<DiffEntry> computeDiffForFragment(
-            Context curr, ContextFragment thisFragment, Context other) {
+    private CompletableFuture<DiffEntry> computeDiffForFragment(
+            Context curr, ContextFragment thisFragment, Context other, String revision) {
         var otherFragment = other.allFragments()
                 .filter(thisFragment::hasSameSource)
                 .findFirst()
@@ -162,7 +166,7 @@ public final class DiffService {
             }
 
             var repo = curr.getContextManager().getRepo();
-            if (!isNewInGit(thisFragment, repo)) {
+            if (!isNewInGit(thisFragment, repo, revision)) {
                 return CompletableFuture.completedFuture(null);
             }
         }
@@ -313,10 +317,41 @@ public final class DiffService {
      */
     @Blocking
     public static Set<ProjectFile> getChangedFiles(Context curr, Context other) {
-        var diffs = computeDiff(curr, other);
+        // Use default "HEAD" revision for static utility calls that don't have history context
+        var diffs = computeDiffInternal(curr, other, "HEAD");
         return diffs.stream()
                 .flatMap(de -> de.fragment().files().join().stream())
                 .collect(Collectors.toSet());
+    }
+
+    @Blocking
+    private static List<DiffEntry> computeDiffInternal(Context ctx, Context other, String revision) {
+        var editableFragments =
+                ctx.getEditableFragments().filter(f -> f.getType() != ContextFragment.FragmentType.EXTERNAL_PATH);
+        var imageFragments = ctx.allFragments().filter(f -> !f.isText());
+
+        var candidates = Stream.concat(editableFragments, imageFragments);
+        var diffFutures = candidates
+                .map(cf -> {
+                    var otherFragment = other.allFragments()
+                            .filter(cf::hasSameSource)
+                            .findFirst()
+                            .orElse(null);
+
+                    if (otherFragment == null) {
+                        if (!cf.isText()) return CompletableFuture.<DiffEntry>completedFuture(null);
+                        var repo = ctx.getContextManager().getRepo();
+                        if (!isNewInGit(cf, repo, revision)) return CompletableFuture.<DiffEntry>completedFuture(null);
+                    }
+                    return computeDiff(otherFragment, cf);
+                })
+                .toList();
+
+        return diffFutures.stream()
+                .map(CompletableFuture::join)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
     }
 
     /**
