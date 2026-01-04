@@ -406,4 +406,22 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     protected Set<String> getLeadingMetadataNodeTypes() {
         return Set.of("attribute_item", "inner_attribute");
     }
+
+    @Override
+    protected boolean containsTestMarkers(org.treesitter.TSTree tree) {
+        org.treesitter.TSQueryCursor cursor = new org.treesitter.TSQueryCursor();
+        org.treesitter.TSQuery rustQuery = getThreadLocalQuery();
+        cursor.exec(rustQuery, tree.getRootNode());
+
+        org.treesitter.TSQueryMatch match = new org.treesitter.TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (org.treesitter.TSQueryCapture capture : match.getCaptures()) {
+                String captureName = rustQuery.getCaptureNameForId(capture.getIndex());
+                if ("test_marker".equals(captureName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 }

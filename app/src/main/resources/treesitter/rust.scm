@@ -118,3 +118,16 @@
     ) @field.definition
   )
 )
+
+;; Test markers
+(attribute_item
+  (attribute
+    [
+      ;; #[test]
+      (identifier) @test_marker (#eq? @test_marker "test")
+      ;; #[cfg(test)]
+      ( (identifier) @cfg_attr (#eq? @cfg_attr "cfg")
+        (token_tree (identifier) @test_marker (#eq? @test_marker "test")))
+    ]
+  )
+)
