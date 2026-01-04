@@ -27,6 +27,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
@@ -150,6 +151,7 @@ public final class HistoryIo {
         var contentBytesMap = new HashMap<String, byte[]>();
 
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
+            logger.debug("reading " + zip);
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 var entryName = entry.getName();
@@ -187,7 +189,7 @@ public final class HistoryIo {
                         }
                         case GROUP_INFO_FILENAME -> {
                             groupInfoDto = objectMapper.readValue(zis.readAllBytes(), GroupInfoDto.class);
-                            logger.debug("readZip: loaded group_info.json with {} context mappings, {} group labels",
+                            logger.debug("loaded group_info.json with {} context mappings, {} group labels",
                                     groupInfoDto.contextToGroupId().size(),
                                     groupInfoDto.groupLabels().size());
                         }
@@ -272,7 +274,7 @@ public final class HistoryIo {
             // First build the context via DtoMapper, then reconstruct to inject read-only fragment IDs
             Context built = DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache, contentReader);
             contexts.add(built);
-            logger.debug("readZip: loaded context id={}", built.id());
+            logger.debug("loaded context id={}", built.id());
         }
 
         if (contexts.isEmpty()) {
@@ -293,14 +295,36 @@ public final class HistoryIo {
             groupInfoDto.groupLabels().forEach((grpId, label) -> groupLabels.put(UUID.fromString(grpId), label));
         }
 
-        logger.debug("readZip: contextToGroupId map has {} entries", contextToGroupId.size());
+        logger.debug("contextToGroupId map has {} entries", contextToGroupId.size());
         for (var entry : contextToGroupId.entrySet()) {
             logger.debug("  context {} -> group {}", entry.getKey(), entry.getValue());
         }
-        logger.debug("readZip: groupLabels map has {} entries", groupLabels.size());
+        logger.debug("groupLabels map has {} entries", groupLabels.size());
         for (var entry : groupLabels.entrySet()) {
             logger.debug("  group {} -> label '{}'", entry.getKey(), entry.getValue());
         }
+
+        // Validate that all context IDs in group mappings exist in loaded contexts
+        var loadedContextIds = contexts.stream()
+                .map(Context::id)
+                .collect(Collectors.toSet());
+        for (var ctxId : contextToGroupId.keySet()) {
+            if (!loadedContextIds.contains(ctxId)) {
+                logger.warn("context {} in group mapping not found in loaded contexts!", ctxId);
+            }
+        }
+
+        // Check for contexts that should have groups but don't
+        int contextsWithGroups = 0;
+        int contextsWithoutGroups = 0;
+        for (var ctx : contexts) {
+            if (contextToGroupId.containsKey(ctx.id())) {
+                contextsWithGroups++;
+            } else {
+                contextsWithoutGroups++;
+            }
+        }
+        logger.debug("{} contexts have group mappings, {} do not", contextsWithGroups, contextsWithoutGroups);
 
         return new ContextHistory(contexts, resetEdges, gitStates, entryInfos, contextToGroupId, groupLabels);
     }
@@ -413,6 +437,17 @@ public final class HistoryIo {
         for (var entry : grpLabels.entrySet()) {
             logger.debug("  group {} -> label '{}'", entry.getKey(), entry.getValue());
         }
+
+        // Validate that all context IDs in group mappings exist in the history
+        var historyContextIds = ch.getHistory().stream()
+                .map(Context::id)
+                .collect(Collectors.toSet());
+        for (var ctxId : ctxToGrp.keySet()) {
+            if (!historyContextIds.contains(ctxId)) {
+                logger.warn("writeZip: context {} in group mapping not found in history!", ctxId);
+            }
+        }
+
         groupInfoBytes = objectMapper.writeValueAsBytes(groupDto);
 
         byte[] resetEdgesBytes = null;
