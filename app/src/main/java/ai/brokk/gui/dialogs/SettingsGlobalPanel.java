@@ -1025,10 +1025,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Validate UI Scale and compute new preference
         String oldUiScalePref = MainProject.getUiScalePref();
-        String newUiScalePref = oldUiScalePref;
+        String computedUiScalePref;
         if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
             if (uiScaleAutoRadio.isSelected()) {
-                newUiScalePref = "auto";
+                computedUiScalePref = "auto";
             } else {
                 String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
                 var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
@@ -1040,9 +1040,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                             JOptionPane.ERROR_MESSAGE);
                     return false;
                 }
-                newUiScalePref = txt;
+                computedUiScalePref = txt;
             }
+        } else {
+            computedUiScalePref = oldUiScalePref;
         }
+        final String newUiScalePref = computedUiScalePref;
 
         // GitHub settings
         if (!gitHubSettingsPanel.applySettings()) {
@@ -1065,27 +1068,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         boolean forceToolEmulation = (forceToolEmulationCheckbox != null) && forceToolEmulationCheckbox.isSelected();
 
-        MainProject.setBrokkKey(newBrokkKeyFromField);
-        MainProject.setLlmProxySetting(proxySetting);
-        MainProject.setForceToolEmulation(forceToolEmulation);
-
         // Appearance: theme
         String selectedDisplay = (String) themeCombo.getSelectedItem();
         String newTheme = getThemeValueFromDisplayName(selectedDisplay != null ? selectedDisplay : "Light");
-        MainProject.setTheme(newTheme);
 
         // Appearance: word wrap
         boolean newWrapMode = wordWrapCheckbox.isSelected();
-        MainProject.setCodeBlockWrapMode(newWrapMode);
 
-        // UI Scale persistence
-        if (!newUiScalePref.equals(oldUiScalePref)) {
-            if ("auto".equalsIgnoreCase(newUiScalePref)) {
-                MainProject.setUiScalePrefAuto();
-            } else {
+        // UI Scale persistence - validate before background save
+        boolean uiScaleChanged = !newUiScalePref.equals(oldUiScalePref);
+        if (uiScaleChanged) {
+            if (!"auto".equalsIgnoreCase(newUiScalePref)) {
                 try {
-                    double scale = Double.parseDouble(newUiScalePref);
-                    MainProject.setUiScalePrefCustom(scale);
+                    Double.parseDouble(newUiScalePref);
                 } catch (NumberFormatException e) {
                     JOptionPane.showMessageDialog(
                             this,
@@ -1095,19 +1090,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     return false;
                 }
             }
-            parentDialog.markRestartNeededForUiScale();
         }
 
         // Terminal font size
         float terminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
-        MainProject.setTerminalFontSize(terminalFontSize);
 
         // Layout and diff preferences
         boolean verticalLayout = !classicBrokkViewCheckbox.isSelected();
-        GlobalUiSettings.saveVerticalActivityLayout(verticalLayout);
-
         boolean diffUnified = diffUnifiedRadio.isSelected();
-        GlobalUiSettings.saveDiffUnifiedView(diffUnified);
 
         // MCP configuration
         var mcpServers = new ArrayList<McpServer>();
@@ -1115,36 +1105,63 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             mcpServers.add(mcpServersListModel.getElementAt(i));
         }
         var mcpConfig = new McpConfig(mcpServers);
-        chrome.getProject().getMainProject().setMcpConfig(mcpConfig);
 
-        // Side effects
+        // Move all file I/O operations to background thread to avoid blocking EDT
+        chrome.getContextManager().submitBackgroundTask("Save global settings", () -> {
+            MainProject.setBrokkKey(newBrokkKeyFromField);
+            MainProject.setLlmProxySetting(proxySetting);
+            MainProject.setForceToolEmulation(forceToolEmulation);
+            MainProject.setTheme(newTheme);
+            MainProject.setCodeBlockWrapMode(newWrapMode);
 
-        if (keyStateChangedInUI) {
-            refreshBalanceDisplay();
-            updateSignupLabelVisibility();
-            parentDialog.triggerDataRetentionPolicyRefresh();
-            try {
-                chrome.getContextManager().reloadService();
-            } catch (Exception e) {
-                logger.debug("Failed to reload service after Brokk key change (non-fatal)", e);
+            if (uiScaleChanged) {
+                if ("auto".equalsIgnoreCase(newUiScalePref)) {
+                    MainProject.setUiScalePrefAuto();
+                } else {
+                    double scale = Double.parseDouble(newUiScalePref);
+                    MainProject.setUiScalePrefCustom(scale);
+                }
             }
-        }
 
-        boolean themeChanged = !newTheme.equals(oldTheme);
-        boolean wrapChanged = newWrapMode != oldWrapMode;
-        if (themeChanged || wrapChanged) {
-            chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
-        }
+            MainProject.setTerminalFontSize(terminalFontSize);
+            GlobalUiSettings.saveVerticalActivityLayout(verticalLayout);
+            GlobalUiSettings.saveDiffUnifiedView(diffUnified);
+            chrome.getProject().getMainProject().setMcpConfig(mcpConfig);
 
-        if (verticalLayout != previousVerticalLayout) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Restart required: Changing Activity Layout will take effect after restarting Brokk.",
-                    "Restart Required",
-                    JOptionPane.INFORMATION_MESSAGE);
-        }
+            // Trigger side effects on EDT after settings are saved
+            SwingUtilities.invokeLater(() -> {
+                if (uiScaleChanged) {
+                    parentDialog.markRestartNeededForUiScale();
+                }
 
-        chrome.updateTerminalFontSize();
+                if (keyStateChangedInUI) {
+                    refreshBalanceDisplay();
+                    updateSignupLabelVisibility();
+                    parentDialog.triggerDataRetentionPolicyRefresh();
+                    try {
+                        chrome.getContextManager().reloadService();
+                    } catch (Exception e) {
+                        logger.debug("Failed to reload service after Brokk key change (non-fatal)", e);
+                    }
+                }
+
+                boolean themeChanged = !newTheme.equals(oldTheme);
+                boolean wrapChanged = newWrapMode != oldWrapMode;
+                if (themeChanged || wrapChanged) {
+                    chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
+                }
+
+                if (verticalLayout != previousVerticalLayout) {
+                    JOptionPane.showMessageDialog(
+                            SettingsGlobalPanel.this,
+                            "Restart required: Changing Activity Layout will take effect after restarting Brokk.",
+                            "Restart Required",
+                            JOptionPane.INFORMATION_MESSAGE);
+                }
+
+                chrome.updateTerminalFontSize();
+            });
+        });
 
         logger.debug("Applied global settings (service + appearance + MCP + GitHub) successfully");
         return true;
