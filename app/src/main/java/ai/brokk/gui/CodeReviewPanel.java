@@ -36,10 +36,12 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
     private final ContextManager contextManager;
     private final MaterialButton generateButton;
     private final JPanel contentPanel;
+    private final Runnable triggerCallback;
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
 
-    public CodeReviewPanel(ContextManager contextManager) {
+    public CodeReviewPanel(ContextManager contextManager, Runnable triggerCallback) {
         this.contextManager = contextManager;
+        this.triggerCallback = triggerCallback;
         setLayout(new BorderLayout());
 
         generateButton = new MaterialButton("Guided Review");
@@ -71,15 +73,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
     }
 
     private void triggerReviewGeneration() {
-        for (ReviewNavigationListener l : listeners) {
-            if (l instanceof ReviewTriggerListener rtl) {
-                rtl.onTriggerReview();
-            }
-        }
-    }
-
-    public interface ReviewTriggerListener extends ReviewNavigationListener {
-        void onTriggerReview();
+        triggerCallback.run();
     }
 
     public void displayReview(

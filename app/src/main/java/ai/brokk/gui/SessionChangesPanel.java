@@ -401,21 +401,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         builder.setRootTitle(projectName);
         this.diffPanel = builder.build();
 
-        codeReviewPanel = new CodeReviewPanel(contextManager);
-        codeReviewPanel.addReviewNavigationListener(new CodeReviewPanel.ReviewTriggerListener() {
-            @Override
-            public void onTriggerReview() {
-                generateGuidedReview();
-            }
-
-            @Override
-            public void onNavigate(CodeReviewPanel.ParsedExcerpt pe) {
-                if (diffPanel != null) {
-                    if (pe.lineNumber() != -1) {
-                        diffPanel.navigateToLocation(pe.original().file(), pe.lineNumber());
-                    } else {
-                        diffPanel.navigateToFile(pe.original().file());
-                    }
+        codeReviewPanel = new CodeReviewPanel(contextManager, this::generateGuidedReview);
+        codeReviewPanel.addReviewNavigationListener(pe -> {
+            if (diffPanel != null) {
+                if (pe.lineNumber() != -1) {
+                    diffPanel.navigateToLocation(pe.original().file(), pe.lineNumber());
+                } else {
+                    diffPanel.navigateToFile(pe.original().file());
                 }
             }
         });
