@@ -9,11 +9,8 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.DiffService;
-import ai.brokk.difftool.ui.AbstractDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
-import ai.brokk.difftool.ui.FileComparisonInfo;
-import ai.brokk.difftool.ui.FileTreePanel;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
@@ -69,7 +66,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private CodeReviewPanel codeReviewPanel;
 
     private record FileComparisonData(
-            FileComparisonInfo comparison,
+            BrokkDiffPanel.FileComparisonInfo comparison,
             String path,
             String newContent,
             String oldContent
@@ -398,7 +395,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.fileData = prepared.stream()
                 .map(entry -> new FileComparisonData(
-                        new FileComparisonInfo(
+                        new BrokkDiffPanel.FileComparisonInfo(
                                 new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
                                 new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)),
                         entry.getKey(),
