@@ -65,13 +65,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private CodeReviewPanel codeReviewPanel;
 
-    private record FileComparisonData(
-            BrokkDiffPanel.FileComparisonInfo comparison,
-            String path,
-            String newContent,
-            String oldContent
-    ) {}
-    private List<FileComparisonData> fileData = List.of();
+    private List<BrokkDiffPanel.FileComparisonInfo> fileData = List.of();
 
     @FunctionalInterface
     public interface TabTitleUpdater {
@@ -394,18 +388,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
         this.fileData = prepared.stream()
-                .map(entry -> new FileComparisonData(
-                        new BrokkDiffPanel.FileComparisonInfo(
-                                new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
-                                new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)),
-                        entry.getKey(),
-                        entry.getValue().newContent(),
-                        entry.getValue().oldContent()))
+                .map(entry -> new BrokkDiffPanel.FileComparisonInfo(
+                        new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
+                        new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)))
                 .toList();
 
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
-        for (var data : fileData) {
-            builder.addComparison(data.comparison().leftSource(), data.comparison().rightSource());
+        for (var info : fileData) {
+            builder.addComparison(info.leftSource(), info.rightSource());
         }
         builder.setForceFileTree(true);
         builder.setRootTitle(projectName);
@@ -569,7 +559,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         String relPath = excerpt.file().getRelPath().toString();
         int targetFileIndex = -1;
         for (int i = 0; i < fileData.size(); i++) {
-            if (fileData.get(i).path().equals(relPath)) {
+            var info = fileData.get(i);
+            // Match against filename in either source
+            if (relPath.equals(info.rightSource().filename()) || relPath.equals(info.leftSource().filename())) {
                 targetFileIndex = i;
                 break;
             }
@@ -580,19 +572,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             return null;
         }
 
-        var data = fileData.get(targetFileIndex);
+        var info = fileData.get(targetFileIndex);
         String[] targetLines = excerpt.excerpt().split("\\r?\\n", -1);
 
         // 1. Try NEW content first
-        String[] newLines = data.newContent().split("\\r?\\n", -1);
+        String newContent = info.rightSource().content();
+        String[] newLines = newContent.split("\\r?\\n", -1);
         var found = EditBlock.findIgnoringWhitespace(newLines, 0, targetLines);
         if (found.isPresent()) {
-            int lineNum = data.newContent().substring(0, data.newContent().indexOf(found.get())).split("\n").length + 1;
+            int lineNum = newContent.substring(0, newContent.indexOf(found.get())).split("\n").length + 1;
             return new CodeReviewPanel.ParsedExcerpt(excerpt, lineNum, targetFileIndex);
         }
 
         // 2. Try OLD content
-        String[] oldLines = data.oldContent().split("\\r?\\n", -1);
+        String oldContent = info.leftSource().content();
+        String[] oldLines = oldContent.split("\\r?\\n", -1);
         found = EditBlock.findIgnoringWhitespace(oldLines, 0, targetLines);
         if (found.isPresent()) {
             // If found in old content, we navigate to the file but we can't reliably pinpoint the line in the "new" view
