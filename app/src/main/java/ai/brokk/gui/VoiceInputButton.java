@@ -276,15 +276,15 @@ public class VoiceInputButton extends JButton {
                         "mic-capture-thread");
                 micCaptureThread.start();
 
-                // Notify that recording has started
-                onRecordingStart.run();
+                // Notify that recording has started (on EDT in case callback touches Swing components)
+                SwingUtilities.invokeLater(onRecordingStart);
             } catch (Exception ex) {
                 logger.error("Failed to start mic capture", ex);
                 String errorMsg = "Error starting mic capture: " + ex.getMessage();
-                onError.accept(errorMsg);
 
-                // Restore UI state on EDT
+                // Restore UI state and notify error on EDT
                 SwingUtilities.invokeLater(() -> {
+                    onError.accept(errorMsg);
                     targetTextArea.setEnabled(true);
                     if (micOffIcon != null) {
                         setIcon(micOffIcon);
