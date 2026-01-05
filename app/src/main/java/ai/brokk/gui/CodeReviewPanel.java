@@ -83,21 +83,27 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         void onTriggerReview();
     }
 
-    public void displayReview(GuidedReview review, java.util.function.Function<CodeExcerpt, ParsedExcerpt> resolver) {
+    public void displayReview(
+            GuidedReview review,
+            List<List<ParsedExcerpt>> designExcerpts,
+            List<ParsedExcerpt> tacticalExcerpts) {
         contentPanel.removeAll();
 
         addHeader("Overview");
         addMarkdownText(review.overview());
 
         addHeader("Design");
-        for (DesignFeedback design : review.designNotes()) {
-            List<ParsedExcerpt> parsed = design.excerpts().stream().map(resolver).toList();
-            addExpandableItem(design.description(), parsed);
+        for (int i = 0; i < review.designNotes().size(); i++) {
+            DesignFeedback design = review.designNotes().get(i);
+            List<ParsedExcerpt> parsed = designExcerpts.get(i);
+            if (!parsed.isEmpty()) {
+                addExpandableItem(design.description(), parsed);
+            }
         }
 
         addHeader("Tactical");
-        for (CodeExcerpt tactical : review.tacticalNotes()) {
-            addExpandableItem(tactical.excerpt(), List.of(resolver.apply(tactical)));
+        for (ParsedExcerpt tactical : tacticalExcerpts) {
+            addExpandableItem(tactical.original().excerpt(), List.of(tactical));
         }
 
         addHeader("Tests");

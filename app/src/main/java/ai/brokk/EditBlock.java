@@ -749,7 +749,7 @@ public class EditBlock {
      * if there is a UNIQUE match for targetLines in
      * originalLines starting at 'start', ignoring whitespace; otherwise empty.
      */
-    static Optional<String> findIgnoringWhitespace(String[] originalLines, int start, String[] targetLines) {
+    public static Optional<String> findIgnoringWhitespace(String[] originalLines, int start, String[] targetLines) {
         if (start + targetLines.length > originalLines.length) {
             return Optional.empty();
         }
