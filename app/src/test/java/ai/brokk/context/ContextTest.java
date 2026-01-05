@@ -448,10 +448,7 @@ class ContextTest {
         var fragmentInContext = refreshedCtx.fileFragments().findFirst().orElseThrow();
 
         // Expectation: copyAndRefresh should re-read from disk
-        assertEquals(
-                "v2",
-                fragmentInContext.text().join(),
-                "copyAndRefresh should update fragment content from disk");
+        assertEquals("v2", fragmentInContext.text().join(), "copyAndRefresh should update fragment content from disk");
 
         // Also verify it's a new instance
         assertNotSame(p1, fragmentInContext);
