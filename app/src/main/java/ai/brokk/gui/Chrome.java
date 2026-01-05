@@ -1890,7 +1890,17 @@ public class Chrome
                     JOptionPane.QUESTION_MESSAGE);
 
             if (confirm == JOptionPane.YES_OPTION) {
-                mainProject.performStyleMdToAgentsMdMigration(this);
+                new ExceptionAwareSwingWorker<Boolean, Void>(this) {
+                    @Override
+                    protected Boolean doInBackground() throws Exception {
+                        return mainProject.performStyleMdToAgentsMdMigration(io());
+                    }
+
+                    @Override
+                    protected void done() {
+                        super.done(); // handles exceptions via GlobalExceptionHandler
+                    }
+                }.execute();
             } else {
                 mainProject.setMigrationDeclined(true);
                 logger.info("User declined style.md to AGENTS.md migration. Decision stored.");
