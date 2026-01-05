@@ -75,6 +75,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // Progress listeners for reporting parsing progress to UI
     private final ProgressListener progressListener;
 
+    // Cache for lazy supertype computation
+    private final ConcurrentHashMap<CodeUnit, List<CodeUnit>> supertypesCache = new ConcurrentHashMap<>();
+
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
                     (CodeUnit cu) -> firstStartByteForSelection(cu))
@@ -622,7 +625,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        return this.state;
+        if (supertypesCache.isEmpty()) {
+            return this.state;
+        }
+
+        // Merge lazy-computed supertypes into the snapshot state
+        var nextCodeUnitState = new HashMap<>(this.state.codeUnitState());
+        supertypesCache.forEach((cu, supers) -> {
+            nextCodeUnitState.compute(cu, (k, existing) -> {
+                if (existing == null) return null;
+                return new CodeUnitProperties(
+                        existing.children(),
+                        existing.signatures(),
+                        existing.ranges(),
+                        existing.rawSupertypes(),
+                        new SuperTypeInfo.Computed(supers),
+                        existing.hasBody());
+            });
+        });
+
+        return new AnalyzerState(
+                this.state.symbolIndex(),
+                HashTreePMap.from(nextCodeUnitState),
+                this.state.fileState(),
+                this.state.symbolKeyIndex(),
+                this.state.snapshotEpochNanos());
     }
 
     @Override
@@ -3057,7 +3084,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         if (!cu.isClass()) {
             return List.of();
         }
-        return supertypesOf(cu);
+
+        // 1. Check lazy cache
+        List<CodeUnit> cached = supertypesCache.get(cu);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Check persistent state
+        CodeUnitProperties props = codeUnitProperties(cu);
+        if (props.superTypes() instanceof SuperTypeInfo.Computed computed) {
+            return computed.supertypes();
+        }
+
+        // 3. Compute lazily
+        List<CodeUnit> computedSupers = computeSupertypes(cu);
+        supertypesCache.put(cu, computedSupers);
+        return computedSupers;
     }
 
     /* ---------- file filtering helpers ---------- */
@@ -3543,12 +3586,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Combined post-processing pipeline: delegates to runImportResolution followed by runTypeAnalysis
+     * Combined post-processing pipeline: delegates to runImportResolution
      * without rebinding this.state. Each step returns a new AnalyzerState snapshot.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        var afterImports = runImportResolution(baseState);
-        return runTypeAnalysis(afterImports);
+        return runImportResolution(baseState);
     }
 
     /**
