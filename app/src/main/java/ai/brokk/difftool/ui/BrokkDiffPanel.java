@@ -1202,18 +1202,52 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
     @Override
     public void navigateToFile(int fileIndex) {
-        // TODO
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        switchToFile(fileIndex);
+    }
+
+    @Override
+    public void navigateToFile(ProjectFile file) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        for (int i = 0; i < fileComparisons.size(); i++) {
+            var info = fileComparisons.get(i);
+            if (isMatchingFile(info.leftSource(), file) || isMatchingFile(info.rightSource(), file)) {
+                switchToFile(i);
+                return;
+            }
+        }
+        logger.warn("Could not find file in comparisons: {}", file);
     }
 
     @Override
     public void navigateToLocation(int fileIndex, int lineNumber) {
-        // TODO
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        switchToFile(fileIndex);
+    }
+
+    @Override
+    public void navigateToLocation(ProjectFile file, int lineNumber) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        for (int i = 0; i < fileComparisons.size(); i++) {
+            var info = fileComparisons.get(i);
+            if (isMatchingFile(info.leftSource(), file) || isMatchingFile(info.rightSource(), file)) {
+                switchToFile(i);
+                return;
+            }
+        }
+        logger.warn("Could not find file in comparisons: {}", file);
+    }
+
+    private boolean isMatchingFile(BufferSource source, ProjectFile file) {
+        if (source instanceof BufferSource.FileSource fs) {
+            return fs.file().equals(file);
+        }
+        return false;
     }
 
     @Override
     public int getCurrentFileIndex() {
-        // TODO
-        return 0;
+        return currentFileIndex;
     }
 
     /** Returns the number of file comparisons in this panel. */

@@ -1,5 +1,7 @@
 package ai.brokk.difftool.ui;
 
+import ai.brokk.analyzer.ProjectFile;
+
 /**
  * Interface for components that can handle navigation within a multi-file diff view.
  * This abstracts the navigation logic allowing different UI components (like tree or list)
@@ -15,12 +17,27 @@ public interface DiffNavigationTarget {
     void navigateToFile(int fileIndex);
 
     /**
+     * Navigates to a specific file by its ProjectFile.
+     *
+     * @param file The ProjectFile to navigate to.
+     */
+    void navigateToFile(ProjectFile file);
+
+    /**
      * Navigates to a specific file and scrolls to a particular line number.
      *
      * @param fileIndex  The index of the file in the comparison list.
      * @param lineNumber The 1-based line number to navigate to.
      */
     void navigateToLocation(int fileIndex, int lineNumber);
+
+    /**
+     * Navigates to a specific file and scrolls to a particular line number.
+     *
+     * @param file       The ProjectFile to navigate to.
+     * @param lineNumber The 1-based line number to navigate to.
+     */
+    void navigateToLocation(ProjectFile file, int lineNumber);
 
     /**
      * Returns the index of the file currently being displayed.
