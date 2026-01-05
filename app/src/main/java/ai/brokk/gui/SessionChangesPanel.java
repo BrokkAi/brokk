@@ -405,7 +405,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel.addReviewNavigationListener(new CodeReviewPanel.ReviewTriggerListener() {
             @Override
             public void onTriggerReview() {
-                generateGuidedReview(baselineLabel, baselineMode);
+                generateGuidedReview();
             }
 
             @Override
@@ -509,7 +509,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private void generateGuidedReview(@Nullable String baselineLabel, @Nullable BaselineMode baselineMode) {
+    private void generateGuidedReview() {
         if (codeReviewPanel == null || lastCumulativeChanges == null) return;
 
         codeReviewPanel.setBusy(true);

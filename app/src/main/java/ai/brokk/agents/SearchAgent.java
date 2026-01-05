@@ -327,7 +327,7 @@ public class SearchAgent {
                 Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
                 Set<ProjectFile> added = new HashSet<>(filesAfterSet);
                 added.removeAll(filesBeforeSet);
-                if (!added.isEmpty()) {
+                if (!added.isEmpty() && scope != null) {
                     scope.publish(context);
                 }
             } finally {

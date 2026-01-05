@@ -116,11 +116,17 @@ public class LutzAgent extends SearchAgent {
             @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
                     String instructions)
             throws InterruptedException, ToolRegistry.FatalLlmException {
+        if (scope == null) {
+            throw new ToolRegistry.FatalLlmException("Cannot call Code Agent without a valid Task Scope.");
+        }
+
         // Append first the SearchAgent's result so far; CodeAgent appends its own result
-        context = scope.append(createResult("Search: " + goal, goal));
+        var searchResult = createResult("Search: " + goal, goal);
+        context = scope.append(searchResult);
 
         // Call the agent (actually Architect, not Code, so it can recover if the Context isn't quite complete)
         logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
+
         var agent = new ArchitectAgent(
                 cm, cm.getService().getModel(ModelType.ARCHITECT), cm.getCodeModel(), instructions, scope, context);
         var result = agent.execute();
