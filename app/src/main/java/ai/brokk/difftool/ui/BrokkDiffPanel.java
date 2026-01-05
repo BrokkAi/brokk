@@ -214,6 +214,7 @@ public class BrokkDiffPanel extends JPanel
                     logger.warn("Slow async diff creation: {}ms", elapsedTime);
                 }
             });
+            return null;
         });
     }
 
@@ -1741,12 +1742,13 @@ public class BrokkDiffPanel extends JPanel
             var fragment = new ContextFragments.StringFragment(
                     contextManager, combinedBuilder.toString(), description, syntaxStyle, filesForFragment);
 
-            contextManager.submitContextTask(() -> {
+            contextManager.submitBackgroundTask("Add fragments to context", () -> {
                 contextManager.addFragments(fragment);
                 contextManager
                         .getIo()
                         .showNotification(
                                 IConsoleIO.NotificationRole.INFO, "Added captured diffs to context: " + description);
+                return null;
             });
         });
     }
@@ -1956,6 +1958,7 @@ public class BrokkDiffPanel extends JPanel
                     && panelCache.isInWindow(nextIndex)) {
                 preloadFile(nextIndex);
             }
+            return null;
         });
     }
 

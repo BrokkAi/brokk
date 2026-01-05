@@ -2,10 +2,10 @@ package ai.brokk.gui;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import ai.brokk.ContextManager;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.gui.theme.GuiTheme;
-import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.GraphicsEnvironment;
@@ -43,9 +43,9 @@ public class DiffOpenersRespectPreferenceTest {
         GlobalUiSettings.saveDiffUnifiedView(false);
         assertFalse(GlobalUiSettings.isDiffUnifiedView(), "Precondition: unified should be false");
 
-        // Minimal harness using TestContextManager
+        // Minimal harness using ContextManager
         var project = new TestProject(tempDir);
-        var contextManager = new TestContextManager(project);
+        var contextManager = new ContextManager(project);
 
         // Build theme without showing a window
         var frame = Chrome.newFrame("DiffOpenersRespectPreferenceTest");

@@ -3,9 +3,9 @@ package ai.brokk.difftool.ui;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.ContextManager;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
-import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.GraphicsEnvironment;
@@ -46,7 +46,7 @@ public class BrokkDiffPanelPersistenceTest {
         GlobalUiSettings.saveDiffUnifiedView(false);
 
         var project = new TestProject(tempDir);
-        var contextManager = new TestContextManager(project);
+        var contextManager = new ContextManager(project);
 
         // Minimal Chrome + GuiTheme for builder (no need to show any windows)
         var chrome = new Chrome(contextManager);
