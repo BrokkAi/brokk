@@ -519,7 +519,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         JScrollPane scrollPane = new JScrollPane(logArea);
         scrollPane.setBorder(null);
 
-        TextAreaConsoleIO tio = new TextAreaConsoleIO(logArea, chrome, "Starting guided review...");
+        TextAreaConsoleIO tio = new TextAreaConsoleIO(logArea, chrome, "Starting guided review...", false);
 
         SwingUtilities.invokeLater(() -> {
             if (parent instanceof JSplitPane splitPane) {
@@ -541,8 +541,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .map(de -> "File: " + de.title() + "\n" + de.diff())
                         .collect(java.util.stream.Collectors.joining("\n\n"));
 
-                var agent = new ReviewAgent(formattedDiff, contextManager);
-                var review = agent.execute(tio);
+                var agent = new ReviewAgent(formattedDiff, contextManager, tio);
+                var review = agent.execute();
 
                 // Pre-resolve excerpts
                 List<List<CodeReviewPanel.ParsedExcerpt>> designExcerpts = review.designNotes().stream()

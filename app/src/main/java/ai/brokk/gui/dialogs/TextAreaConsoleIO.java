@@ -19,6 +19,7 @@ public class TextAreaConsoleIO implements IConsoleIO {
     private final Timer thinkingAnimationTimer;
     private int dotCount = 0;
     private boolean hasReceivedTokens = false;
+    private final boolean clearOnReasoningTransition;
 
     // Reasoning/content stream handling
     private boolean lastWasReasoning = true;
@@ -30,8 +31,14 @@ public class TextAreaConsoleIO implements IConsoleIO {
      * @param initialMessage initial placeholder shown while the LLM hasn't emitted the first token
      */
     public TextAreaConsoleIO(JTextArea textArea, IConsoleIO errorReporter, String initialMessage) {
+        this(textArea, errorReporter, initialMessage, true);
+    }
+
+    public TextAreaConsoleIO(
+            JTextArea textArea, IConsoleIO errorReporter, String initialMessage, boolean clearOnReasoningTransition) {
         this.textArea = textArea;
         this.errorReporter = errorReporter;
+        this.clearOnReasoningTransition = clearOnReasoningTransition;
         thinkingAnimationTimer = new Timer(500, e -> {
             if (!hasReceivedTokens) {
                 dotCount = (dotCount + 1) % 4;
@@ -52,12 +59,14 @@ public class TextAreaConsoleIO implements IConsoleIO {
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         // Handle transition from reasoning -> content by clearing any interim reasoning tokens first.
-        if (!isReasoning && lastWasReasoning && !hasStartedContent) {
-            SwingUtilities.invokeLater(() -> textArea.setText(""));
-            hasStartedContent = true;
-        } else if (isReasoning && !lastWasReasoning && hasStartedContent) {
-            // Illegal transition back to reasoning once non-reasoning content has started.
-            throw new IllegalStateException("Stream switched from non-reasoning to reasoning");
+        if (clearOnReasoningTransition) {
+            if (!isReasoning && lastWasReasoning && !hasStartedContent) {
+                SwingUtilities.invokeLater(() -> textArea.setText(""));
+                hasStartedContent = true;
+            } else if (isReasoning && !lastWasReasoning && hasStartedContent) {
+                // Illegal transition back to reasoning once non-reasoning content has started.
+                throw new IllegalStateException("Stream switched from non-reasoning to reasoning");
+            }
         }
 
         if (token.isEmpty()) {

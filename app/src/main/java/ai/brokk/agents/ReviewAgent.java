@@ -27,14 +27,16 @@ public class ReviewAgent {
 
     private final String diff;
     private final IContextManager cm;
+    private final IConsoleIO io;
 
-    public ReviewAgent(String diff, IContextManager cm) {
+    public ReviewAgent(String diff, IContextManager cm, IConsoleIO io) {
         this.diff = diff;
         this.cm = cm;
+        this.io = io;
     }
 
     @Blocking
-    public ICodeReview.GuidedReview execute(IConsoleIO io) throws InterruptedException {
+    public ICodeReview.GuidedReview execute() throws InterruptedException {
         String goal =
                 "Identify all code locations relevant to the provided diff to perform a comprehensive code review focusing on design, correctness, and simplicity.";
 
