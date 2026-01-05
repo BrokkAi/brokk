@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
@@ -215,6 +216,15 @@ public interface IContextManager {
 
     default IProject getProject() {
         throw new UnsupportedOperationException();
+    }
+
+    default ContextManager.TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
+    default ContextManager.TaskScope beginTaskUngrouped(String input) {
+        return beginTask(input, false, null);
     }
 
     default IConsoleIO getIo() {

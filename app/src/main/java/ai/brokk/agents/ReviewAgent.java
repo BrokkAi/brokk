@@ -51,7 +51,7 @@ public class ReviewAgent {
         var model = cm.getService().getModel(ModelType.ARCHITECT);
         var scanConfig = SearchAgent.ScanConfig.noAppend();
 
-        try (ContextManager.TaskScope scope = ((ContextManager) cm).beginTask(goal, false, "Code Review")) {
+        try (ContextManager.TaskScope scope = cm.beginTask(goal, false, "Code Review")) {
             SearchAgent agent = new SearchAgent(
                     initialContext,
                     goal,

@@ -2110,12 +2110,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return entry.withSummary(summary);
     }
 
-    /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTaskUngrouped(String input) {
-        return beginTask(input, false, null);
-    }
-
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
+    @Override
     public TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
         // prepare MOP
         var history = liveContext().getTaskHistory();
