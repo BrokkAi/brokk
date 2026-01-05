@@ -522,8 +522,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         TextAreaConsoleIO tio = new TextAreaConsoleIO(logArea, chrome, "Starting guided review...");
 
         SwingUtilities.invokeLater(() -> {
-            parent.remove(codeReviewPanel);
-            parent.add(scrollPane, BorderLayout.CENTER);
+            if (parent instanceof JSplitPane splitPane) {
+                splitPane.setTopComponent(scrollPane);
+            } else {
+                parent.remove(codeReviewPanel);
+                parent.add(scrollPane, BorderLayout.CENTER);
+            }
             parent.revalidate();
             parent.repaint();
         });
@@ -554,8 +558,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .toList();
 
                 SwingUtilities.invokeLater(() -> {
-                    parent.remove(scrollPane);
-                    parent.add(codeReviewPanel, BorderLayout.CENTER);
+                    if (parent instanceof JSplitPane splitPane) {
+                        splitPane.setTopComponent(codeReviewPanel);
+                    } else {
+                        parent.remove(scrollPane);
+                        parent.add(codeReviewPanel, BorderLayout.CENTER);
+                    }
                     if (codeReviewPanel != null) {
                         codeReviewPanel.displayReview(review, designExcerpts, tacticalExcerpts);
                         codeReviewPanel.setBusy(false);
@@ -566,8 +574,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (Exception ex) {
                 logger.error("Failed to generate guided review", ex);
                 SwingUtilities.invokeLater(() -> {
-                    parent.remove(scrollPane);
-                    parent.add(codeReviewPanel, BorderLayout.CENTER);
+                    if (parent instanceof JSplitPane splitPane) {
+                        splitPane.setTopComponent(codeReviewPanel);
+                    } else {
+                        parent.remove(scrollPane);
+                        parent.add(codeReviewPanel, BorderLayout.CENTER);
+                    }
                     if (codeReviewPanel != null) codeReviewPanel.setBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());
                     parent.revalidate();
