@@ -148,32 +148,20 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
-    void roundTripCodeUnitPropertiesWithComputedAndUncomputedSupertypes(@TempDir Path tempDir) throws Exception {
+    void roundTripCodeUnitProperties(@TempDir Path tempDir) throws Exception {
         var root = tempDir.resolve("root");
         Files.createDirectories(root);
         var projectFile = new ProjectFile(root, Path.of("Test.java"));
         var cu = CodeUnit.cls(projectFile, "com.example", "Test");
-        var baseCu = CodeUnit.cls(projectFile, "com.example", "Base");
 
-        // 1. Uncomputed state
-        var uncomputedProps = new TreeSitterAnalyzer.CodeUnitProperties(
+        var props = new TreeSitterAnalyzer.CodeUnitProperties(
                 List.of(),
-                List.of(),
-                List.of(),
+                List.of("public class Test"),
+                List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)),
                 List.of("Base"),
-                new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed(),
                 true);
 
-        // 2. Computed state
-        var computedProps = new TreeSitterAnalyzer.CodeUnitProperties(
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of("Base"),
-                new TreeSitterAnalyzer.SuperTypeInfo.Computed(List.of(baseCu)),
-                true);
-
-        var stateMap = Map.of(cu, uncomputedProps, baseCu, computedProps);
+        var stateMap = Map.of(cu, props);
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
                 HashTreePMap.empty(),
                 HashTreePMap.from(stateMap),
@@ -188,15 +176,14 @@ public class TreeSitterStateIOTest {
         assertTrue(loadedOpt.isPresent());
         var loadedState = loadedOpt.get();
 
-        var loadedUncomputed = loadedState.codeUnitState().get(cu);
-        var loadedComputed = loadedState.codeUnitState().get(baseCu);
+        var loadedProps = loadedState.codeUnitState().get(cu);
 
-        assertNotNull(loadedUncomputed);
-        assertInstanceOf(TreeSitterAnalyzer.SuperTypeInfo.Uncomputed.class, loadedUncomputed.superTypes());
-
-        assertNotNull(loadedComputed);
-        assertInstanceOf(TreeSitterAnalyzer.SuperTypeInfo.Computed.class, loadedComputed.superTypes());
-        assertEquals(List.of(baseCu), loadedComputed.supertypes());
+        assertNotNull(loadedProps);
+        assertEquals(props.rawSupertypes(), loadedProps.rawSupertypes());
+        assertEquals(props.ranges(), loadedProps.ranges());
+        assertEquals(props.signatures(), loadedProps.signatures());
+        assertEquals(props.children(), loadedProps.children());
+        assertEquals(props.hasBody(), loadedProps.hasBody());
     }
 
     @Test

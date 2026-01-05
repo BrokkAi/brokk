@@ -231,8 +231,6 @@ public final class TreeSitterStateIO {
             List<String> signatures,
             List<IAnalyzer.Range> ranges,
             List<String> rawSupertypes,
-            List<CodeUnitDto> supertypes,
-            boolean supertypesComputed,
             boolean hasBody) {}
 
     /**
@@ -350,17 +348,12 @@ public final class TreeSitterStateIO {
             var props = e.getValue();
             var childrenDtos =
                     props.children().stream().map(TreeSitterStateIO::toDto).toList();
-            var supertypesDtos =
-                    props.supertypes().stream().map(TreeSitterStateIO::toDto).toList();
-            boolean supertypesComputed = props.superTypes() instanceof TreeSitterAnalyzer.SuperTypeInfo.Computed;
 
             var propsDto = new CodeUnitPropertiesDto(
                     childrenDtos,
                     props.signatures(),
                     props.ranges(),
                     props.rawSupertypes(),
-                    supertypesDtos,
-                    supertypesComputed,
                     props.hasBody());
 
             cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
@@ -409,18 +402,12 @@ public final class TreeSitterStateIO {
         Map<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> cuState = new HashMap<>();
         for (var entry : dto.codeUnitState()) {
             var v = entry.value();
-            TreeSitterAnalyzer.SuperTypeInfo superTypeInfo = v.supertypesComputed()
-                    ? new TreeSitterAnalyzer.SuperTypeInfo.Computed(v.supertypes().stream()
-                            .map(TreeSitterStateIO::fromDto)
-                            .toList())
-                    : new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed();
 
             var props = new TreeSitterAnalyzer.CodeUnitProperties(
                     v.children().stream().map(TreeSitterStateIO::fromDto).toList(),
                     v.signatures(),
                     v.ranges(),
                     v.rawSupertypes(),
-                    superTypeInfo,
                     v.hasBody());
 
             cuState.put(fromDto(entry.key()), props);
