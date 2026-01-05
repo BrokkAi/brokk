@@ -7,6 +7,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -341,15 +342,31 @@ public class SettingsProjectPanel extends JPanel implements ThemeAware {
             var mp = chrome.getProject();
             if (mp instanceof MainProject mainProject) {
                 migrateButton.setEnabled(false);
-                boolean success = mainProject.performStyleMdToAgentsMdMigration(chrome);
-                if (success) {
-                    // Migration succeeded - hide button and reload settings from parent dialog
-                    migrateButton.setVisible(false);
-                    parentDialog.loadSettingsInBackground();
-                } else {
-                    // Migration failed - re-enable button
-                    migrateButton.setEnabled(true);
-                }
+                new ExceptionAwareSwingWorker<Boolean, Void>(chrome) {
+                    @Override
+                    protected Boolean doInBackground() throws Exception {
+                        return mainProject.performStyleMdToAgentsMdMigration(io());
+                    }
+
+                    @Override
+                    protected void done() {
+                        super.done(); // handles exceptions via GlobalExceptionHandler
+                        try {
+                            boolean success = get();
+                            if (success) {
+                                // Migration succeeded - hide button and reload settings from parent dialog
+                                migrateButton.setVisible(false);
+                                parentDialog.loadSettingsInBackground();
+                            } else {
+                                // Migration failed - re-enable button
+                                migrateButton.setEnabled(true);
+                            }
+                        } catch (Exception ex) {
+                            // Exception already handled by super.done(), just re-enable button
+                            migrateButton.setEnabled(true);
+                        }
+                    }
+                }.execute();
             }
         });
 
