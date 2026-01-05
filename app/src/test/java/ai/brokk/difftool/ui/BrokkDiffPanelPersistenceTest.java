@@ -3,9 +3,9 @@ package ai.brokk.difftool.ui;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.ContextManager;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.GraphicsEnvironment;
@@ -46,7 +46,7 @@ public class BrokkDiffPanelPersistenceTest {
         GlobalUiSettings.saveDiffUnifiedView(false);
 
         var project = new TestProject(tempDir);
-        var contextManager = new ContextManager(project);
+        var contextManager = new TestContextManager(project);
 
         // Minimal Chrome + GuiTheme for builder (no need to show any windows)
         var chrome = new Chrome(contextManager);
@@ -54,8 +54,8 @@ public class BrokkDiffPanelPersistenceTest {
         var theme = new GuiTheme(frame, null, chrome);
 
         // Minimal comparison
-        var left = new BufferSource.StringSource("left content", "Left", "file.txt");
-        var right = new BufferSource.StringSource("right content", "Right", "file.txt");
+        var left = new BufferSource.StringSource("left content", "Left", "file.txt", null);
+        var right = new BufferSource.StringSource("right content", "Right", "file.txt", null);
 
         var builder1 = new BrokkDiffPanel.Builder(theme, contextManager);
         builder1.addComparison(left, right);

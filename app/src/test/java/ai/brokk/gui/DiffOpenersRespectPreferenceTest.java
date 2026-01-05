@@ -2,10 +2,10 @@ package ai.brokk.gui;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-import ai.brokk.ContextManager;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.GraphicsEnvironment;
@@ -43,17 +43,17 @@ public class DiffOpenersRespectPreferenceTest {
         GlobalUiSettings.saveDiffUnifiedView(false);
         assertFalse(GlobalUiSettings.isDiffUnifiedView(), "Precondition: unified should be false");
 
-        // Minimal harness similar to GitCommitTab/HistoryOutputPanel flows:
+        // Minimal harness using TestContextManager
         var project = new TestProject(tempDir);
-        var contextManager = new ContextManager(project);
+        var contextManager = new TestContextManager(project);
 
         // Build theme without showing a window
         var frame = Chrome.newFrame("DiffOpenersRespectPreferenceTest");
         var theme = new GuiTheme(frame, null, new Chrome(contextManager));
 
         // Prepare a simple comparison (no Git metadata, no file IO required)
-        var left = new BufferSource.StringSource("left content", "Left", "file.txt");
-        var right = new BufferSource.StringSource("right content", "Right", "file.txt");
+        var left = new BufferSource.StringSource("left content", "Left", "file.txt", null);
+        var right = new BufferSource.StringSource("right content", "Right", "file.txt", null);
 
         // Build a BrokkDiffPanel via its Builder (what external callers do)
         var builder = new BrokkDiffPanel.Builder(theme, contextManager);
