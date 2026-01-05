@@ -1824,4 +1824,31 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
             applyDerivedFontToGutter(rightPanel.getGutterComponent(), size);
         }
     }
+
+    /**
+     * Scrolls the right panel (new content side) to center the specified line.
+     * @param lineNumber 1-based line number to scroll to
+     */
+    public void scrollToLine(int lineNumber) {
+        var rightPanel = getFilePanel(PanelSide.RIGHT);
+        if (rightPanel == null) return;
+
+        var editor = rightPanel.getEditor();
+        try {
+            // Convert 1-based to 0-based line number
+            int offset = editor.getLineStartOffset(lineNumber - 1);
+            editor.setCaretPosition(offset);
+
+            // Center the line in the viewport
+            var rect = editor.modelToView2D(offset);
+            if (rect != null) {
+                var viewport = rightPanel.getScrollPane().getViewport();
+                int viewHeight = viewport.getHeight();
+                int y = (int) rect.getY() - viewHeight / 2;
+                viewport.setViewPosition(new Point(0, Math.max(0, y)));
+            }
+        } catch (javax.swing.text.BadLocationException e) {
+            logger.warn("Could not scroll to line {}", lineNumber, e);
+        }
+    }
 }

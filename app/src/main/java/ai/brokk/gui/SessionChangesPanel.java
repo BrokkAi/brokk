@@ -3,7 +3,6 @@ package ai.brokk.gui;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.EditBlock;
 import ai.brokk.ICodeReview;
 import ai.brokk.IConsoleIO;
 import ai.brokk.agents.ReviewAgent;
@@ -11,7 +10,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.difftool.ui.DiffPanelManager;
+import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.difftool.ui.FileTreePanel;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -63,19 +62,17 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private BaselineMode lastBaselineMode = null;
 
     @Nullable
-    private DiffPanelManager panelManager;
-
-    @Nullable
-    private FileTreePanel fileTreePanel;
+    private BrokkDiffPanel diffPanel;
 
     @Nullable
     private CodeReviewPanel codeReviewPanel;
 
-    private final JPanel diffContainer = new JPanel(new BorderLayout());
-
-    private List<FileComparisonInfo> currentComparisons = List.of();
-    private List<String> currentComparisonPaths = List.of();
-    private List<String> currentComparisonNewContents = List.of();
+    private record FileComparisonData(
+            FileComparisonInfo info,
+            String path,
+            String newContent
+    ) {}
+    private List<FileComparisonData> fileData = List.of();
     private int currentExcerptIndex = 0;
     private List<ICodeReview.CodeExcerpt> currentExcerpts = List.of();
 
@@ -310,10 +307,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        if (panelManager != null) {
-            panelManager.clearCache();
+        if (diffPanel != null) {
+            diffPanel.dispose();
         }
-        diffContainer.removeAll();
         removeAll();
 
         if (res.filesChanged() == 0) {
@@ -400,19 +396,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         var root = contextManager.getProject().getRoot();
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
-        this.currentComparisonPaths = prepared.stream()
-                .map(Map.Entry::getKey)
-                .toList();
-        this.currentComparisonNewContents = prepared.stream()
-                .map(entry -> entry.getValue().newContent())
-                .toList();
-        this.currentComparisons = prepared.stream()
-                .map(entry -> new FileComparisonInfo(
-                        new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
-                        new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)))
+        this.fileData = prepared.stream()
+                .map(entry -> new FileComparisonData(
+                        new FileComparisonInfo(
+                                new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
+                                new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)),
+                        entry.getKey(),
+                        entry.getValue().newContent()))
                 .toList();
 
-        fileTreePanel = new FileTreePanel(currentComparisons, root, projectName);
+        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
+        for (var data : fileData) {
+            builder.addComparison(data.info().leftSource, data.info().rightSource);
+        }
+        builder.setForceFileTree(true);
+        builder.setRootTitle(projectName);
+        this.diffPanel = builder.build();
+
         codeReviewPanel = new CodeReviewPanel(contextManager);
         codeReviewPanel.addReviewNavigationListener(new CodeReviewPanel.ReviewTriggerListener() {
             @Override
@@ -428,21 +428,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
         });
 
-        panelManager = new DiffPanelManager(
-                null,
-                currentComparisons,
-                contextManager,
-                panel -> {
-                    diffContainer.removeAll();
-                    diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
-                    diffContainer.revalidate();
-                    diffContainer.repaint();
-                },
-                chrome::getTheme);
-
-        fileTreePanel.setSelectionListener(panelManager);
-        fileTreePanel.initializeTree();
-
         // Add "Next Excerpt" functionality if multiple excerpts exist
         Action nextExcerptAction = new AbstractAction("Next Excerpt") {
             @Override
@@ -456,19 +441,17 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("released F3"), "nextExcerpt");
         this.getActionMap().put("nextExcerpt", nextExcerptAction);
 
-        var leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel, fileTreePanel);
+        var leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel, diffPanel);
         leftSplit.setDividerLocation(300);
         leftSplit.setResizeWeight(0.5);
 
-        var splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplit, diffContainer);
-        splitPane.setDividerLocation(300);
-        topContainer.add(splitPane, BorderLayout.CENTER);
+        topContainer.add(leftSplit, BorderLayout.CENTER);
 
         setBorder(new CompoundBorder(
                 new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
         add(topContainer, BorderLayout.CENTER);
 
-        panelManager.navigateToFile(0);
+        diffPanel.navigateToFile(0);
         applyTheme(chrome.getTheme());
 
         revalidate();
@@ -581,15 +564,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void navigateToExcerpt(int index) {
-        if (panelManager == null || index < 0 || index >= currentExcerpts.size()) return;
+        if (diffPanel == null || index < 0 || index >= currentExcerpts.size()) return;
 
         ICodeReview.CodeExcerpt excerpt = currentExcerpts.get(index);
         String relPath = excerpt.file().getRelPath().toString();
         String excerptText = excerpt.excerpt();
 
         int targetFileIndex = -1;
-        for (int i = 0; i < currentComparisonPaths.size(); i++) {
-            if (currentComparisonPaths.get(i).equals(relPath)) {
+        for (int i = 0; i < fileData.size(); i++) {
+            if (fileData.get(i).path().equals(relPath)) {
                 targetFileIndex = i;
                 break;
             }
@@ -598,37 +581,34 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (targetFileIndex == -1) return;
 
         // Find the line number using whitespace-insensitive search in the NEW content
-        String newContent = currentComparisonNewContents.get(targetFileIndex);
-        String[] lines = newContent.split("\\r?\\n", -1);
-        String[] targetLines = excerptText.split("\\r?\\n", -1);
+        String newContent = fileData.get(targetFileIndex).newContent();
+        int lineNum = findExcerptLine(newContent, excerptText);
 
-        int lineNum = findLineIgnoringWhitespace(lines, targetLines);
         if (lineNum != -1) {
-            panelManager.navigateToLocation(targetFileIndex, lineNum + 1);
+            diffPanel.navigateToLocation(targetFileIndex, lineNum);
         } else {
-            panelManager.navigateToFile(targetFileIndex);
+            diffPanel.navigateToFile(targetFileIndex);
         }
     }
 
-    /**
-     * Finds the starting line index where targetLines match in originalLines,
-     * ignoring leading/trailing whitespace differences on each line.
-     * Returns -1 if no match found.
-     */
-    private static int findLineIgnoringWhitespace(String[] originalLines, String[] targetLines) {
-        if (targetLines.length == 0) return -1;
-        if (targetLines.length > originalLines.length) return -1;
+    private int findExcerptLine(String content, String excerptText) {
+        String[] contentLines = content.split("\\r?\\n", -1);
+        String[] excerptLines = excerptText.split("\\r?\\n", -1);
 
-        for (int start = 0; start <= originalLines.length - targetLines.length; start++) {
-            boolean matches = true;
-            for (int j = 0; j < targetLines.length; j++) {
-                if (!originalLines[start + j].strip().equals(targetLines[j].strip())) {
-                    matches = false;
+        if (excerptLines.length == 0) return -1;
+
+        for (int i = 0; i <= contentLines.length - excerptLines.length; i++) {
+            boolean match = true;
+            for (int j = 0; j < excerptLines.length; j++) {
+                String cLine = contentLines[i + j].replaceAll("\\s+", "");
+                String eLine = excerptLines[j].replaceAll("\\s+", "");
+                if (!cLine.equals(eLine)) {
+                    match = false;
                     break;
                 }
             }
-            if (matches) {
-                return start;
+            if (match) {
+                return i + 1; // Convert to 1-based
             }
         }
         return -1;
@@ -636,20 +616,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        if (fileTreePanel != null) fileTreePanel.applyTheme(guiTheme);
         if (codeReviewPanel != null) codeReviewPanel.applyTheme(guiTheme);
-        if (panelManager != null) {
-            for (AbstractDiffPanel panel : panelManager.getCachedPanels()) {
-                panel.applyTheme(guiTheme);
-            }
-        }
+        if (diffPanel != null) diffPanel.applyTheme(guiTheme);
     }
 
     public void dispose() {
-        if (panelManager != null) {
-            panelManager.clearCache();
+        if (diffPanel != null) {
+            diffPanel.dispose();
         }
-        panelManager = null;
+        diffPanel = null;
     }
 
     public enum BaselineMode {

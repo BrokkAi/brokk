@@ -21,6 +21,7 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.GlobalUiSettings;
+import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.Messages;
 import ai.brokk.util.SyntaxDetector;
 import dev.langchain4j.data.message.ChatMessage;
@@ -84,7 +85,8 @@ public class BrokkDiffPanel extends JPanel
     private final int initialFileIndex;
     private final boolean forceFileTree;
 
-    private final DiffPanelManager panelManager;
+    private final SlidingWindowCache<Integer, AbstractDiffPanel> panelCache;
+    private int currentFileIndex = 0;
 
     // View mode state loaded from GlobalUiSettings
     private boolean isUnifiedView = GlobalUiSettings.isDiffUnifiedView();
@@ -252,8 +254,7 @@ public class BrokkDiffPanel extends JPanel
         // Initialize file comparisons list - all modes use the same approach
         this.fileComparisons = new ArrayList<>(builder.fileComparisons);
         assert !this.fileComparisons.isEmpty() : "File comparisons cannot be empty";
-        this.panelManager = new DiffPanelManager(
-                this, this.fileComparisons, contextManager, this::displayCachedFileInternal, this::getTheme);
+        this.panelCache = new SlidingWindowCache<>(5); // Cache up to 5 panels
         this.currentDiffPanel = null; // Initialize @Nullable field
 
         // Make the container focusable, so it can handle key events
@@ -576,7 +577,15 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public void navigateToFile(int index) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        panelManager.navigateToFile(index);
+        this.currentFileIndex = index;
+
+        var cachedPanel = panelCache.get(index);
+        if (cachedPanel != null) {
+            displayCachedFileInternal(cachedPanel);
+        } else {
+            showLoadingForFile();
+            loadFileOnDemand(index);
+        }
 
         // Update tree selection to match current file (only if multiple files)
         if (showFileTree()) {
@@ -589,23 +598,27 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public void navigateToLocation(int fileIndex, int lineNumber) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        panelManager.navigateToLocation(fileIndex, lineNumber);
+        navigateToFile(fileIndex);
 
-        if (showFileTree()) {
-            fileTreePanel.selectFile(fileIndex);
-        }
-
-        updateNavigationButtons();
+        // After panel is displayed, scroll to line
+        SwingUtilities.invokeLater(() -> {
+            if (currentDiffPanel instanceof BufferDiffPanel bp) {
+                bp.scrollToLine(lineNumber);
+            } else if (currentDiffPanel instanceof UnifiedDiffPanel up) {
+                // UnifiedDiffPanel doesn't have scrollToLine yet, but we'll add the hook
+                // up.scrollToLine(lineNumber);
+            }
+        });
     }
 
     @Override
     public int getCurrentFileIndex() {
-        return panelManager.getCurrentFileIndex();
+        return currentFileIndex;
     }
 
     @Override
     public int getFileComparisonCount() {
-        return panelManager.getFileComparisonCount();
+        return fileComparisons.size();
     }
 
     public void nextFile() {
@@ -763,7 +776,7 @@ public class BrokkDiffPanel extends JPanel
         captureDiffButton.setIcon(Icons.CONTENT_CAPTURE);
         captureDiffButton.setToolTipText("Capture Diff");
         captureDiffButton.addActionListener(e -> {
-            var currentComparison = fileComparisons.get(panelManager.getCurrentFileIndex());
+            var currentComparison = fileComparisons.get(getCurrentFileIndex());
             capture(List.of(currentComparison));
         });
 
@@ -784,7 +797,7 @@ public class BrokkDiffPanel extends JPanel
         captureDiffButton.setIcon(Icons.CONTENT_CAPTURE);
         captureDiffButton.setToolTipText("Capture Diff");
         captureDiffButton.addActionListener(e -> {
-            var currentComparison = fileComparisons.get(panelManager.getCurrentFileIndex());
+            var currentComparison = fileComparisons.get(getCurrentFileIndex());
             capture(List.of(currentComparison));
         });
 
@@ -878,8 +891,8 @@ public class BrokkDiffPanel extends JPanel
         }
 
         if (currentPanel != null) {
-            var isFirstChangeOverall = panelManager.getCurrentFileIndex() == 0 && currentPanel.isAtFirstLogicalChange();
-            var isLastChangeOverall = panelManager.getCurrentFileIndex() == fileComparisons.size() - 1
+            var isFirstChangeOverall = getCurrentFileIndex() == 0 && currentPanel.isAtFirstLogicalChange();
+            var isLastChangeOverall = getCurrentFileIndex() == fileComparisons.size() - 1
                     && currentPanel.isAtLastLogicalChange();
             btnPrevious.setEnabled(!isFirstChangeOverall);
             btnNext.setEnabled(!isLastChangeOverall);
@@ -914,7 +927,7 @@ public class BrokkDiffPanel extends JPanel
             }
         }
 
-        for (var p : panelManager.getCachedPanels()) {
+        for (var p : panelCache.nonNullValues()) {
             if (visited.add(p) && p.hasUnsavedChanges()) {
                 dirtyCount++;
             }
@@ -932,12 +945,12 @@ public class BrokkDiffPanel extends JPanel
             // Current (visible) file (only if it's a BufferDiffPanel)
             var currentBufferPanel = getBufferDiffPanel();
             if (currentBufferPanel != null && currentBufferPanel.hasUnsavedChanges()) {
-                dirty.add(panelManager.getCurrentFileIndex());
+                dirty.add(currentFileIndex);
             }
 
             // Cached files (use keys to keep index association, only BufferDiffPanels can be dirty)
-            for (var key : panelManager.getCachedKeys()) {
-                var panel = panelManager.getPanel(key);
+            for (var key : panelCache.getCachedKeys()) {
+                var panel = panelCache.get(key);
                 if (panel instanceof BufferDiffPanel && panel.hasUnsavedChanges()) {
                     dirty.add(key);
                 }
@@ -953,7 +966,7 @@ public class BrokkDiffPanel extends JPanel
      */
     public boolean hasUnsavedChanges() {
         if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
-        for (var p : panelManager.getCachedPanels()) {
+        for (var p : panelCache.nonNullValues()) {
             if (p.hasUnsavedChanges()) return true;
         }
         return false;
@@ -970,7 +983,7 @@ public class BrokkDiffPanel extends JPanel
         if (currentBufferPanel != null) {
             visited.add(currentBufferPanel);
         }
-        for (var p : panelManager.getCachedPanels()) {
+        for (var p : panelCache.nonNullValues()) {
             if (p instanceof BufferDiffPanel bufferPanel) {
                 visited.add(bufferPanel);
             }
@@ -1203,7 +1216,7 @@ public class BrokkDiffPanel extends JPanel
     }
 
     void displayCachedFileInternal(AbstractDiffPanel cachedPanel) {
-        int fileIndex = panelManager.getCurrentFileIndex();
+        int fileIndex = currentFileIndex;
         var compInfo = fileComparisons.get(fileIndex);
 
         // Remove loading panel if present (contains the loading label)
@@ -1309,9 +1322,6 @@ public class BrokkDiffPanel extends JPanel
 
         // Re-enable navigation buttons but keep current panel null
         updateNavigationButtons();
-
-        // Clear the reserved slot in cache
-        panelManager.removeReserved(fileIndex);
 
         refreshUI();
     }
@@ -1468,7 +1478,7 @@ public class BrokkDiffPanel extends JPanel
         var rightOverrides = new LinkedHashMap<FileComparisonInfo, String>();
 
         if (isSingle) {
-            var currentComparison = fileComparisons.get(panelManager.getCurrentFileIndex());
+            var currentComparison = fileComparisons.get(getCurrentFileIndex());
             if (comps.getFirst() == currentComparison) {
                 var bufferPanel = getBufferDiffPanel();
                 if (bufferPanel != null) {
@@ -1605,14 +1615,14 @@ public class BrokkDiffPanel extends JPanel
     private void refreshAllDiffPanels() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Refresh existing cached panels (preserves cache for performance)
-        for (var panel : panelManager.getCachedPanels()) {
+        for (var panel : panelCache.nonNullValues()) {
             panel.diff(true);
         }
         // Refresh current panel if it's not cached
         var current = getBufferDiffPanel();
         if (current != null) {
             boolean isAlreadyRefreshed = false;
-            for (var p : panelManager.getCachedPanels()) {
+            for (var p : panelCache.nonNullValues()) {
                 if (p == current) {
                     isAlreadyRefreshed = true;
                     break;
@@ -1636,7 +1646,7 @@ public class BrokkDiffPanel extends JPanel
         guiTheme.updateComponentTreeUIPreservingFonts(this);
 
         // Apply theme to cached panels
-        for (var panel : panelManager.getCachedPanels()) {
+        for (var panel : panelCache.nonNullValues()) {
             panel.applyTheme(guiTheme);
         }
 
@@ -1719,7 +1729,7 @@ public class BrokkDiffPanel extends JPanel
      * HybridFileComparison.
      */
     public void displayAndRefreshPanel(int fileIndex, AbstractDiffPanel panel) {
-        panelManager.displayCachedFile(fileIndex, panel);
+        displayCachedFileInternal(panel);
     }
 
     /**
@@ -1736,7 +1746,19 @@ public class BrokkDiffPanel extends JPanel
             bufferPanel.resetToFirstDifference();
         }
 
-        panelManager.cachePanel(fileIndex, panel);
+        panelCache.put(fileIndex, panel);
+    }
+
+    private void loadFileOnDemand(int fileIndex) {
+        var comparison = fileComparisons.get(fileIndex);
+        BrokkDiffPanel.createDiffPanel(
+                comparison.leftSource,
+                comparison.rightSource,
+                this,
+                theme,
+                contextManager,
+                isMultipleCommitsContext,
+                fileIndex);
     }
 
     /** Log current memory usage and window status */
@@ -1759,7 +1781,7 @@ public class BrokkDiffPanel extends JPanel
     /** Perform cleanup when memory usage is high */
     private void performWindowCleanup() {
         // Clear caches in all window panels
-        for (var panel : panelManager.getCachedPanels()) {
+        for (var panel : panelCache.nonNullValues()) {
             panel.clearCaches(); // Clear undo history, search results, etc.
         }
 
@@ -1788,7 +1810,7 @@ public class BrokkDiffPanel extends JPanel
         GlobalUiSettings.saveEditorFontSize(fontSize);
 
         // Apply to cached panels
-        for (var p : panelManager.getCachedPanels()) {
+        for (var p : panelCache.nonNullValues()) {
             applySizeToSinglePanel(p, fontSize);
         }
 
@@ -1897,7 +1919,10 @@ public class BrokkDiffPanel extends JPanel
         // Caller is responsible for saving before disposal
 
         // Clear all cached panels and dispose their resources (thread-safe)
-        panelManager.clearCache();
+        for (var panel : panelCache.nonNullValues()) {
+            panel.dispose();
+        }
+        panelCache.clear();
 
         // Clear current panel reference
         this.currentDiffPanel = null;
@@ -2047,7 +2072,7 @@ public class BrokkDiffPanel extends JPanel
 
         int fileIndex = panel.getAssociatedFileIndex();
         if (fileIndex < 0 || fileIndex >= getFileComparisonCount()) {
-            fileIndex = getCurrentFileIndex();
+            fileIndex = currentFileIndex;
         }
         var comparison = fileComparisons.get(fileIndex);
 
@@ -2221,7 +2246,10 @@ public class BrokkDiffPanel extends JPanel
         this.currentDiffPanel = null;
 
         // Clear cache and reload for new mode
-        panelManager.clearCache();
-        panelManager.loadFileOnDemand(currentIdx, true);
+        for (var panel : panelCache.nonNullValues()) {
+            panel.dispose();
+        }
+        panelCache.clear();
+        loadFileOnDemand(currentIdx);
     }
 }
