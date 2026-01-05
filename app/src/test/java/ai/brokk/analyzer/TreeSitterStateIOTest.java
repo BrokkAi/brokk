@@ -11,6 +11,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import org.pcollections.HashTreePMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -143,6 +145,50 @@ public class TreeSitterStateIOTest {
                 })
                 .toList();
         assertTrue(lingering.isEmpty(), "No lingering temp files should remain after atomic save");
+    }
+
+    @Test
+    void roundTripCodeUnitPropertiesWithComputedAndUncomputedSupertypes(@TempDir Path tempDir) throws Exception {
+        var root = tempDir.resolve("root");
+        Files.createDirectories(root);
+        var projectFile = new ProjectFile(root, Path.of("Test.java"));
+        var cu = CodeUnit.cls(projectFile, "com.example", "Test");
+        var baseCu = CodeUnit.cls(projectFile, "com.example", "Base");
+
+        // 1. Uncomputed state
+        var uncomputedProps = new TreeSitterAnalyzer.CodeUnitProperties(
+                List.of(), List.of(), List.of(), List.of("Base"),
+                new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed(), true);
+
+        // 2. Computed state
+        var computedProps = new TreeSitterAnalyzer.CodeUnitProperties(
+                List.of(), List.of(), List.of(), List.of("Base"),
+                new TreeSitterAnalyzer.SuperTypeInfo.Computed(List.of(baseCu)), true);
+
+        var stateMap = Map.of(cu, uncomputedProps, baseCu, computedProps);
+        var originalState = new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.empty(),
+                HashTreePMap.from(stateMap),
+                HashTreePMap.empty(),
+                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
+                System.nanoTime());
+
+        Path out = tempDir.resolve("props_roundtrip.smile.gz");
+        TreeSitterStateIO.save(originalState, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent());
+        var loadedState = loadedOpt.get();
+
+        var loadedUncomputed = loadedState.codeUnitState().get(cu);
+        var loadedComputed = loadedState.codeUnitState().get(baseCu);
+
+        assertNotNull(loadedUncomputed);
+        assertInstanceOf(TreeSitterAnalyzer.SuperTypeInfo.Uncomputed.class, loadedUncomputed.superTypes());
+
+        assertNotNull(loadedComputed);
+        assertInstanceOf(TreeSitterAnalyzer.SuperTypeInfo.Computed.class, loadedComputed.superTypes());
+        assertEquals(List.of(baseCu), loadedComputed.supertypes());
     }
 
     @Test
