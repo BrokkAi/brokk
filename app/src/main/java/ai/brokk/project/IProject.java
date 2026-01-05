@@ -91,6 +91,10 @@ public interface IProject extends AutoCloseable {
                 .collect(Collectors.toSet());
     }
 
+    default Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
+        return files;
+    }
+
     default void invalidateAllFiles() {}
 
     /**

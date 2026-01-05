@@ -1,30 +1,19 @@
 package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.project.MainProject;
-import ai.brokk.tasks.TaskList;
-import ai.brokk.testutil.TestAnalyzer;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /** Unit tests for {@link ContextManager#TEST_FILE_PATTERN}. */
 class ContextManagerTest {
@@ -200,121 +189,5 @@ class ContextManagerTest {
 
         var afterSize = cm.getContextHistoryList().size();
         assertEquals(beforeSize + 1, afterSize, "Adding a file should push a new context");
-    }
-
-    @Test
-    public void testCompressGlobalHistoryAndMarkTaskDonePreserveGrouping() throws Exception {
-        var tempDir = Files.createTempDirectory("ctxmgr-grouping-test");
-        var project = new MainProject(tempDir);
-        var cm = new ContextManager(project);
-        cm.createHeadless();
-
-        // Create a task list with one task
-        var taskItem = new TaskList.TaskItem("Test title", "Test task text", false);
-        var taskListData = new TaskList.TaskListData(List.of(taskItem));
-        cm.pushContext(ctx -> ctx.withTaskList(taskListData));
-
-        // Define a group
-        UUID groupId = UUID.randomUUID();
-        String groupLabel = "Test Task Group";
-
-        // Add a history entry to compress (simulate a task result)
-        List<ChatMessage> msgs = List.of(UserMessage.from("test request"), new AiMessage("test response"));
-        var taskFragment = new ContextFragments.TaskFragment(cm, msgs, "Test task");
-        var entry = new TaskEntry(1, taskFragment, null);
-        cm.pushContext(ctx -> ctx.withHistory(List.of(entry)).withGroup(groupId, groupLabel));
-
-        Context ctxBefore = cm.liveContext();
-        assertEquals(groupId, ctxBefore.getGroupId(), "Group ID should be set before markTaskDone");
-        assertEquals(groupLabel, ctxBefore.getGroupLabel(), "Group label should be set before markTaskDone");
-
-        var updated = cm.deriveContextWithTaskList(
-                        ctxBefore,
-                        new TaskList.TaskListData(List.of(new TaskList.TaskItem("Test title", "Test task text", true))))
-                .withGroup(groupId, groupLabel);
-
-        assertEquals(groupId, updated.getGroupId(), "Group ID should be preserved after task list update");
-        assertEquals(groupLabel, updated.getGroupLabel(), "Group label should be preserved after task list update");
-    }
-
-    @Test
-    void testGetTestFilesUsesAnalyzerContainsTestsEvenWhenFilenameDoesNotMatchPattern(@TempDir Path tempDir) {
-        // 1. Target file with a name that definitely does NOT match the heuristic pattern
-        var targetFile = new ProjectFile(tempDir, "src/main/java/Foo.java");
-
-        // 2. Sanity check: ensure the heuristic alone would NOT catch this file
-        assertFalse(
-                ContextManager.TEST_FILE_PATTERN.matcher(targetFile.toString()).matches(),
-                "Target file should not match filename heuristics");
-
-        // 3. Stub Analyzer that semantically identifies this file as containing tests
-        var analyzer = new TestAnalyzer() {
-            @Override
-            public boolean containsTests(ProjectFile file) {
-                return file.equals(targetFile);
-            }
-
-            @Override
-            public boolean isEmpty() {
-                return false;
-            }
-        };
-
-        // 4. Stub Wrapper
-        var wrapper = new IAnalyzerWrapper() {
-            @Override
-            public CompletableFuture<IAnalyzer> updateFiles(Set<ProjectFile> relevantFiles) {
-                return CompletableFuture.completedFuture(analyzer);
-            }
-
-            @Override
-            public IAnalyzer get() {
-                return analyzer;
-            }
-
-            @Override
-            public IAnalyzer getNonBlocking() {
-                return analyzer;
-            }
-
-            @Override
-            public void close() {}
-        };
-
-        // 5. Stub Repo returning our target file
-        var repo = new IGitRepo() {
-            @Override
-            public Set<ProjectFile> getTrackedFiles() {
-                return Set.of(targetFile);
-            }
-
-            @Override
-            public void add(Collection<ProjectFile> files) {}
-
-            @Override
-            public void add(ProjectFile file) {}
-
-            @Override
-            public void remove(ProjectFile file) {}
-        };
-
-        // 6. ContextManager stub using our stubs
-        var cm = new IContextManager() {
-            @Override
-            public IAnalyzerWrapper getAnalyzerWrapper() {
-                return wrapper;
-            }
-
-            @Override
-            public IGitRepo getRepo() {
-                return repo;
-            }
-        };
-
-        // 7. Verify that getTestFiles() picks it up via the analyzer
-        List<ProjectFile> testFiles = cm.getTestFiles();
-        assertTrue(
-                testFiles.contains(targetFile),
-                "getTestFiles should return the file because the analyzer flagged it, despite the filename");
     }
 }

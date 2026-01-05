@@ -67,9 +67,6 @@ public class ToolsPane extends JPanel implements ThemeAware {
     private JLabel gitTabLabel;
 
     @Nullable
-    private BadgedIcon projectFilesTabBadgedIcon;
-
-    @Nullable
     private JLabel projectFilesTabLabel;
 
     private boolean sidebarCollapsed = false;
@@ -96,13 +93,11 @@ public class ToolsPane extends JPanel implements ThemeAware {
 
     private void setupTabs(ContextManager contextManager) {
         // Project Files
-        projectFilesTabBadgedIcon = new BadgedIcon(Icons.FOLDER_CODE, chrome.getTheme());
-        toolsPane.addTab(null, projectFilesTabBadgedIcon, projectFilesPanel);
+        toolsPane.addTab(null, Icons.FOLDER_CODE, projectFilesPanel);
         int projectTabIdx = toolsPane.indexOfComponent(projectFilesPanel);
         String projectShortcut =
                 KeyboardShortcutUtil.formatKeyStroke(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
-        projectFilesTabLabel =
-                createSquareTabLabel(projectFilesTabBadgedIcon, "Project Files (" + projectShortcut + ")");
+        projectFilesTabLabel = createSquareTabLabel(Icons.FOLDER_CODE, "Project Files (" + projectShortcut + ")");
         toolsPane.setTabComponentAt(projectTabIdx, projectFilesTabLabel);
         projectFilesTabLabel.addMouseListener(new MouseAdapter() {
             @Override
@@ -110,6 +105,10 @@ public class ToolsPane extends JPanel implements ThemeAware {
                 handleTabToggle(projectTabIdx);
             }
         });
+        KeyStroke ks = GlobalUiSettings.getKeybinding(
+                "panel.switchToProjectFiles", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
+        String shortcut = KeyboardShortcutUtil.formatKeyStroke(ks);
+        projectFilesTabLabel.setToolTipText("Project Files (" + shortcut + ")");
 
         // Tests
         toolsPane.addTab(null, Icons.SCIENCE, testRunnerPanel);
@@ -139,7 +138,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
             issuesPanel = new GitIssuesTab(chrome, contextManager);
         }
 
-        updateProjectFilesTabBadge(chrome.getProject().getLiveDependencies().size());
+        chrome.getProject().getLiveDependencies();
     }
 
     private void handleTabToggle(int tabIndex) {
@@ -172,8 +171,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
                 saveSidebarOpenSetting(true);
             }
             if (toolsPane.getComponentAt(tabIndex) == projectFilesPanel) {
-                updateProjectFilesTabBadge(
-                        chrome.getProject().getLiveDependencies().size());
+                chrome.getProject().getLiveDependencies();
             }
         }
     }
@@ -304,25 +302,6 @@ public class ToolsPane extends JPanel implements ThemeAware {
                                 : "Changes (" + shortcut + ")");
                 gitTabLabel.repaint();
             }
-        }
-    }
-
-    public void updateProjectFilesTabBadge(int count) {
-        if (projectFilesTabBadgedIcon != null) {
-            projectFilesTabBadgedIcon.setCount(count, toolsPane);
-            if (projectFilesTabLabel != null) {
-                KeyStroke ks = GlobalUiSettings.getKeybinding(
-                        "panel.switchToProjectFiles", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_1));
-                String shortcut = KeyboardShortcutUtil.formatKeyStroke(ks);
-                projectFilesTabLabel.setToolTipText(
-                        count > 0
-                                ? String.format(
-                                        "Project Files (%d dependenc%s) (%s)",
-                                        count, count == 1 ? "y" : "ies", shortcut)
-                                : "Project Files (" + shortcut + ")");
-                projectFilesTabLabel.repaint();
-            }
-            projectFilesPanel.updateBorderTitle();
         }
     }
 

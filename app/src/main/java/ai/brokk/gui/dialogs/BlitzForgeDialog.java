@@ -15,8 +15,8 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
@@ -1703,7 +1703,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             }
 
             boolean edited =
-                    !DiffService.getChangedFiles(tr.context(), initialContext).isEmpty();
+                    !ContextDelta.between(initialContext, tr.context()).join().isEmpty();
             String llmOutput = dialogIo.getLlmOutput();
 
             // Optional context filtering

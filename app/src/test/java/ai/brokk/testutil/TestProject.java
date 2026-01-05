@@ -6,7 +6,6 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.IProject;
 import java.io.IOException;
@@ -153,11 +152,6 @@ public class TestProject implements IProject {
     @Override
     public Path getMasterRootPathForConfig() {
         return getRoot();
-    }
-
-    @Override
-    public IGitRepo getRepo() {
-        throw new UnsupportedOperationException();
     }
 
     @Override

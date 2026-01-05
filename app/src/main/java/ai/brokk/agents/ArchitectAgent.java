@@ -11,9 +11,8 @@ import ai.brokk.Llm;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.DiffService;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -185,16 +184,19 @@ public class ArchitectAgent {
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
         context = scope.append(result);
-        var changedFiles = DiffService.getChangedFiles(context, initialContext);
+        var changedFragments =
+                ContextDelta.between(initialContext, context).join().getChangedFragments();
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
             var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
-            var fileList =
-                    changedFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
-            resultString += " Changed files: " + (fileList.isEmpty() ? "None" : fileList);
+            var fileList = changedFragments.stream()
+                    .map(cf -> cf.shortDescription().join())
+                    .sorted()
+                    .collect(Collectors.joining(", "));
+            resultString += " Changed fragments: " + (fileList.isEmpty() ? "None" : fileList);
 
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild && !changedFiles.isEmpty();
+            codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
             return resultString;
         }
 
@@ -215,7 +217,7 @@ public class ArchitectAgent {
         logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
         // Offer undo if the CodeAgent failed and left changes behind
-        if (!changedFiles.isEmpty()) {
+        if (!changedFragments.isEmpty()) {
             this.offerUndoToolNext = true;
         }
 
