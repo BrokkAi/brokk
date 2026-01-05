@@ -579,16 +579,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private @Nullable CodeReviewPanel.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
         String relPath = excerpt.file();
-        BrokkDiffPanel.FileComparisonInfo targetInfo = null;
-
-        for (var info : fileData) {
-            // Match against filename in either source
-            if (relPath.equals(info.rightSource().filename())
-                    || relPath.equals(info.leftSource().filename())) {
-                targetInfo = info;
-                break;
-            }
-        }
+        BrokkDiffPanel.FileComparisonInfo targetInfo = fileData.stream()
+                .filter(info -> relPath.equals(info.rightSource().filename())
+                        || relPath.equals(info.leftSource().filename()))
+                .findFirst()
+                .orElse(null);
 
         if (targetInfo == null) {
             logger.warn("Could not find file {} in current changes for excerpt resolution", relPath);
@@ -613,8 +608,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         found = EditBlock.findIgnoringWhitespace(oldLines, 0, targetLines);
         if (found.isPresent()) {
             // If found in old content, we navigate to the file but we can't reliably pinpoint the line in the "new"
-            // view
-            // since it was deleted or changed. We return line -1 to indicate file-level navigation.
+            // view since it was deleted or changed. We return line -1 to indicate file-level navigation.
             return new CodeReviewPanel.ParsedExcerpt(excerpt, -1);
         }
 
