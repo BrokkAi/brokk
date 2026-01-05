@@ -1,6 +1,5 @@
 package ai.brokk.gui;
 
-import ai.brokk.ContextManager;
 import ai.brokk.ICodeReview.CodeExcerpt;
 import ai.brokk.ICodeReview.DesignFeedback;
 import ai.brokk.ICodeReview.GuidedReview;
@@ -33,14 +32,12 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         void onNavigate(ParsedExcerpt excerpt);
     }
 
-    private final ContextManager contextManager;
     private final MaterialButton generateButton;
     private final JPanel contentPanel;
     private final Runnable triggerCallback;
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
 
-    public CodeReviewPanel(ContextManager contextManager, Runnable triggerCallback) {
-        this.contextManager = contextManager;
+    public CodeReviewPanel(Runnable triggerCallback) {
         this.triggerCallback = triggerCallback;
         setLayout(new BorderLayout());
 
@@ -87,9 +84,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         for (int i = 0; i < review.designNotes().size(); i++) {
             DesignFeedback design = review.designNotes().get(i);
             List<ParsedExcerpt> parsed = designExcerpts.get(i);
-            if (!parsed.isEmpty()) {
-                addExpandableItem(design.description(), parsed);
-            }
+            addExpandableItem(design.title(), parsed);
         }
 
         addHeader("Tactical");
@@ -121,20 +116,16 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         contentPanel.add(label);
     }
 
-    private void addExpandableItem(String description, List<ParsedExcerpt> excerpts) {
+    private void addExpandableItem(String title, List<ParsedExcerpt> excerpts) {
         JPanel itemPanel = new JPanel();
         itemPanel.setLayout(new BoxLayout(itemPanel, BoxLayout.Y_AXIS));
         itemPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
         itemPanel.setOpaque(false);
 
-        JLabel summaryLabel = new JLabel("• ...");
+        JLabel summaryLabel = new JLabel("• " + title);
         summaryLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         summaryLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
         summaryLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        contextManager.summarize(description, 12).thenAccept(summary -> {
-            SwingUtil.runOnEdt(() -> summaryLabel.setText("• " + summary));
-        });
 
         JPanel detailsPanel = new JPanel();
         detailsPanel.setLayout(new BoxLayout(detailsPanel, BoxLayout.Y_AXIS));

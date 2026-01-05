@@ -98,7 +98,8 @@ public class ReviewAgent {
             @P(
                             "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
                     String overview,
-            @P("Explain the trickiest parts of the design and how they can be improved")
+            @P("Explain the trickiest parts of the design and how they can be improved. "
+                    + "For each item, provide a 'title' which is a short 5-7 word label summarizing the feedback.")
                     List<ICodeReview.DesignFeedback> designNotes,
             @P("A list of local bugs or problems") List<ICodeReview.CodeExcerpt> tacticalNotes,
             @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")

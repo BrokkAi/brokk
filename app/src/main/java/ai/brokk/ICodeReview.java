@@ -13,7 +13,8 @@ public interface ICodeReview {
 
     record CodeExcerpt(ProjectFile file, String excerpt) {}
 
-    record DesignFeedback(String description, List<CodeExcerpt> excerpts, String recommendation) {}
+    record DesignFeedback(
+            String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
 
     record GuidedReview(
             String overview,

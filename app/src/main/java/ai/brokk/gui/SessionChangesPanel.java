@@ -401,7 +401,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         builder.setRootTitle(projectName);
         this.diffPanel = builder.build();
 
-        codeReviewPanel = new CodeReviewPanel(contextManager, this::generateGuidedReview);
+        codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview);
         codeReviewPanel.addReviewNavigationListener(pe -> {
             if (diffPanel != null) {
                 if (pe.lineNumber() != -1) {
