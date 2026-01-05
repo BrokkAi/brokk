@@ -1894,7 +1894,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 chrome.showOutputSpinner(spinnerText);
 
-                try (var scope = cm.beginTask(input, false)) {
+                try (var scope = cm.beginTask(input)) {
                     var result = task.call();
                     scope.append(result);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {

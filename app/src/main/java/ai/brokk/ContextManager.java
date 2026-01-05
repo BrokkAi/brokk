@@ -2107,8 +2107,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTask(String input, boolean compressAtCommit) {
-        return beginTask(input, compressAtCommit, null);
+    public TaskScope beginTask(String input) {
+        return beginTask(input, false, null);
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
