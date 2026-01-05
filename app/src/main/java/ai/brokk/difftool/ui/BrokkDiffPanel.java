@@ -793,18 +793,6 @@ public class BrokkDiffPanel extends JPanel
         btnNextFile.setToolTipText("Next File");
         btnNextFile.addActionListener(e -> nextFile());
 
-        captureDiffButton.setIcon(Icons.CONTENT_CAPTURE);
-        captureDiffButton.setToolTipText("Capture Diff");
-        captureDiffButton.addActionListener(e -> {
-            var currentComparison = fileComparisons.get(getCurrentFileIndex());
-            capture(List.of(currentComparison));
-        });
-
-        // "Capture All Diffs" button (visible for multi-file contexts)
-        captureAllDiffsButton.setText("Capture All Diffs");
-        captureAllDiffsButton.setToolTipText("Capture all file diffs to the context");
-        captureAllDiffsButton.addActionListener(e -> capture(new ArrayList<>(fileComparisons)));
-
         // Add buttons to toolbar with spacing
         toolBar.add(btnPrevious);
         toolBar.add(Box.createHorizontalStrut(10)); // 10px spacing
