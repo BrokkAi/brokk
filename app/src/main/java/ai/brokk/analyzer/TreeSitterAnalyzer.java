@@ -3316,7 +3316,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
                 return new CodeUnitProperties(
                         mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSuperTypes, mergedHasBody);
-                });
+            });
         });
 
         // Update file state - initialize with empty resolved imports (will be populated during import resolution pass)

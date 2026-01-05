@@ -348,7 +348,8 @@ public final class TreeSitterStateIO {
         List<CodeUnitEntryDto> cuEntries = new ArrayList<>(state.codeUnitState().size());
         for (var e : state.codeUnitState().entrySet()) {
             var props = e.getValue();
-            var childrenDtos = props.children().stream().map(TreeSitterStateIO::toDto).toList();
+            var childrenDtos =
+                    props.children().stream().map(TreeSitterStateIO::toDto).toList();
             var supertypesDtos =
                     props.supertypes().stream().map(TreeSitterStateIO::toDto).toList();
             boolean supertypesComputed = props.superTypes() instanceof TreeSitterAnalyzer.SuperTypeInfo.Computed;
@@ -409,8 +410,9 @@ public final class TreeSitterStateIO {
         for (var entry : dto.codeUnitState()) {
             var v = entry.value();
             TreeSitterAnalyzer.SuperTypeInfo superTypeInfo = v.supertypesComputed()
-                    ? new TreeSitterAnalyzer.SuperTypeInfo.Computed(
-                            v.supertypes().stream().map(TreeSitterStateIO::fromDto).toList())
+                    ? new TreeSitterAnalyzer.SuperTypeInfo.Computed(v.supertypes().stream()
+                            .map(TreeSitterStateIO::fromDto)
+                            .toList())
                     : new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed();
 
             var props = new TreeSitterAnalyzer.CodeUnitProperties(

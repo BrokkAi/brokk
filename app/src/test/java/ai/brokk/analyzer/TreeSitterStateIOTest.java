@@ -12,11 +12,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import org.pcollections.HashTreePMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.pcollections.HashTreePMap;
 
 public class TreeSitterStateIOTest {
 
@@ -157,13 +157,21 @@ public class TreeSitterStateIOTest {
 
         // 1. Uncomputed state
         var uncomputedProps = new TreeSitterAnalyzer.CodeUnitProperties(
-                List.of(), List.of(), List.of(), List.of("Base"),
-                new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed(), true);
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of("Base"),
+                new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed(),
+                true);
 
         // 2. Computed state
         var computedProps = new TreeSitterAnalyzer.CodeUnitProperties(
-                List.of(), List.of(), List.of(), List.of("Base"),
-                new TreeSitterAnalyzer.SuperTypeInfo.Computed(List.of(baseCu)), true);
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of("Base"),
+                new TreeSitterAnalyzer.SuperTypeInfo.Computed(List.of(baseCu)),
+                true);
 
         var stateMap = Map.of(cu, uncomputedProps, baseCu, computedProps);
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
