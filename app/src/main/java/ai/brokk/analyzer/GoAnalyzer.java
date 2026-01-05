@@ -445,19 +445,31 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
         TSQueryMatch match = new TSQueryMatch();
 
         while (cursor.nextMatch(match)) {
-            Map<String, TSNode> localCaptures = new HashMap<>();
+            boolean sawTestMarker = false;
+            TSNode nameNode = null;
+            TSNode paramsNode = null;
+
             for (TSQueryCapture capture : match.getCaptures()) {
-                localCaptures.put(query.getCaptureNameForId(capture.getIndex()), capture.getNode());
+                String captureName = query.getCaptureNameForId(capture.getIndex());
+                TSNode node = capture.getNode();
+                if (node == null || node.isNull()) {
+                    continue;
+                }
+
+                if (TEST_MARKER.equals(captureName)) {
+                    sawTestMarker = true;
+                } else if (CAPTURE_TEST_CANDIDATE_NAME.equals(captureName)) {
+                    nameNode = node;
+                } else if (CAPTURE_TEST_CANDIDATE_PARAMS.equals(captureName)) {
+                    paramsNode = node;
+                }
+
+                if (sawTestMarker && nameNode != null && paramsNode != null) {
+                    break;
+                }
             }
 
-            if (!localCaptures.containsKey(TEST_MARKER)) {
-                continue;
-            }
-
-            TSNode nameNode = localCaptures.get(CAPTURE_TEST_CANDIDATE_NAME);
-            TSNode paramsNode = localCaptures.get(CAPTURE_TEST_CANDIDATE_PARAMS);
-
-            if (nameNode == null || paramsNode == null) {
+            if (!sawTestMarker || nameNode == null || paramsNode == null) {
                 continue;
             }
 
@@ -478,28 +490,33 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 }
             }
 
-            if (paramCount == 1 && singleParamDecl != null) {
-                TSNode typeNode = singleParamDecl.getChildByFieldName(FIELD_TYPE);
-                // Fallback for types without field name (depending on TS version/grammar)
-                if (typeNode == null || typeNode.isNull()) {
-                    for (int i = 0; i < singleParamDecl.getNamedChildCount(); i++) {
-                        TSNode child = singleParamDecl.getNamedChild(i);
-                        String type = child.getType();
-                        if (POINTER_TYPE.equals(type) || QUALIFIED_TYPE.equals(type) || TYPE_IDENTIFIER.equals(type)) {
-                            typeNode = child;
-                            break;
-                        }
-                    }
-                }
+            if (paramCount != 1 || singleParamDecl == null) {
+                continue;
+            }
 
-                if (typeNode != null && !typeNode.isNull()) {
-                    String typeText = sourceContent.substringFrom(typeNode).trim();
-                    if (TESTING_T.equals(typeText) || POINTER_TESTING_T.equals(typeText)) {
-                        return true;
+            TSNode typeNode = singleParamDecl.getChildByFieldName(FIELD_TYPE);
+            // Fallback for types without field name (depending on TS version/grammar)
+            if (typeNode == null || typeNode.isNull()) {
+                for (int i = 0; i < singleParamDecl.getNamedChildCount(); i++) {
+                    TSNode child = singleParamDecl.getNamedChild(i);
+                    String type = child.getType();
+                    if (POINTER_TYPE.equals(type) || QUALIFIED_TYPE.equals(type) || TYPE_IDENTIFIER.equals(type)) {
+                        typeNode = child;
+                        break;
                     }
                 }
             }
+
+            if (typeNode == null || typeNode.isNull()) {
+                continue;
+            }
+
+            String typeText = sourceContent.substringFrom(typeNode).trim();
+            if (TESTING_T.equals(typeText) || POINTER_TESTING_T.equals(typeText)) {
+                return true;
+            }
         }
+
         return false;
     }
 }
