@@ -321,16 +321,7 @@ public class SearchAgent {
                                         TaskResult.StopReason.LLM_ABORTED, "Aborted: " + termExec.resultText()),
                                 taskMeta());
                     } else {
-                        var finalResult = createResult(termReq.name(), goal);
-                        if (termReq.name().equals("createReview")) {
-                            return new TaskResult(
-                                    finalResult.actionDescription(),
-                                    finalResult.output(),
-                                    finalResult.context(),
-                                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS, termExec.resultText()),
-                                    finalResult.meta());
-                        }
-                        return finalResult;
+                        return createResult(termReq.name(), goal);
                     }
                 }
 
@@ -633,20 +624,6 @@ public class SearchAgent {
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
         io.llmOutput(explanation, ChatMessageType.AI);
         return explanation;
-    }
-
-    @Tool("Create a structured code review of the current changes or proposal.")
-    public String createReview(
-            @P("Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
-                    String overview,
-            @P("Explain the trickiest parts of the design and how they can be improved")
-                    List<ICodeReview.DesignFeedback> designNotes,
-            @P("A list of local bugs or problems") List<ICodeReview.CodeExcerpt> tacticalNotes,
-            @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
-                    List<String> additionalTests) {
-        logger.debug("createReview");
-        var review = new ICodeReview.GuidedReview(overview, designNotes, tacticalNotes, additionalTests);
-        return review.toJson();
     }
 
     @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
