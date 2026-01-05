@@ -1,7 +1,6 @@
 package ai.brokk.prompts;
 
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
@@ -14,6 +13,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -23,6 +23,35 @@ public class SearchPrompts {
     public static final SearchPrompts instance = new SearchPrompts();
 
     private static final double WORKSPACE_CRITICAL = 0.80;
+
+    public enum Objective {
+        ANSWER_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER);
+            }
+        },
+        TASKS_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.TASK_LIST);
+            }
+        },
+        LUTZ {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER, Terminal.CODE, Terminal.TASK_LIST);
+            }
+        },
+        WORKSPACE_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.WORKSPACE);
+            }
+        };
+
+        public abstract Set<Terminal> terminals();
+    }
 
     /**
      * Result of building a prompt, including messages and whether beast mode should be engaged.
@@ -193,7 +222,7 @@ public class SearchPrompts {
             Context context,
             StreamingChatModel model,
             String goal,
-            LutzAgent.Objective objective,
+            SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
             List<ChatMessage> sessionMessages)
             throws InterruptedException {
@@ -202,7 +231,7 @@ public class SearchPrompts {
         var inputLimit = cm.getService().getMaxInputTokens(model);
 
         // Determine viewing policy based on search objective
-        boolean useTaskList = objective == LutzAgent.Objective.LUTZ || objective == LutzAgent.Objective.TASKS_ONLY;
+        boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
         var suppressed = useTaskList ? EnumSet.noneOf(SpecialTextType.class) : EnumSet.of(SpecialTextType.TASK_LIST);
 
         // Build workspace messages in insertion order with viewing policy applied
@@ -268,15 +297,14 @@ public class SearchPrompts {
             }
         }
 
-        var allowedTerminals = objective.terminals();
         var finals = new ArrayList<String>();
-        if (allowedTerminals.contains(Terminal.ANSWER)) {
+        if (objective.terminals().contains(Terminal.ANSWER)) {
             finals.add(
                     "- Use answer(String) when the request is purely informational and you have enough information to answer. The answer needs to be Markdown-formatted (see <persistence>).");
             finals.add(
                     "- Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.");
         }
-        if (allowedTerminals.contains(Terminal.TASK_LIST)) {
+        if (objective.terminals().contains(Terminal.TASK_LIST)) {
             finals.add(
                     """
                     - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
@@ -288,11 +316,11 @@ public class SearchPrompts {
                         - Each task needs to be Markdown-formatted, use `inline code` (for file, directory, function, class names and other symbols).
                     """);
         }
-        if (allowedTerminals.contains(Terminal.WORKSPACE)) {
+        if (objective.terminals().contains(Terminal.WORKSPACE)) {
             finals.add(
                     "- Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.");
         }
-        if (allowedTerminals.contains(Terminal.CODE)) {
+        if (objective.terminals().contains(Terminal.CODE)) {
             finals.add(
                     "- Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
         }
@@ -302,7 +330,7 @@ public class SearchPrompts {
         String finalsStr = String.join("\n", finals);
 
         String testsGuidance = "";
-        if (allowedTerminals.contains(Terminal.WORKSPACE)) {
+        if (objective.terminals().contains(Terminal.WORKSPACE)) {
             var toolHint =
                     "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods.";
             testsGuidance =
@@ -333,8 +361,7 @@ public class SearchPrompts {
         }
 
         String buildSetupTaskGuidance = "";
-        boolean tasksObjective =
-                objective == LutzAgent.Objective.LUTZ || objective == LutzAgent.Objective.TASKS_ONLY;
+        boolean tasksObjective = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
         if (tasksObjective && cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
             buildSetupTaskGuidance =
                     """
@@ -422,7 +449,7 @@ public class SearchPrompts {
 
     private record TerminalObjective(String type, String text) {}
 
-    private TerminalObjective buildTerminalObjective(LutzAgent.Objective objective) {
+    private TerminalObjective buildTerminalObjective(SearchPrompts.Objective objective) {
         return switch (objective) {
             case ANSWER_ONLY ->
                 new TerminalObjective(

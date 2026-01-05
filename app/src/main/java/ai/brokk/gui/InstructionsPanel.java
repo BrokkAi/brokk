@@ -1801,8 +1801,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         autoClearCompletedTasks();
 
         // Derive objective from action
-        LutzAgent.Objective objective =
-                ACTION_PLAN.equals(action) ? LutzAgent.Objective.TASKS_ONLY : LutzAgent.Objective.LUTZ;
+        SearchPrompts.Objective objective =
+                ACTION_PLAN.equals(action) ? SearchPrompts.Objective.TASKS_ONLY : SearchPrompts.Objective.LUTZ;
 
         submitAction(action, query, scope -> {
                     assert !query.isBlank();

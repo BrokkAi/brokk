@@ -7,6 +7,7 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.LutzAgent;
+import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
@@ -257,7 +258,7 @@ public final class JobRunner {
                                                     Objects.requireNonNull(
                                                             architectPlannerModel,
                                                             "plannerModel required for LUTZ jobs"),
-                                                    LutzAgent.Objective.TASKS_ONLY,
+                                                    SearchPrompts.Objective.TASKS_ONLY,
                                                     scope);
                                             var taskListResult = searchAgent.execute();
                                             scope.append(taskListResult);
@@ -424,13 +425,13 @@ public final class JobRunner {
                                                             : cm.getService().getScanModel();
 
                                             // SearchAgent now handles scanning internally via execute()
-                                            var scanConfig = LutzAgent.ScanConfig.withModel(scanModelToUse);
+                                            var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
                                             var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
                                                             scanModelToUse, "scan model unavailable for SEARCH jobs"),
-                                                    LutzAgent.Objective.ANSWER_ONLY,
+                                                    SearchPrompts.Objective.ANSWER_ONLY,
                                                     scope,
                                                     cm.getIo(),
                                                     scanConfig);
