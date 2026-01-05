@@ -1827,6 +1827,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
     /**
      * Scrolls the right panel (new content side) to center the specified line.
+     *
      * @param lineNumber 1-based line number to scroll to
      */
     public void scrollToLine(int lineNumber) {
@@ -1836,7 +1837,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var editor = rightPanel.getEditor();
         try {
             // Convert 1-based to 0-based line number
-            int offset = editor.getLineStartOffset(lineNumber - 1);
+            int offset = editor.getLineStartOffset(Math.max(0, lineNumber - 1));
             editor.setCaretPosition(offset);
 
             // Center the line in the viewport

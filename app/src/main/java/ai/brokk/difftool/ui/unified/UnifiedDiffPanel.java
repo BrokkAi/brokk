@@ -12,6 +12,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
 import java.awt.BorderLayout;
+import java.awt.Point;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.nio.file.Path;
@@ -700,5 +701,29 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         scrollPane.revalidate();
+    }
+
+    /**
+     * Scrolls the unified diff text area to center the specified line.
+     *
+     * @param lineNumber 1-based line number in the unified view to scroll to
+     */
+    public void scrollToLine(int lineNumber) {
+        try {
+            // Convert 1-based to 0-based line number
+            int offset = textArea.getLineStartOffset(Math.max(0, lineNumber - 1));
+            textArea.setCaretPosition(offset);
+
+            // Center the line in the viewport
+            var rect = textArea.modelToView2D(offset);
+            if (rect != null) {
+                var viewport = scrollPane.getViewport();
+                int viewHeight = viewport.getHeight();
+                int y = (int) rect.getY() - viewHeight / 2;
+                viewport.setViewPosition(new Point(0, Math.max(0, y)));
+            }
+        } catch (javax.swing.text.BadLocationException e) {
+            logger.warn("Could not scroll to line {}", lineNumber, e);
+        }
     }
 }

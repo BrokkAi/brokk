@@ -605,8 +605,7 @@ public class BrokkDiffPanel extends JPanel
             if (currentDiffPanel instanceof BufferDiffPanel bp) {
                 bp.scrollToLine(lineNumber);
             } else if (currentDiffPanel instanceof UnifiedDiffPanel up) {
-                // UnifiedDiffPanel doesn't have scrollToLine yet, but we'll add the hook
-                // up.scrollToLine(lineNumber);
+                up.scrollToLine(lineNumber);
             }
         });
     }
