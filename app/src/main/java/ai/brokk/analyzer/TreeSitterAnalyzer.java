@@ -133,6 +133,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Sealed interface for supertype computation state.
+     */
+    public sealed interface SuperTypeInfo {
+        record Computed(List<CodeUnit> supertypes) implements SuperTypeInfo {}
+
+        record Uncomputed() implements SuperTypeInfo {}
+    }
+
+    /**
      * Per-CodeUnit state: children, signatures, ranges, supertypes, and AST-derived hasBody flag.
      * <p>
      * hasBody indicates that at least one occurrence of this CodeUnit in the analyzed sources has a non-empty body.
@@ -144,7 +153,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             List<String> signatures,
             List<Range> ranges,
             List<String> rawSupertypes,
-            List<CodeUnit> supertypes,
+            SuperTypeInfo superTypes,
             boolean hasBody) {
 
         public static CodeUnitProperties empty() {
@@ -153,8 +162,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),
-                    Collections.emptyList(),
+                    new SuperTypeInfo.Uncomputed(),
                     false);
+        }
+
+        // Convenience for accessing supertypes if computed, or empty list if uncomputed or not applicable.
+        public List<CodeUnit> supertypes() {
+            return superTypes instanceof SuperTypeInfo.Computed c ? c.supertypes() : Collections.emptyList();
         }
     }
 
@@ -2224,7 +2238,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             List.copyOf(sigs),
                             List.copyOf(rngs),
                             List.copyOf(rawSupers),
-                            List.of(),
+                            new SuperTypeInfo.Uncomputed(),
                             hasBody));
         }
 
@@ -3207,7 +3221,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             newState.signatures(),
                             newState.ranges(),
                             newState.rawSupertypes(),
-                            newState.supertypes(),
+                            newState.superTypes(),
                             newState.hasBody());
                 }
                 List<CodeUnit> mergedKids = existing.children();
@@ -3243,20 +3257,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     mergedRawSupers = List.copyOf(tmp);
                 }
 
-                List<CodeUnit> mergedSupertypes = existing.supertypes();
-                var newSupertypes = newState.supertypes();
-                if (!newSupertypes.isEmpty()) {
-                    var tmp = new ArrayList<CodeUnit>(existing.supertypes().size() + newSupertypes.size());
-                    tmp.addAll(existing.supertypes());
-                    for (var r : newSupertypes) if (!tmp.contains(r)) tmp.add(r);
-                    mergedSupertypes = List.copyOf(tmp);
+                SuperTypeInfo mergedSuperTypes = existing.superTypes();
+                if (newState.superTypes() instanceof SuperTypeInfo.Computed newComputed) {
+                    if (mergedSuperTypes instanceof SuperTypeInfo.Computed existingComputed) {
+                        var tmp = new ArrayList<>(existingComputed.supertypes());
+                        for (var r : newComputed.supertypes()) if (!tmp.contains(r)) tmp.add(r);
+                        mergedSuperTypes = new SuperTypeInfo.Computed(List.copyOf(tmp));
+                    } else {
+                        mergedSuperTypes = newComputed;
+                    }
                 }
+
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
                 return new CodeUnitProperties(
-                        mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSupertypes, mergedHasBody);
-            });
+                        mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSuperTypes, mergedHasBody);
+                });
         });
 
         // Update file state - initialize with empty resolved imports (will be populated during import resolution pass)
@@ -3334,7 +3351,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                                 state.signatures(),
                                                 state.ranges(),
                                                 state.rawSupertypes(),
-                                                state.supertypes(),
+                                                state.superTypes(),
                                                 state.hasBody());
                             });
                             // Purge from symbol index
@@ -3602,7 +3619,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     CodeUnit cu = entry.getKey();
                                     CodeUnitProperties props = entry.getValue();
                                     List<CodeUnit> supers = delegateForTypes.computeSupertypes(cu);
-                                    if (!Objects.equals(props.supertypes(), supers)) {
+                                    SuperTypeInfo info = new SuperTypeInfo.Computed(supers);
+                                    if (!Objects.equals(props.superTypes(), info)) {
                                         updatedCodeUnitState.put(
                                                 cu,
                                                 new CodeUnitProperties(
@@ -3610,7 +3628,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                                         props.signatures(),
                                                         props.ranges(),
                                                         props.rawSupertypes(),
-                                                        supers,
+                                                        info,
                                                         props.hasBody()));
                                     }
                                     progressReporter.increment();
