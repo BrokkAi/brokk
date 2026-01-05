@@ -385,7 +385,7 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
                     }
 
                     String nameText = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
-                    if (nameText.startsWith("test")) {
+                    if (nameText.toLowerCase(Locale.ROOT).startsWith("test")) {
                         return true;
                     }
                     continue;
