@@ -64,8 +64,8 @@ import org.jetbrains.annotations.Nullable;
  * existing info if interrupted or context is near full. - Never writes code itself; it prepares the Workspace for a
  * later Code Agent run.
  */
-public class SearchAgent {
-    private static final Logger logger = LogManager.getLogger(SearchAgent.class);
+public class LutzAgent {
+    private static final Logger logger = LogManager.getLogger(LutzAgent.class);
 
     public enum Objective {
         ANSWER_ONLY {
@@ -157,7 +157,7 @@ public class SearchAgent {
      * @param io the IConsoleIO instance for output
      * @param scanConfig configuration for automatic context scanning
      */
-    public SearchAgent(
+    public LutzAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
@@ -201,7 +201,7 @@ public class SearchAgent {
     /**
      * Creates a SearchAgent with output streaming enabled (default behavior) and default IO.
      */
-    public SearchAgent(
+    public LutzAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
@@ -917,7 +917,7 @@ public class SearchAgent {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
         return context.allFragments()
-                .filter(SearchAgent::isWorkspaceFileFragment)
+                .filter(LutzAgent::isWorkspaceFileFragment)
                 .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
                 .collect(Collectors.toSet());
     }
@@ -934,7 +934,7 @@ public class SearchAgent {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
         return context.allFragments()
-                .filter(SearchAgent::isWorkspaceFileFragment)
+                .filter(LutzAgent::isWorkspaceFileFragment)
                 .map(f -> new SearchMetrics.FragmentInfo(
                         f.getType().toString(),
                         f.id(),

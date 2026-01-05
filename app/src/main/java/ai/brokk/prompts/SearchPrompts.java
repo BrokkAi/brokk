@@ -1,7 +1,7 @@
 package ai.brokk.prompts;
 
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
@@ -193,7 +193,7 @@ public class SearchPrompts {
             Context context,
             StreamingChatModel model,
             String goal,
-            SearchAgent.Objective objective,
+            LutzAgent.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
             List<ChatMessage> sessionMessages)
             throws InterruptedException {
@@ -202,7 +202,7 @@ public class SearchPrompts {
         var inputLimit = cm.getService().getMaxInputTokens(model);
 
         // Determine viewing policy based on search objective
-        boolean useTaskList = objective == SearchAgent.Objective.LUTZ || objective == SearchAgent.Objective.TASKS_ONLY;
+        boolean useTaskList = objective == LutzAgent.Objective.LUTZ || objective == LutzAgent.Objective.TASKS_ONLY;
         var suppressed = useTaskList ? EnumSet.noneOf(SpecialTextType.class) : EnumSet.of(SpecialTextType.TASK_LIST);
 
         // Build workspace messages in insertion order with viewing policy applied
@@ -334,7 +334,7 @@ public class SearchPrompts {
 
         String buildSetupTaskGuidance = "";
         boolean tasksObjective =
-                objective == SearchAgent.Objective.LUTZ || objective == SearchAgent.Objective.TASKS_ONLY;
+                objective == LutzAgent.Objective.LUTZ || objective == LutzAgent.Objective.TASKS_ONLY;
         if (tasksObjective && cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
             buildSetupTaskGuidance =
                     """
@@ -422,7 +422,7 @@ public class SearchPrompts {
 
     private record TerminalObjective(String type, String text) {}
 
-    private TerminalObjective buildTerminalObjective(SearchAgent.Objective objective) {
+    private TerminalObjective buildTerminalObjective(LutzAgent.Objective objective) {
         return switch (objective) {
             case ANSWER_ONLY ->
                 new TerminalObjective(

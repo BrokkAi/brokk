@@ -414,14 +414,14 @@ public class ArchitectAgent {
             }
 
             // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
-            var searchAgent = new SearchAgent(
+            var searchAgent = new LutzAgent(
                     context,
                     query,
                     planningModel,
-                    SearchAgent.Objective.WORKSPACE_ONLY,
+                    LutzAgent.Objective.WORKSPACE_ONLY,
                     scope,
                     saIo,
-                    SearchAgent.ScanConfig.noAppend());
+                    LutzAgent.ScanConfig.noAppend());
             var result = searchAgent.execute();
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
             // thread-local
@@ -477,7 +477,7 @@ public class ArchitectAgent {
     public TaskResult executeWithScan() throws InterruptedException {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
-        var searchAgent = new SearchAgent(context, goal, scanModel, SearchAgent.Objective.WORKSPACE_ONLY, this.scope);
+        var searchAgent = new LutzAgent(context, goal, scanModel, LutzAgent.Objective.WORKSPACE_ONLY, this.scope);
         searchAgent.pruneContext();
         context = searchAgent.scanContext();
 

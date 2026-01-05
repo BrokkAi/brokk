@@ -6,7 +6,7 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
@@ -251,13 +251,13 @@ public final class JobRunner {
                                         // Phase 1: Use SearchAgent to generate a task list from the initial task
                                         try (var scope = cm.beginTask(spec.taskInput(), false)) {
                                             var context = cm.liveContext();
-                                            var searchAgent = new SearchAgent(
+                                            var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
                                                             architectPlannerModel,
                                                             "plannerModel required for LUTZ jobs"),
-                                                    SearchAgent.Objective.TASKS_ONLY,
+                                                    LutzAgent.Objective.TASKS_ONLY,
                                                     scope);
                                             var taskListResult = searchAgent.execute();
                                             scope.append(taskListResult);
@@ -424,13 +424,13 @@ public final class JobRunner {
                                                             : cm.getService().getScanModel();
 
                                             // SearchAgent now handles scanning internally via execute()
-                                            var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
-                                            var searchAgent = new SearchAgent(
+                                            var scanConfig = LutzAgent.ScanConfig.withModel(scanModelToUse);
+                                            var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
                                                             scanModelToUse, "scan model unavailable for SEARCH jobs"),
-                                                    SearchAgent.Objective.ANSWER_ONLY,
+                                                    LutzAgent.Objective.ANSWER_ONLY,
                                                     scope,
                                                     cm.getIo(),
                                                     scanConfig);

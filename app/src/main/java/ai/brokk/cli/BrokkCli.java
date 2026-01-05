@@ -13,7 +13,7 @@ import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
 import ai.brokk.agents.MergeAgent;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -418,13 +418,13 @@ public final class BrokkCli implements Callable<Integer> {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
                 // Honor --disable-context-scan flag via ScanConfig
                 var scanConfig = disableContextScan
-                        ? SearchAgent.ScanConfig.disabled()
-                        : SearchAgent.ScanConfig.withModel(searchModel);
-                var agent = new SearchAgent(
+                        ? LutzAgent.ScanConfig.disabled()
+                        : LutzAgent.ScanConfig.withModel(searchModel);
+                var agent = new LutzAgent(
                         cm.liveContext(),
                         searchWorkspace,
                         searchModel,
-                        SearchAgent.Objective.WORKSPACE_ONLY,
+                        LutzAgent.Objective.WORKSPACE_ONLY,
                         scope,
                         cm.getIo(),
                         scanConfig);
@@ -709,11 +709,11 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
-                    var agent = new SearchAgent(
+                    var agent = new LutzAgent(
                             cm.liveContext(),
                             requireNonNull(searchAnswerPrompt),
                             planModel,
-                            SearchAgent.Objective.ANSWER_ONLY,
+                            LutzAgent.Objective.ANSWER_ONLY,
                             scope);
                     result = agent.execute();
                     context = scope.append(result);
@@ -760,11 +760,11 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
-                    var agent = new SearchAgent(
+                    var agent = new LutzAgent(
                             cm.liveContext(),
                             requireNonNull(lutzPrompt),
                             planModel,
-                            SearchAgent.Objective.TASKS_ONLY,
+                            LutzAgent.Objective.TASKS_ONLY,
                             scope);
                     result = agent.execute();
                     context = scope.append(result);
