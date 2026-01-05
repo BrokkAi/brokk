@@ -1457,8 +1457,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
      * @param title   The title for the tab
      */
     public void showInTab(ai.brokk.gui.PreviewManager manager, String title) {
-        var leftSources = fileComparisons.stream().map(fc -> fc.leftSource).toList();
-        var rightSources = fileComparisons.stream().map(fc -> fc.rightSource).toList();
+        var leftSources = fileComparisons.stream().map(fc -> fc.leftSource()).toList();
+        var rightSources = fileComparisons.stream().map(fc -> fc.rightSource()).toList();
         manager.showDiffInTab(title, this, leftSources, rightSources);
     }
 
@@ -1615,8 +1615,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             String primaryDisplayName = null;
 
             for (FileComparisonInfo comp : comps) {
-                var leftSource = comp.leftSource;
-                var rightSource = comp.rightSource;
+                var leftSource = comp.leftSource();
+                var rightSource = comp.rightSource();
 
                 String leftContent;
                 String rightContent;
@@ -1664,7 +1664,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             if (isSingle) {
                 var singleInfo = comps.getFirst();
                 description =
-                        buildCaptureDescription(singleInfo.leftSource, singleInfo.rightSource, primaryDisplayName);
+                            buildCaptureDescription(singleInfo.leftSource(), singleInfo.rightSource(), primaryDisplayName);
             } else {
                 description = "Captured diffs for " + comps.size() + " file(s)";
             }
@@ -2167,8 +2167,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             var leftSource = leftSources.get(i);
             var rightSource = rightSources.get(i);
 
-            boolean leftMatches = sourcesMatch(existing.leftSource, leftSource);
-            boolean rightMatches = sourcesMatch(existing.rightSource, rightSource);
+            boolean leftMatches = sourcesMatch(existing.leftSource(), leftSource);
+            boolean rightMatches = sourcesMatch(existing.rightSource(), rightSource);
 
             if (!leftMatches || !rightMatches) {
                 return false;
@@ -2187,8 +2187,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         // Extract the set of filenames from existing panel
         var existingFiles = fileComparisons.stream()
-                .filter(fc -> fc.rightSource instanceof BufferSource.FileSource)
-                .map(fc -> ((BufferSource.FileSource) fc.rightSource).title())
+                .filter(fc -> fc.rightSource() instanceof BufferSource.FileSource)
+                .map(fc -> ((BufferSource.FileSource) fc.rightSource()).title())
                 .collect(Collectors.toSet());
 
         boolean matches = requestedFiles.equals(existingFiles);
