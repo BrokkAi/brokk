@@ -74,8 +74,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             String oldContent
     ) {}
     private List<FileComparisonData> fileData = List.of();
-    private int currentExcerptIndex = 0;
-    private List<ICodeReview.CodeExcerpt> currentExcerpts = List.of();
 
     @FunctionalInterface
     public interface TabTitleUpdater {
@@ -423,25 +421,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
 
             @Override
-            public void onSelect(String explanation, List<ICodeReview.CodeExcerpt> excerpts) {
-                currentExcerpts = excerpts;
-                currentExcerptIndex = 0;
-                navigateToExcerpt(0);
-            }
-        });
-
-        // Add "Next Excerpt" functionality if multiple excerpts exist
-        Action nextExcerptAction = new AbstractAction("Next Excerpt") {
-            @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
-                if (currentExcerpts.size() > 1) {
-                    currentExcerptIndex = (currentExcerptIndex + 1) % currentExcerpts.size();
-                    navigateToExcerpt(currentExcerptIndex);
+            public void onNavigate(CodeReviewPanel.ParsedExcerpt pe) {
+                if (diffPanel != null && pe.fileIndex() != -1) {
+                    if (pe.lineNumber() != -1) {
+                        diffPanel.navigateToLocation(pe.fileIndex(), pe.lineNumber());
+                    } else {
+                        diffPanel.navigateToFile(pe.fileIndex());
+                    }
                 }
             }
-        };
-        this.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(KeyStroke.getKeyStroke("released F3"), "nextExcerpt");
-        this.getActionMap().put("nextExcerpt", nextExcerptAction);
+        });
 
         var leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel, diffPanel);
         leftSplit.setDividerLocation(300);
@@ -551,7 +540,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                 SwingUtilities.invokeLater(() -> {
                     if (codeReviewPanel != null) {
-                        codeReviewPanel.displayReview(review);
+                        codeReviewPanel.displayReview(review, this::resolveExcerpt);
                         codeReviewPanel.setBusy(false);
                     }
                 });
@@ -565,13 +554,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private void navigateToExcerpt(int index) {
-        if (diffPanel == null || index < 0 || index >= currentExcerpts.size()) return;
-
-        ICodeReview.CodeExcerpt excerpt = currentExcerpts.get(index);
+    private CodeReviewPanel.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
         String relPath = excerpt.file().getRelPath().toString();
-        String excerptText = excerpt.excerpt();
-
         int targetFileIndex = -1;
         for (int i = 0; i < fileData.size(); i++) {
             if (fileData.get(i).path().equals(relPath)) {
@@ -580,17 +564,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
         }
 
-        if (targetFileIndex == -1) return;
-
-        // Find the line number using whitespace-insensitive search in the NEW content
-        String newContent = fileData.get(targetFileIndex).newContent();
-        int lineNum = findExcerptLine(newContent, excerptText);
-
-        if (lineNum != -1) {
-            diffPanel.navigateToLocation(targetFileIndex, lineNum);
-        } else {
-            diffPanel.navigateToFile(targetFileIndex);
+        if (targetFileIndex == -1) {
+            return new CodeReviewPanel.ParsedExcerpt(excerpt, -1, -1);
         }
+
+        String newContent = fileData.get(targetFileIndex).newContent();
+        int lineNum = findExcerptLine(newContent, excerpt.excerpt());
+        return new CodeReviewPanel.ParsedExcerpt(excerpt, lineNum, targetFileIndex);
     }
 
     private int findExcerptLine(String content, String excerptText) {

@@ -11,6 +11,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Cursor;
+import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -27,8 +28,10 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public class CodeReviewPanel extends JPanel implements ThemeAware {
 
+    public record ParsedExcerpt(CodeExcerpt original, int lineNumber, int fileIndex) {}
+
     public interface ReviewNavigationListener {
-        void onSelect(String explanation, List<CodeExcerpt> excerpts);
+        void onNavigate(ParsedExcerpt excerpt);
     }
 
     private final ContextManager contextManager;
@@ -80,7 +83,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         void onTriggerReview();
     }
 
-    public void displayReview(GuidedReview review) {
+    public void displayReview(GuidedReview review, java.util.function.Function<CodeExcerpt, ParsedExcerpt> resolver) {
         contentPanel.removeAll();
 
         addHeader("Overview");
@@ -88,12 +91,13 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
         addHeader("Design");
         for (DesignFeedback design : review.designNotes()) {
-            addClickableItem(design.description(), design.description(), design.excerpts());
+            List<ParsedExcerpt> parsed = design.excerpts().stream().map(resolver).toList();
+            addExpandableItem(design.description(), parsed);
         }
 
         addHeader("Tactical");
         for (CodeExcerpt tactical : review.tacticalNotes()) {
-            addClickableItem(tactical.excerpt(), tactical.excerpt(), List.of(tactical));
+            addExpandableItem(tactical.excerpt(), List.of(resolver.apply(tactical)));
         }
 
         addHeader("Tests");
@@ -120,26 +124,83 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         contentPanel.add(label);
     }
 
-    private void addClickableItem(String fullText, String description, List<CodeExcerpt> excerpts) {
-        JLabel label = new JLabel("..."); // Placeholder
-        label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        label.setBorder(new EmptyBorder(2, 5, 2, 5));
-        label.setAlignmentX(Component.LEFT_ALIGNMENT);
+    private void addExpandableItem(String description, List<ParsedExcerpt> excerpts) {
+        JPanel itemPanel = new JPanel();
+        itemPanel.setLayout(new BoxLayout(itemPanel, BoxLayout.Y_AXIS));
+        itemPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        itemPanel.setOpaque(false);
+
+        JLabel summaryLabel = new JLabel("• ...");
+        summaryLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        summaryLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
+        summaryLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
         contextManager.summarize(description, 12).thenAccept(summary -> {
-            SwingUtil.runOnEdt(() -> label.setText("• " + summary));
+            SwingUtil.runOnEdt(() -> summaryLabel.setText("• " + summary));
         });
 
-        label.addMouseListener(new MouseAdapter() {
+        JPanel detailsPanel = new JPanel();
+        detailsPanel.setLayout(new BoxLayout(detailsPanel, BoxLayout.Y_AXIS));
+        detailsPanel.setBorder(new EmptyBorder(0, 20, 5, 0));
+        detailsPanel.setOpaque(false);
+        detailsPanel.setVisible(false);
+
+        summaryLabel.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                for (ReviewNavigationListener l : listeners) {
-                    l.onSelect(fullText, excerpts);
-                }
+                detailsPanel.setVisible(!detailsPanel.isVisible());
+                itemPanel.revalidate();
+                itemPanel.repaint();
             }
         });
 
-        contentPanel.add(label);
+        if (excerpts.size() > 1) {
+            JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            navPanel.setOpaque(false);
+            MaterialButton prevBtn = new MaterialButton("Prev");
+            MaterialButton nextBtn = new MaterialButton("Next");
+            
+            final int[] currentIndex = {0};
+            java.lang.Runnable updateNav = () -> {
+                for (ReviewNavigationListener l : listeners) {
+                    l.onNavigate(excerpts.get(currentIndex[0]));
+                }
+            };
+
+            prevBtn.addActionListener(e -> {
+                currentIndex[0] = (currentIndex[0] - 1 + excerpts.size()) % excerpts.size();
+                updateNav.run();
+            });
+            nextBtn.addActionListener(e -> {
+                currentIndex[0] = (currentIndex[0] + 1) % excerpts.size();
+                updateNav.run();
+            });
+
+            navPanel.add(prevBtn);
+            navPanel.add(nextBtn);
+            detailsPanel.add(navPanel);
+        }
+
+        for (ParsedExcerpt pe : excerpts) {
+            String fileName = pe.original().file().getRelPath().getFileName().toString();
+            String labelText = String.format("%s:%d", fileName, pe.lineNumber());
+            JLabel excerptLabel = new JLabel("<html><a href='#'>" + labelText + "</a></html>");
+            excerptLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            excerptLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
+            excerptLabel.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    for (ReviewNavigationListener l : listeners) {
+                        l.onNavigate(pe);
+                    }
+                }
+            });
+            detailsPanel.add(excerptLabel);
+        }
+
+        itemPanel.add(summaryLabel);
+        itemPanel.add(detailsPanel);
+        contentPanel.add(itemPanel);
     }
 
     @Override
