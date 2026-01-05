@@ -6,10 +6,10 @@ import ai.brokk.project.IProject;
 import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
+import org.treesitter.TSNode;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
-import org.treesitter.TSNode;
 import org.treesitter.TreeSitterScala;
 
 public class ScalaAnalyzer extends TreeSitterAnalyzer {
@@ -203,7 +203,9 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                 String captureName = query.getCaptureNameForId(capture.getIndex());
                 if (TEST_MARKER.equals(captureName)) {
                     TSNode node = capture.getNode();
-                    String text = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte()).strip();
+                    String text = sourceContent
+                            .substringFromBytes(node.getStartByte(), node.getEndByte())
+                            .strip();
 
                     if (TYPE_IDENTIFIER.equals(node.getType())) {
                         if (text.equals("Test") || text.equals("ParameterizedTest") || text.equals("RepeatedTest")) {

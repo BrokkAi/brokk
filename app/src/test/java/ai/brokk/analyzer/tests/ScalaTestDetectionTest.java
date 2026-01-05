@@ -9,14 +9,14 @@ import ai.brokk.analyzer.ScalaAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.io.IOException;
-import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.Test;
 
 public class ScalaTestDetectionTest {
 
     @Test
     void detectsJUnitTestAnnotation() throws IOException {
-        String code = """
+        String code =
+                """
             import org.junit.Test
 
             class Example {
@@ -38,7 +38,8 @@ public class ScalaTestDetectionTest {
 
     @Test
     void detectsScalaTestImportsEvenWithoutJUnitAnnotations() throws IOException {
-        String code = """
+        String code =
+                """
             import org.scalatest.funsuite.AnyFunSuite
 
             class ExampleSuite extends AnyFunSuite {
@@ -59,7 +60,8 @@ public class ScalaTestDetectionTest {
 
     @Test
     void negativeCaseNoMarkersNoScalaTestImports() throws IOException {
-        String code = """
+        String code =
+                """
             class Example {
               def add(a: Int, b: Int): Int = a + b
             }

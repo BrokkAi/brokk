@@ -31,7 +31,8 @@ public class PythonTestDetectionTest {
 
     @Test
     void testTestPrefixedMethodDetection() throws IOException {
-        String code = """
+        String code =
+                """
             class TestMath:
                 def test_addition(self):
                     assert 1 + 1 == 2
@@ -48,7 +49,8 @@ public class PythonTestDetectionTest {
 
     @Test
     void testPytestMarkDetection() throws IOException {
-        String code = """
+        String code =
+                """
             import pytest
 
             @pytest.mark.slow
@@ -67,7 +69,8 @@ public class PythonTestDetectionTest {
 
     @Test
     void testNegativeDetection() throws IOException {
-        String code = """
+        String code =
+                """
             def add(a, b):
                 return a + b
 
