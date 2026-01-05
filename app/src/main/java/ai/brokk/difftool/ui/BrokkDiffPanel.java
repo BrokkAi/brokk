@@ -1209,40 +1209,62 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     @Override
     public void navigateToFile(ProjectFile file) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        for (int i = 0; i < fileComparisons.size(); i++) {
-            var info = fileComparisons.get(i);
-            if (isMatchingFile(info.leftSource(), file) || isMatchingFile(info.rightSource(), file)) {
-                switchToFile(i);
-                return;
-            }
+        int index = findComparisonIndex(file);
+        if (index != -1) {
+            switchToFile(index);
+        } else {
+            logger.warn("Could not find file in comparisons: {}", file);
         }
-        logger.warn("Could not find file in comparisons: {}", file);
     }
 
     @Override
     public void navigateToLocation(int fileIndex, int lineNumber) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         switchToFile(fileIndex);
+        scrollToLineInCurrentPanel(lineNumber);
     }
 
     @Override
     public void navigateToLocation(ProjectFile file, int lineNumber) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        int index = findComparisonIndex(file);
+        if (index != -1) {
+            switchToFile(index);
+            scrollToLineInCurrentPanel(lineNumber);
+        } else {
+            logger.warn("Could not find file in comparisons: {}", file);
+        }
+    }
+
+    private int findComparisonIndex(ProjectFile file) {
         for (int i = 0; i < fileComparisons.size(); i++) {
             var info = fileComparisons.get(i);
             if (isMatchingFile(info.leftSource(), file) || isMatchingFile(info.rightSource(), file)) {
-                switchToFile(i);
-                return;
+                return i;
             }
         }
-        logger.warn("Could not find file in comparisons: {}", file);
+        return -1;
     }
 
     private boolean isMatchingFile(BufferSource source, ProjectFile file) {
         if (source instanceof BufferSource.FileSource fs) {
             return fs.file().equals(file);
         }
+        String sourceFilename = source.filename();
+        if (sourceFilename != null) {
+            String normalizedSource = sourceFilename.replace('\\', '/');
+            String targetRelPath = file.getRelPath().toString().replace('\\', '/');
+            return normalizedSource.endsWith(targetRelPath);
+        }
         return false;
+    }
+
+    private void scrollToLineInCurrentPanel(int lineNumber) {
+        if (currentDiffPanel instanceof BufferDiffPanel bp) {
+            bp.scrollToLine(lineNumber);
+        } else if (currentDiffPanel instanceof UnifiedDiffPanel up) {
+            up.scrollToLine(lineNumber);
+        }
     }
 
     @Override
