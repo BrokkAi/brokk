@@ -2,6 +2,7 @@ package ai.brokk.agents;
 
 import ai.brokk.ContextManager;
 import ai.brokk.ICodeReview;
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
@@ -33,7 +34,7 @@ public class ReviewAgent {
     }
 
     @Blocking
-    public ICodeReview.GuidedReview execute() throws InterruptedException {
+    public ICodeReview.GuidedReview execute(IConsoleIO io) throws InterruptedException {
         String goal =
                 "Identify all code locations relevant to the provided diff to perform a comprehensive code review focusing on design, correctness, and simplicity.";
 
@@ -48,7 +49,7 @@ public class ReviewAgent {
         var scanConfig = SearchAgent.ScanConfig.noAppend();
 
         try (ContextManager.TaskScope scope = cm.beginTask(goal, false, "Code Review")) {
-            SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, cm.getIo(), scanConfig);
+            SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, io, scanConfig);
 
             // Phase 1: Establish context using SearchAgent
             agent.scanContext();
@@ -62,6 +63,7 @@ public class ReviewAgent {
             // Phase 2: Perform the actual review using the gathered context
             var finalContext = searchResult.context();
             var reviewLlm = cm.getLlm(new Llm.Options(model, "Finalizing Code Review").withEcho());
+            reviewLlm.setOutput(io);
 
             var promptResult = SearchPrompts.instance.buildPrompt(
                     finalContext,

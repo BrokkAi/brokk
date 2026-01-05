@@ -517,7 +517,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .collect(java.util.stream.Collectors.joining("\n\n"));
 
                 var agent = new ReviewAgent(formattedDiff, contextManager);
-                var review = agent.execute();
+                var review = agent.execute(chrome);
 
                 // Pre-resolve excerpts
                 List<List<CodeReviewPanel.ParsedExcerpt>> designExcerpts = review.designNotes().stream()
