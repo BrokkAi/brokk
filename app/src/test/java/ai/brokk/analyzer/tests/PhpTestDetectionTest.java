@@ -66,12 +66,14 @@ public class PhpTestDetectionTest {
 
     @Test
     void testNameBasedDetectionIsCaseInsensitive() throws IOException {
-        String code = """
+        String code =
+                """
             <?php
             function TestFoo() { }
             function TESTBar() { }
             """;
-        IProject project = InlineTestProjectCreator.code(code, "CaseInsensitive.php").build();
+        IProject project =
+                InlineTestProjectCreator.code(code, "CaseInsensitive.php").build();
         PhpAnalyzer analyzer = new PhpAnalyzer(project);
         analyzer.update();
 
