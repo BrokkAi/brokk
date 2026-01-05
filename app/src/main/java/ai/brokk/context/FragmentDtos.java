@@ -303,6 +303,14 @@ public class FragmentDtos {
         }
     }
 
+    /** DTO representing history grouping metadata. */
+    public record GroupInfoDto(Map<String, String> contextToGroupId, Map<String, String> groupLabels) {
+        public GroupInfoDto {
+            contextToGroupId = Map.copyOf(contextToGroupId);
+            groupLabels = Map.copyOf(groupLabels);
+        }
+    }
+
     /** DTO for holding all unique fragments in a session history. Used as the top-level object for fragments.json. */
     public record AllFragmentsDto(
             int version, // Version of the fragment DTO structure
@@ -330,10 +338,7 @@ public class FragmentDtos {
             List<String> virtuals,
             List<String> pinned,
             List<TaskEntryRefDto> tasks,
-            @Nullable String parsedOutputId,
-            String actionUnused,
-            @Nullable String groupId,
-            @Nullable String groupLabel) {
+            @Nullable String parsedOutputId) {
         public CompactContextDto {
             // No validation on id – null means “absent in V1 history”
             editable = List.copyOf(editable);

@@ -1520,16 +1520,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         TaskResult result;
         var title = task.title() == null ? task.text() : task.title();
-        try (var scope = beginTask(prompt, false, "Task: " + title)) {
+        try (var scope = beginTask(prompt, true, "Task: " + title)) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithScan();
 
             if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
                 new GitWorkflow(this).performAutoCommit(prompt);
-                var compressed = compressHistory(result.context()); // synchronous
-                var ctx = markTaskDone(compressed, task, scope.groupId(), scope.groupLabel());
+                var ctx = markTaskDone(result.context(), task);
                 result = result.withContext(ctx);
-                pushContext(currentLiveCtx -> ctx);
+                scope.append(result);
             }
         } finally {
             // mirror panel behavior
@@ -1540,8 +1539,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Replace the given task with its 'done=true' variant. */
-    private Context markTaskDone(
-            Context context, TaskList.TaskItem task, @Nullable UUID groupId, @Nullable String groupLabel) {
+    private Context markTaskDone(Context context, TaskList.TaskItem task) {
         var tasks = context.getTaskListDataOrEmpty().tasks();
 
         // Find index: prefer exact match, fall back to first incomplete task with matching text
@@ -1559,8 +1557,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var updated = new ArrayList<>(tasks);
         updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
-        return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)))
-                .withGroup(groupId, groupLabel);
+        return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)));
     }
 
     private void captureGitState(Context frozenContext) {
@@ -1642,8 +1639,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Ensure listeners are notified on the EDT
         SwingUtilities.invokeLater(() -> notifyContextListeners(context));
 
-        project.getSessionManager()
-                .saveHistory(contextHistory, currentSessionId); // Persist the history of the contexts
+        // Defer save until TaskScope closes to ensure group mappings are captured
+        if (!taskScopeInProgress.get()) {
+            project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+        }
     }
 
     /**
@@ -2112,9 +2111,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return beginTask(input, compressAtCommit, null);
     }
 
-    /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional grouping label. */
-    public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String groupLabel) {
-        TaskScope scope = new TaskScope(compressAtCommit, groupLabel);
+    /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
+    public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String taskDescription) {
+        TaskScope scope = new TaskScope(compressAtCommit, taskDescription);
 
         // prepare MOP
         var history = liveContext().getTaskHistory();
@@ -2150,23 +2149,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public final class TaskScope implements AutoCloseable {
         private final boolean compressResults;
         private final AtomicBoolean closed = new AtomicBoolean(false);
-        private final @Nullable UUID groupId;
-        private final @Nullable String groupLabel;
+        private final UUID groupId = UUID.randomUUID();
+        private final String groupLabel;
 
-        private TaskScope(boolean compressResults, @Nullable String groupLabel) {
+        private TaskScope(boolean compressResults, @Nullable String taskDescription) {
             this.compressResults = compressResults;
-            this.groupLabel = groupLabel;
-            this.groupId = (groupLabel != null) ? UUID.randomUUID() : null;
+            this.groupLabel = taskDescription == null ? "Task" : taskDescription;
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
-        }
-
-        public @Nullable UUID groupId() {
-            return groupId;
-        }
-
-        public @Nullable String groupLabel() {
-            return groupLabel;
         }
 
         /**
@@ -2183,7 +2173,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // If interrupted before any LLM output, skip
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
                     && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
-                logger.debug("Command cancelled before LLM responded");
+                logger.debug("Command cancelled before LLM responded — skipping append (no groupId assignment)");
                 return result.context();
             }
 
@@ -2193,7 +2183,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 Context other = liveContext();
                 var delta = ContextDelta.between(result.context(), other).join();
                 if (delta.isEmpty()) {
-                    logger.debug("Empty TaskResult delta, skipping publish step");
+                    logger.debug("Empty TaskResult delta, skipping publish step (no groupId assignment)");
                     return result.context();
                 }
             }
@@ -2201,14 +2191,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
 
             // optionally compress
-            var updated = result.context().withGroup(groupId, groupLabel);
+            var updated = result.context();
             TaskEntry entry = updated.createTaskEntry(result);
             TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
 
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(finalEntry, result.output()).withGroup(groupId, groupLabel);
+                return updated.addHistoryEntry(finalEntry, result.output());
             });
+
+            UUID contextId = updatedContext.id();
+            contextHistory.addContextToGroup(contextId, groupId, groupLabel);
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
@@ -2223,13 +2216,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
          */
         public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
-            var updated = context.withGroup(groupId, groupLabel);
-            pushContext(currentLiveCtx -> updated);
+            var newId = pushContext(currentLiveCtx -> context).id();
+            contextHistory.addContextToGroup(newId, groupId, groupLabel);
         }
 
         @Override
         public void close() {
             if (!closed.compareAndSet(false, true)) return;
+
+            // Save once now that all group mappings are in place
+            project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+
             SwingUtilities.invokeLater(() -> {
                 // deferred cleanup
                 taskScopeInProgress.set(false);
@@ -2744,7 +2741,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     return ctx;
                 }
 
-                return ctx.withHistory(compressedTaskEntries).withGroup(ctx.getGroupId(), ctx.getGroupLabel());
+                return ctx.withHistory(compressedTaskEntries);
             }
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);

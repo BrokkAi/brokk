@@ -334,15 +334,6 @@ class ContextTest {
     }
 
     @Test
-    void testWithGroupSetsFields() {
-        var ctx = new Context(contextManager);
-        var gid = UUID.randomUUID();
-        var labeled = ctx.withGroup(gid, "group-label");
-        assertEquals(gid, labeled.getGroupId());
-        assertEquals("group-label", labeled.getGroupLabel());
-    }
-
-    @Test
     void testIsFileContentEmpty_withEmptyContext() {
         var ctx = new Context(contextManager);
         assertTrue(ctx.isFileContentEmpty(), "Empty context should have no file content");
