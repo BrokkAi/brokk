@@ -32,6 +32,7 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /** A button that captures voice input from the microphone and transcribes it to a text area. */
@@ -212,6 +213,23 @@ public class VoiceInputButton extends JButton {
         contextManager.removeServiceReloadListener(serviceListener);
     }
 
+    /**
+     * Initializes and opens the audio device for recording. This method performs blocking I/O operations and should not
+     * be called on the EDT.
+     *
+     * @param format the audio format to use for recording
+     * @return the initialized and started TargetDataLine
+     * @throws Exception if audio device initialization fails
+     */
+    @Blocking
+    private TargetDataLine initializeAudioDevice(AudioFormat format) throws Exception {
+        DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
+        TargetDataLine line = (TargetDataLine) requireNonNull(AudioSystem.getLine(info));
+        line.open(format);
+        line.start();
+        return line;
+    }
+
     /** Starts capturing audio from the default microphone to micBuffer on a background thread. */
     private void startMicCapture() {
         // Guard: ensure an STT model is available now (models can change at runtime)
@@ -219,51 +237,62 @@ public class VoiceInputButton extends JButton {
             String msg = "Speech-to-text is unavailable (no suitable model found via proxy or connection failed).";
             logger.warn(msg);
             onError.accept(msg);
-            // Provide a UI-level notification as well
             contextManager.getIo().toolError(msg, "Speech-to-text unavailable");
             return;
         }
 
-        try {
-            // disable input field while capturing
-            targetTextArea.setEnabled(false);
+        // Disable input field and update UI immediately on EDT
+        targetTextArea.setEnabled(false);
+        if (micOnIcon != null) {
+            setIcon(micOnIcon);
+        }
 
-            // Change icon to mic-on
-            if (micOnIcon != null) {
-                setIcon(micOnIcon);
-            }
+        // Move audio device initialization to background thread to avoid blocking EDT
+        AudioFormat format = new AudioFormat(16000.0f, 16, 1, true, true);
+        contextManager.submitBackgroundTask("Initializing microphone", () -> {
+            try {
+                // Initialize audio device (blocking I/O)
+                TargetDataLine line = initializeAudioDevice(format);
+                micLine = line;
 
-            AudioFormat format = new AudioFormat(16000.0f, 16, 1, true, true);
-            DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
-            micLine = (TargetDataLine) requireNonNull(AudioSystem.getLine(info));
-            micLine.open(format);
-            micLine.start();
+                // Reset buffer
+                synchronized (micBuffer) {
+                    micBuffer.reset();
+                }
 
-            // micBuffer is now final and initialized in constructor, reset it here
-            synchronized (micBuffer) {
-                micBuffer.reset();
-            }
-            micCaptureThread = new Thread(
-                    () -> {
-                        var data = new byte[4096];
-                        while (micLine != null && micLine.isOpen()) {
-                            int bytesRead = micLine.read(data, 0, data.length);
-                            if (bytesRead > 0) {
-                                synchronized (micBuffer) {
-                                    micBuffer.write(data, 0, bytesRead);
+                // Start capture thread
+                micCaptureThread = new Thread(
+                        () -> {
+                            var data = new byte[4096];
+                            while (micLine != null && micLine.isOpen()) {
+                                int bytesRead = micLine.read(data, 0, data.length);
+                                if (bytesRead > 0) {
+                                    synchronized (micBuffer) {
+                                        micBuffer.write(data, 0, bytesRead);
+                                    }
                                 }
                             }
-                        }
-                    },
-                    "mic-capture-thread");
-            micCaptureThread.start();
-            // Notify that recording has started
-            onRecordingStart.run();
-        } catch (Exception ex) {
-            logger.error("Failed to start mic capture", ex);
-            onError.accept("Error starting mic capture: " + ex.getMessage());
-            targetTextArea.setEnabled(true);
-        }
+                        },
+                        "mic-capture-thread");
+                micCaptureThread.start();
+
+                // Notify that recording has started
+                onRecordingStart.run();
+            } catch (Exception ex) {
+                logger.error("Failed to start mic capture", ex);
+                String errorMsg = "Error starting mic capture: " + ex.getMessage();
+                onError.accept(errorMsg);
+
+                // Restore UI state on EDT
+                SwingUtilities.invokeLater(() -> {
+                    targetTextArea.setEnabled(true);
+                    if (micOffIcon != null) {
+                        setIcon(micOffIcon);
+                    }
+                    putClientProperty("isRecording", false);
+                });
+            }
+        });
     }
 
     /** Stops capturing and sends to STT on a background thread. */
