@@ -644,11 +644,9 @@ public class SearchAgent {
             @P("A list of local bugs or problems") List<ICodeReview.CodeExcerpt> tacticalNotes,
             @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
                     List<String> additionalTests) {
+        logger.debug("createReview");
         var review = new ICodeReview.GuidedReview(overview, designNotes, tacticalNotes, additionalTests);
-        var json = review.toJson();
-        logger.debug("createReview selected");
-        io.llmOutput("# Code Review\n\n" + overview, ChatMessageType.AI);
-        return json;
+        return review.toJson();
     }
 
     @Tool("Calls a remote tool using the MCP (Model Context Protocol).")
