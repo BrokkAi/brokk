@@ -250,7 +250,7 @@ public final class JobRunner {
                                     }
                                     case LUTZ -> {
                                         // Phase 1: Use SearchAgent to generate a task list from the initial task
-                                        try (var scope = cm.beginTask(spec.taskInput())) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
                                             var searchAgent = new LutzAgent(
                                                     context,
@@ -325,7 +325,7 @@ public final class JobRunner {
                                                 cm,
                                                 Objects.requireNonNull(
                                                         codeModeModel, "code model unavailable for CODE jobs"));
-                                        try (var scope = cm.beginTask(spec.taskInput())) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var result = agent.execute(spec.taskInput(), Set.of());
                                             scope.append(result);
                                         }
@@ -336,7 +336,7 @@ public final class JobRunner {
                                         // and the current Workspace. Do NOT invoke SearchAgent.execute() or
                                         // any tools that could modify the workspace. Append the answer to the
                                         // task scope and continue.
-                                        try (var scope = cm.beginTask(spec.taskInput())) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
 
                                             // Optional pre-scan: resolve scan model similarly to SEARCH mode.
@@ -511,7 +511,7 @@ public final class JobRunner {
                                     case SEARCH -> {
                                         // Read-only repository search using a scan model (spec.scanModel preferred,
                                         // otherwise project default)
-                                        try (var scope = cm.beginTask(spec.taskInput())) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
 
                                             // Determine scan model: prefer explicit spec.scanModel() if provided,
@@ -554,7 +554,7 @@ public final class JobRunner {
                                                         "plannel model unavailable for REVIEW jobs"));
 
                                         TaskResult result;
-                                        try (var scope = cm.beginTask("Review")) {
+                                        try (var scope = cm.beginTaskUngrouped("Review")) {
                                             result = agent.execute(reviewPrompt, Set.of());
                                             scope.append(result);
                                         }

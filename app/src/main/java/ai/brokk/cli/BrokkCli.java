@@ -416,7 +416,7 @@ public final class BrokkCli implements Callable<Integer> {
             TaskResult searchResult;
             boolean success;
 
-            try (var scope = cm.beginTask(searchWorkspace)) {
+            try (var scope = cm.beginTaskUngrouped(searchWorkspace)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
                 // Honor --disable-context-scan flag via ScanConfig
                 var scanConfig = disableContextScan
@@ -639,7 +639,7 @@ public final class BrokkCli implements Callable<Integer> {
             scopeInput = requireNonNull(lutzPrompt);
         }
 
-        try (var scope = cm.beginTask(scopeInput)) {
+        try (var scope = cm.beginTaskUngrouped(scopeInput)) {
             try {
                 if (architectPrompt != null) {
                     // Architect requires a plan model and a code model

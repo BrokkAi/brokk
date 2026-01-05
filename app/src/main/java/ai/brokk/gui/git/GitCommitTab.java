@@ -1034,7 +1034,7 @@ Would you like to resolve these conflicts with the Merge Agent?
                 var planningModel = chrome.getInstructionsPanel().getSelectedModel();
                 var codeModel = contextManager.getCodeModel();
 
-                try (var scope = contextManager.beginTask("AI Merge")) {
+                try (var scope = contextManager.beginTask(customInstructions, true, "AI Merge")) {
                     var agent = new MergeAgent(
                             contextManager, planningModel, codeModel, conflict, scope, customInstructions);
                     var result = agent.execute();
