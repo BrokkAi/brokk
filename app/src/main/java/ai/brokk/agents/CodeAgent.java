@@ -111,14 +111,8 @@ public class CodeAgent {
     public TaskResult execute(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
         var ctx = new Context(contextManager)
                 .addFragments(List.of(new ContextFragments.ProjectPathFragment(file, contextManager)));
-
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            // TODO runTaskInternal allows creating new files, should we prevent that?
-            return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
-        }
+        // TODO runTaskInternal allows creating new files, should we prevent that?
+        return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
     }
 
     /**
@@ -126,15 +120,7 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult execute(String userInput, Set<Option> options) {
-        // pause watching for external changes (so they don't get added to activity history while we're still making
-        // changes);
-        // this means that we're responsible for refreshing the analyzer when we make changes
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
-        }
+        return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
     }
 
     /**
@@ -143,20 +129,12 @@ public class CodeAgent {
      */
     @Blocking
     TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
-        // pause watching for external changes (so they don't get added to activity history while we're still making
-        // changes);
-        // this means that we're responsible for refreshing the analyzer when we make changes
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            if (context.getTaskHistory().isEmpty()) {
-                // special case no-history to avoid changing Context identity unnecessarily
-                return runTaskInternal(context, List.of(), userInput, options);
-            } else {
-                return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
-                        .withHistory(context.getTaskHistory());
-            }
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
+        if (context.getTaskHistory().isEmpty()) {
+            // special case no-history to avoid changing Context identity unnecessarily
+            return runTaskInternal(context, List.of(), userInput, options);
+        } else {
+            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
+                    .withHistory(context.getTaskHistory());
         }
     }
 

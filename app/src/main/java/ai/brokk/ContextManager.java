@@ -2113,8 +2113,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
     public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String taskDescription) {
-        TaskScope scope = new TaskScope(compressAtCommit, taskDescription);
-
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
@@ -2137,7 +2135,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
         }
 
-        return scope;
+        return new TaskScope(compressAtCommit, taskDescription);
     }
 
     /**
@@ -2157,6 +2155,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             this.groupLabel = taskDescription == null ? "Task" : taskDescription;
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
+
+            analyzerWrapper.pause();
         }
 
         /**
@@ -2232,6 +2232,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 taskScopeInProgress.set(false);
                 io.setTaskInProgress(false);
             });
+
+            analyzerWrapper.resume();
         }
     }
 
