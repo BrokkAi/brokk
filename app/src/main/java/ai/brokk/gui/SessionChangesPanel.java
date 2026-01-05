@@ -568,7 +568,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private CodeReviewPanel.@Nullable ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
+    private @Nullable CodeReviewPanel.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
         String relPath = excerpt.file().getRelPath().toString();
         int targetFileIndex = -1;
         for (int i = 0; i < fileData.size(); i++) {
