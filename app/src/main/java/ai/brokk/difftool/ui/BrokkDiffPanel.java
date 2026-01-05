@@ -1274,6 +1274,7 @@ public class BrokkDiffPanel extends JPanel
     }
 
     /** Returns the number of file comparisons in this panel. */
+    @Override
     public int getFileComparisonCount() {
         return fileComparisons.size();
     }
@@ -1651,7 +1652,7 @@ public class BrokkDiffPanel extends JPanel
 
         if (isSingle) {
             var currentComparison = fileComparisons.get(currentFileIndex);
-            if (comps.getFirst() == currentComparison) {
+            if (comps.getFirst().equals(currentComparison)) {
                 var bufferPanel = getBufferDiffPanel();
                 if (bufferPanel != null) {
                     var leftPanel = bufferPanel.getFilePanel(BufferDiffPanel.PanelSide.LEFT);
