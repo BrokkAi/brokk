@@ -3,6 +3,7 @@ package ai.brokk.util;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -111,7 +112,7 @@ class BuildVerifierTest {
 
     @Test
     void testBuildEnvironmentJdkSentinel() {
-        var project = new TestProjectWrapper(tempDir, EnvironmentJava.JAVA_HOME_SENTINEL);
+        var project = new TestProject(tempDir).withJdk(EnvironmentJava.JAVA_HOME_SENTINEL);
         var env = BuildVerifier.buildEnvironmentForCommand(project, Map.of("FOO", "BAR"));
         assertFalse(env.containsKey("JAVA_HOME"));
         assertEquals("BAR", env.get("FOO"));
@@ -123,7 +124,7 @@ class BuildVerifierTest {
         createFakeJdkHome(jdkDir);
 
         // Relative paths should no longer be resolved against project root
-        var project = new TestProjectWrapper(tempDir, "jdks/myjdk");
+        var project = new TestProject(tempDir).withJdk("jdks/myjdk");
         var env = BuildVerifier.buildEnvironmentForCommand(project, null);
 
         assertFalse(env.containsKey("JAVA_HOME"));
@@ -134,7 +135,7 @@ class BuildVerifierTest {
         Path notAJdk = tempDir.resolve("not-a-jdk").toAbsolutePath();
         Files.createDirectories(notAJdk);
 
-        var project = new TestProjectWrapper(tempDir, notAJdk.toString());
+        var project = new TestProject(tempDir).withJdk(notAJdk.toString());
         var env = BuildVerifier.buildEnvironmentForCommand(project, null);
 
         assertFalse(env.containsKey("JAVA_HOME"));
@@ -148,12 +149,12 @@ class BuildVerifierTest {
 
         // BuildVerifier uses the JDK setting "as-is". If validation accepts a bundle root as a JDK,
         // then JAVA_HOME should be injected with that exact path (no Contents/Home normalization here).
-        var project = new TestProjectWrapper(tempDir, bundleDir.toString());
+        var project = new TestProject(tempDir).withJdk(bundleDir.toString());
         var env = BuildVerifier.buildEnvironmentForCommand(project, null);
         assertEquals(bundleDir.toString(), env.get("JAVA_HOME"));
 
         // Passing the explicit home path should also work
-        var projectHome = new TestProjectWrapper(tempDir, homeDir.toString());
+        var projectHome = new TestProject(tempDir).withJdk(homeDir.toString());
         var envHome = BuildVerifier.buildEnvironmentForCommand(projectHome, null);
         assertEquals(homeDir.toString(), envHome.get("JAVA_HOME"));
     }
@@ -188,29 +189,6 @@ class BuildVerifierTest {
     }
 
     private IProject createTestProject() {
-        return new TestProjectWrapper(tempDir, null);
-    }
-
-    private static class TestProjectWrapper implements IProject {
-        private final Path root;
-        private final String jdk;
-
-        TestProjectWrapper(Path root, String jdk) {
-            this.root = root;
-            this.jdk = jdk;
-        }
-
-        @Override
-        public Path getRoot() {
-            return root;
-        }
-
-        @Override
-        public String getJdk() {
-            return jdk;
-        }
-
-        @Override
-        public void close() {}
+        return new TestProject(tempDir);
     }
 }

@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.gui.dialogs.JdkSelector;
 import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -152,7 +153,7 @@ public final class BuildVerifier {
                 return env;
             }
 
-            if (ai.brokk.gui.dialogs.JdkSelector.validateJdkPath(jdkPath) == null) {
+            if (JdkSelector.validateJdkPath(jdkPath) == null) {
                 env.put("JAVA_HOME", jdkPath.toString());
             } else {
                 logger.debug(
