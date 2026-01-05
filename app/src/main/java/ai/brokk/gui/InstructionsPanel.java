@@ -13,7 +13,7 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -1801,8 +1801,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         autoClearCompletedTasks();
 
         // Derive objective from action
-        SearchAgent.Objective objective =
-                ACTION_PLAN.equals(action) ? SearchAgent.Objective.TASKS_ONLY : SearchAgent.Objective.LUTZ;
+        SearchPrompts.Objective objective =
+                ACTION_PLAN.equals(action) ? SearchPrompts.Objective.TASKS_ONLY : SearchPrompts.Objective.LUTZ;
 
         submitAction(action, query, scope -> {
                     assert !query.isBlank();
@@ -1815,7 +1815,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     boolean hadIncomplete = hasIncomplete(beforeTasks);
 
                     // SearchAgent now handles scanning internally via execute()
-                    SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
+                    LutzAgent agent = new LutzAgent(context, query, modelToUse, objective, scope);
 
                     var result = agent.execute();
                     // Apply results to context
