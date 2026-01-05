@@ -22,5 +22,11 @@ public class ScalaTreeSitterNodeTypes {
     // Import declaration
     public static final String IMPORT_DECLARATION = "import.declaration";
 
+    // Test detection constants
+    public static final String TEST_MARKER = "test_marker";
+    public static final String TYPE_IDENTIFIER = "type_identifier";
+    public static final String IMPORT_DECLARATION_NODE = "import_declaration";
+    public static final String SCALATEST_IMPORT_SNIPPET = "org.scalatest";
+
     private ScalaTreeSitterNodeTypes() {}
 }

@@ -82,3 +82,7 @@
             )
           )
   )
+
+; Test markers for JUnit/ScalaTest detection
+(annotation name: (type_identifier) @test_marker)
+(import_declaration) @test_marker
