@@ -46,7 +46,8 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         this(fileComparisons, projectRoot, null);
     }
 
-    public FileTreePanel(List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
+    public FileTreePanel(
+            List<BrokkDiffPanel.FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
         super(new BorderLayout());
         this.fileComparisons = fileComparisons;
         this.projectRoot = projectRoot;

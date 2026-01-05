@@ -55,7 +55,8 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
-public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSizeControl, FontSizeAware, DiffNavigationTarget {
+public class BrokkDiffPanel extends JPanel
+        implements ThemeAware, EditorFontSizeControl, FontSizeAware, DiffNavigationTarget {
     private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
@@ -1720,7 +1721,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             if (isSingle) {
                 var singleInfo = comps.getFirst();
                 description =
-                            buildCaptureDescription(singleInfo.leftSource(), singleInfo.rightSource(), primaryDisplayName);
+                        buildCaptureDescription(singleInfo.leftSource(), singleInfo.rightSource(), primaryDisplayName);
             } else {
                 description = "Captured diffs for " + comps.size() + " file(s)";
             }
@@ -2210,7 +2211,7 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         // Check if this is an uncommitted changes diff (all left sources are HEAD, all right sources are FileSource)
         boolean isUncommittedChanges = leftSources.stream()
-                .allMatch(src -> src instanceof BufferSource.StringSource ss && "HEAD".equals(ss.title()))
+                        .allMatch(src -> src instanceof BufferSource.StringSource ss && "HEAD".equals(ss.title()))
                 && rightSources.stream().allMatch(src -> src instanceof BufferSource.FileSource);
 
         if (isUncommittedChanges) {

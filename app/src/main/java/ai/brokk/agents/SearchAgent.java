@@ -1,7 +1,6 @@
 package ai.brokk.agents;
 
 import ai.brokk.ContextManager;
-import ai.brokk.ICodeReview;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;

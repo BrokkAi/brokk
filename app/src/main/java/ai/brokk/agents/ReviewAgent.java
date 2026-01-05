@@ -34,38 +34,29 @@ public class ReviewAgent {
 
     @Blocking
     public ICodeReview.GuidedReview execute() throws InterruptedException {
-        String goal = "Identify all code locations relevant to the provided diff to perform a comprehensive code review focusing on design, correctness, and simplicity.";
+        String goal =
+                "Identify all code locations relevant to the provided diff to perform a comprehensive code review focusing on design, correctness, and simplicity.";
 
         // Prepare the initial context with the diff pinned
         var diffFragment = new ContextFragments.StringFragment(
-                cm,
-                diff,
-                "Proposed Changes (Diff)",
-                SyntaxConstants.SYNTAX_STYLE_NONE);
+                cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        Context initialContext = cm.liveContext()
-                .addFragments(diffFragment)
-                .withPinned(diffFragment, true);
+        Context initialContext = cm.liveContext().addFragments(diffFragment).withPinned(diffFragment, true);
 
         // Configure SearchAgent with ARCHITECT model and noAppend scan config
         var model = cm.getService().getModel(ModelType.ARCHITECT);
         var scanConfig = SearchAgent.ScanConfig.noAppend();
 
         try (ContextManager.TaskScope scope = cm.beginTask(goal, false, "Code Review")) {
-            SearchAgent agent = new SearchAgent(
-                    initialContext,
-                    goal,
-                    model,
-                    scope,
-                    cm.getIo(),
-                    scanConfig);
+            SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, cm.getIo(), scanConfig);
 
             // Phase 1: Establish context using SearchAgent
             agent.scanContext();
             TaskResult searchResult = agent.execute();
 
             if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                throw new RuntimeException("Review context gathering failed: " + searchResult.stopDetails().explanation());
+                throw new RuntimeException("Review context gathering failed: "
+                        + searchResult.stopDetails().explanation());
             }
 
             // Phase 2: Perform the actual review using the gathered context
@@ -83,10 +74,12 @@ public class ReviewAgent {
             var tr = cm.getToolRegistry().builder().register(this).build();
             var toolSpecs = tr.getTools(List.of("createReview"));
 
-            var result = reviewLlm.sendRequest(promptResult.messages(), new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+            var result =
+                    reviewLlm.sendRequest(promptResult.messages(), new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             if (result.error() != null || result.toolRequests().isEmpty()) {
-                throw new RuntimeException("Failed to generate code review: " + (result.error() != null ? result.error().getMessage() : "No review generated"));
+                throw new RuntimeException("Failed to generate code review: "
+                        + (result.error() != null ? result.error().getMessage() : "No review generated"));
             }
 
             var reviewCall = result.toolRequests().getFirst();
@@ -102,13 +95,14 @@ public class ReviewAgent {
 
     @Tool("Create a structured code review of the current changes or proposal.")
     public String createReview(
-            @P("Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
-            String overview,
+            @P(
+                            "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
+                    String overview,
             @P("Explain the trickiest parts of the design and how they can be improved")
-            List<ICodeReview.DesignFeedback> designNotes,
+                    List<ICodeReview.DesignFeedback> designNotes,
             @P("A list of local bugs or problems") List<ICodeReview.CodeExcerpt> tacticalNotes,
             @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
-            List<String> additionalTests) {
+                    List<String> additionalTests) {
         var review = new ICodeReview.GuidedReview(overview, designNotes, tacticalNotes, additionalTests);
         return review.toJson();
     }

@@ -9,8 +9,8 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.DiffService;
-import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
+import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
@@ -561,7 +561,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         for (var info : fileData) {
             // Match against filename in either source
-            if (relPath.equals(info.rightSource().filename()) || relPath.equals(info.leftSource().filename())) {
+            if (relPath.equals(info.rightSource().filename())
+                    || relPath.equals(info.leftSource().filename())) {
                 targetInfo = info;
                 break;
             }
@@ -579,7 +580,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         String[] newLines = newContent.split("\\r?\\n", -1);
         var found = EditBlock.findIgnoringWhitespace(newLines, 0, targetLines);
         if (found.isPresent()) {
-            int lineNum = newContent.substring(0, newContent.indexOf(found.get())).split("\n").length + 1;
+            int lineNum =
+                    newContent.substring(0, newContent.indexOf(found.get())).split("\n").length + 1;
             return new CodeReviewPanel.ParsedExcerpt(excerpt, lineNum);
         }
 
@@ -588,7 +590,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         String[] oldLines = oldContent.split("\\r?\\n", -1);
         found = EditBlock.findIgnoringWhitespace(oldLines, 0, targetLines);
         if (found.isPresent()) {
-            // If found in old content, we navigate to the file but we can't reliably pinpoint the line in the "new" view
+            // If found in old content, we navigate to the file but we can't reliably pinpoint the line in the "new"
+            // view
             // since it was deleted or changed. We return line -1 to indicate file-level navigation.
             return new CodeReviewPanel.ParsedExcerpt(excerpt, -1);
         }

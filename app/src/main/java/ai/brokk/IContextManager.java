@@ -218,7 +218,8 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default ContextManager.TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
+    default ContextManager.TaskScope beginTask(
+            String input, boolean groupAndCompress, @Nullable String taskDescription) {
         throw new UnsupportedOperationException();
     }
 
