@@ -320,6 +320,10 @@ public class SplitButton extends JComponent {
     }
 
     private void applyArrowButtonFixedWidth() {
+        // Clear any forced sizes to allow recalculation of natural dimensions
+        actionButton.setPreferredSize(null);
+        arrowButton.setPreferredSize(null);
+
         // Use the max height of both buttons so they're visually consistent
         int actionHeight = actionButton.getPreferredSize().height;
         int arrowHeight = arrowButton.getPreferredSize().height;
@@ -334,9 +338,7 @@ public class SplitButton extends JComponent {
 
         // Also ensure action button uses the same height
         Dimension actionSize = actionButton.getPreferredSize();
-        if (actionSize.height != height) {
-            actionButton.setPreferredSize(new Dimension(actionSize.width, height));
-        }
+        actionButton.setPreferredSize(new Dimension(actionSize.width, height));
     }
 
     private void updateChildMaximumSizes() {
