@@ -6,6 +6,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.EditBlock;
 import ai.brokk.ICodeReview;
 import ai.brokk.IConsoleIO;
+import ai.brokk.agents.ReviewAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
@@ -550,29 +551,32 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (codeReviewPanel == null || lastCumulativeChanges == null) return;
 
         codeReviewPanel.setBusy(true);
-        contextManager.submitBackgroundTask("Generating Guided Review", () -> {
-            // We use the contextManager to trigger the review generation via the specialized service
-            // Based on the error, getService() takes no arguments.
-            Object service = contextManager.getService();
 
+        contextManager.submitLlmAction(() -> {
             try {
-                var method = service.getClass().getMethod("generateReview", String.class, DiffService.CumulativeChanges.class);
-                return (ICodeReview.GuidedReview) method.invoke(service, baselineLabel, lastCumulativeChanges);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to invoke GuidedReviewService via " + service.getClass(), e);
+                var changes = lastCumulativeChanges;
+                if (changes == null) return;
+
+                String formattedDiff = changes.perFileChanges().stream()
+                        .map(de -> "File: " + de.title() + "\n" + de.diff())
+                        .collect(java.util.stream.Collectors.joining("\n\n"));
+
+                var agent = new ReviewAgent(formattedDiff, contextManager);
+                var review = agent.execute();
+
+                SwingUtilities.invokeLater(() -> {
+                    if (codeReviewPanel != null) {
+                        codeReviewPanel.displayReview(review);
+                        codeReviewPanel.setBusy(false);
+                    }
+                });
+            } catch (Exception ex) {
+                logger.error("Failed to generate guided review", ex);
+                SwingUtilities.invokeLater(() -> {
+                    if (codeReviewPanel != null) codeReviewPanel.setBusy(false);
+                    chrome.toolError("Review generation failed: " + ex.getMessage());
+                });
             }
-        }).thenAccept(review -> SwingUtilities.invokeLater(() -> {
-            if (codeReviewPanel != null && review != null) {
-                codeReviewPanel.displayReview(review);
-                codeReviewPanel.setBusy(false);
-            }
-        })).exceptionally(ex -> {
-            logger.error("Failed to generate guided review", ex);
-            SwingUtilities.invokeLater(() -> {
-                if (codeReviewPanel != null) codeReviewPanel.setBusy(false);
-                chrome.toolError("Review generation failed: " + ex.getMessage());
-            });
-            return null;
         });
     }
 
