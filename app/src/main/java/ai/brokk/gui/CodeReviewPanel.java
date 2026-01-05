@@ -29,7 +29,7 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public class CodeReviewPanel extends JPanel implements ThemeAware {
 
-    public record ParsedExcerpt(CodeExcerpt original, int lineNumber, int fileIndex) {}
+    public record ParsedExcerpt(CodeExcerpt original, int lineNumber) {}
 
     public interface ReviewNavigationListener {
         void onNavigate(ParsedExcerpt excerpt);

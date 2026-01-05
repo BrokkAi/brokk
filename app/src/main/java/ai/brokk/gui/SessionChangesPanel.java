@@ -410,11 +410,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             @Override
             public void onNavigate(CodeReviewPanel.ParsedExcerpt pe) {
-                if (diffPanel != null && pe.fileIndex() != -1) {
+                if (diffPanel != null) {
                     if (pe.lineNumber() != -1) {
-                        diffPanel.navigateToLocation(pe.fileIndex(), pe.lineNumber());
+                        diffPanel.navigateToLocation(pe.original().file(), pe.lineNumber());
                     } else {
-                        diffPanel.navigateToFile(pe.fileIndex());
+                        diffPanel.navigateToFile(pe.original().file());
                     }
                 }
             }
@@ -557,41 +557,40 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private @Nullable CodeReviewPanel.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
         String relPath = excerpt.file().getRelPath().toString();
-        int targetFileIndex = -1;
-        for (int i = 0; i < fileData.size(); i++) {
-            var info = fileData.get(i);
+        BrokkDiffPanel.FileComparisonInfo targetInfo = null;
+
+        for (var info : fileData) {
             // Match against filename in either source
             if (relPath.equals(info.rightSource().filename()) || relPath.equals(info.leftSource().filename())) {
-                targetFileIndex = i;
+                targetInfo = info;
                 break;
             }
         }
 
-        if (targetFileIndex == -1) {
+        if (targetInfo == null) {
             logger.warn("Could not find file {} in current changes for excerpt resolution", relPath);
             return null;
         }
 
-        var info = fileData.get(targetFileIndex);
         String[] targetLines = excerpt.excerpt().split("\\r?\\n", -1);
 
         // 1. Try NEW content first
-        String newContent = info.rightSource().content();
+        String newContent = targetInfo.rightSource().content();
         String[] newLines = newContent.split("\\r?\\n", -1);
         var found = EditBlock.findIgnoringWhitespace(newLines, 0, targetLines);
         if (found.isPresent()) {
             int lineNum = newContent.substring(0, newContent.indexOf(found.get())).split("\n").length + 1;
-            return new CodeReviewPanel.ParsedExcerpt(excerpt, lineNum, targetFileIndex);
+            return new CodeReviewPanel.ParsedExcerpt(excerpt, lineNum);
         }
 
         // 2. Try OLD content
-        String oldContent = info.leftSource().content();
+        String oldContent = targetInfo.leftSource().content();
         String[] oldLines = oldContent.split("\\r?\\n", -1);
         found = EditBlock.findIgnoringWhitespace(oldLines, 0, targetLines);
         if (found.isPresent()) {
             // If found in old content, we navigate to the file but we can't reliably pinpoint the line in the "new" view
             // since it was deleted or changed. We return line -1 to indicate file-level navigation.
-            return new CodeReviewPanel.ParsedExcerpt(excerpt, -1, targetFileIndex);
+            return new CodeReviewPanel.ParsedExcerpt(excerpt, -1);
         }
 
         logger.warn("Could not resolve excerpt for {} in either old or new content", relPath);
