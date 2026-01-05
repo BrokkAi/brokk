@@ -2,7 +2,6 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.TreeSitterStateIO.AnalyzerStateDto;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -275,7 +274,7 @@ public class TreeSitterStateIOTest {
         legacyProps.put("rawSupertypes", List.of("RawBase"));
         legacyProps.put("hasBody", true);
         legacyProps.put("supertypes", List.of(cuDto)); // Simulated legacy computed list
-        legacyProps.put("supertypesComputed", true);   // Simulated legacy flag
+        legacyProps.put("supertypesComputed", true); // Simulated legacy flag
 
         // Entry as Map to bypass CodeUnitEntryDto's type check
         Map<String, Object> entry = new HashMap<>();

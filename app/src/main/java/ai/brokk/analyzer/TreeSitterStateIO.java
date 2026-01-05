@@ -363,11 +363,7 @@ public final class TreeSitterStateIO {
                     props.children().stream().map(TreeSitterStateIO::toDto).toList();
 
             var propsDto = new CodeUnitPropertiesDto(
-                    childrenDtos,
-                    props.signatures(),
-                    props.ranges(),
-                    props.rawSupertypes(),
-                    props.hasBody());
+                    childrenDtos, props.signatures(), props.ranges(), props.rawSupertypes(), props.hasBody());
 
             cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }

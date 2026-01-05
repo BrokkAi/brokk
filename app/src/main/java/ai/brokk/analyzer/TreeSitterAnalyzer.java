@@ -2221,11 +2221,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             localStates.put(
                     cu,
                     new CodeUnitProperties(
-                            List.copyOf(kids),
-                            List.copyOf(sigs),
-                            List.copyOf(rngs),
-                            List.copyOf(rawSupers),
-                            hasBody));
+                            List.copyOf(kids), List.copyOf(sigs), List.copyOf(rngs), List.copyOf(rawSupers), hasBody));
         }
 
         for (var cu : localStates.keySet()) {
@@ -3255,8 +3251,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
-                return new CodeUnitProperties(
-                        mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedHasBody);
+                return new CodeUnitProperties(mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedHasBody);
             });
         });
 
