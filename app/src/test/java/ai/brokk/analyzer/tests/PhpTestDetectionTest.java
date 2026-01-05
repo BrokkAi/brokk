@@ -65,6 +65,22 @@ public class PhpTestDetectionTest {
     }
 
     @Test
+    void testNameBasedDetectionIsCaseInsensitive() throws IOException {
+        String code = """
+            <?php
+            function TestFoo() { }
+            function TESTBar() { }
+            """;
+        IProject project = InlineTestProjectCreator.code(code, "CaseInsensitive.php").build();
+        PhpAnalyzer analyzer = new PhpAnalyzer(project);
+        analyzer.update();
+
+        assertTrue(
+                analyzer.containsTests(new ProjectFile(project.getRoot(), "CaseInsensitive.php")),
+                "Should detect tests for mixed/upper-case function names since PHP is case-insensitive");
+    }
+
+    @Test
     void testContextManagerIntegration() throws IOException {
         String code = """
             <?php
