@@ -29,7 +29,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class ContextHistory {
     private static final Logger logger = LogManager.getLogger(ContextHistory.class);
-    private static final int MAX_DEPTH = 100;
+    private static final int MAX_DEPTH = 200;
     public static final Duration SNAPSHOT_AWAIT_TIMEOUT = Duration.ofSeconds(5);
 
     public record ResetEdge(UUID sourceId, UUID targetId) {}
@@ -45,6 +45,8 @@ public class ContextHistory {
     private final List<ResetEdge> resetEdges = new ArrayList<>();
     private final Map<UUID, GitState> gitStates = new HashMap<>();
     private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
+    private final Map<UUID, UUID> contextToGroupId = new HashMap<>();
+    private final Map<UUID, String> groupLabels = new HashMap<>();
 
     /**
      * Tracks the ID of the last context created by an external file change to handle continuations.
@@ -68,23 +70,26 @@ public class ContextHistory {
         this.diffService = new DiffService(this);
     }
 
-    public ContextHistory(List<Context> contexts) {
-        this(contexts, List.of(), Map.of(), Map.of());
+    ContextHistory(List<Context> contexts) {
+        this(contexts, List.of(), Map.of(), Map.of(), Map.of(), Map.of());
     }
 
-    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
-        this(contexts, resetEdges, Map.of(), Map.of());
-    }
-
-    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
-        this(contexts, resetEdges, gitStates, Map.of());
+    // for v3 migration
+    public ContextHistory(
+            List<Context> contexts,
+            List<ResetEdge> resetEdges,
+            Map<UUID, GitState> gitStates,
+            Map<UUID, ContextHistoryEntryInfo> entryInfos) {
+        this(contexts, resetEdges, gitStates, entryInfos, Map.of(), Map.of());
     }
 
     public ContextHistory(
             List<Context> contexts,
             List<ResetEdge> resetEdges,
             Map<UUID, GitState> gitStates,
-            Map<UUID, ContextHistoryEntryInfo> entryInfos) {
+            Map<UUID, ContextHistoryEntryInfo> entryInfos,
+            Map<UUID, UUID> contextToGroupId,
+            Map<UUID, String> groupLabels) {
         if (contexts.isEmpty()) {
             throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
         }
@@ -92,8 +97,19 @@ public class ContextHistory {
         this.resetEdges.addAll(resetEdges);
         this.gitStates.putAll(gitStates);
         this.entryInfos.putAll(entryInfos);
+        this.contextToGroupId.putAll(contextToGroupId);
+        this.groupLabels.putAll(groupLabels);
         selected = history.peekLast();
         this.diffService = new DiffService(this);
+    }
+
+    private synchronized Context replaceTopInternal(Context newLive) {
+        assert !history.isEmpty() : "Cannot replace top context in empty history";
+        history.removeLast();
+        history.addLast(newLive);
+        redo.clear();
+        selected = newLive;
+        return newLive;
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
@@ -163,6 +179,14 @@ public class ContextHistory {
     }
 
     /**
+     * Inherently not undo-able, use with care!
+     */
+    public synchronized Context replaceTop(Function<Context, Context> contextGenerator) {
+        var updated = contextGenerator.apply(liveContext());
+        return replaceTopInternal(updated);
+    }
+
+    /**
      * Push {@code ctx}, select it, and clear redo stack.
      */
     public synchronized void pushContext(Context ctx) {
@@ -173,29 +197,13 @@ public class ContextHistory {
     public synchronized @Nullable Context processExternalFileChangesIfNeeded(Set<ProjectFile> changed) {
         var base = liveContext();
 
-        // Identify the affected fragments by referenced ProjectFiles
-        var toReplace = base.allFragments()
-                .filter(f -> {
-                    var filesOpt = f.files().await(SNAPSHOT_AWAIT_TIMEOUT);
-                    return filesOpt.map(projectFiles -> projectFiles.stream().anyMatch(changed::contains))
-                            .orElse(false);
-                })
-                .toList();
+        // Refresh only the affected fragments. copyAndRefresh(changed) handles:
+        // 1. Identifying affected fragments.
+        // 2. Returning the same instance if no content actually changed.
+        // 3. Mapping pinned/read-only status to the new fragment instances.
+        var merged = base.copyAndRefresh(changed);
 
-        if (toReplace.isEmpty()) {
-            return null; // nothing to refresh
-        }
-
-        // Refresh only the affected fragments; do NOT precompute text(), to keep snapshots cleared pre-serialization.
-        var replacements = toReplace.stream().map(ContextFragment::refreshCopy).toList();
-
-        // Merge: keep all unaffected fragments, but swap in the refreshed ones.
-        Context merged = base.removeFragments(toReplace).addFragments(replacements);
-
-        // Guard: if refresh produced no actual content differences, avoid adding a no-op
-        // Note: this may block briefly while diffs are computed; this method is @Blocking.
-        var delta = ContextDelta.between(base, merged).join();
-        if (delta.isEmpty()) {
+        if (merged.equals(base)) {
             return null; // nothing meaningful changed; do not push/replace
         }
 
@@ -386,12 +394,16 @@ public class ContextHistory {
             var removed = history.removeFirst();
             gitStates.remove(removed.id());
             entryInfos.remove(removed.id());
+            contextToGroupId.remove(removed.id());
             var historyIds = getContextIds();
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             if (logger.isDebugEnabled()) {
                 logger.debug("Truncated history (removed oldest context: {})", removed);
             }
         }
+        // Clean up orphaned group labels (groups no longer referenced by any context)
+        var referencedGroupIds = new HashSet<>(contextToGroupId.values());
+        groupLabels.keySet().removeIf(groupId -> !referencedGroupIds.contains(groupId));
     }
 
     /**
@@ -405,17 +417,6 @@ public class ContextHistory {
         truncateHistory();
         redo.clear();
         selected = ctx;
-    }
-
-    /**
-     * Internal helper to replace the top of the history with control over immediate snapshotting.
-     */
-    private synchronized void replaceTopInternal(Context newLive) {
-        assert !history.isEmpty() : "Cannot replace top context in empty history";
-        history.removeLast();
-        history.addLast(newLive);
-        redo.clear();
-        selected = newLive;
     }
 
     /**
@@ -448,6 +449,30 @@ public class ContextHistory {
 
     public synchronized List<ResetEdge> getResetEdges() {
         return List.copyOf(resetEdges);
+    }
+
+    /**
+     * Registers a context as belonging to a specific UI group.
+     */
+    public synchronized void addContextToGroup(UUID contextId, UUID groupId, String groupLabel) {
+        contextToGroupId.put(contextId, groupId);
+        // Store label only on first context added to this group
+        groupLabels.putIfAbsent(groupId, groupLabel);
+    }
+
+    /**
+     * Returns the group ID associated with a context, or null if none.
+     */
+    public synchronized @Nullable UUID getGroupId(UUID contextId) {
+        return contextToGroupId.get(contextId);
+    }
+
+    public synchronized Map<UUID, UUID> getContextToGroupId() {
+        return Map.copyOf(contextToGroupId);
+    }
+
+    public synchronized Map<UUID, String> getGroupLabels() {
+        return Map.copyOf(groupLabels);
     }
 
     public synchronized void addGitState(UUID contextId, GitState gitState) {

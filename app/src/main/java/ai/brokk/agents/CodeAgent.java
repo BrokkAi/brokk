@@ -12,6 +12,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.SpecialTextType;
@@ -110,14 +111,8 @@ public class CodeAgent {
     public TaskResult execute(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
         var ctx = new Context(contextManager)
                 .addFragments(List.of(new ContextFragments.ProjectPathFragment(file, contextManager)));
-
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            // TODO runTaskInternal allows creating new files, should we prevent that?
-            return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
-        }
+        // TODO runTaskInternal allows creating new files, should we prevent that?
+        return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
     }
 
     /**
@@ -125,15 +120,7 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult execute(String userInput, Set<Option> options) {
-        // pause watching for external changes (so they don't get added to activity history while we're still making
-        // changes);
-        // this means that we're responsible for refreshing the analyzer when we make changes
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
-        }
+        return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
     }
 
     /**
@@ -142,20 +129,12 @@ public class CodeAgent {
      */
     @Blocking
     TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
-        // pause watching for external changes (so they don't get added to activity history while we're still making
-        // changes);
-        // this means that we're responsible for refreshing the analyzer when we make changes
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            if (context.getTaskHistory().isEmpty()) {
-                // special case no-history to avoid changing Context identity unnecessarily
-                return runTaskInternal(context, List.of(), userInput, options);
-            } else {
-                return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
-                        .withHistory(context.getTaskHistory());
-            }
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
+        if (context.getTaskHistory().isEmpty()) {
+            // special case no-history to avoid changing Context identity unnecessarily
+            return runTaskInternal(context, List.of(), userInput, options);
+        } else {
+            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
+                    .withHistory(context.getTaskHistory());
         }
     }
 
@@ -781,6 +760,40 @@ public class CodeAgent {
                         new JavaPreLintFalsePositiveException(message), Map.of("sourcefile", pf.getFileName()));
             }
             logger.debug("Build verification succeeded");
+
+            var lastAiText = cs.taskMessages().isEmpty()
+                    ? ""
+                    : Messages.getText(cs.taskMessages().getLast());
+            var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
+            var filesInContext = context.fileFragments()
+                    .flatMap(f -> f.files().join().stream())
+                    .collect(Collectors.toSet());
+
+            var notInContext = Sets.difference(mentionedFiles, filesInContext);
+            if (!notInContext.isEmpty()) {
+                var quickModel = contextManager.getService().quickestModel();
+                var llm = contextManager.getLlm(quickModel, "Check if asking for files");
+
+                var filterDescription =
+                        "The agent is explicitly asking or suggesting that additional files need to be added to the workspace/context to complete the task";
+                boolean isAskingForFiles;
+                try {
+                    isAskingForFiles = RelevanceClassifier.isRelevant(llm, filterDescription, lastAiText);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+                }
+
+                if (isAskingForFiles) {
+                    var fileNames =
+                            notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
+                    reportComplete("Agent is requesting additional files: " + fileNames);
+                    return new Step.Fatal(new TaskResult.StopDetails(
+                            TaskResult.StopReason.LLM_ABORTED,
+                            "Agent requested additional files not in context: " + fileNames));
+                }
+            }
+
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
         } else {

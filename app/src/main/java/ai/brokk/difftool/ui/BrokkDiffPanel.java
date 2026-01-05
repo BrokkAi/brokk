@@ -1122,7 +1122,7 @@ public class BrokkDiffPanel extends JPanel
                 contextManager, actionDescription, messages, resultingCtx, TaskResult.StopReason.SUCCESS);
 
         // Add a single history entry for the whole batch
-        try (var scope = contextManager.beginTask(actionDescription, false)) {
+        try (var scope = contextManager.beginTaskUngrouped(actionDescription)) {
             // This is a local save operation (non-LLM). For now we record no TaskMeta.
             scope.append(result);
         } catch (InterruptedException e) {

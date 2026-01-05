@@ -334,15 +334,6 @@ class ContextTest {
     }
 
     @Test
-    void testWithGroupSetsFields() {
-        var ctx = new Context(contextManager);
-        var gid = UUID.randomUUID();
-        var labeled = ctx.withGroup(gid, "group-label");
-        assertEquals(gid, labeled.getGroupId());
-        assertEquals("group-label", labeled.getGroupLabel());
-    }
-
-    @Test
     void testIsFileContentEmpty_withEmptyContext() {
         var ctx = new Context(contextManager);
         assertTrue(ctx.isFileContentEmpty(), "Empty context should have no file content");
@@ -402,5 +393,64 @@ class ContextTest {
         var ctx = new Context(contextManager).addFragments(stringFrag).addFragments(List.of(ppf));
         assertFalse(
                 ctx.isFileContentEmpty(), "Context with mixed fragments including file content should return false");
+    }
+
+    @Test
+    void testAddFragmentsDoesNotUpdateContent() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/AddFrag.java");
+        Files.createDirectories(pf.absPath().getParent());
+
+        // 1. Initial content "v1"
+        pf.write("v1");
+        var p1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        // Ensure p1 reads and caches "v1"
+        assertEquals("v1", p1.text().join());
+
+        var ctx = new Context(contextManager).addFragments(List.of(p1));
+
+        // 2. Change content to "v2" on disk
+        pf.write("v2");
+
+        // 3. Create new fragment p2 which sees "v2"
+        var p2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        assertEquals("v2", p2.text().join());
+
+        // 4. Add p2 to context.
+        // Expectation: addFragments deduplicates by source and PRESERVES the existing fragment (p1).
+        // Therefore, the content in context remains "v1".
+        var ctx2 = ctx.addFragments(List.of(p2));
+        var fragmentInContext = ctx2.fileFragments().findFirst().orElseThrow();
+
+        assertEquals(
+                "v1",
+                fragmentInContext.text().join(),
+                "addFragments should preserve existing fragment content even if new fragment has newer content");
+    }
+
+    @Test
+    void testCopyAndRefreshUpdatesContent() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Refreshed.java");
+        Files.createDirectories(pf.absPath().getParent());
+
+        // 1. Initial content "v1"
+        pf.write("v1");
+        var p1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        // Ensure p1 reads and caches "v1"
+        assertEquals("v1", p1.text().join());
+
+        var ctx = new Context(contextManager).addFragments(List.of(p1));
+
+        // 2. Change content to "v2" on disk
+        pf.write("v2");
+
+        // 3. Call copyAndRefresh
+        var refreshedCtx = ctx.copyAndRefresh(Set.of(pf));
+        var fragmentInContext = refreshedCtx.fileFragments().findFirst().orElseThrow();
+
+        // Expectation: copyAndRefresh should re-read from disk
+        assertEquals("v2", fragmentInContext.text().join(), "copyAndRefresh should update fragment content from disk");
+
+        // Also verify it's a new instance
+        assertNotSame(p1, fragmentInContext);
     }
 }

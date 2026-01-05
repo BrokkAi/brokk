@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -286,83 +287,6 @@ public class ContextHistoryTest {
                 "Action should not be an external-changes label for no-op changes");
     }
 
-    @Test
-    public void testProcessExternalFileChanges_contentChange_pushesEntryAndDiffsNotEmpty() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/Changed.txt");
-        Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "v1\n");
-
-        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
-        frag.text().await(Duration.ofSeconds(2));
-
-        var initialContext = new Context(contextManager, List.of(frag), List.of(), null);
-        var history = new ContextHistory(initialContext);
-
-        Files.writeString(pf.absPath(), "v1\nv2\n");
-
-        var updated = history.processExternalFileChangesIfNeeded(Set.of(pf));
-
-        assertNotNull(updated, "A context should be returned when content changes");
-        assertEquals(updated.id(), history.liveContext().id(), "Returned context should be the new live context");
-        assertTrue(
-                updated.getAction(initialContext).join().startsWith("Load External Changes"),
-                "Action should indicate external changes");
-
-        var prev = history.previousOf(updated);
-        assertNotNull(prev, "There must be a previous context to diff against");
-
-        var changedFiles = DiffService.getChangedFiles(updated, prev);
-        assertFalse(changedFiles.isEmpty(), "Changed files should not be empty");
-        assertTrue(changedFiles.contains(pf), "Changed files should include the modified ProjectFile");
-
-        var diffs = history.getDiffService().diff(updated).join();
-        assertNotNull(diffs, "Diffs should be computed");
-        assertFalse(diffs.isEmpty(), "Diffs should reflect content change");
-    }
-
-    @Test
-    public void testProcessExternalFileChanges_continuationCounterIncrementsAndReplacesTop() throws Exception {
-        var pf = new ProjectFile(tempDir, "src/Counter.txt");
-        Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "one\n");
-
-        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
-        frag.text().await(Duration.ofSeconds(2));
-
-        var initialContext = new Context(contextManager, List.of(frag), List.of(), null);
-        var history = new ContextHistory(initialContext);
-
-        var sizeBefore = history.getHistory().size();
-
-        // First external change -> should push a new entry
-        Files.writeString(pf.absPath(), "one\ntwo\n");
-        var first = history.processExternalFileChangesIfNeeded(Set.of(pf));
-        assertNotNull(first, "First external change should produce a new context");
-        assertEquals(sizeBefore + 1, history.getHistory().size(), "History should grow by one on first change");
-        assertEquals(
-                "Load External Changes", first.getAction(initialContext).join(), "First change has no counter suffix");
-
-        var prevOfFirst = history.previousOf(first);
-        assertNotNull(prevOfFirst, "Previous of first should be the original context");
-
-        // Second external change -> should replace top
-        Files.writeString(pf.absPath(), "one\ntwo\nthree\n");
-        var second = history.processExternalFileChangesIfNeeded(Set.of(pf));
-        assertNotNull(second, "Second external change should produce an updated context");
-        assertEquals(sizeBefore + 1, history.getHistory().size(), "Second change should replace the top (no growth)");
-        assertEquals("Load External Changes", second.getAction(initialContext).join());
-
-        var prevOfSecond = history.previousOf(second);
-        assertNotNull(prevOfSecond, "Previous of second should exist");
-        assertEquals(
-                prevOfFirst.id(),
-                prevOfSecond.id(),
-                "Previous of second should still be the original context (top replaced)");
-
-        var changed = DiffService.getChangedFiles(second, prevOfSecond);
-        assertTrue(changed.contains(pf), "Changed files should include the modified ProjectFile");
-    }
-
     /**
      * We use a mock usage fragment as it will satisfy control flow such as `ContextFragment.isEditable` while
      * avoiding dependencies and computation from analyzers/usage finders.
@@ -381,57 +305,6 @@ public class ContextHistoryTest {
         public ContextFragment.FragmentType getType() {
             return ContextFragment.FragmentType.USAGE;
         }
-    }
-
-    @Test
-    public void
-            testProcessExternalFileChanges_withUsageFragment_fileChange_producesNonEmptyDiffsAndExcludesUsageInDiffs()
-                    throws Exception {
-        var pf = new ProjectFile(tempDir, "src/WithUsage.txt");
-        Files.createDirectories(pf.absPath().getParent());
-        Files.writeString(pf.absPath(), "base\n");
-
-        var projectFrag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
-        projectFrag1.text().await(Duration.ofSeconds(2)); // seed snapshot
-        var usageFrag1 = new MockUsageFragment(contextManager, "U1", "U1");
-
-        var initialContext = new Context(contextManager, List.of(projectFrag1, usageFrag1), List.of(), null);
-        var history = new ContextHistory(initialContext);
-
-        // Change the file on disk
-        Files.writeString(pf.absPath(), "base\nchanged\n");
-
-        var updated = history.processExternalFileChangesIfNeeded(Set.of(pf));
-        assertNotNull(updated, "Expected a new context for actual content change");
-        assertEquals(updated.id(), history.liveContext().id(), "Returned context should be live");
-        assertNotEquals(initialContext, updated);
-        assertTrue(
-                updated.getAction(initialContext).join().startsWith("Load External Changes"),
-                "Action should indicate external change");
-
-        var prev = history.previousOf(updated);
-        assertNotNull(prev, "There must be a previous context to diff against");
-        var changed = DiffService.getChangedFiles(updated, prev);
-        assertFalse(changed.isEmpty(), "Changed files should not be empty");
-        assertTrue(changed.contains(pf), "Changed files should include the modified ProjectFile");
-
-        // Identify the refreshed project fragment in the updated context
-        var projectFrag2 = updated.allFragments()
-                .filter(f -> f instanceof ContextFragments.PathFragment)
-                .map(f -> (ContextFragments.PathFragment) f)
-                .filter(f -> f.file().equals(pf))
-                .findFirst()
-                .orElseThrow();
-
-        var diffs = history.getDiffService().diff(updated).join();
-        assertNotNull(diffs, "Diffs should be computed");
-        assertFalse(diffs.isEmpty(), "Diffs should reflect content change");
-
-        var includesFile = diffs.stream().anyMatch(de -> de.fragment().id().equals(projectFrag2.id()));
-        var excludesUsage = diffs.stream().noneMatch(de -> de.fragment().id().equals(usageFrag1.id()));
-
-        assertTrue(includesFile, "Diffs should include the project fragment that changed");
-        assertTrue(excludesUsage, "Diffs should not include unrelated usage fragments");
     }
 
     @Test
@@ -464,6 +337,36 @@ public class ContextHistoryTest {
     }
 
     @Test
+    public void testProcessExternalFileChangesPreservesPinnedStatus() throws Exception {
+        var pf = new ProjectFile(tempDir, "src/Pinned.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "v1\n");
+
+        var frag = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        frag.text().await(Duration.ofSeconds(2));
+
+        var initialContext = new Context(contextManager, List.of(frag), List.of(), null).withPinned(frag, true);
+        assertTrue(initialContext.isPinned(frag));
+
+        var history = new ContextHistory(initialContext);
+
+        // Simulate external change
+        Files.writeString(pf.absPath(), "v1\nv2\n");
+
+        var updated = history.processExternalFileChangesIfNeeded(Set.of(pf));
+        assertNotNull(updated);
+
+        // Find the refreshed fragment for the same file
+        var refreshedFrag = updated.fileFragments()
+                .filter(f -> f.files().join().contains(pf))
+                .findFirst()
+                .orElseThrow();
+
+        assertNotSame(frag, refreshedFrag, "Fragment should have been replaced");
+        assertTrue(updated.isPinned(refreshedFrag), "Pinned status should be preserved on refreshed fragment");
+    }
+
+    @Test
     public void testDiffServiceIncludesUsageFragmentDiffWhenUsageContentChanges() {
         var usageFrag1 = new MockUsageFragment(contextManager, "U-usage", "alpha\n");
         var initialContext = new Context(contextManager, List.of(usageFrag1), List.of(), null);
@@ -485,5 +388,59 @@ public class ContextHistoryTest {
         assertNotNull(usageDiff, "Diffs should include the UsageFragment");
         assertFalse(usageDiff.diff().isEmpty(), "Usage diff output should not be empty");
         assertTrue(usageDiff.linesAdded() > 0 || usageDiff.linesDeleted() > 0, "Expected changes in usage diff");
+    }
+
+    @Test
+    public void testUndoRedoPreservesGroupMetadata() throws Exception {
+        // Setup: create initial context
+        var pf = new ProjectFile(tempDir, "src/GroupTest.txt");
+        Files.createDirectories(pf.absPath().getParent());
+        Files.writeString(pf.absPath(), "v1");
+
+        var frag1 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        var ctx1 = new Context(contextManager, List.of(frag1), List.of(), null);
+        var history = new ContextHistory(ctx1);
+
+        // Create group 1 with ctx2
+        var groupId1 = UUID.randomUUID();
+        Files.writeString(pf.absPath(), "v2");
+        var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null);
+        history.pushContext(ctx2);
+        history.addContextToGroup(ctx2.id(), groupId1, "Group 1");
+
+        // Create group 2 with ctx3
+        var groupId2 = UUID.randomUUID();
+        Files.writeString(pf.absPath(), "v3");
+        var frag3 = new ContextFragments.ProjectPathFragment(pf, contextManager);
+        var ctx3 = new Context(contextManager, List.of(frag3), List.of(), null);
+        history.pushContext(ctx3);
+        history.addContextToGroup(ctx3.id(), groupId2, "Group 2");
+
+        // Verify initial group state
+        assertEquals(groupId1, history.getGroupId(ctx2.id()));
+        assertEquals(groupId2, history.getGroupId(ctx3.id()));
+        assertEquals("Group 1", history.getGroupLabels().get(groupId1));
+        assertEquals("Group 2", history.getGroupLabels().get(groupId2));
+
+        // Undo back to ctx2 (across group boundary)
+        history.undo(1, contextManager.getIo(), contextManager.getProject());
+        assertEquals(ctx2.id(), history.liveContext().id());
+
+        // Group metadata should still be preserved for ctx2
+        assertEquals(groupId1, history.getGroupId(ctx2.id()));
+        assertEquals("Group 1", history.getGroupLabels().get(groupId1));
+        // ctx3's group info should still exist (it's in redo stack, not deleted)
+        assertEquals(groupId2, history.getGroupId(ctx3.id()));
+
+        // Redo back to ctx3
+        history.redo(contextManager.getIo(), contextManager.getProject());
+        assertEquals(ctx3.id(), history.liveContext().id());
+
+        // All group metadata should be intact
+        assertEquals(groupId1, history.getGroupId(ctx2.id()));
+        assertEquals(groupId2, history.getGroupId(ctx3.id()));
+        assertEquals("Group 1", history.getGroupLabels().get(groupId1));
+        assertEquals("Group 2", history.getGroupLabels().get(groupId2));
     }
 }

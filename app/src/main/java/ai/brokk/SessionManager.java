@@ -13,6 +13,7 @@ import ai.brokk.util.SerialByKeyExecutor;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.f4b6a3.uuid.UuidCreator;
+import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystems;
@@ -42,9 +43,15 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
+    private static final String SESSIONS_FORMAT_VERSION = "4.0";
+
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SessionInfo(UUID id, String name, long created, long modified) {
+    public record SessionInfo(UUID id, String name, long created, long modified, @Nullable String version) {
+
+        public SessionInfo(UUID id, String name, long created, long modified) {
+            this(id, name, created, modified, SESSIONS_FORMAT_VERSION);
+        }
 
         @JsonIgnore
         public boolean isSessionModified() {
@@ -104,7 +111,9 @@ public class SessionManager implements AutoCloseable {
             try (var stream = Files.list(sessionsDir)) {
                 stream.filter(path -> path.toString().endsWith(".zip"))
                         .forEach(zipPath -> readSessionInfoFromZip(zipPath).ifPresent(sessionInfo -> {
-                            sessions.put(sessionInfo.id(), sessionInfo);
+                            if (isVersionSupported(sessionInfo.version())) {
+                                sessions.put(sessionInfo.id(), sessionInfo);
+                            }
                         }));
             }
         } catch (IOException e) {
@@ -151,7 +160,8 @@ public class SessionManager implements AutoCloseable {
     public void renameSession(UUID sessionId, String newName) {
         SessionInfo oldInfo = sessionsCache.get(sessionId);
         if (oldInfo != null) {
-            var updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis());
+            var updatedInfo = new SessionInfo(
+                    oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis(), oldInfo.version());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -265,6 +275,9 @@ public class SessionManager implements AutoCloseable {
                     moveSessionToUnreadable(sessionId);
                     quarantinedIds.add(sessionId);
                     moved++;
+                    continue;
+                }
+                if (!isVersionSupported(info.get().version())) {
                     continue;
                 }
 
@@ -401,14 +414,23 @@ public class SessionManager implements AutoCloseable {
 
     public void saveHistory(ContextHistory ch, UUID sessionId) {
         // ContextHistory is mutable, take a copy before passing it to an async task
-        var contextHistory =
-                new ContextHistory(ch.getHistory(), ch.getResetEdges(), ch.getGitStates(), ch.getEntryInfos());
+        var contextHistory = new ContextHistory(
+                ch.getHistory(),
+                ch.getResetEdges(),
+                ch.getGitStates(),
+                ch.getEntryInfos(),
+                ch.getContextToGroupId(),
+                ch.getGroupLabels());
         SessionInfo infoToSave = null;
         SessionInfo currentInfo = sessionsCache.get(sessionId);
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
                 infoToSave = new SessionInfo(
-                        currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
+                        currentInfo.id(),
+                        currentInfo.name(),
+                        currentInfo.created(),
+                        System.currentTimeMillis(),
+                        currentInfo.version());
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session
@@ -724,6 +746,35 @@ public class SessionManager implements AutoCloseable {
 
     public Path getSessionsDir() {
         return sessionsDir;
+    }
+
+    private static boolean isVersionSupported(@Nullable String version) {
+        if (version == null) {
+            return true;
+        }
+        try {
+            return compareVersions(version, SESSIONS_FORMAT_VERSION) <= 0;
+        } catch (NumberFormatException e) {
+            logger.warn("Cannot parse session format version '{}'", version);
+            return false;
+        }
+    }
+
+    static int compareVersions(String v1, String v2) throws NumberFormatException {
+        List<String> parts1 = Splitter.on('.').splitToList(v1);
+        List<String> parts2 = Splitter.on('.').splitToList(v2);
+        int length = Math.max(parts1.size(), parts2.size());
+        for (int i = 0; i < length; i++) {
+            int p1 = i < parts1.size() ? Integer.parseInt(parts1.get(i)) : 0;
+            int p2 = i < parts2.size() ? Integer.parseInt(parts2.get(i)) : 0;
+            if (p1 < p2) {
+                return -1;
+            }
+            if (p1 > p2) {
+                return 1;
+            }
+        }
+        return 0;
     }
 
     @Override

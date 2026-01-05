@@ -1304,7 +1304,10 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
                         messagesForHistory.add(Messages.customSystem("### " + file.toString()));
                         messagesForHistory.add(Messages.customSystem("```" + diffText + "```"));
                         // Build resulting Context by adding the saved file if it is not already editable
-                        var ctx = cm.liveContext().addFragments(cm.toPathFragments(List.of(file)));
+                        // and refreshing it so the history entry captures the new content on disk.
+                        var ctx = cm.liveContext()
+                                .addFragments(cm.toPathFragments(List.of(file)))
+                                .copyAndRefresh(Set.of(file));
 
                         // Determine TaskMeta only if there was LLM activity in quick edits.
                         TaskResult.TaskMeta meta = null;
@@ -1318,7 +1321,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
 
                         var saveResult = TaskResult.humanResult(
                                 cm, actionDescription, messagesForHistory, ctx, TaskResult.StopReason.SUCCESS);
-                        try (var scope = cm.beginTask("File changed saved", false)) {
+                        try (var scope = cm.beginTaskUngrouped("File changed saved")) {
                             scope.append(saveResult);
                         }
                         logger.debug("Added history entry for changes in: {}", file);
