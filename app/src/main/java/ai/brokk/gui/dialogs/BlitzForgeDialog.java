@@ -1462,7 +1462,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             logger.debug(
                     "BlitzForge parallel processing started (Tools path) on thread {}",
                     Thread.currentThread().getName());
-            try (var scope = cm.beginTaskUngrouped(instructions)) {
+            try (var scope = cm.beginTask(instructions, false)) {
                 var parallelResult = runParallel(
                         runCfg,
                         progressDialog,

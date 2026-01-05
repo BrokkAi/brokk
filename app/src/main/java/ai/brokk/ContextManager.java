@@ -2107,12 +2107,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTaskUngrouped(String input) {
-        return beginTask(input, false, null);
+    public TaskScope beginTask(String input, boolean compressAtCommit) {
+        return beginTask(input, compressAtCommit, null);
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
-    public TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
+    public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String taskDescription) {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
@@ -2135,7 +2135,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
         }
 
-        return new TaskScope(groupAndCompress, taskDescription);
+        return new TaskScope(compressAtCommit, taskDescription);
     }
 
     /**
@@ -2145,13 +2145,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * without losing important history.
      */
     public final class TaskScope implements AutoCloseable {
-        private final boolean groupAndCompress;
+        private final boolean compressResults;
         private final AtomicBoolean closed = new AtomicBoolean(false);
         private final UUID groupId = UUID.randomUUID();
         private final String groupLabel;
 
-        private TaskScope(boolean groupAndCompress, @Nullable String taskDescription) {
-            this.groupAndCompress = groupAndCompress;
+        private TaskScope(boolean compressResults, @Nullable String taskDescription) {
+            this.compressResults = compressResults;
             this.groupLabel = taskDescription == null ? "Task" : taskDescription;
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
@@ -2173,7 +2173,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // If interrupted before any LLM output, skip
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
                     && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
-                logger.debug("Command cancelled before LLM responded — skipping publish");
+                logger.debug("Command cancelled before LLM responded — skipping append (no groupId assignment)");
                 return result.context();
             }
 
@@ -2183,7 +2183,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 Context other = liveContext();
                 var delta = ContextDelta.between(result.context(), other).join();
                 if (delta.isEmpty()) {
-                    logger.debug("Empty TaskResult delta, skipping publish");
+                    logger.debug("Empty TaskResult delta, skipping publish step (no groupId assignment)");
                     return result.context();
                 }
             }
@@ -2199,10 +2199,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return updated.addHistoryEntry(entry, result.output());
             });
 
-            if (groupAndCompress) {
-                UUID contextId = updatedContext.id();
-                contextHistory.addContextToGroup(contextId, groupId, groupLabel);
-            }
+            UUID contextId = updatedContext.id();
+            contextHistory.addContextToGroup(contextId, groupId, groupLabel);
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
@@ -2234,7 +2232,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.setTaskInProgress(false);
             });
 
-            if (groupAndCompress) {
+            if (compressResults) {
                 contextHistory.replaceTop(ctx -> {
                     try {
                         return compressHistory(ctx);
