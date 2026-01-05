@@ -341,8 +341,8 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     @Nullable
     private String extractFilePath(BrokkDiffPanel.FileComparisonInfo comparison) {
         // Try to get the best available path information
-        String leftPath = getSourcePath(comparison.leftSource);
-        String rightPath = getSourcePath(comparison.rightSource);
+        String leftPath = getSourcePath(comparison.leftSource());
+        String rightPath = getSourcePath(comparison.rightSource());
 
         // Select the best path - prefer absolute paths, then paths with directory structure
         String selectedPath = null;
@@ -416,8 +416,8 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     private DiffStatus determineDiffStatus(BrokkDiffPanel.FileComparisonInfo comparison) {
-        boolean leftExists = comparison.leftSource.sizeInBytes() > 0;
-        boolean rightExists = comparison.rightSource.sizeInBytes() > 0;
+        boolean leftExists = comparison.leftSource().sizeInBytes() > 0;
+        boolean rightExists = comparison.rightSource().sizeInBytes() > 0;
 
         if (leftExists && !rightExists) {
             return DiffStatus.DELETED;

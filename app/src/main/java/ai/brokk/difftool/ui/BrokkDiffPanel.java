@@ -241,22 +241,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
     }
 
     /**
-     * Inner class to hold a single file comparison metadata Note: No longer holds the diffPanel directly - that's
-     * managed by the cache
+     * Record to hold a single file comparison metadata.
+     * Note: No longer holds the diffPanel directly - that's managed by the cache.
      */
-    public static class FileComparisonInfo {
-        public final BufferSource leftSource;
-        public final BufferSource rightSource;
-
-        public FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
-            this.leftSource = leftSource;
-            this.rightSource = rightSource;
-        }
-
+    public record FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
         String getDisplayName() {
             // Returns formatted name for UI display
-            String leftName = getSourceName(leftSource);
-            String rightName = getSourceName(rightSource);
+            String leftName = getSourceName(leftSource());
+            String rightName = getSourceName(rightSource());
 
             if (leftName.equals(rightName)) {
                 return leftName;
@@ -1282,8 +1274,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
 
         // Use hybrid approach - sync for small files, async for large files
         createDiffPanel(
-                compInfo.leftSource,
-                compInfo.rightSource,
+                compInfo.leftSource(),
+                compInfo.rightSource(),
                 this,
                 theme,
                 contextManager,
@@ -1915,14 +1907,14 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
             var compInfo = fileComparisons.get(fileIndex);
 
             // Use extracted file validation logic
-            if (!FileComparisonHelper.isValidForPreload(compInfo.leftSource, compInfo.rightSource)) {
+            if (!FileComparisonHelper.isValidForPreload(compInfo.leftSource(), compInfo.rightSource())) {
                 logger.warn("Skipping preload of file {} - too large for preload", fileIndex);
                 return;
             }
 
             // Create file loading result (includes size validation and error handling)
             var loadingResult = FileComparisonHelper.createFileLoadingResult(
-                    compInfo.leftSource, compInfo.rightSource, contextManager, isMultipleCommitsContext);
+                    compInfo.leftSource(), compInfo.rightSource(), contextManager, isMultipleCommitsContext);
 
             // CRITICAL FIX: Compute diff for preloaded JMDiffNode to avoid empty view
             if (loadingResult.isSuccess() && loadingResult.getDiffNode() != null) {
@@ -2293,8 +2285,8 @@ public class BrokkDiffPanel extends JPanel implements ThemeAware, EditorFontSize
         var comparison = fileComparisons.get(fileIndex);
 
         // Extract revision information from BufferSources
-        String leftRevision = comparison.leftSource.revisionSha();
-        String rightRevision = comparison.rightSource.revisionSha();
+        String leftRevision = comparison.leftSource().revisionSha();
+        String rightRevision = comparison.rightSource().revisionSha();
 
         final Path finalTargetPath = targetPath;
 

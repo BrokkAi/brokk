@@ -405,7 +405,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
         for (var data : fileData) {
-            builder.addComparison(data.comparison().leftSource, data.comparison().rightSource);
+            builder.addComparison(data.comparison().leftSource(), data.comparison().rightSource());
         }
         builder.setForceFileTree(true);
         builder.setRootTitle(projectName);
