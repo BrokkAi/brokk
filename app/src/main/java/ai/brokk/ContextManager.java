@@ -1639,8 +1639,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Ensure listeners are notified on the EDT
         SwingUtilities.invokeLater(() -> notifyContextListeners(context));
 
-        project.getSessionManager()
-                .saveHistory(contextHistory, currentSessionId); // Persist the history of the contexts
+        // Defer save until TaskScope closes to ensure group mappings are captured
+        if (!taskScopeInProgress.get()) {
+            project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+        }
     }
 
     /**
@@ -2168,12 +2170,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public Context append(TaskResult result) throws InterruptedException {
             assert !closed.get() : "TaskScope already closed";
 
-            logger.debug("CTXGRP TaskScope.append called for action='{}', groupId={}, messages.size={}, stopReason={}",
-                    result.actionDescription(),
-                    groupId,
-                    result.output().messages().size(),
-                    result.stopDetails().reason());
-
             // If interrupted before any LLM output, skip
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
                     && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
@@ -2190,7 +2186,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     logger.debug("Empty TaskResult delta, skipping publish step (no groupId assignment)");
                     return result.context();
                 }
-                logger.debug("CTXGRP Messages empty but delta non-empty, proceeding with append");
             }
 
             logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
@@ -2206,8 +2201,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
 
             UUID contextId = updatedContext.id();
-            logger.debug("CTXGRP TaskScope.append assigning contextId={} to groupId={} (label='{}')",
-                    contextId, groupId, groupLabel);
             contextHistory.addContextToGroup(contextId, groupId, groupLabel);
 
             // prepare MOP to display new history with the next streamed message
@@ -2230,6 +2223,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         @Override
         public void close() {
             if (!closed.compareAndSet(false, true)) return;
+
+            // Save once now that all group mappings are in place
+            project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+
             SwingUtilities.invokeLater(() -> {
                 // deferred cleanup
                 taskScopeInProgress.set(false);
