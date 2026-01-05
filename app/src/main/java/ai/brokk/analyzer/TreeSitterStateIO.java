@@ -231,7 +231,20 @@ public final class TreeSitterStateIO {
             List<String> signatures,
             List<IAnalyzer.Range> ranges,
             List<String> rawSupertypes,
-            boolean hasBody) {}
+            boolean hasBody) {
+
+        /**
+         * Backward compatibility: ignore stale supertypesComputed field from old snapshots.
+         */
+        @com.fasterxml.jackson.annotation.JsonProperty("supertypesComputed")
+        public void setSupertypesComputed(boolean ignored) {}
+
+        /**
+         * Backward compatibility: ignore stale supertypes field from old snapshots.
+         */
+        @com.fasterxml.jackson.annotation.JsonProperty("supertypes")
+        public void setSupertypes(Object ignored) {}
+    }
 
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
