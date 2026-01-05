@@ -170,7 +170,8 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         }
 
         for (ParsedExcerpt pe : excerpts) {
-            String fileName = pe.original().file().getRelPath().getFileName().toString();
+            String filePath = pe.original().file();
+            String fileName = filePath.contains("/") ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
             String labelText = String.format("%s:%d", fileName, pe.lineNumber());
             JLabel excerptLabel = new JLabel("<html><a href='#'>" + labelText + "</a></html>");
             excerptLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));

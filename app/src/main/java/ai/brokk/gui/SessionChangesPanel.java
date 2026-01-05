@@ -404,10 +404,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview);
         codeReviewPanel.addReviewNavigationListener(pe -> {
             if (diffPanel != null) {
+                ProjectFile pf = contextManager.toFile(pe.original().file());
                 if (pe.lineNumber() != -1) {
-                    diffPanel.navigateToLocation(pe.original().file(), pe.lineNumber());
+                    diffPanel.navigateToLocation(pf, pe.lineNumber());
                 } else {
-                    diffPanel.navigateToFile(pe.original().file());
+                    diffPanel.navigateToFile(pf);
                 }
             }
         });
@@ -548,7 +549,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private @Nullable CodeReviewPanel.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
-        String relPath = excerpt.file().getRelPath().toString();
+        String relPath = excerpt.file();
         BrokkDiffPanel.FileComparisonInfo targetInfo = null;
 
         for (var info : fileData) {

@@ -1,6 +1,5 @@
 package ai.brokk;
 
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.Json;
 import java.util.List;
 import org.jspecify.annotations.NullMarked;
@@ -11,7 +10,7 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public interface ICodeReview {
 
-    record CodeExcerpt(ProjectFile file, String excerpt) {}
+    record CodeExcerpt(String file, String excerpt) {}
 
     record DesignFeedback(
             String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
