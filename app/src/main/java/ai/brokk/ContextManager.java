@@ -2193,11 +2193,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // optionally compress
             var updated = result.context();
             TaskEntry entry = updated.createTaskEntry(result);
-            TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
 
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(finalEntry, result.output());
+                return updated.addHistoryEntry(entry, result.output());
             });
 
             UUID contextId = updatedContext.id();
@@ -2221,7 +2220,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         @Override
-        public void close() {
+        public void close() throws InterruptedException {
             if (!closed.compareAndSet(false, true)) return;
 
             // Save once now that all group mappings are in place
@@ -2232,6 +2231,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 taskScopeInProgress.set(false);
                 io.setTaskInProgress(false);
             });
+
+            if (compressResults) {
+                contextHistory.replaceTop(ctx -> {
+                    try {
+                        return compressHistory(ctx);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return ctx;
+                    }
+                });
+            }
 
             analyzerWrapper.resume();
         }

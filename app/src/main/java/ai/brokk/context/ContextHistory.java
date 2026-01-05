@@ -103,12 +103,13 @@ public class ContextHistory {
         this.diffService = new DiffService(this);
     }
 
-    private synchronized void replaceTopInternal(Context newLive) {
+    private synchronized Context replaceTopInternal(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
         history.removeLast();
         history.addLast(newLive);
         redo.clear();
         selected = newLive;
+        return newLive;
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
@@ -175,6 +176,14 @@ public class ContextHistory {
 
         pushContext(updatedLiveContext);
         return liveContext();
+    }
+
+    /**
+     * Inherently not undo-able, use with care!
+     */
+    public synchronized Context replaceTop(Function<Context, Context> contextGenerator) {
+        var updated = contextGenerator.apply(liveContext());
+        return replaceTopInternal(updated);
     }
 
     /**

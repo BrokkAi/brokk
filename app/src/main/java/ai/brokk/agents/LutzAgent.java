@@ -4,6 +4,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.SearchPrompts;
@@ -129,8 +130,7 @@ public class LutzAgent extends SearchAgent {
 
         if (reason == TaskResult.StopReason.SUCCESS) {
             // housekeeping
-            new ai.brokk.git.GitWorkflow(cm).performAutoCommit(instructions);
-            context = cm.compressHistory(context);
+            new GitWorkflow(cm).performAutoCommit(instructions);
             // CodeAgent appended its own result; we don't need to llmOutput anything redundant
             logger.debug("SearchAgent.callCodeAgent finished successfully");
             return "CodeAgent finished with a successful build!";
