@@ -68,9 +68,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private CodeReviewPanel codeReviewPanel;
 
     private record FileComparisonData(
-            FileComparisonInfo info,
+            FileComparisonInfo comparison,
             String path,
-            String newContent
+            String newContent,
+            String oldContent
     ) {}
     private List<FileComparisonData> fileData = List.of();
     private int currentExcerptIndex = 0;
@@ -402,12 +403,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                                 new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
                                 new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)),
                         entry.getKey(),
-                        entry.getValue().newContent()))
+                        entry.getValue().newContent(),
+                        entry.getValue().oldContent()))
                 .toList();
 
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
         for (var data : fileData) {
-            builder.addComparison(data.info().leftSource, data.info().rightSource);
+            builder.addComparison(data.comparison().leftSource, data.comparison().rightSource);
         }
         builder.setForceFileTree(true);
         builder.setRootTitle(projectName);
