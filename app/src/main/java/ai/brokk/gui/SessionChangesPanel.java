@@ -17,6 +17,7 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
+import ai.brokk.gui.dialogs.TextAreaConsoleIO;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -505,7 +506,27 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void generateGuidedReview() {
         if (codeReviewPanel == null || lastCumulativeChanges == null) return;
 
+        var parent = codeReviewPanel.getParent();
+        if (parent == null) return;
+
         codeReviewPanel.setBusy(true);
+
+        JTextArea logArea = new JTextArea();
+        logArea.setEditable(false);
+        logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        logArea.setBackground(ThemeColors.getPanelBackground());
+        logArea.setForeground(UIManager.getColor("Label.foreground"));
+        JScrollPane scrollPane = new JScrollPane(logArea);
+        scrollPane.setBorder(null);
+
+        TextAreaConsoleIO tio = new TextAreaConsoleIO(logArea, chrome, "Starting guided review...");
+
+        SwingUtilities.invokeLater(() -> {
+            parent.remove(codeReviewPanel);
+            parent.add(scrollPane, BorderLayout.CENTER);
+            parent.revalidate();
+            parent.repaint();
+        });
 
         contextManager.submitLlmAction(() -> {
             try {
@@ -517,7 +538,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .collect(java.util.stream.Collectors.joining("\n\n"));
 
                 var agent = new ReviewAgent(formattedDiff, contextManager);
-                var review = agent.execute(chrome);
+                var review = agent.execute(tio);
 
                 // Pre-resolve excerpts
                 List<List<CodeReviewPanel.ParsedExcerpt>> designExcerpts = review.designNotes().stream()
@@ -533,16 +554,24 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .toList();
 
                 SwingUtilities.invokeLater(() -> {
+                    parent.remove(scrollPane);
+                    parent.add(codeReviewPanel, BorderLayout.CENTER);
                     if (codeReviewPanel != null) {
                         codeReviewPanel.displayReview(review, designExcerpts, tacticalExcerpts);
                         codeReviewPanel.setBusy(false);
                     }
+                    parent.revalidate();
+                    parent.repaint();
                 });
             } catch (Exception ex) {
                 logger.error("Failed to generate guided review", ex);
                 SwingUtilities.invokeLater(() -> {
+                    parent.remove(scrollPane);
+                    parent.add(codeReviewPanel, BorderLayout.CENTER);
                     if (codeReviewPanel != null) codeReviewPanel.setBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());
+                    parent.revalidate();
+                    parent.repaint();
                 });
             }
         });
