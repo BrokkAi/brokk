@@ -1887,6 +1887,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * interruption
      */
     public void submitAction(String action, String input, Callable<TaskResult> task) {
+        assert ACTION_CODE.equals(action) || ACTION_ASK.equals(action) : action;
+
         var cm = chrome.getContextManager();
         String spinnerText = spinnerTextFor(action);
 
@@ -1894,7 +1896,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 chrome.showOutputSpinner(spinnerText);
 
-                try (var scope = cm.beginTask(input, false)) {
+                try (var scope = cm.beginTaskUngrouped(input)) {
                     var result = task.call();
                     scope.append(result);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
