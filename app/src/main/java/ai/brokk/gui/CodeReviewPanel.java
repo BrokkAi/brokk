@@ -17,6 +17,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
@@ -165,20 +166,20 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
             navPanel.setOpaque(false);
             MaterialButton prevBtn = new MaterialButton("Prev");
             MaterialButton nextBtn = new MaterialButton("Next");
-            
-            final int[] currentIndex = {0};
+
+            AtomicInteger currentIndex = new AtomicInteger(0);
             java.lang.Runnable updateNav = () -> {
                 for (ReviewNavigationListener l : listeners) {
-                    l.onNavigate(excerpts.get(currentIndex[0]));
+                    l.onNavigate(excerpts.get(currentIndex.get()));
                 }
             };
 
             prevBtn.addActionListener(e -> {
-                currentIndex[0] = (currentIndex[0] - 1 + excerpts.size()) % excerpts.size();
+                currentIndex.set((currentIndex.get() - 1 + excerpts.size()) % excerpts.size());
                 updateNav.run();
             });
             nextBtn.addActionListener(e -> {
-                currentIndex[0] = (currentIndex[0] + 1) % excerpts.size();
+                currentIndex.set((currentIndex.get() + 1) % excerpts.size());
                 updateNav.run();
             });
 
