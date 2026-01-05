@@ -16,16 +16,30 @@
 
 ; Global function definition
 (function_definition
-  name: (name) @function.name @test_marker) @function.definition
+  name: (name) @function.name) @function.definition
 
 ; Method definitions (covers methods in classes, interfaces, and traits)
 ; The TreeSitterAnalyzer will determine the parent class/interface/trait.
 (method_declaration
-  name: (name) @function.name @test_marker
+  name: (name) @function.name
 ) @function.definition
+
+; Test markers (non-definition captures)
+; Prefer query-side filtering to avoid emitting test-marker captures for every function/method.
+; Match names starting with "test" (case-insensitive).
+(function_definition
+  name: (name) @test_marker
+  (#match? @test_marker "^[Tt][Ee][Ss][Tt]")
+)
+
+(method_declaration
+  name: (name) @test_marker
+  (#match? @test_marker "^[Tt][Ee][Ss][Tt]")
+)
 
 ; Comments / Docblocks (potential test markers)
 (comment) @test_marker
+  (#match? @test_marker "@test")
 
 
 ; Class property / field
