@@ -48,6 +48,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     // Review tab infrastructure
     private final JComponent reviewTabComponent;
+    private final TabDragUndockHandler tabDragUndockHandler;
 
     private int getReviewTabIndex() {
         return buildReviewTabs.indexOfComponent(reviewTabComponent);
@@ -169,8 +170,8 @@ public class RightPanel extends JPanel implements ThemeAware {
         // Set up tab change listeners (must be after buildReviewTabs is created)
         setupCommandPaneLogic();
 
-        var dragHandler = new TabDragUndockHandler();
-        dragHandler.register();
+        this.tabDragUndockHandler = new TabDragUndockHandler();
+        this.tabDragUndockHandler.register();
 
         add(sessionHeaderPanel, BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);
@@ -793,6 +794,15 @@ public class RightPanel extends JPanel implements ThemeAware {
         }
     }
 
+    @Override
+    public void removeNotify() {
+        try {
+            Toolkit.getDefaultToolkit().removeAWTEventListener(tabDragUndockHandler);
+        } finally {
+            super.removeNotify();
+        }
+    }
+
     public PreviewTabbedPane getPreviewTabbedPane() {
         return previewTabbedPane;
     }
@@ -809,7 +819,6 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         /**
          * Registers the AWT event listener to intercept mouse events globally within buildReviewTabs.
-         * TODO: Remove listener on RightPanel disposal if the application lifecycle requires it.
          */
         public void register() {
             Toolkit.getDefaultToolkit()
