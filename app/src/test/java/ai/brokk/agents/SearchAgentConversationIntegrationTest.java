@@ -21,7 +21,7 @@ final class SearchAgentConversationIntegrationTest {
 
     @Test
     void appendUiText_echoTrue_addsCustomMessageToUiAndEchoesToIo() {
-        conversation.appendUi("status text", ChatMessageType.AI, true);
+        conversation.appendUi("status text", true);
 
         assertEquals(1, conversation.getUiMessages().size());
         assertTrue(conversation.getUiMessages().getFirst() instanceof CustomMessage);

@@ -30,10 +30,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.io.IOException;
@@ -125,7 +122,10 @@ public class SearchAgent {
         this.scope = scope;
 
         this.io = io;
+        // tracks internal and MOP messages
         this.conversation = new AgentConversation(io);
+        // append initial goal (it's already streamed to MOP by InstructionPanel)
+        this.conversation.appendUi(UserMessage.from(goal), false);
 
         var llmOptions = new Llm.Options(model, "Search: " + goal).withEcho();
         this.llm = cm.getLlm(llmOptions);
@@ -481,18 +481,20 @@ public class SearchAgent {
         }
         var toolSpecs = tr.getTools(toolNames);
 
-        conversation.appendUi("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true);
+        conversation.appendUi("Initial workspace review...",true);
         var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+        conversation.append(result.aiMessage());
         if (result.error() != null || result.isEmpty()) {
             return context;
         }
 
         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
         for (var req : ai.toolExecutionRequests()) {
-            executeTool(req, tr, wst);
+            var toolResult = executeTool(req, tr, wst);
+            conversation.append(toolResult.toExecutionResultMessage());
         }
 
         contextPruned = true;
@@ -514,7 +516,7 @@ public class SearchAgent {
 
         var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
         conversation.appendUi(
-                "\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true);
+                "Scanning repository...", true);
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
@@ -535,13 +537,9 @@ public class SearchAgent {
                         SyntaxConstants.SYNTAX_STYLE_NONE)));
             } else {
                 addToWorkspace(recommendation);
-                conversation.appendUi(
-                        "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
-                        ChatMessageType.AI,
-                        true);
             }
         } else {
-            conversation.appendUi("\n\nNo additional context insights found\n", ChatMessageType.AI, true);
+            conversation.appendUi("No context recommendations found.", true);
         }
 
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
@@ -610,7 +608,10 @@ public class SearchAgent {
         }
 
         var explanation = ExplanationRenderer.renderExplanation("Adding context to workspace", details);
-        conversation.appendUi(explanation, ChatMessageType.AI, true);
+        // Fake this like an AI message (it's not a real tool call)
+        var aiMsg = new AiMessage(explanation);
+        conversation.appendUi(aiMsg, true);
+        conversation.appendInternal(aiMsg);
     }
 
     @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
@@ -627,7 +628,7 @@ public class SearchAgent {
     @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")
     public String abortSearch(
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
-        conversation.appendUi(explanation, ChatMessageType.AI, true);
+        conversation.appendUi(explanation, true);
         return explanation;
     }
 
@@ -660,7 +661,7 @@ public class SearchAgent {
     }
 
     protected TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta) {
-        List<ChatMessage> finalMessages = new ArrayList<>(conversation.getUiMessages());
+        List<ChatMessage> finalMessages = new ArrayList<>(conversation.consumeUiMessages());
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
@@ -675,7 +676,7 @@ public class SearchAgent {
     }
 
     protected TaskResult errorResult(TaskResult.StopDetails details, @Nullable TaskResult.TaskMeta meta) {
-        List<ChatMessage> finalMessages = new ArrayList<>(conversation.getUiMessages());
+        List<ChatMessage> finalMessages = new ArrayList<>(conversation.consumeUiMessages());
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 

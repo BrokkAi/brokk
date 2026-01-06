@@ -30,11 +30,11 @@ public final class AgentConversation {
   public void appendUi(ChatMessage message, boolean echo) {
     uiMessages.add(message);
     if (echo) {
-      io.llmOutput(message.toString(), ChatMessageType.CUSTOM, true, false);
+      io.llmOutput(message.toString(), message.type(), true, false);
     }
   }
 
-  public void appendUi(String text, ChatMessageType type, boolean echo) {
+  public void appendUi(String text, boolean echo) {
     uiMessages.add(CustomMessage.from(Map.of("text", text)));
     if (echo) {
       io.llmOutput(text, ChatMessageType.CUSTOM, true, false);

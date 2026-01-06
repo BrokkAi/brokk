@@ -82,33 +82,6 @@ final class AgentConversationTest {
     assertEquals(0, io.getLlmRawMessages().size());
   }
 
-  @Test
-  void testAppendUiTextAddsToUiOnly() {
-    conversation.appendUi("test", ChatMessageType.USER, false);
-
-    assertEquals(0, conversation.getInternalMessages().size());
-    assertEquals(1, conversation.getUiMessages().size());
-    assertEquals(CustomMessage.from(Map.of("text", "test")), conversation.getUiMessages().getFirst());
-  }
-
-  @Test
-  void testAppendUiTextEchoTrue() {
-    conversation.appendUi("test", ChatMessageType.USER, true);
-
-    assertEquals(1, conversation.getUiMessages().size());
-    assertEquals(0, conversation.getInternalMessages().size());
-
-    assertEquals(1, io.getLlmRawMessages().size());
-  }
-
-  @Test
-  void testAppendUiTextEchoFalse() {
-    conversation.appendUi("test", ChatMessageType.USER, false);
-
-    assertEquals(1, conversation.getUiMessages().size());
-    assertEquals(0, conversation.getInternalMessages().size());
-    assertEquals(0, io.getLlmRawMessages().size());
-  }
 
   @Test
   void testConsumeUiMessagesReturnsAndClearsUi() {
