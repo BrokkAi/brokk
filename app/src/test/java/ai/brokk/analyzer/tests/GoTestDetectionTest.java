@@ -121,7 +121,8 @@ public class GoTestDetectionTest {
                 func TestMulti(a, b *testing.T) {}
                 """;
         String multiParamPath = "pkg/multi_param.go";
-        IProject project3 = InlineTestProjectCreator.code(multiParamContent, multiParamPath).build();
+        IProject project3 =
+                InlineTestProjectCreator.code(multiParamContent, multiParamPath).build();
         GoAnalyzer analyzer3 = new GoAnalyzer(project3);
         analyzer3 = (GoAnalyzer) analyzer3.update();
         assertFalse(
