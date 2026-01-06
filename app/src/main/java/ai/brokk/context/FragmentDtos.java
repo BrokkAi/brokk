@@ -117,17 +117,41 @@ public class FragmentDtos {
         }
     }
 
+    /** DTO for ToolExecutionRequest - contains id, name, and arguments. */
+    public record ToolExecutionRequestDto(@Nullable String id, String name, String arguments) {
+        public ToolExecutionRequestDto {
+            if (name.isEmpty()) {
+                throw new IllegalArgumentException("name cannot be null or empty");
+            }
+        }
+    }
+
     /** DTO for ChatMessage - simplified representation with role and content. */
-    public record ChatMessageDto(String role, String contentId, @Nullable String reasoningContentId) {
+    public record ChatMessageDto(
+            String role,
+            String contentId,
+            @Nullable String reasoningContentId,
+            @Nullable List<ToolExecutionRequestDto> toolExecutionRequests) {
         public ChatMessageDto {
             if (role.isEmpty()) {
                 throw new IllegalArgumentException("role cannot be null or empty");
+            }
+            // Normalize empty list to null for cleaner JSON
+            if (toolExecutionRequests != null && toolExecutionRequests.isEmpty()) {
+                toolExecutionRequests = null;
+            } else if (toolExecutionRequests != null) {
+                toolExecutionRequests = List.copyOf(toolExecutionRequests);
             }
         }
 
         /** Backward-compatible constructor for older code that doesn't provide reasoningContentId. */
         public ChatMessageDto(String role, String contentId) {
-            this(role, contentId, null);
+            this(role, contentId, null, null);
+        }
+
+        /** Backward-compatible constructor for code that provides reasoningContentId but not tool requests. */
+        public ChatMessageDto(String role, String contentId, @Nullable String reasoningContentId) {
+            this(role, contentId, reasoningContentId, null);
         }
     }
 

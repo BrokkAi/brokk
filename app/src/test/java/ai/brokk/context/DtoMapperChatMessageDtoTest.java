@@ -2,17 +2,22 @@ package ai.brokk.context;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.context.FragmentDtos.ChatMessageDto;
 import ai.brokk.util.HistoryIo.ContentReader;
 import ai.brokk.util.HistoryIo.ContentWriter;
 import ai.brokk.util.Messages;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -92,6 +97,84 @@ class DtoMapperChatMessageDtoTest {
 
         assertEquals(message.type(), reconstructed.type());
         assertEquals(Messages.getRepr(message), Messages.getRepr(reconstructed));
+    }
+
+    @Test
+    void testAiMessageWithToolExecutionRequests_RoundTrip() {
+        var toolRequests = List.of(
+                ToolExecutionRequest.builder()
+                        .id("call-1")
+                        .name("searchSymbols")
+                        .arguments("{\"query\":\"MyClass\"}")
+                        .build(),
+                ToolExecutionRequest.builder()
+                        .id("call-2")
+                        .name("getFileContents")
+                        .arguments("{\"files\":[\"Foo.java\"]}")
+                        .build());
+        AiMessage original = new AiMessage("Let me search for that", toolRequests);
+
+        ContentWriter writer = new ContentWriter();
+        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
+
+        assertEquals("ai", dto.role());
+        assertNotNull(dto.toolExecutionRequests());
+        assertEquals(2, dto.toolExecutionRequests().size());
+        assertEquals("searchSymbols", dto.toolExecutionRequests().get(0).name());
+        assertEquals("getFileContents", dto.toolExecutionRequests().get(1).name());
+
+        // Round-trip
+        ContentReader reader = createReaderFromWriter(writer);
+        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
+        assertInstanceOf(AiMessage.class, reconstructed);
+
+        AiMessage ai = (AiMessage) reconstructed;
+        assertEquals("Let me search for that", ai.text());
+        assertTrue(ai.hasToolExecutionRequests());
+        assertEquals(2, ai.toolExecutionRequests().size());
+        assertEquals("call-1", ai.toolExecutionRequests().get(0).id());
+        assertEquals("searchSymbols", ai.toolExecutionRequests().get(0).name());
+        assertEquals("{\"query\":\"MyClass\"}", ai.toolExecutionRequests().get(0).arguments());
+    }
+
+    @Test
+    void testAiMessageWithReasoningAndToolRequests_RoundTrip() {
+        var toolRequests = List.of(ToolExecutionRequest.builder()
+                .id("call-abc")
+                .name("listFiles")
+                .arguments("{}")
+                .build());
+        AiMessage original = new AiMessage("Here are the files", "I need to list the project files", toolRequests);
+
+        ContentWriter writer = new ContentWriter();
+        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
+
+        assertEquals("ai", dto.role());
+        assertNotNull(dto.reasoningContentId());
+        assertNotNull(dto.toolExecutionRequests());
+        assertEquals(1, dto.toolExecutionRequests().size());
+
+        // Round-trip
+        ContentReader reader = createReaderFromWriter(writer);
+        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
+        assertInstanceOf(AiMessage.class, reconstructed);
+
+        AiMessage ai = (AiMessage) reconstructed;
+        assertEquals("Here are the files", ai.text());
+        assertEquals("I need to list the project files", ai.reasoningContent());
+        assertTrue(ai.hasToolExecutionRequests());
+        assertEquals("listFiles", ai.toolExecutionRequests().get(0).name());
+    }
+
+    @Test
+    void testAiMessageWithoutToolRequests_DoesNotSerializeEmptyList() {
+        AiMessage original = new AiMessage("Just text, no tools");
+
+        ContentWriter writer = new ContentWriter();
+        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
+
+        assertEquals("ai", dto.role());
+        assertNull(dto.toolExecutionRequests());
     }
 
     // ===== Helper Methods =====

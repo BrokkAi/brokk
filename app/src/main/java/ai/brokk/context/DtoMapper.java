@@ -18,6 +18,7 @@ import ai.brokk.util.HistoryIo.ContentWriter;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.Messages;
 import com.google.common.collect.Streams;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
@@ -25,6 +26,7 @@ import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -547,6 +549,7 @@ public class DtoMapper {
         // Package-private for tests in ai.brokk.context and internal mapping use.
         String reasoningContentId = null;
         String contentId;
+        List<FragmentDtos.ToolExecutionRequestDto> toolDtos = null;
 
         if (message instanceof AiMessage aiMessage) {
             // For AiMessage, store text and reasoning separately
@@ -558,12 +561,20 @@ public class DtoMapper {
             if (reasoning != null && !reasoning.isBlank()) {
                 reasoningContentId = writer.writeContent(reasoning, null);
             }
+
+            // Serialize tool execution requests if present
+            if (aiMessage.hasToolExecutionRequests()) {
+                toolDtos = aiMessage.toolExecutionRequests().stream()
+                        .map(req -> new FragmentDtos.ToolExecutionRequestDto(req.id(), req.name(), req.arguments()))
+                        .toList();
+            }
         } else {
             // For other message types, use the display representation
             contentId = writer.writeContent(Messages.getRepr(message), null);
         }
 
-        return new ChatMessageDto(message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId);
+        return new ChatMessageDto(
+                message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId, toolDtos);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
@@ -578,13 +589,32 @@ public class DtoMapper {
         return switch (dto.role().toLowerCase(Locale.ROOT)) {
             case "user" -> UserMessage.from(content);
             case "ai" -> {
-                // Prefer structured reasoningContentId if available
-                if (dto.reasoningContentId() != null) {
-                    String reasoning = reader.readContent(dto.reasoningContentId());
-                    yield new AiMessage(content, reasoning);
+                // Reconstruct tool execution requests if present
+                List<ToolExecutionRequest> toolRequests = null;
+                if (dto.toolExecutionRequests() != null && !dto.toolExecutionRequests().isEmpty()) {
+                    toolRequests = dto.toolExecutionRequests().stream()
+                            .map(tre -> ToolExecutionRequest.builder()
+                                    .id(tre.id())
+                                    .name(tre.name())
+                                    .arguments(tre.arguments())
+                                    .build())
+                            .toList();
                 }
-                // Graceful degrade: treat entire content as text when reasoningContentId is absent
-                yield new AiMessage(content);
+
+                String reasoning = dto.reasoningContentId() != null
+                        ? reader.readContent(dto.reasoningContentId())
+                        : null;
+
+                // Use the most complete constructor available
+                if (reasoning != null && toolRequests != null) {
+                    yield new AiMessage(content, reasoning, toolRequests);
+                } else if (reasoning != null) {
+                    yield new AiMessage(content, reasoning);
+                } else if (toolRequests != null) {
+                    yield new AiMessage(content, toolRequests);
+                } else {
+                    yield new AiMessage(content);
+                }
             }
             case "system", "custom" -> SystemMessage.from(content);
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
