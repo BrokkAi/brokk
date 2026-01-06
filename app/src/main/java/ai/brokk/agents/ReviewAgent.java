@@ -383,10 +383,14 @@ public class ReviewAgent {
                     "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
             String overview,
             @P(
-                    "Explain the trickiest parts of the design and how they can be improved. "
-                            + "For each item, provide a 'title' which is a short 5-7 word label summarizing the feedback.")
+                    """
+                    Explain the trickiest parts of the design and how they can be improved.
+                    For each item, provide a `title` which is a short 5-7 word label summarizing the feedback,
+                    a `description` explaining the problem in detail, and
+                    a `recommendation` for remediation detailed enough to give to Code Agent.
+                    """)
             List<ReviewParser.RawDesignFeedback> designNotes,
-            @P("A list of local bugs or problems.")
+            @P("A list of local bugs or problems. `recommendation` should be detailed enough to give to Code Agent for remediation.")
             List<ReviewParser.RawTacticalFeedback> tacticalNotes,
             @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
             List<String> additionalTests) {
