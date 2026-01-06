@@ -442,6 +442,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         if (diffContainer != null) {
                             diffContainer.removeAll();
                             diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+
+                            if (targetLine > 0) {
+                                panel.resetAutoScrollFlag();
+                                panel.diff(false);
+                                if (panel instanceof ai.brokk.difftool.ui.BufferDiffPanel bp) {
+                                    var side = (targetSide == ICodeReview.DiffSide.OLD)
+                                            ? ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.LEFT
+                                            : ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.RIGHT;
+                                    bp.scrollToLine(targetLine, side);
+                                } else if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                                    up.scrollToLine(targetLine);
+                                }
+                            } else {
+                                panel.resetToFirstDifference();
+                                panel.diff(true);
+                            }
+
                             diffContainer.revalidate();
                             diffContainer.repaint();
                         }

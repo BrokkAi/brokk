@@ -1841,6 +1841,9 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
      * @param side the panel side to scroll
      */
     public void scrollToLine(int lineNumber, PanelSide side) {
+        // Explicit manual scroll cancels any pending initial auto-scroll
+        initialAutoScrollDone = true;
+
         var panel = getFilePanel(side);
         if (panel == null) return;
 

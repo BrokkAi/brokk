@@ -133,7 +133,7 @@ public class DiffDisplayCore {
         if (index < 0 || index >= fileComparisons.size()) return;
         if (panelCache.containsKey(index)) {
             if (index == currentIndex) {
-                mainPanel.displayAndRefreshPanel(index, panelCache.get(index), targetLine, targetSide);
+                displayPanel(index, panelCache.get(index), targetLine, targetSide);
             }
             return;
         }
