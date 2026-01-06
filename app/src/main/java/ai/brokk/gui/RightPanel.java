@@ -842,22 +842,28 @@ public class RightPanel extends JPanel implements ThemeAware {
 
             // Check if press is on a tab header
             int headerIdx = buildReviewTabs.indexAtLocation(pInTabs.x, pInTabs.y);
-            dragTabIndex = (headerIdx != -1) ? headerIdx : buildReviewTabs.getSelectedIndex();
 
-            if (dragTabIndex != -1) {
-                pressPoint = pInTabs;
-                Component comp = buildReviewTabs.getComponentAt(dragTabIndex);
-                UndockTarget target = getUndockTarget(
-                        comp,
-                        reviewTabComponent,
-                        previewTabbedPane,
-                        terminalPanel,
-                        buildSplitPane,
-                        verticalActivityCombinedPanel);
+            // Only allow drag to start if the press is actually on a tab header
+            if (headerIdx == -1) {
+                dragTabIndex = -1;
+                pressPoint = null;
+                return;
+            }
 
-                if (target != UndockTarget.NONE) {
-                    buildReviewTabs.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
-                }
+            dragTabIndex = headerIdx;
+            pressPoint = pInTabs;
+
+            Component comp = buildReviewTabs.getComponentAt(dragTabIndex);
+            UndockTarget target = getUndockTarget(
+                    comp,
+                    reviewTabComponent,
+                    previewTabbedPane,
+                    terminalPanel,
+                    buildSplitPane,
+                    verticalActivityCombinedPanel);
+
+            if (target != UndockTarget.NONE) {
+                buildReviewTabs.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
             }
         }
 
@@ -871,7 +877,7 @@ public class RightPanel extends JPanel implements ThemeAware {
                 Rectangle headerRect = null;
                 try {
                     headerRect = buildReviewTabs.getBoundsAt(dragTabIndex);
-                } catch (ArrayIndexOutOfBoundsException ex) {
+                } catch (IndexOutOfBoundsException ex) {
                     headerRect = null;
                 }
 
@@ -893,7 +899,9 @@ public class RightPanel extends JPanel implements ThemeAware {
         }
 
         private void handleMouseReleased(MouseEvent e) {
-            buildReviewTabs.setCursor(Cursor.getDefaultCursor());
+            if (buildReviewTabs.getCursor().getType() != Cursor.DEFAULT_CURSOR) {
+                buildReviewTabs.setCursor(Cursor.getDefaultCursor());
+            }
             dragTabIndex = -1;
             pressPoint = null;
             undocked = false;
