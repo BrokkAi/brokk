@@ -6,6 +6,8 @@ import ai.brokk.analyzer.cpp.NamespaceProcessor;
 import ai.brokk.analyzer.cpp.SkeletonGenerator;
 import ai.brokk.project.IProject;
 import java.util.*;
+import java.util.regex.Pattern;
+
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -825,7 +827,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      */
     private String extractNoexceptClause(String text) {
         // Use word boundary to find "noexcept" as standalone keyword
-        var pattern = java.util.regex.Pattern.compile("\\bnoexcept\\b");
+        var pattern = Pattern.compile("\\bnoexcept\\b");
         var matcher = pattern.matcher(text);
 
         if (!matcher.find()) {
