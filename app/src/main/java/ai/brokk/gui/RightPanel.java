@@ -144,6 +144,10 @@ public class RightPanel extends JPanel implements ThemeAware {
         // Set up tab change listeners (must be after buildReviewTabs is created)
         setupCommandPaneLogic();
 
+        var dragHandler = new TabDragUndockHandler();
+        buildReviewTabs.addMouseListener(dragHandler);
+        buildReviewTabs.addMouseMotionListener(dragHandler);
+
         add(sessionHeaderPanel, BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);
 
@@ -760,6 +764,54 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     public JTabbedPane getCommandPane() {
         return commandPane;
+    }
+
+    private class TabDragUndockHandler extends java.awt.event.MouseAdapter {
+        private static final int DRAG_THRESHOLD = 16;
+        private @Nullable Point pressPoint;
+        private int dragTabIndex = -1;
+        private boolean undocked;
+
+        @Override
+        public void mousePressed(java.awt.event.MouseEvent e) {
+            undocked = false;
+            dragTabIndex = buildReviewTabs.indexAtLocation(e.getX(), e.getY());
+            if (dragTabIndex != -1) {
+                pressPoint = e.getPoint();
+            }
+        }
+
+        @Override
+        public void mouseDragged(java.awt.event.MouseEvent e) {
+            if (dragTabIndex == -1 || pressPoint == null || undocked) return;
+
+            double dist = e.getPoint().distance(pressPoint);
+            if (dist > DRAG_THRESHOLD) {
+                // Check if we've dragged outside the tabbed pane bounds
+                if (!buildReviewTabs.getBounds().contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), buildReviewTabs.getParent()))) {
+                    triggerUndock(dragTabIndex);
+                    undocked = true;
+                }
+            }
+        }
+
+        @Override
+        public void mouseReleased(java.awt.event.MouseEvent e) {
+            dragTabIndex = -1;
+            pressPoint = null;
+            undocked = false;
+        }
+
+        private void triggerUndock(int index) {
+            Component comp = buildReviewTabs.getComponentAt(index);
+            if (comp == reviewTabComponent) {
+                undockReview();
+            } else if (comp == previewTabbedPane) {
+                undockPreview();
+            } else if (comp == terminalPanel) {
+                undockTerminal();
+            }
+        }
     }
 
     @Override
