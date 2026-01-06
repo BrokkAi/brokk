@@ -23,23 +23,20 @@ class MessagesTest {
 
     @Test
     void getTextWithToolCalls_nonAiMessage_delegatesToGetText() {
-        var registry = ToolRegistry.empty().builder().register(new TestTools()).build();
 
         var message = new UserMessage("hello");
-        assertEquals(Messages.getText(message), Messages.getTextWithToolCalls(message, registry));
+        assertEquals(Messages.getText(message), Messages.getTextWithToolCalls(message));
     }
 
     @Test
     void getTextWithToolCalls_aiMessageWithoutToolRequests_delegatesToGetText() {
-        var registry = ToolRegistry.empty().builder().register(new TestTools()).build();
 
         var message = AiMessage.from("hello");
-        assertEquals(Messages.getText(message), Messages.getTextWithToolCalls(message, registry));
+        assertEquals(Messages.getText(message), Messages.getTextWithToolCalls(message));
     }
 
     @Test
     void getTextWithToolCalls_aiMessageWithToolRequests_appendsRenderedToolCalls() {
-        var registry = ToolRegistry.empty().builder().register(new TestTools()).build();
 
         var request1 = ToolExecutionRequest.builder()
                 .id("0")
@@ -62,6 +59,6 @@ class MessagesTest {
 
         var expected = expectedRendered.isBlank() ? "hi" : "hi\n" + expectedRendered;
 
-        assertEquals(expected, Messages.getTextWithToolCalls(message, registry));
+        assertEquals(expected, Messages.getTextWithToolCalls(message));
     }
 }

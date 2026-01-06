@@ -183,7 +183,7 @@ public class Messages {
                 && !aiMessage.reasoningContent().isBlank();
     }
 
-    public static String getTextWithToolCalls(ChatMessage message, ToolRegistry registry) {
+    public static String getTextWithToolCalls(ChatMessage message) {
         if (!(message instanceof AiMessage aiMessage) || !aiMessage.hasToolExecutionRequests()) {
             return getText(message);
         }
