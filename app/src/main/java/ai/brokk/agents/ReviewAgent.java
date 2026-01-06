@@ -391,6 +391,7 @@ public class ReviewAgent {
                     For each item, provide a `title` which is a short 5-7 word label summarizing the feedback,
                     a `description` explaining the problem in detail, and
                     a `recommendation` for remediation detailed enough to give to Code Agent.
+                    Remember that you can give multiple excerpts per RawDesignNote!
                     Use Markdown for formatting both description and recommendation.
                     """)
             List<ReviewParser.RawDesignFeedback> designNotes,

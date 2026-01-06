@@ -3863,6 +3863,41 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         return best;
     }
 
+    @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
+        if (startLine > endLine) return Optional.empty();
+
+        CodeUnit best = null;
+        int bestDepth = -1;
+
+        for (var top : getTopLevelDeclarations(file)) {
+            var res = findDeepestEnclosingByLine(top, startLine, endLine, 0);
+            if (res != null && res.depth > bestDepth) {
+                best = res.cu;
+                bestDepth = res.depth;
+            }
+        }
+
+        return Optional.ofNullable(best);
+    }
+
+    private @Nullable CUWithDepth findDeepestEnclosingByLine(CodeUnit current, int startLine, int endLine, int depth) {
+        boolean containsCurrent = rangesOf(current).stream()
+                .anyMatch(r -> startLine >= r.startLine() && endLine <= r.endLine());
+        if (!containsCurrent) {
+            return null;
+        }
+
+        CUWithDepth best = new CUWithDepth(current, depth);
+        for (var child : childrenOf(current)) {
+            var candidate = findDeepestEnclosingByLine(child, startLine, endLine, depth + 1);
+            if (candidate != null && candidate.depth > best.depth) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
     protected boolean isBlankNameAllowed(String captureName, String simpleName, String nodeType, String file) {
         return false;
     }
