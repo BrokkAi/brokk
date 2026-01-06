@@ -87,7 +87,6 @@ public class ReviewAgent {
             SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, io, scanConfig, searchTools);
 
             // Phase 1: Establish context using SearchAgent
-            agent.scanContext();
             TaskResult searchResult = agent.execute();
 
             if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
@@ -385,6 +384,8 @@ public class ReviewAgent {
                 - designNotes: High-level architectural concerns with excerpt references
                 - tacticalNotes: Local bugs/issues with excerpt references
                 - additionalTests: High-value tests that should be added
+                
+                Be opinionated in your recommendations: pick the best solution instead of giving multiple options.
                 """);
     }
 
