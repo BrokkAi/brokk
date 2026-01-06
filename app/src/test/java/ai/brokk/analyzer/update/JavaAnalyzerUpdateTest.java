@@ -11,6 +11,7 @@ import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;

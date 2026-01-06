@@ -231,19 +231,17 @@ public final class TreeSitterStateIO {
             List<String> signatures,
             List<IAnalyzer.Range> ranges,
             List<String> rawSupertypes,
+            @Nullable List<CodeUnitDto> supertypes,
+            boolean supertypesComputed,
             boolean hasBody) {
 
         /**
-         * Backward compatibility: ignore stale supertypesComputed field from old snapshots.
+         * Note on serialization: `supertypesComputed` is the discriminator for {@link TreeSitterAnalyzer.SuperTypeInfo}.
+         * If true, we deserialize as {@link TreeSitterAnalyzer.SuperTypeInfo.Computed} using the `supertypes` list
+         * (which must be non-null, though potentially empty).
+         * If false, we deserialize as {@link TreeSitterAnalyzer.SuperTypeInfo.Uncomputed}.
          */
-        @com.fasterxml.jackson.annotation.JsonProperty("supertypesComputed")
-        public void setSupertypesComputed(boolean ignored) {}
-
-        /**
-         * Backward compatibility: ignore stale supertypes field from old snapshots.
-         */
-        @com.fasterxml.jackson.annotation.JsonProperty("supertypes")
-        public void setSupertypes(Object ignored) {}
+        public CodeUnitPropertiesDto {}
     }
 
     /**
@@ -362,8 +360,22 @@ public final class TreeSitterStateIO {
             var childrenDtos =
                     props.children().stream().map(TreeSitterStateIO::toDto).toList();
 
+            var superTypeInfo = props.superTypes();
+            boolean computed = superTypeInfo instanceof TreeSitterAnalyzer.SuperTypeInfo.Computed;
+            List<CodeUnitDto> supertypesDto = null;
+            if (computed) {
+                var list = ((TreeSitterAnalyzer.SuperTypeInfo.Computed) superTypeInfo).supertypes();
+                supertypesDto = list.stream().map(TreeSitterStateIO::toDto).toList();
+            }
+
             var propsDto = new CodeUnitPropertiesDto(
-                    childrenDtos, props.signatures(), props.ranges(), props.rawSupertypes(), props.hasBody());
+                    childrenDtos,
+                    props.signatures(),
+                    props.ranges(),
+                    props.rawSupertypes(),
+                    supertypesDto,
+                    computed,
+                    props.hasBody());
 
             cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }
@@ -412,11 +424,23 @@ public final class TreeSitterStateIO {
         for (var entry : dto.codeUnitState()) {
             var v = entry.value();
 
+            TreeSitterAnalyzer.SuperTypeInfo superTypeInfo;
+            if (v.supertypesComputed()) {
+                var listDto = v.supertypes();
+                List<CodeUnit> list = (listDto == null)
+                        ? List.of()
+                        : listDto.stream().map(TreeSitterStateIO::fromDto).toList();
+                superTypeInfo = new TreeSitterAnalyzer.SuperTypeInfo.Computed(list);
+            } else {
+                superTypeInfo = new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed();
+            }
+
             var props = new TreeSitterAnalyzer.CodeUnitProperties(
                     v.children().stream().map(TreeSitterStateIO::fromDto).toList(),
                     v.signatures(),
                     v.ranges(),
                     v.rawSupertypes(),
+                    superTypeInfo,
                     v.hasBody());
 
             cuState.put(fromDto(entry.key()), props);
