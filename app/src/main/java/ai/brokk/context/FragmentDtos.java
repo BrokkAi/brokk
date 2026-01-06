@@ -126,12 +126,22 @@ public class FragmentDtos {
         }
     }
 
+    /** DTO for ToolExecutionResultMessage - contains id, toolName, and text. */
+    public record ToolExecutionResultDto(@Nullable String id, String toolName, String text) {
+        public ToolExecutionResultDto {
+            if (toolName.isEmpty()) {
+                throw new IllegalArgumentException("toolName cannot be null or empty");
+            }
+        }
+    }
+
     /** DTO for ChatMessage - simplified representation with role and content. */
     public record ChatMessageDto(
             String role,
             String contentId,
             @Nullable String reasoningContentId,
-            @Nullable List<ToolExecutionRequestDto> toolExecutionRequests) {
+            @Nullable List<ToolExecutionRequestDto> toolExecutionRequests,
+            @Nullable ToolExecutionResultDto toolExecutionResult) {
         public ChatMessageDto {
             if (role.isEmpty()) {
                 throw new IllegalArgumentException("role cannot be null or empty");
@@ -146,12 +156,21 @@ public class FragmentDtos {
 
         /** Backward-compatible constructor for older code that doesn't provide reasoningContentId. */
         public ChatMessageDto(String role, String contentId) {
-            this(role, contentId, null, null);
+            this(role, contentId, null, null, null);
         }
 
         /** Backward-compatible constructor for code that provides reasoningContentId but not tool requests. */
         public ChatMessageDto(String role, String contentId, @Nullable String reasoningContentId) {
-            this(role, contentId, reasoningContentId, null);
+            this(role, contentId, reasoningContentId, null, null);
+        }
+
+        /** Backward-compatible constructor for code that provides tool requests but not tool execution result. */
+        public ChatMessageDto(
+                String role,
+                String contentId,
+                @Nullable String reasoningContentId,
+                @Nullable List<ToolExecutionRequestDto> toolExecutionRequests) {
+            this(role, contentId, reasoningContentId, toolExecutionRequests, null);
         }
     }
 

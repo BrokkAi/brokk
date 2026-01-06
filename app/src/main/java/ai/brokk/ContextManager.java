@@ -2217,7 +2217,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
             var newId = pushContext(currentLiveCtx -> context).id();
-            contextHistory.addContextToGroup(newId, groupId, groupLabel);
+            if (groupAndCompress) {
+                contextHistory.addContextToGroup(newId, groupId, groupLabel);
+            }
         }
 
         @Override

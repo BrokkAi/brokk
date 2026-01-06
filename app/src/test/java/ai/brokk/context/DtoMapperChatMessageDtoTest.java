@@ -12,6 +12,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.util.HashMap;
 import java.util.List;
@@ -175,6 +176,46 @@ class DtoMapperChatMessageDtoTest {
 
         assertEquals("ai", dto.role());
         assertNull(dto.toolExecutionRequests());
+    }
+
+    @Test
+    void testToolExecutionResultMessage_RoundTrip() {
+        ToolExecutionResultMessage original =
+                new ToolExecutionResultMessage("call-abc", "getFileContents", "File contents here");
+
+        ContentWriter writer = new ContentWriter();
+        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
+
+        assertEquals("tool_execution_result", dto.role());
+        assertNotNull(dto.toolExecutionResult());
+        assertEquals("call-abc", dto.toolExecutionResult().id());
+        assertEquals("getFileContents", dto.toolExecutionResult().toolName());
+
+        ContentReader reader = createReaderFromWriter(writer);
+        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
+        assertInstanceOf(ToolExecutionResultMessage.class, reconstructed);
+
+        ToolExecutionResultMessage result = (ToolExecutionResultMessage) reconstructed;
+        assertEquals("call-abc", result.id());
+        assertEquals("getFileContents", result.toolName());
+        assertEquals("File contents here", result.text());
+    }
+
+    @Test
+    void testToolExecutionResultMessage_WithNullId_RoundTrip() {
+        ToolExecutionResultMessage original = new ToolExecutionResultMessage(null, "searchSymbols", "No results");
+
+        ContentWriter writer = new ContentWriter();
+        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
+
+        ContentReader reader = createReaderFromWriter(writer);
+        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
+        assertInstanceOf(ToolExecutionResultMessage.class, reconstructed);
+
+        ToolExecutionResultMessage result = (ToolExecutionResultMessage) reconstructed;
+        assertNull(result.id());
+        assertEquals("searchSymbols", result.toolName());
+        assertEquals("No results", result.text());
     }
 
     // ===== Helper Methods =====

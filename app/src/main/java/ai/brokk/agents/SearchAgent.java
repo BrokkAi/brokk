@@ -328,6 +328,12 @@ public class SearchAgent {
                     }
                 }
 
+                Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
+                Set<ProjectFile> added = new HashSet<>(filesAfterSet);
+                added.removeAll(filesBeforeSet);
+                if (!added.isEmpty()) {
+                    scope.publish(context);
+                }
             } finally {
                 endTurnAndRecordFileChanges(filesBeforeSet);
             }

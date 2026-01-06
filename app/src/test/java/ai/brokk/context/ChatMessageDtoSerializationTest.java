@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.context.FragmentDtos.ChatMessageDto;
 import ai.brokk.context.FragmentDtos.ToolExecutionRequestDto;
+import ai.brokk.context.FragmentDtos.ToolExecutionResultDto;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -141,5 +142,31 @@ class ChatMessageDtoSerializationTest {
         ChatMessageDto dto = new ChatMessageDto("ai", "content-123", null, List.of());
 
         assertNull(dto.toolExecutionRequests());
+    }
+
+    @Test
+    void testSerializeAndDeserializeToolExecutionResult() throws Exception {
+        var toolResult = new ToolExecutionResultDto("call-123", "searchSymbols", "Found 5 matches");
+        ChatMessageDto original = new ChatMessageDto("tool_execution_result", "content-abc", null, null, toolResult);
+
+        String json = objectMapper.writeValueAsString(original);
+        ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
+
+        assertEquals("tool_execution_result", deserialized.role());
+        assertNotNull(deserialized.toolExecutionResult());
+        assertEquals("call-123", deserialized.toolExecutionResult().id());
+        assertEquals("searchSymbols", deserialized.toolExecutionResult().toolName());
+        assertEquals("Found 5 matches", deserialized.toolExecutionResult().text());
+    }
+
+    @Test
+    void testDeserializeLegacyToolExecutionResultWithoutDto() throws Exception {
+        // Legacy JSON without toolExecutionResult field
+        String legacyJson = "{\"role\":\"tool_execution_result\",\"contentId\":\"content-old\"}";
+
+        ChatMessageDto deserialized = objectMapper.readValue(legacyJson, ChatMessageDto.class);
+
+        assertEquals("tool_execution_result", deserialized.role());
+        assertNull(deserialized.toolExecutionResult());
     }
 }

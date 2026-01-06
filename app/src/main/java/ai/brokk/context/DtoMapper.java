@@ -22,6 +22,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -550,6 +551,7 @@ public class DtoMapper {
         String reasoningContentId = null;
         String contentId;
         List<FragmentDtos.ToolExecutionRequestDto> toolDtos = null;
+        FragmentDtos.ToolExecutionResultDto toolResultDto = null;
 
         if (message instanceof AiMessage aiMessage) {
             // For AiMessage, store text and reasoning separately
@@ -568,13 +570,18 @@ public class DtoMapper {
                         .map(req -> new FragmentDtos.ToolExecutionRequestDto(req.id(), req.name(), req.arguments()))
                         .toList();
             }
+        } else if (message instanceof ToolExecutionResultMessage toolResult) {
+            String text = toolResult.text();
+            contentId = writer.writeContent(text != null ? text : "", null);
+            toolResultDto =
+                    new FragmentDtos.ToolExecutionResultDto(toolResult.id(), toolResult.toolName(), text != null ? text : "");
         } else {
             // For other message types, use the display representation
             contentId = writer.writeContent(Messages.getRepr(message), null);
         }
 
         return new ChatMessageDto(
-                message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId, toolDtos);
+                message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId, toolDtos, toolResultDto);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {
@@ -614,6 +621,14 @@ public class DtoMapper {
                     yield new AiMessage(content, toolRequests);
                 } else {
                     yield new AiMessage(content);
+                }
+            }
+            case "tool_execution_result" -> {
+                if (dto.toolExecutionResult() != null) {
+                    var ter = dto.toolExecutionResult();
+                    yield new ToolExecutionResultMessage(ter.id(), ter.toolName(), ter.text());
+                } else {
+                    yield new ToolExecutionResultMessage(null, "unknown", content);
                 }
             }
             case "system", "custom" -> SystemMessage.from(content);
