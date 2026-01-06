@@ -59,6 +59,7 @@ public class LutzAgent extends SearchAgent {
                 ScanConfig.defaults());
     }
 
+    @Override
     protected SearchPrompts.Objective getObjective() {
         return objective;
     }
