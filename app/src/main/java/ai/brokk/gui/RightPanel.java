@@ -55,6 +55,8 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     private final ContextManager contextManager;
 
+    private final TabDragUndockHandler tabDragUndockHandler;
+
     enum UndockTarget {
         REVIEW,
         PREVIEW,
@@ -169,8 +171,8 @@ public class RightPanel extends JPanel implements ThemeAware {
         // Set up tab change listeners (must be after buildReviewTabs is created)
         setupCommandPaneLogic();
 
-        var dragHandler = new TabDragUndockHandler();
-        dragHandler.register();
+        tabDragUndockHandler = new TabDragUndockHandler();
+        tabDragUndockHandler.register();
 
         add(sessionHeaderPanel, BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);
@@ -801,6 +803,12 @@ public class RightPanel extends JPanel implements ThemeAware {
         return commandPane;
     }
 
+    @Override
+    public void removeNotify() {
+        tabDragUndockHandler.unregister();
+        super.removeNotify();
+    }
+
     private class TabDragUndockHandler implements AWTEventListener {
         private static final int DRAG_THRESHOLD = 32;
         private @Nullable Point pressPoint;
@@ -814,6 +822,10 @@ public class RightPanel extends JPanel implements ThemeAware {
         public void register() {
             Toolkit.getDefaultToolkit()
                     .addAWTEventListener(this, AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);
+        }
+
+        public void unregister() {
+            Toolkit.getDefaultToolkit().removeAWTEventListener(this);
         }
 
         @Override
