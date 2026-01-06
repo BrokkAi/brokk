@@ -753,10 +753,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // 1. Try NEW content first
         String newContent = targetInfo.rightSource().content();
         String[] newLines = newContent.split("\\r?\\n", -1);
-        var found = EditBlock.findIgnoringWhitespace(newLines, 0, targetLines);
-        if (found.isPresent()) {
-            int lineNum =
-                    newContent.substring(0, newContent.indexOf(found.get())).split("\n").length + 1;
+        var matches = ai.brokk.util.WhitespaceMatch.findAll(newLines, targetLines);
+        if (!matches.isEmpty()) {
+            int lineNum = matches.getFirst().startLine() + 1;
             logger.debug("resolveExcerpt: Found in NEW content at line {}", lineNum);
             return new CodeReviewCommon.ParsedExcerpt(excerpt, lineNum);
         }
@@ -765,8 +764,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // 2. Try OLD content
         String oldContent = targetInfo.leftSource().content();
         String[] oldLines = oldContent.split("\\r?\\n", -1);
-        found = EditBlock.findIgnoringWhitespace(oldLines, 0, targetLines);
-        if (found.isPresent()) {
+        if (!ai.brokk.util.WhitespaceMatch.findAll(oldLines, targetLines).isEmpty()) {
             // If found in old content, we navigate to the file but we can't reliably pinpoint the line in the "new"
             // view since it was deleted or changed. We return line -1 to indicate file-level navigation.
             logger.debug("resolveExcerpt: Found in OLD content (returning line -1 for file-level nav)");

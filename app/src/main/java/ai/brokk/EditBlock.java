@@ -6,6 +6,7 @@ import ai.brokk.analyzer.*;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.util.IndentUtil;
+import ai.brokk.util.WhitespaceMatch;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -250,11 +251,9 @@ public class EditBlock {
                             .filter(f -> !f.equals(file))
                             .filter(f -> {
                                 String otherContent = f.read().orElse("");
-                                return findIgnoringWhitespace(
-                                                otherContent.lines().toArray(String[]::new),
-                                                0,
-                                                effectiveBefore.trim().lines().toArray(String[]::new))
-                                        .isPresent();
+                                return existsIgnoringWhitespace(
+                                        otherContent.lines().toArray(String[]::new),
+                                        effectiveBefore.trim().lines().toArray(String[]::new));
                             })
                             .map(ProjectFile::getFileName)
                             .distinct()
@@ -664,28 +663,8 @@ public class EditBlock {
             return null; // Fall through to NoMatchException from the caller if this specific case wasn't caught.
         }
 
-        List<Integer> matches = new ArrayList<>();
-        int needed = truncatedTarget.length;
-
-        for (int start = 0; start <= originalLines.length - needed; ) {
-            if (findIgnoringWhitespace(originalLines, start, truncatedTarget).isPresent()) {
-                matches.add(start);
-                if (matches.size() > 1) {
-                    throw new AmbiguousMatchException(
-                            "No exact matches found, and multiple matches found ignoring whitespace");
-                }
-                start += truncatedTarget.length;
-            } else {
-                start++;
-            }
-        }
-
-        if (matches.isEmpty()) {
-            throw new NoMatchException("No matches found ignoring whitespace");
-        }
-
-        // Exactly one match
-        int matchStart = matches.getFirst();
+        WhitespaceMatch match = findUniqueIgnoringWhitespace(originalLines, truncatedTarget);
+        int matchStart = match.startLine();
 
         List<String> resultLines = new ArrayList<>(Arrays.asList(originalLines).subList(0, matchStart));
         if (truncatedReplace.length > 0) {
@@ -718,7 +697,7 @@ public class EditBlock {
                 resultLines.add(adjusted);
             }
         }
-        resultLines.addAll(Arrays.asList(originalLines).subList(matchStart + needed, originalLines.length));
+        resultLines.addAll(Arrays.asList(originalLines).subList(matchStart + truncatedTarget.length, originalLines.length));
 
         // Reconstruct string: join raw lines with \n, then add a final \n if original had one.
         if (resultLines.isEmpty()) {
@@ -744,27 +723,25 @@ public class EditBlock {
         return Arrays.copyOfRange(targetLines, pStart, pEnd);
     }
 
+    /** Returns true if targetLines exists anywhere within originalLines ignoring whitespace. */
+    public static boolean existsIgnoringWhitespace(String[] originalLines, String[] targetLines) {
+        return !WhitespaceMatch.findAll(originalLines, targetLines).isEmpty();
+    }
+
     /**
-     * @return an Optional containing the concatenated `originalLines` matching `targetLines`
-     * if there is a UNIQUE match for targetLines in
-     * originalLines starting at 'start', ignoring whitespace; otherwise empty.
+     * Returns the unique match for targetLines in originalLines ignoring whitespace.
+     * Throws if 0 or >1 matches are found.
      */
-    public static Optional<String> findIgnoringWhitespace(String[] originalLines, int start, String[] targetLines) {
-        if (start + targetLines.length > originalLines.length) {
-            return Optional.empty();
+    public static WhitespaceMatch findUniqueIgnoringWhitespace(String[] originalLines, String[] targetLines)
+            throws NoMatchException, AmbiguousMatchException {
+        var matches = WhitespaceMatch.findAll(originalLines, targetLines);
+        if (matches.isEmpty()) {
+            throw new NoMatchException("No matches found ignoring whitespace");
         }
-
-        StringBuilder combined = new StringBuilder();
-        for (int i = 0; i < targetLines.length; i++) {
-            String originalNW = nonWhitespace(originalLines[start + i]);
-            String targetNW = nonWhitespace(targetLines[i]);
-            if (!originalNW.equals(targetNW)) {
-                return Optional.empty();
-            }
-            combined.append(originalLines[start + i]).append("\n");
+        if (matches.size() > 1) {
+            throw new AmbiguousMatchException("Multiple matches found ignoring whitespace");
         }
-
-        return Optional.of(combined.toString().stripTrailing());
+        return matches.getFirst();
     }
 
     /** @return the non-whitespace characters in `line` */
