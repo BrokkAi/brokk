@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.SwingUtil.ThemedIcon;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
@@ -1107,61 +1108,24 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var mcpConfig = new McpConfig(mcpServers);
 
         // Move all file I/O operations to background thread to avoid blocking EDT
-        chrome.getContextManager().submitBackgroundTask("Save global settings", () -> {
-            MainProject.setBrokkKey(newBrokkKeyFromField);
-            MainProject.setLlmProxySetting(proxySetting);
-            MainProject.setForceToolEmulation(forceToolEmulation);
-            MainProject.setTheme(newTheme);
-            MainProject.setCodeBlockWrapMode(newWrapMode);
-
-            if (uiScaleChanged) {
-                if ("auto".equalsIgnoreCase(newUiScalePref)) {
-                    MainProject.setUiScalePrefAuto();
-                } else {
-                    double scale = Double.parseDouble(newUiScalePref);
-                    MainProject.setUiScalePrefCustom(scale);
-                }
-            }
-
-            MainProject.setTerminalFontSize(terminalFontSize);
-            GlobalUiSettings.saveVerticalActivityLayout(verticalLayout);
-            GlobalUiSettings.saveDiffUnifiedView(diffUnified);
-            chrome.getProject().getMainProject().setMcpConfig(mcpConfig);
-
-            // Trigger side effects on EDT after settings are saved
-            SwingUtilities.invokeLater(() -> {
-                if (uiScaleChanged) {
-                    parentDialog.markRestartNeededForUiScale();
-                }
-
-                if (keyStateChangedInUI) {
-                    refreshBalanceDisplay();
-                    updateSignupLabelVisibility();
-                    parentDialog.triggerDataRetentionPolicyRefresh();
-                    try {
-                        chrome.getContextManager().reloadService();
-                    } catch (Exception e) {
-                        logger.debug("Failed to reload service after Brokk key change (non-fatal)", e);
-                    }
-                }
-
-                boolean themeChanged = !newTheme.equals(oldTheme);
-                boolean wrapChanged = newWrapMode != oldWrapMode;
-                if (themeChanged || wrapChanged) {
-                    chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
-                }
-
-                if (verticalLayout != previousVerticalLayout) {
-                    JOptionPane.showMessageDialog(
-                            SettingsGlobalPanel.this,
-                            "Restart required: Changing Activity Layout will take effect after restarting Brokk.",
-                            "Restart Required",
-                            JOptionPane.INFORMATION_MESSAGE);
-                }
-
-                chrome.updateTerminalFontSize();
-            });
-        });
+        new SaveGlobalSettingsWorker(
+                        chrome,
+                        newBrokkKeyFromField,
+                        proxySetting,
+                        forceToolEmulation,
+                        newTheme,
+                        newWrapMode,
+                        uiScaleChanged,
+                        newUiScalePref,
+                        terminalFontSize,
+                        verticalLayout,
+                        diffUnified,
+                        mcpConfig,
+                        keyStateChangedInUI,
+                        oldTheme,
+                        oldWrapMode,
+                        previousVerticalLayout)
+                .execute();
 
         logger.debug("Applied global settings (service + appearance + MCP + GitHub) successfully");
         return true;
@@ -2414,5 +2378,132 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "High Contrast" -> GuiTheme.THEME_HIGH_CONTRAST;
             default -> GuiTheme.THEME_LIGHT;
         };
+    }
+
+    /**
+     * SwingWorker to save global settings to disk on a background thread,
+     * then trigger UI updates on EDT after successful save.
+     */
+    private class SaveGlobalSettingsWorker extends ExceptionAwareSwingWorker<Void, Void> {
+        private final String newBrokkKeyFromField;
+        private final MainProject.LlmProxySetting proxySetting;
+        private final boolean forceToolEmulation;
+        private final String newTheme;
+        private final boolean newWrapMode;
+        private final boolean uiScaleChanged;
+        private final String newUiScalePref;
+        private final float terminalFontSize;
+        private final boolean verticalLayout;
+        private final boolean diffUnified;
+        private final McpConfig mcpConfig;
+        private final boolean keyStateChangedInUI;
+        private final String oldTheme;
+        private final boolean oldWrapMode;
+        private final boolean previousVerticalLayout;
+
+        SaveGlobalSettingsWorker(
+                Chrome chrome,
+                String newBrokkKeyFromField,
+                MainProject.LlmProxySetting proxySetting,
+                boolean forceToolEmulation,
+                String newTheme,
+                boolean newWrapMode,
+                boolean uiScaleChanged,
+                String newUiScalePref,
+                float terminalFontSize,
+                boolean verticalLayout,
+                boolean diffUnified,
+                McpConfig mcpConfig,
+                boolean keyStateChangedInUI,
+                String oldTheme,
+                boolean oldWrapMode,
+                boolean previousVerticalLayout) {
+            super(chrome);
+            this.newBrokkKeyFromField = newBrokkKeyFromField;
+            this.proxySetting = proxySetting;
+            this.forceToolEmulation = forceToolEmulation;
+            this.newTheme = newTheme;
+            this.newWrapMode = newWrapMode;
+            this.uiScaleChanged = uiScaleChanged;
+            this.newUiScalePref = newUiScalePref;
+            this.terminalFontSize = terminalFontSize;
+            this.verticalLayout = verticalLayout;
+            this.diffUnified = diffUnified;
+            this.mcpConfig = mcpConfig;
+            this.keyStateChangedInUI = keyStateChangedInUI;
+            this.oldTheme = oldTheme;
+            this.oldWrapMode = oldWrapMode;
+            this.previousVerticalLayout = previousVerticalLayout;
+        }
+
+        @Override
+        protected Void doInBackground() {
+            MainProject.setBrokkKey(newBrokkKeyFromField);
+            MainProject.setLlmProxySetting(proxySetting);
+            MainProject.setForceToolEmulation(forceToolEmulation);
+            MainProject.setTheme(newTheme);
+            MainProject.setCodeBlockWrapMode(newWrapMode);
+
+            if (uiScaleChanged) {
+                if ("auto".equalsIgnoreCase(newUiScalePref)) {
+                    MainProject.setUiScalePrefAuto();
+                } else {
+                    double scale = Double.parseDouble(newUiScalePref);
+                    MainProject.setUiScalePrefCustom(scale);
+                }
+            }
+
+            MainProject.setTerminalFontSize(terminalFontSize);
+            GlobalUiSettings.saveVerticalActivityLayout(verticalLayout);
+            GlobalUiSettings.saveDiffUnifiedView(diffUnified);
+            chrome.getProject().getMainProject().setMcpConfig(mcpConfig);
+
+            return null;
+        }
+
+        @Override
+        protected void done() {
+            // First invoke centralized exception handling (logs, uploads, and notifies user)
+            super.done();
+
+            // If successful, trigger UI updates on EDT
+            try {
+                get();
+            } catch (Exception ignored) {
+                // Already handled by ExceptionAwareSwingWorker.done()
+                return;
+            }
+
+            if (uiScaleChanged) {
+                parentDialog.markRestartNeededForUiScale();
+            }
+
+            if (keyStateChangedInUI) {
+                refreshBalanceDisplay();
+                updateSignupLabelVisibility();
+                parentDialog.triggerDataRetentionPolicyRefresh();
+                try {
+                    chrome.getContextManager().reloadService();
+                } catch (Exception e) {
+                    logger.debug("Failed to reload service after Brokk key change (non-fatal)", e);
+                }
+            }
+
+            boolean themeChanged = !newTheme.equals(oldTheme);
+            boolean wrapChanged = newWrapMode != oldWrapMode;
+            if (themeChanged || wrapChanged) {
+                chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
+            }
+
+            if (verticalLayout != previousVerticalLayout) {
+                JOptionPane.showMessageDialog(
+                        SettingsGlobalPanel.this,
+                        "Restart required: Changing Activity Layout will take effect after restarting Brokk.",
+                        "Restart Required",
+                        JOptionPane.INFORMATION_MESSAGE);
+            }
+
+            chrome.updateTerminalFontSize();
+        }
     }
 }
