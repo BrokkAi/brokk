@@ -21,8 +21,10 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import ai.brokk.ICodeReview.CodeExcerpt;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -176,6 +178,26 @@ public class ReviewAgent {
             var rawReview = ICodeReview.RawReview.fromJson(executionResult.resultText());
             return ICodeReview.GuidedReview.fromRaw(rawReview, parsedExcerpts);
         }
+    }
+
+    public static Map<Integer, String> validateFileExists(Map<Integer, CodeExcerpt> excerpts, IContextManager cm) {
+        Map<Integer, String> errors = new HashMap<>();
+        for (var entry : excerpts.entrySet()) {
+            if (cm.toFile(entry.getValue().file()) == null) {
+                errors.put(entry.getKey(), "File does not exist: " + entry.getValue().file());
+            }
+        }
+        return errors;
+    }
+
+    public static Map<Integer, String> validateExcerptInDiff(Map<Integer, CodeExcerpt> excerpts, String diff) {
+        Map<Integer, String> errors = new HashMap<>();
+        for (var entry : excerpts.entrySet()) {
+            if (!diff.contains(entry.getValue().excerpt())) {
+                errors.put(entry.getKey(), "Excerpt not found in diff");
+            }
+        }
+        return errors;
     }
 
     @Tool("Create a structured code review of the current changes or proposal.")
