@@ -799,7 +799,11 @@ public class RightPanel extends JPanel implements ThemeAware {
         @Override
         public void mousePressed(java.awt.event.MouseEvent e) {
             undocked = false;
-            dragTabIndex = buildReviewTabs.indexAtLocation(e.getX(), e.getY());
+            // First check if we clicked on a specific tab header
+            int clickedTabIndex = buildReviewTabs.indexAtLocation(e.getX(), e.getY());
+            // If not on a tab header, use the currently selected tab
+            dragTabIndex = (clickedTabIndex != -1) ? clickedTabIndex : buildReviewTabs.getSelectedIndex();
+
             if (dragTabIndex != -1) {
                 pressPoint = e.getPoint();
 
