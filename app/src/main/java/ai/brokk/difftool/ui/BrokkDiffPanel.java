@@ -1523,7 +1523,7 @@ public class BrokkDiffPanel extends JPanel
             needsLayoutReset = true;
             panel.diff(false);
 
-            scrollToLineInCurrentPanel(targetLine, targetSide);
+            SwingUtilities.invokeLater(() -> scrollToLineInCurrentPanel(targetLine, targetSide));
         } else {
             panel.resetToFirstDifference();
 
