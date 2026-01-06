@@ -543,8 +543,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .map(de -> "File: " + de.title() + "\n" + de.diff())
                         .collect(java.util.stream.Collectors.joining("\n\n"));
 
-                var agent = new ReviewAgent(formattedDiff, contextManager, tio);
-                var review = agent.execute();
+                String cacheKey = "guided_review_" + dev.langchain4j.internal.Utils.generateUUIDFrom(formattedDiff);
+                var diskCache = contextManager.getProject().getDiskCache();
+
+                ICodeReview.GuidedReview review;
+                var cachedJson = diskCache.get(cacheKey);
+                if (cachedJson.isPresent()) {
+                    review = ICodeReview.GuidedReview.fromJson(cachedJson.get());
+                } else {
+                    var agent = new ReviewAgent(formattedDiff, contextManager, tio);
+                    review = agent.execute();
+                    diskCache.put(cacheKey, review.toJson());
+                }
 
                 // Pre-resolve excerpts
                 List<List<CodeReviewPanel.ParsedExcerpt>> designExcerpts = review.designNotes().stream()
