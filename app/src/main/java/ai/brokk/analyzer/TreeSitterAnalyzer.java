@@ -3335,7 +3335,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 }
 
                 SuperTypeInfo mergedSuperTypes = existing.superTypes();
-                if (newState.superTypes() instanceof SuperTypeInfo.Computed newComputed) {
+                // If raw supertypes or ranges have changed, invalidate previously computed supertypes
+                if (!mergedRawSupers.equals(existing.rawSupertypes()) || !mergedRanges.equals(existing.ranges())) {
+                    mergedSuperTypes = new SuperTypeInfo.Uncomputed();
+                } else if (newState.superTypes() instanceof SuperTypeInfo.Computed newComputed) {
                     if (mergedSuperTypes instanceof SuperTypeInfo.Computed existingComputed) {
                         var tmp = new ArrayList<>(existingComputed.supertypes());
                         for (var r : newComputed.supertypes()) if (!tmp.contains(r)) tmp.add(r);
