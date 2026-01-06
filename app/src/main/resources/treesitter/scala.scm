@@ -89,9 +89,6 @@
   (#match? @test.annotation "^(Test|ParameterizedTest|RepeatedTest)$")
 )
 
-(import_declaration) @test.import
-(#match? @test.import "org.scalatest")
-
 ; ScalaTest FunSuite: test("description") { ... }
 (call_expression
   function: (identifier) @test.call

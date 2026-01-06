@@ -77,6 +77,26 @@ public class ScalaTestDetectionTest {
     }
 
     @Test
+    void negativeCaseWithScalaTestImportOnly() throws IOException {
+        String code =
+                """
+            import org.scalatest.funsuite.AnyFunSuite
+
+            class Example {
+              def add(a: Int, b: Int): Int = a + b
+            }
+            """;
+
+        IProject project = InlineTestProjectCreator.code(code, "Example.scala").build();
+        ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
+        analyzer.update();
+
+        var file = new ProjectFile(project.getRoot(), "Example.scala");
+        assertFalse(analyzer.containsTests(file));
+        assertFalse(ContextManager.isTestFile(file, analyzer));
+    }
+
+    @Test
     void negativeCaseNoMarkersNoScalaTestImports() throws IOException {
         String code =
                 """
