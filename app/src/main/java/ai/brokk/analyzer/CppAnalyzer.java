@@ -337,7 +337,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             var signatureCache = new HashMap<NamespaceProcessor.NodeRange, String>();
             properties.forEach((cu, props) -> {
                 signaturesMap.put(cu, props.signatures());
-                if (cu.isFunction()) {
+                if (cu.source().equals(file)) {
                     String signature = props.signatures().stream().findFirst().orElse("");
                     for (var range : props.ranges()) {
                         var nodeRange = new NamespaceProcessor.NodeRange(range.startByte(), range.endByte());
