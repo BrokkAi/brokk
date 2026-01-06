@@ -513,6 +513,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         JTextArea logArea = new JTextArea();
         logArea.setEditable(false);
+        logArea.setLineWrap(true);
+        logArea.setWrapStyleWord(true);
         logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         logArea.setBackground(ThemeColors.getPanelBackground());
         logArea.setForeground(UIManager.getColor("Label.foreground"));
