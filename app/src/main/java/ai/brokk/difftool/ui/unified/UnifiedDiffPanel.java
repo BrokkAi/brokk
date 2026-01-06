@@ -857,12 +857,13 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             int offset = textArea.getLineStartOffset(Math.max(0, lineNumber - 1));
             textArea.setCaretPosition(offset);
 
-            // Center the line in the viewport
+            // Scroll the line to the top with a 3-line buffer
             var rect = textArea.modelToView2D(offset);
             if (rect != null) {
                 var viewport = scrollPane.getViewport();
-                int viewHeight = viewport.getHeight();
-                int y = (int) rect.getY() - viewHeight / 2;
+                int lineHeight = textArea.getLineHeight();
+                int buffer = 3 * lineHeight;
+                int y = (int) rect.getY() - buffer;
                 viewport.setViewPosition(new Point(0, Math.max(0, y)));
             }
         } catch (javax.swing.text.BadLocationException e) {
