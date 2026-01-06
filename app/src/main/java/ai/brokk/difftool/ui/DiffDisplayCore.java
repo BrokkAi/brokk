@@ -155,7 +155,7 @@ public class DiffDisplayCore {
         AbstractDiffPanel panel = createPanel(index, diffNode);
         panelCache.put(index, panel);
         if (index == currentIndex) {
-            mainPanel.displayAndRefreshPanel(index, panel);
+            displayPanel(index, panel);
         }
     }
 
@@ -169,11 +169,15 @@ public class DiffDisplayCore {
                 AbstractDiffPanel panel = createPanel(index, diffNode);
                 panelCache.put(index, panel);
                 if (index == currentIndex) {
-                    mainPanel.displayAndRefreshPanel(index, panel);
+                    displayPanel(index, panel);
                 }
             });
             return null;
         });
+    }
+
+    protected void displayPanel(int index, AbstractDiffPanel panel) {
+        mainPanel.displayAndRefreshPanel(index, panel);
     }
 
     private AbstractDiffPanel createPanel(int index, JMDiffNode diffNode) {

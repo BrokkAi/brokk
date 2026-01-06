@@ -61,12 +61,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private BaselineMode lastBaselineMode = null;
 
     @Nullable
-    private BrokkDiffPanel diffPanel;
+    private ai.brokk.difftool.ui.DiffDisplayCore diffCore;
+
+    @Nullable
+    private ai.brokk.difftool.ui.FileTreePanel fileTreePanel;
 
     @Nullable
     private CodeReviewPanel codeReviewPanel;
 
-    private List<ai.brokk.difftool.ui.FileComparisonInfo> fileData = List.of();
+    @Nullable
+    private JPanel diffContainer;
+
+    private List<ai.brokk.difftool.ui.FileComparisonInfo> fileComparisons = List.of();
 
     @FunctionalInterface
     public interface TabTitleUpdater {
@@ -299,8 +305,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        if (diffPanel != null) {
-            diffPanel.dispose();
+        if (diffCore != null) {
+            diffCore.clearCache();
         }
         removeAll();
 
@@ -388,7 +394,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         var root = contextManager.getProject().getRoot();
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
-        this.fileData = prepared.stream()
+        this.fileComparisons = prepared.stream()
                 .map(entry -> {
                     ProjectFile pf = null;
                     try {
@@ -402,37 +408,80 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 })
                 .toList();
 
-        var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
-        for (var info : fileData) {
-            builder.addComparison(info.file(), info.leftSource(), info.rightSource());
-        }
-        builder.setForceFileTree(true);
-        builder.setRootTitle(projectName);
-        this.diffPanel = builder.build();
+        diffContainer = new JPanel(new BorderLayout());
+        diffContainer.setOpaque(false);
+
+        // We use a dummy panel to satisfy DiffDisplayCore's constructor requirement for now,
+        // though ideally DiffDisplayCore should be decoupled from BrokkDiffPanel.
+        // For this refactor, we focus on the composition in SessionChangesPanel.
+        var dummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
+                new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager),
+                chrome.getTheme());
+
+        this.diffCore = new ai.brokk.difftool.ui.DiffDisplayCore(
+                dummyPanel,
+                contextManager,
+                chrome.getTheme(),
+                fileComparisons,
+                false,
+                0) {
+            @Override
+            public void showFile(int index) {
+                super.showFile(index);
+                if (fileTreePanel != null) {
+                    fileTreePanel.selectFile(index);
+                }
+            }
+
+            @Override
+            protected void displayPanel(int index, ai.brokk.difftool.ui.AbstractDiffPanel panel) {
+                if (diffContainer != null) {
+                    diffContainer.removeAll();
+                    diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+                    diffContainer.revalidate();
+                    diffContainer.repaint();
+                }
+            }
+        };
+
+        // Inject the display logic to update our local diffContainer instead of the dummy panel's tabs
+        dummyPanel.setBufferDiffPanel(null); // Clear any default behavior
+
+        this.fileTreePanel = new ai.brokk.difftool.ui.FileTreePanel(fileComparisons, root, projectName);
+        this.fileTreePanel.setSelectionListener(new ai.brokk.difftool.ui.DiffNavigationTarget() {
+            @Override public void navigateToFile(int fileIndex) { diffCore.showFile(fileIndex); }
+            @Override public void navigateToFile(ProjectFile file) { diffCore.showFile(file); }
+            @Override public void navigateToLocation(int fileIndex, int lineNumber) { diffCore.showLocation(fileComparisons.get(fileIndex).file(), lineNumber); }
+            @Override public void navigateToLocation(ProjectFile file, int lineNumber) { diffCore.showLocation(file, lineNumber); }
+            @Override public int getCurrentFileIndex() { return diffCore.getCurrentIndex(); }
+            @Override public int getFileComparisonCount() { return fileComparisons.size(); }
+        });
+        this.fileTreePanel.initializeTree();
 
         codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview);
         codeReviewPanel.addReviewNavigationListener(pe -> {
-            if (diffPanel != null) {
-                ProjectFile pf = contextManager.toFile(pe.original().file());
-                if (pe.lineNumber() != -1) {
-                    diffPanel.navigateToLocation(pf, pe.lineNumber());
-                } else {
-                    diffPanel.navigateToFile(pf);
-                }
+            ProjectFile pf = contextManager.toFile(pe.original().file());
+            if (pe.lineNumber() != -1) {
+                diffCore.showLocation(pf, pe.lineNumber());
+            } else {
+                diffCore.showFile(pf);
             }
         });
 
-        var leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel, diffPanel);
-        leftSplit.setDividerLocation(300);
-        leftSplit.setResizeWeight(0.5);
+        JSplitPane diffSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, fileTreePanel, diffContainer);
+        diffSplit.setDividerLocation(250);
 
-        topContainer.add(leftSplit, BorderLayout.CENTER);
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel, diffSplit);
+        mainSplit.setDividerLocation(300);
+        mainSplit.setResizeWeight(0.5);
+
+        topContainer.add(mainSplit, BorderLayout.CENTER);
 
         setBorder(new CompoundBorder(
                 new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
         add(topContainer, BorderLayout.CENTER);
 
-        diffPanel.navigateToFile(0);
+        this.diffCore.showFile(0);
         applyTheme(chrome.getTheme());
 
         revalidate();
@@ -611,7 +660,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private @Nullable CodeReviewPanel.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
         String relPath = excerpt.file();
-        ai.brokk.difftool.ui.FileComparisonInfo targetInfo = fileData.stream()
+        ai.brokk.difftool.ui.FileComparisonInfo targetInfo = fileComparisons.stream()
                 .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
                         || relPath.equals(info.rightSource().filename())
                         || relPath.equals(info.leftSource().filename()))
@@ -652,14 +701,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         if (codeReviewPanel != null) codeReviewPanel.applyTheme(guiTheme);
-        if (diffPanel != null) diffPanel.applyTheme(guiTheme);
+        if (fileTreePanel != null) fileTreePanel.applyTheme(guiTheme);
+        if (diffCore != null) {
+            for (var panel : diffCore.getCachedPanels()) {
+                panel.applyTheme(guiTheme);
+            }
+        }
     }
 
     public void dispose() {
-        if (diffPanel != null) {
-            diffPanel.dispose();
+        if (diffCore != null) {
+            diffCore.clearCache();
         }
-        diffPanel = null;
+        diffCore = null;
     }
 
     public enum BaselineMode {
