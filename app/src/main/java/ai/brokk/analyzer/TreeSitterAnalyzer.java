@@ -92,6 +92,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // Discarding the cache ensures we re-compute ancestors against the new state.
     private final ConcurrentHashMap<CodeUnit, List<CodeUnit>> supertypesCache = new ConcurrentHashMap<>();
 
+    // Thread-local recursion guard to prevent infinite loops (and ConcurrentHashMap recursive update exceptions)
+    // when a type hierarchy contains cycles or when resolving supertypes triggers recursive resolution.
+    private final ThreadLocal<Set<CodeUnit>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
+
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
                     (CodeUnit cu) -> firstStartByteForSelection(cu))
@@ -3119,6 +3123,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return List.of();
         }
 
+        // Guard against recursive computation on the same thread.
+        // This prevents infinite recursion and avoids IllegalStateException from ConcurrentHashMap.computeIfAbsent.
+        Set<CodeUnit> visiting = recursionGuard.get();
+        if (visiting.contains(cu)) {
+            log.trace("Recursive getDirectAncestors detected for {}", cu.fqName());
+            return List.of();
+        }
+
         // 1. Check lazy cache
         List<CodeUnit> cached = supertypesCache.get(cu);
         if (cached != null) {
@@ -3131,10 +3143,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return computed.supertypes();
         }
 
-        // 3. Compute lazily
-        List<CodeUnit> computedSupers = computeSupertypes(cu);
-        supertypesCache.put(cu, computedSupers);
-        return computedSupers;
+        // 3. Compute lazily (atomic per key)
+        return supertypesCache.computeIfAbsent(cu, k -> {
+            visiting.add(k);
+            try {
+                return computeSupertypes(k);
+            } finally {
+                visiting.remove(k);
+            }
+        });
     }
 
     /* ---------- file filtering helpers ---------- */
