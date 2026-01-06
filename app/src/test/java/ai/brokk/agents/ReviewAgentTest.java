@@ -40,20 +40,6 @@ class ReviewAgentTest {
         assertTrue(errors.get(1).contains("File does not exist"));
     }
 
-    @Test
-    void testValidateExcerptInDiff() {
-        String diff = "line 1\n+ new code\nline 2";
-
-        Map<Integer, CodeExcerpt> excerpts = Map.of(
-            0, new CodeExcerpt("file.java", 0, ICodeReview.DiffSide.NEW, "new code"),
-            1, new CodeExcerpt("file.java", 0, ICodeReview.DiffSide.NEW, "missing code")
-        );
-
-        Map<Integer, String> errors = ReviewAgent.validateExcerptInDiff(excerpts, diff);
-
-        assertEquals(1, errors.size());
-        assertEquals("Excerpt not found in diff", errors.get(1));
-    }
 
     @Test
     void testResolveExcerptsDisambiguation() {

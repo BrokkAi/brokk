@@ -219,29 +219,8 @@ public class ReviewAgent {
         return errors;
     }
 
-    static Map<Integer, String> validateExcerptInDiff(Map<Integer, CodeExcerpt> excerpts, String diff) {
-        Map<Integer, String> errors = new HashMap<>();
-        for (var entry : excerpts.entrySet()) {
-            if (!diff.contains(entry.getValue().excerpt())) {
-                errors.put(entry.getKey(), "Excerpt not found in diff");
-            }
-        }
-        return errors;
-    }
-
     @Blocking
     private Map<Integer, CodeExcerpt> retryInStages(
-            Llm llm,
-            List<ChatMessage> turn1Messages,
-            Llm.StreamingResult turn1Result,
-            Map<Integer, CodeExcerpt> initialExcerpts) throws InterruptedException {
-
-        Map<Integer, CodeExcerpt> currentExcerpts = retryFileNotFound(llm, turn1Messages, turn1Result, initialExcerpts);
-        return retryExcerptNotFound(llm, turn1Messages, turn1Result, currentExcerpts);
-    }
-
-    @Blocking
-    Map<Integer, CodeExcerpt> retryFileNotFound(
             Llm llm,
             List<ChatMessage> turn1Messages,
             Llm.StreamingResult turn1Result,
@@ -258,6 +237,7 @@ public class ReviewAgent {
         history.add(new AiMessage(turn1Result.text(),
                 requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
 
+        // Stage 1: File not found (Appends to history)
         for (int i = 0; i < 2; i++) {
             Map<Integer, String> errors = new HashMap<>();
             for (var entry : currentFiles.entrySet()) {
@@ -289,31 +269,7 @@ public class ReviewAgent {
             currentContents.putAll(ReviewExcerptParser.instance.parseExcerptContents(result.text()));
         }
 
-        Map<Integer, CodeExcerpt> out = new HashMap<>();
-        currentFiles.forEach((id, f) -> {
-            out.put(id, new CodeExcerpt(f, currentContents.getOrDefault(id, "")));
-        });
-        return out;
-    }
-
-    @Blocking
-    Map<Integer, CodeExcerpt> retryExcerptNotFound(
-            Llm llm,
-            List<ChatMessage> turn1Messages,
-            Llm.StreamingResult turn1Result,
-            Map<Integer, CodeExcerpt> initialExcerpts) throws InterruptedException {
-
-        Map<Integer, String> currentFiles = new HashMap<>();
-        Map<Integer, String> currentContents = new HashMap<>();
-        initialExcerpts.forEach((id, ce) -> {
-            currentFiles.put(id, ce.file());
-            currentContents.put(id, ce.excerpt());
-        });
-
-        List<ChatMessage> history = new ArrayList<>(turn1Messages);
-        history.add(new AiMessage(turn1Result.text(),
-                requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
-
+        // Stage 2: Excerpt not found in diff (Fresh context for reduced confusion)
         for (int i = 0; i < 2; i++) {
             Map<Integer, String> errors = new HashMap<>();
             for (var entry : currentContents.entrySet()) {
@@ -323,9 +279,11 @@ public class ReviewAgent {
             }
             if (errors.isEmpty()) break;
 
+            // Build fresh message list for this stage
             List<ChatMessage> stage2Messages = new ArrayList<>();
             stage2Messages.add(buildSystemMessage());
 
+            // Context: Only files referenced by failing excerpts
             var filesToInclude = errors.keySet().stream()
                     .map(currentFiles::get)
                     .map(cm::toFile)
@@ -335,6 +293,7 @@ public class ReviewAgent {
             Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
             stage2Messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
 
+            // Add previous conversation history
             stage2Messages.addAll(history);
 
             String errorList = errors.entrySet().stream()
@@ -353,7 +312,7 @@ public class ReviewAgent {
 
             AiMessage aiResponse = new AiMessage(result.text(),
                     requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), ""));
-            history.add(aiResponse);
+            history.add(aiResponse); // Keep history updated for next iteration if needed
             currentFiles.putAll(ReviewExcerptParser.instance.parseExcerptFiles(result.text()));
             currentContents.putAll(ReviewExcerptParser.instance.parseExcerptContents(result.text()));
         }
