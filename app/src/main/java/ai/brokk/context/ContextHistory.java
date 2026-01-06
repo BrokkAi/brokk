@@ -166,24 +166,42 @@ public class ContextHistory {
         return false;
     }
 
-    public synchronized Context push(Function<Context, Context> contextGenerator) {
-        var updatedLiveContext = contextGenerator.apply(liveContext());
-        // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
-        // materialize
-        if (Objects.equals(liveContext(), updatedLiveContext)) {
-            return liveContext();
-        }
+    public Context push(Function<Context, Context> contextGenerator) {
+        while (true) {
+            Context snapshot = liveContext();
+            Context updated = contextGenerator.apply(snapshot);
 
-        pushContext(updatedLiveContext);
-        return liveContext();
+            synchronized (this) {
+                // Verify the context hasn't changed since we started computing 'updated'
+                if (liveContext().equals(snapshot)) {
+                    if (Objects.equals(snapshot, updated)) {
+                        return snapshot;
+                    }
+                    pushContextInternal(updated, true);
+                    return liveContext();
+                }
+            }
+            // If we're here, context changed; loop and retry with the new liveContext
+        }
     }
 
     /**
      * Inherently not undo-able, use with care!
      */
-    public synchronized Context replaceTop(Function<Context, Context> contextGenerator) {
-        var updated = contextGenerator.apply(liveContext());
-        return replaceTopInternal(updated);
+    public Context replaceTop(Function<Context, Context> contextGenerator) {
+        while (true) {
+            Context snapshot = liveContext();
+            Context updated = contextGenerator.apply(snapshot);
+
+            synchronized (this) {
+                if (liveContext().equals(snapshot)) {
+                    if (Objects.equals(snapshot, updated)) {
+                        return snapshot;
+                    }
+                    return replaceTopInternal(updated);
+                }
+            }
+        }
     }
 
     /**
