@@ -424,8 +424,9 @@ public class ReviewAgent {
             @P(
                             "A list of local bugs or problems. `recommendation` should be detailed enough to give to Code Agent for remediation.")
                     List<ReviewParser.RawTacticalFeedback> tacticalNotes,
-            @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
-                    List<String> additionalTests) {
+            @P(
+                            "A list of additional tests with high benefit:cost. For each item, provide a `title` (short 4-5 word label), a `description` explaining the test, and a `recommendation` detailed enough to give to Code Agent for implementation. Use Markdown formatting.")
+                    List<ReviewParser.ReviewFeedback> additionalTests) {
         var review = new ReviewParser.RawReview(overview, designNotes, tacticalNotes, additionalTests);
         return review.toJson();
     }

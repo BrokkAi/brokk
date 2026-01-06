@@ -198,7 +198,7 @@ public class ReviewParser {
             String overview,
             List<RawDesignFeedback> designNotes,
             List<RawTacticalFeedback> tacticalNotes,
-            List<String> additionalTests) {
+            List<ReviewFeedback> additionalTests) {
         public String toJson() {
             return Json.toJson(this);
         }
@@ -218,7 +218,7 @@ public class ReviewParser {
             String overview,
             List<DesignFeedback> designNotes,
             List<TacticalFeedback> tacticalNotes,
-            List<String> additionalTests) {
+            List<ReviewFeedback> additionalTests) {
 
         public String toJson() {
             return Json.toJson(this);

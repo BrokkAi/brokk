@@ -5,6 +5,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.GuidedReview;
+import ai.brokk.util.ReviewParser.ReviewFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
 import java.awt.BorderLayout;
 import java.awt.Component;
@@ -82,6 +83,11 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         addHeader("Tactical");
         for (TacticalFeedback tactical : review.tacticalNotes()) {
             addItem(tactical.title(), tactical);
+        }
+
+        addHeader("Tests");
+        for (ReviewFeedback test : review.additionalTests()) {
+            addItem(test.title(), test);
         }
 
         revalidate();

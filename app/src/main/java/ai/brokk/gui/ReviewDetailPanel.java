@@ -12,6 +12,7 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.DesignFeedback;
+import ai.brokk.util.ReviewParser.ReviewFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
 import java.awt.CardLayout;
 import java.awt.Component;
@@ -102,6 +103,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             }
             if (!tactical.recommendation().isBlank()) {
                 addRecommendationSection(tactical.recommendation());
+            }
+        } else if (item instanceof ReviewFeedback feedback) {
+            addMarkdownPanel("### " + feedback.title());
+            addMarkdownPanel(feedback.description());
+            if (!feedback.recommendation().isBlank()) {
+                addRecommendationSection(feedback.recommendation());
             }
         } else {
             throw new IllegalArgumentException("Unknown item type: " + item.getClass());
