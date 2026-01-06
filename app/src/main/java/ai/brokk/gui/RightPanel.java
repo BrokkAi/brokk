@@ -398,27 +398,29 @@ public class RightPanel extends JPanel implements ThemeAware {
                 int tabIndex = buildReviewTabs.indexAtLocation(e.getX(), e.getY());
                 if (tabIndex == -1) return;
 
-                String title = buildReviewTabs.getTitleAt(tabIndex);
+                Component comp = buildReviewTabs.getComponentAt(tabIndex);
                 JPopupMenu popup = new JPopupMenu();
-                if ("Build".equals(title)) {
+
+                if (comp == buildSplitPane || comp == verticalActivityCombinedPanel) {
                     JMenuItem undockItem = new JMenuItem("Undock Build", Icons.HANDYMAN);
                     undockItem.addActionListener(ae -> undockBuild());
                     popup.add(undockItem);
-                } else if ("Review".equals(title)) {
+                } else if (comp == reviewTabComponent) {
                     JMenuItem undockItem = new JMenuItem("Undock Review", Icons.FLOWSHEET);
                     undockItem.addActionListener(ae -> undockReview());
                     popup.add(undockItem);
-                } else if ("Preview".equals(title)) {
+                } else if (comp == previewTabbedPane) {
                     JMenuItem undockItem = new JMenuItem("Undock Preview", Icons.VISIBILITY);
                     undockItem.addActionListener(ae -> undockPreview());
                     popup.add(undockItem);
-                } else if ("Terminal".equals(title)) {
+                } else if (comp == terminalPanel) {
                     JMenuItem undockItem = new JMenuItem("Undock Terminal", Icons.TERMINAL);
                     undockItem.addActionListener(ae -> undockTerminal());
                     popup.add(undockItem);
                 }
 
                 if (popup.getComponentCount() > 0) {
+                    chrome.getThemeManager().registerPopupMenu(popup);
                     popup.show(buildReviewTabs, e.getX(), e.getY());
                 }
             }
