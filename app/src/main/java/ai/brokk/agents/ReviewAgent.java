@@ -10,11 +10,14 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.util.ReviewExcerptParser;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jspecify.annotations.NullMarked;
@@ -67,10 +70,34 @@ public class ReviewAgent {
             var reviewLlm = cm.getLlm(new Llm.Options(model, "Finalizing Code Review").withEcho());
             reviewLlm.setOutput(io);
 
+            String reviewInstructions = """
+                    Based on the gathered context and the proposed changes, provide a structured code review using the createReview tool.
+
+                    CRITICAL INSTRUCTION FOR CODE EXCERPTS:
+                    When providing `CodeExcerpt` objects in the tool call:
+                    1. For the `excerpt` field, DO NOT provide the actual code. Instead, use a placeholder like `BRK_EXCERPT_1`, `BRK_EXCERPT_2`, etc.
+                    2. In your main assistant response text (OUTSIDE the tool call), you MUST provide the actual code blocks for these placeholders using this EXACT format:
+
+                    BRK_EXCERPT_$ID
+                    $filename
+                    ```
+                    $excerptContent
+                    ```
+
+                    Example:
+                    BRK_EXCERPT_1
+                    src/Main.java
+                    ```java
+                    public void hello() {
+                        System.out.println("Hello");
+                    }
+                    ```
+                    """;
+
             var promptResult = SearchPrompts.instance.buildPrompt(
                     finalContext,
                     model,
-                    "Based on the gathered context and the proposed changes, provide a structured code review using the createReview tool.",
+                    reviewInstructions,
                     SearchPrompts.Objective.WORKSPACE_ONLY,
                     List.of(),
                     List.of());
@@ -93,8 +120,37 @@ public class ReviewAgent {
                 throw new RuntimeException("Failed to process code review: " + executionResult.resultText());
             }
 
-            return ICodeReview.GuidedReview.fromJson(executionResult.resultText());
+            ICodeReview.GuidedReview rawReview = ICodeReview.GuidedReview.fromJson(executionResult.resultText());
+
+            // Post-process to resolve out-of-band excerpts
+            Map<String, ICodeReview.CodeExcerpt> parsedExcerpts =
+                    ReviewExcerptParser.instance.parseExcerpts(result.text());
+
+            return resolveReviewExcerpts(rawReview, parsedExcerpts);
         }
+    }
+
+    private ICodeReview.GuidedReview resolveReviewExcerpts(
+            ICodeReview.GuidedReview review, Map<String, ICodeReview.CodeExcerpt> resolvedMap) {
+        List<ICodeReview.DesignFeedback> resolvedDesign = review.designNotes().stream()
+                .map(design -> {
+                    List<ICodeReview.CodeExcerpt> resolvedExcerpts = design.excerpts().stream()
+                            .map(ex -> resolvedMap.getOrDefault(ex.excerpt(), ex))
+                            .toList();
+                    return new ICodeReview.DesignFeedback(
+                            design.title(), design.description(), resolvedExcerpts, design.recommendation());
+                })
+                .toList();
+
+        List<ICodeReview.TacticalFeedback> resolvedTactical = review.tacticalNotes().stream()
+                .map(tactical -> {
+                    ICodeReview.CodeExcerpt resolvedEx = resolvedMap.getOrDefault(tactical.excerpt().excerpt(), tactical.excerpt());
+                    return new ICodeReview.TacticalFeedback(tactical.title(), resolvedEx, tactical.recommendation());
+                })
+                .toList();
+
+        return new ICodeReview.GuidedReview(
+                review.overview(), resolvedDesign, resolvedTactical, review.additionalTests());
     }
 
     @Tool("Create a structured code review of the current changes or proposal.")
