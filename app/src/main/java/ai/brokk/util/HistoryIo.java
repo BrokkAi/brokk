@@ -151,7 +151,7 @@ public final class HistoryIo {
         var contentBytesMap = new HashMap<String, byte[]>();
 
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
-            logger.debug("reading " + zip);
+            logger.trace("reading " + zip);
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 var entryName = entry.getName();
@@ -189,7 +189,7 @@ public final class HistoryIo {
                         }
                         case GROUP_INFO_FILENAME -> {
                             groupInfoDto = objectMapper.readValue(zis.readAllBytes(), GroupInfoDto.class);
-                            logger.debug(
+                            logger.trace(
                                     "loaded group_info.json with {} context mappings, {} group labels",
                                     groupInfoDto.contextToGroupId().size(),
                                     groupInfoDto.groupLabels().size());
@@ -275,7 +275,7 @@ public final class HistoryIo {
             // First build the context via DtoMapper, then reconstruct to inject read-only fragment IDs
             Context built = DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache, contentReader);
             contexts.add(built);
-            logger.debug("loaded context id={}", built.id());
+            logger.trace("loaded context id={}", built.id());
         }
 
         if (contexts.isEmpty()) {
@@ -296,13 +296,13 @@ public final class HistoryIo {
             groupInfoDto.groupLabels().forEach((grpId, label) -> groupLabels.put(UUID.fromString(grpId), label));
         }
 
-        logger.debug("contextToGroupId map has {} entries", contextToGroupId.size());
+        logger.trace("contextToGroupId map has {} entries", contextToGroupId.size());
         for (var entry : contextToGroupId.entrySet()) {
-            logger.debug("  context {} -> group {}", entry.getKey(), entry.getValue());
+            logger.trace("  context {} -> group {}", entry.getKey(), entry.getValue());
         }
-        logger.debug("groupLabels map has {} entries", groupLabels.size());
+        logger.trace("groupLabels map has {} entries", groupLabels.size());
         for (var entry : groupLabels.entrySet()) {
-            logger.debug("  group {} -> label '{}'", entry.getKey(), entry.getValue());
+            logger.trace("  group {} -> label '{}'", entry.getKey(), entry.getValue());
         }
 
         // Validate that all context IDs in group mappings exist in loaded contexts
@@ -323,7 +323,7 @@ public final class HistoryIo {
                 contextsWithoutGroups++;
             }
         }
-        logger.debug("{} contexts have group mappings, {} do not", contextsWithGroups, contextsWithoutGroups);
+        logger.trace("{} contexts have group mappings, {} do not", contextsWithGroups, contextsWithoutGroups);
 
         return new ContextHistory(contexts, resetEdges, gitStates, entryInfos, contextToGroupId, groupLabels);
     }
@@ -392,7 +392,7 @@ public final class HistoryIo {
 
         var contextsJsonlContent = new StringBuilder();
         for (Context ctx : ch.getHistory()) {
-            logger.debug("writeZip: serializing context id={}", ctx.id());
+            logger.trace("writeZip: serializing context id={}", ctx.id());
             var compactDto = DtoMapper.toCompactDto(ctx, writer);
             contextsJsonlContent
                     .append(objectMapper.writeValueAsString(compactDto))
@@ -428,13 +428,13 @@ public final class HistoryIo {
         Map<UUID, String> grpLabels = ch.getGroupLabels();
 
         var groupDto = DtoMapper.toGroupInfoDto(ctxToGrp, grpLabels);
-        logger.debug("writeZip: ctxToGrp map has {} entries", ctxToGrp.size());
+        logger.trace("writeZip: ctxToGrp map has {} entries", ctxToGrp.size());
         for (var entry : ctxToGrp.entrySet()) {
-            logger.debug("  context {} -> group {}", entry.getKey(), entry.getValue());
+            logger.trace("  context {} -> group {}", entry.getKey(), entry.getValue());
         }
-        logger.debug("writeZip: groupLabels map has {} entries", grpLabels.size());
+        logger.trace("writeZip: groupLabels map has {} entries", grpLabels.size());
         for (var entry : grpLabels.entrySet()) {
-            logger.debug("  group {} -> label '{}'", entry.getKey(), entry.getValue());
+            logger.trace("  group {} -> label '{}'", entry.getKey(), entry.getValue());
         }
 
         // Validate that all context IDs in group mappings exist in the history
