@@ -577,16 +577,16 @@ public final class MainProject extends AbstractProject {
     }
 
     public String getGpgSigningKey() {
-        return projectProps.getProperty(GPG_SIGNING_KEY_KEY, "");
+        return workspaceProps.getProperty(GPG_SIGNING_KEY_KEY, "");
     }
 
     public void setGpgSigningKey(String key) {
         if (key.isBlank()) {
-            projectProps.remove(GPG_SIGNING_KEY_KEY);
+            workspaceProps.remove(GPG_SIGNING_KEY_KEY);
         } else {
-            projectProps.setProperty(GPG_SIGNING_KEY_KEY, key.trim());
+            workspaceProps.setProperty(GPG_SIGNING_KEY_KEY, key.trim());
         }
-        saveProjectProperties();
+        saveWorkspaceProperties();
     }
 
     @Override
