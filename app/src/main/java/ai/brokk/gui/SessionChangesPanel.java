@@ -451,7 +451,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.fileTreePanel.setSelectionListener(new ai.brokk.difftool.ui.DiffNavigationTarget() {
             @Override public void navigateToFile(int fileIndex) { diffCore.showFile(fileIndex); }
             @Override public void navigateToFile(ProjectFile file) { diffCore.showFile(file); }
-            @Override public void navigateToLocation(int fileIndex, int lineNumber) { diffCore.showLocation(fileComparisons.get(fileIndex).file(), lineNumber); }
+            @Override public void navigateToLocation(int fileIndex, int lineNumber) {
+                var file = fileComparisons.get(fileIndex).file();
+                if (file != null) {
+                    diffCore.showLocation(file, lineNumber);
+                } else {
+                    // Fallback for virtual files where we can't pin a lineNumber to a ProjectFile
+                    diffCore.showFile(fileIndex);
+                }
+            }
             @Override public void navigateToLocation(ProjectFile file, int lineNumber) { diffCore.showLocation(file, lineNumber); }
             @Override public int getCurrentFileIndex() { return diffCore.getCurrentIndex(); }
             @Override public int getFileComparisonCount() { return fileComparisons.size(); }
@@ -459,6 +467,17 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.fileTreePanel.initializeTree();
 
         codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview);
+        codeReviewPanel.setNavigationTarget(new ai.brokk.difftool.ui.DiffProjectFileNavigationTarget() {
+            @Override
+            public void navigateToFile(ProjectFile file) {
+                diffCore.showFile(file);
+            }
+
+            @Override
+            public void navigateToLocation(ProjectFile file, int lineNumber) {
+                diffCore.showLocation(file, lineNumber);
+            }
+        });
         codeReviewPanel.addReviewNavigationListener(pe -> {
             ProjectFile pf = contextManager.toFile(pe.original().file());
             if (pe.lineNumber() != -1) {

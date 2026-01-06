@@ -56,7 +56,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 public class BrokkDiffPanel extends JPanel
-        implements ThemeAware, EditorFontSizeControl, FontSizeAware, DiffNavigationTarget {
+        implements ThemeAware, EditorFontSizeControl, FontSizeAware, DiffNavigationTarget, DiffProjectFileNavigationTarget {
     private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;

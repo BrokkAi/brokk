@@ -37,6 +37,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
     private final JPanel contentPanel;
     private final Runnable triggerCallback;
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
+    private @Nullable ai.brokk.difftool.ui.DiffProjectFileNavigationTarget navigationTarget;
 
     public CodeReviewPanel(Runnable triggerCallback) {
         this.triggerCallback = triggerCallback;
@@ -63,6 +64,10 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
     public void addReviewNavigationListener(ReviewNavigationListener listener) {
         listeners.add(listener);
+    }
+
+    public void setNavigationTarget(ai.brokk.difftool.ui.DiffProjectFileNavigationTarget target) {
+        this.navigationTarget = target;
     }
 
     public void setBusy(boolean busy) {
