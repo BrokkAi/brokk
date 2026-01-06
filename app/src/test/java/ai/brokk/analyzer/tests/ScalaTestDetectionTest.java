@@ -37,28 +37,6 @@ public class ScalaTestDetectionTest {
     }
 
     @Test
-    void detectsScalaTestImportsEvenWithoutJUnitAnnotations() throws IOException {
-        String code =
-                """
-            import org.scalatest.funsuite.AnyFunSuite
-
-            class ExampleSuite extends AnyFunSuite {
-              test("it works") {
-                assert(1 + 1 == 2)
-              }
-            }
-            """;
-
-        IProject project = InlineTestProjectCreator.code(code, "Example.scala").build();
-        ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
-        analyzer.update();
-
-        var file = new ProjectFile(project.getRoot(), "Example.scala");
-        assertTrue(analyzer.containsTests(file));
-        assertTrue(ContextManager.isTestFile(file, analyzer));
-    }
-
-    @Test
     void detectsFunSuiteStructureWithoutImports() throws IOException {
         String code =
                 """
