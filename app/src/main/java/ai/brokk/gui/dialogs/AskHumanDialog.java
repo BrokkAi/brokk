@@ -294,5 +294,60 @@ public final class AskHumanDialog {
         return resultRef.get();
     }
 
+    /**
+     * Shows a simple text editing dialog and returns the result.
+     * Blocks until the user clicks OK or Cancel.
+     */
+    @Blocking
+    public static @Nullable String showEditDialog(Chrome chrome, String title, String initialText) {
+        assert !SwingUtilities.isEventDispatchThread();
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<String> resultRef = new AtomicReference<>(null);
+
+        SwingUtil.runOnEdt(() -> {
+            var textArea = new JTextArea(initialText, 10, 50);
+            textArea.setLineWrap(true);
+            textArea.setWrapStyleWord(true);
+            var scroll = new JScrollPane(textArea);
+
+            var okButton = new MaterialButton("OK");
+            SwingUtil.applyPrimaryButtonStyle(okButton);
+            var cancelButton = new MaterialButton("Cancel");
+
+            var optionPane = new JOptionPane(
+                    scroll,
+                    JOptionPane.PLAIN_MESSAGE,
+                    JOptionPane.OK_CANCEL_OPTION,
+                    null,
+                    new Object[] {okButton, cancelButton},
+                    okButton);
+
+            var dialog = optionPane.createDialog(null, title);
+            dialog.setModal(false);
+            dialog.setResizable(true);
+
+            okButton.addActionListener(e -> {
+                resultRef.set(textArea.getText().trim());
+                latch.countDown();
+                dialog.dispose();
+            });
+
+            cancelButton.addActionListener(e -> {
+                latch.countDown();
+                dialog.dispose();
+            });
+
+            dialog.setVisible(true);
+        });
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return resultRef.get();
+    }
+
     private AskHumanDialog() {} // utility class; prevent instantiation
 }

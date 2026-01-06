@@ -12,9 +12,13 @@ import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
+import ai.brokk.gui.components.SplitButton;
+import ai.brokk.gui.dialogs.AskHumanDialog;
+import ai.brokk.tasks.TaskList;
 import java.awt.CardLayout;
 import java.awt.Component;
 import java.awt.Cursor;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.event.MouseAdapter;
@@ -22,12 +26,16 @@ import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.swing.Box;
 import javax.swing.BoxLayout;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
 import javax.swing.UIManager;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -92,13 +100,13 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             addMarkdownPanel("### " + design.title());
             addMarkdownPanel(design.description());
             if (!design.recommendation().isBlank()) {
-                addMarkdownPanel("**Recommendation:**\n" + design.recommendation());
+                addRecommendationSection(design.recommendation());
             }
         } else if (item instanceof TacticalFeedback tactical) {
             addMarkdownPanel("### " + tactical.title());
             addMarkdownPanel(tactical.description());
             if (!tactical.recommendation().isBlank()) {
-                addMarkdownPanel("**Recommendation:**\n" + tactical.recommendation());
+                addRecommendationSection(tactical.recommendation());
             }
         } else if (item instanceof CodeExcerpt ce) {
             addMarkdownPanel("```\n" + ce.excerpt() + "\n```");
@@ -118,6 +126,47 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         panel.setAlignmentX(Component.LEFT_ALIGNMENT);
         htmlPanels.add(panel);
         contentPanel.add(panel);
+    }
+
+    private void addRecommendationSection(String recommendation) {
+        addMarkdownPanel("**Recommendation:**\n" + recommendation);
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 5));
+        btnPanel.setOpaque(false);
+        btnPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        SplitButton splitBtn = new SplitButton("Enqueue Task");
+        splitBtn.addActionListener(e -> enqueueTask(recommendation));
+
+        splitBtn.setMenuSupplier(() -> {
+            JPopupMenu menu = new JPopupMenu();
+            JMenuItem editItem = new JMenuItem("Edit + Enqueue");
+            editItem.addActionListener(e -> {
+                contextManager.getBackgroundTasks().submit(() -> {
+                    String edited = AskHumanDialog.showEditDialog(
+                            (Chrome) contextManager.getIo(),
+                            "Edit Recommendation",
+                            recommendation);
+                    if (edited != null && !edited.isBlank()) {
+                        SwingUtilities.invokeLater(() -> enqueueTask(edited));
+                    }
+                });
+            });
+            menu.add(editItem);
+            return menu;
+        });
+
+        btnPanel.add(splitBtn);
+        contentPanel.add(btnPanel);
+    }
+
+    private void enqueueTask(String text) {
+        contextManager.pushContext(ctx -> {
+            var currentTasks = ctx.getTaskListDataOrEmpty().tasks();
+            var newList = new ArrayList<>(currentTasks);
+            newList.add(new TaskList.TaskItem(null, text, false));
+            return ctx.withTaskList(new TaskList.TaskListData(List.copyOf(newList)));
+        });
     }
 
     private void clearContent() {
