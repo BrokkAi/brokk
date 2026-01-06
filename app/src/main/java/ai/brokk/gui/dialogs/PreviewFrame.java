@@ -5,7 +5,6 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.theme.GuiTheme;
-import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;

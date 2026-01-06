@@ -487,8 +487,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        reviewFrame = new ai.brokk.gui.dialogs.DetachableTabFrame(
-                "Review", reviewTabComponent, this::redockReview);
+        reviewFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Review", reviewTabComponent, this::redockReview);
         reviewFrame.setVisible(true);
     }
 
@@ -547,8 +546,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        terminalFrame = new ai.brokk.gui.dialogs.DetachableTabFrame(
-                "Terminal", terminalPanel, this::redockTerminal);
+        terminalFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Terminal", terminalPanel, this::redockTerminal);
         terminalFrame.setVisible(true);
     }
 
