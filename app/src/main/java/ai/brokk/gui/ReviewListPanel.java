@@ -142,6 +142,30 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
+    public void selectNext() {
+        Component[] components = contentPanel.getComponents();
+        int currentIndex = -1;
+
+        for (int i = 0; i < components.length; i++) {
+            if (components[i] instanceof JLabel label && label.isOpaque()) {
+                currentIndex = i;
+                break;
+            }
+        }
+
+        // Search for the next clickable item (JLabel that is not a header)
+        for (int i = currentIndex + 1; i < components.length; i++) {
+            if (components[i] instanceof JLabel label && label.getCursor().getType() == Cursor.HAND_CURSOR) {
+                // We need the data associated with this label.
+                // Since addItem doesn't store data on the label, we trigger a click.
+                for (var ml : label.getMouseListeners()) {
+                    ml.mouseClicked(new MouseEvent(label, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 0, 0, 1, false));
+                }
+                return;
+            }
+        }
+    }
+
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         setBackground(

@@ -39,14 +39,16 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private static final String CARD_CONTENT = "content";
 
     private final ai.brokk.IContextManager contextManager;
+    private final Runnable onNext;
     private final JPanel contentPanel;
     private final JTextArea placeholderArea;
     private final CardLayout cardLayout;
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
     private final List<SimpleHtmlPanel> htmlPanels = new ArrayList<>();
 
-    public ReviewDetailPanel(IContextManager contextManager) {
+    public ReviewDetailPanel(IContextManager contextManager, Runnable onNext) {
         this.contextManager = contextManager;
+        this.onNext = onNext;
         cardLayout = new CardLayout();
         setLayout(cardLayout);
 
@@ -154,6 +156,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         });
 
         btnPanel.add(splitBtn);
+
+        var nextBtn = new ai.brokk.gui.components.MaterialButton("Next");
+        nextBtn.addActionListener(e -> onNext.run());
+        btnPanel.add(javax.swing.Box.createHorizontalStrut(10));
+        btnPanel.add(nextBtn);
+
         contentPanel.add(btnPanel);
     }
 
