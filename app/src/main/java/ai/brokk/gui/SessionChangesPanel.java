@@ -518,7 +518,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
         this.fileTreePanel.initializeTree();
 
-        codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview);
+        codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
         codeReviewPanel.addReviewNavigationListener(ce -> {
             if (fileTreePanel != null) fileTreePanel.clearSelection();
             activeExcerpt = ce;

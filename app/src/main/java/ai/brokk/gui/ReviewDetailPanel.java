@@ -1,6 +1,8 @@
 package ai.brokk.gui;
 
+import ai.brokk.IContextManager;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialChip;
 import ai.brokk.gui.components.SimpleHtmlPanel;
@@ -38,13 +40,15 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private static final String CARD_PLACEHOLDER = "placeholder";
     private static final String CARD_CONTENT = "content";
 
+    private final IContextManager contextManager;
     private final JPanel contentPanel;
     private final JTextArea placeholderArea;
     private final CardLayout cardLayout;
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
     private final List<SimpleHtmlPanel> htmlPanels = new ArrayList<>();
 
-    public ReviewDetailPanel() {
+    public ReviewDetailPanel(IContextManager contextManager) {
+        this.contextManager = contextManager;
         cardLayout = new CardLayout();
         setLayout(cardLayout);
 
@@ -145,9 +149,19 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         for (int i = 0; i < excerpts.size(); i++) {
             CodeExcerpt ce = excerpts.get(i);
             int idx = i;
-            String fileName = ce.file().getRelPath().getFileName().toString();
+
+            String labelText;
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            var codeUnitOpt = analyzer.enclosingCodeUnit(ce.file(), ce.line(), ce.line());
+            if (codeUnitOpt.isPresent()) {
+                labelText = codeUnitOpt.get().shortName();
+            } else {
+                // Fallback to filename:line format
+                String fileName = ce.file().getRelPath().getFileName().toString();
+                labelText = String.format("%s:%d", fileName, ce.line());
+            }
             String sideSuffix = (ce.side() == ReviewParser.DiffSide.OLD) ? " (old)" : "";
-            String labelText = String.format("%s:%d%s", fileName, ce.line(), sideSuffix);
+            labelText = labelText + sideSuffix;
 
             MaterialChip chip = new MaterialChip(labelText);
             boolean isDark = UIManager.getBoolean("laf.dark");
