@@ -65,12 +65,12 @@ public class DetachableTabFrame extends JFrame implements ThemeAware {
             }
         });
 
-        // Register Cmd/Ctrl+W shortcut to redock
-        KeyStroke closeKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.closeTab", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
+        // Register Cmd/Ctrl+Shift+W shortcut to redock
+        KeyStroke redockKeyStroke = GlobalUiSettings.getKeybinding(
+                "global.redockWindow", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_W));
         var root = this.getRootPane();
-        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(closeKeyStroke, "redockTab");
-        root.getActionMap().put("redockTab", new AbstractAction() {
+        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(redockKeyStroke, "redockWindow");
+        root.getActionMap().put("redockWindow", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 handleRedock();
