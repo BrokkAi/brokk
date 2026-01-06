@@ -65,8 +65,9 @@ public interface ICodeReview {
                             .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().excerpt())),
                     excerpts.entrySet().stream()
                             .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().file())),
-                    (file, excerpt) -> excerpts.values().stream()
-                            .filter(ce -> ce.file().equals(file) && ce.excerpt().equals(excerpt))
+                    (file, excerpt) -> excerpts.entrySet().stream()
+                            .filter(e -> e.getValue().file().equals(file) && e.getValue().excerpt().equals(excerpt))
+                            .map(Map.Entry::getValue)
                             .findFirst()
                             .orElse(new CodeExcerpt(file, excerpt)));
         }

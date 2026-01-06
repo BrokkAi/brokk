@@ -22,11 +22,13 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import ai.brokk.ICodeReview.CodeExcerpt;
+import ai.brokk.difftool.ui.FileComparisonInfo;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jspecify.annotations.NullMarked;
@@ -43,11 +45,17 @@ public class ReviewAgent {
     private final String diff;
     private final IContextManager cm;
     private final IConsoleIO io;
+    private final List<FileComparisonInfo> fileComparisons;
 
-    public ReviewAgent(String diff, IContextManager cm, IConsoleIO io) {
+    public ReviewAgent(
+            String diff,
+            IContextManager cm,
+            IConsoleIO io,
+            List<FileComparisonInfo> fileComparisons) {
         this.diff = diff;
         this.cm = cm;
         this.io = io;
+        this.fileComparisons = fileComparisons;
     }
 
     @Blocking
@@ -135,49 +143,68 @@ public class ReviewAgent {
 
     @Blocking
     Map<Integer, CodeExcerpt> resolveExcerpts(Map<Integer, CodeExcerpt> excerpts) {
-        // We use the live context to find the files and their current contents.
-        // For a more robust implementation that handles the diff specifically,
-        // we would need DiffService which is not currently visible/available in this scope.
-        // We fall back to matching against the current file content on disk via ProjectFile.
         Map<Integer, CodeExcerpt> resolved = new HashMap<>();
         for (var entry : excerpts.entrySet()) {
             CodeExcerpt ce = entry.getValue();
-            var projectFile = cm.toFile(ce.file());
-            if (projectFile == null || !projectFile.exists()) {
-                resolved.put(entry.getKey(), ce);
-                continue;
-            }
-
-            String content = projectFile.read().orElse("");
-            if (content.isEmpty()) {
-                resolved.put(entry.getKey(), ce);
-                continue;
-            }
-
-            String[] excerptLines = ce.excerpt().split("\\R");
-            String[] fileLines = content.split("\\R");
-
-            var matches = ai.brokk.util.WhitespaceMatch.findAll(fileLines, excerptLines);
-
-            if (matches.isEmpty()) {
-                resolved.put(entry.getKey(), ce);
-                continue;
-            }
-
-            ai.brokk.util.WhitespaceMatch best = matches.getFirst();
-            int minDelta = Math.abs(best.startLine() - ce.line());
-            for (int i = 1; i < matches.size(); i++) {
-                int delta = Math.abs(matches.get(i).startLine() - ce.line());
-                if (delta < minDelta) {
-                    minDelta = delta;
-                    best = matches.get(i);
-                }
-            }
-
-            // Since we are matching against the current file, we assume NEW side.
-            resolved.put(entry.getKey(), new CodeExcerpt(ce.file(), best.startLine(), ICodeReview.DiffSide.NEW, ce.excerpt()));
+            resolved.put(entry.getKey(), resolveSingleExcerpt(ce));
         }
         return resolved;
+    }
+
+    private CodeExcerpt resolveSingleExcerpt(CodeExcerpt excerpt) {
+        String relPath = excerpt.file();
+        FileComparisonInfo targetInfo = fileComparisons.stream()
+                .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
+                        || relPath.equals(info.rightSource().filename())
+                        || relPath.equals(info.leftSource().filename()))
+                .findFirst()
+                .orElse(null);
+
+        if (targetInfo == null) {
+            return excerpt;
+        }
+
+        String[] excerptLines = excerpt.excerpt().split("\\R", -1);
+
+        // 1. Try NEW content
+        String newContent = targetInfo.rightSource().content();
+        String[] newLines = newContent.split("\\R", -1);
+        var newMatches = ai.brokk.util.WhitespaceMatch.findAll(newLines, excerptLines);
+        if (!newMatches.isEmpty()) {
+            return new CodeExcerpt(
+                    excerpt.file(),
+                    findBestMatch(newMatches, excerpt.line()).startLine() + 1,
+                    ICodeReview.DiffSide.NEW,
+                    excerpt.excerpt());
+        }
+
+        // 2. Try OLD content
+        String oldContent = targetInfo.leftSource().content();
+        String[] oldLines = oldContent.split("\\R", -1);
+        var oldMatches = ai.brokk.util.WhitespaceMatch.findAll(oldLines, excerptLines);
+        if (!oldMatches.isEmpty()) {
+            return new CodeExcerpt(
+                    excerpt.file(),
+                    findBestMatch(oldMatches, excerpt.line()).startLine() + 1,
+                    ICodeReview.DiffSide.OLD,
+                    excerpt.excerpt());
+        }
+
+        return excerpt;
+    }
+
+    private ai.brokk.util.WhitespaceMatch findBestMatch(
+            List<ai.brokk.util.WhitespaceMatch> matches, int targetLine) {
+        ai.brokk.util.WhitespaceMatch best = matches.getFirst();
+        int minDelta = Math.abs(best.startLine() + 1 - targetLine);
+        for (int i = 1; i < matches.size(); i++) {
+            int delta = Math.abs(matches.get(i).startLine() + 1 - targetLine);
+            if (delta < minDelta) {
+                minDelta = delta;
+                best = matches.get(i);
+            }
+        }
+        return best;
     }
 
     private record ExcerptData(Map<Integer, String> files, Map<Integer, String> contents) {}

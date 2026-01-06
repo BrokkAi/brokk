@@ -7,6 +7,7 @@ import ai.brokk.analyzer.ProjectFile;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -78,7 +79,13 @@ class ReviewAgentTest {
             }
         };
 
-        ReviewAgent agent = new ReviewAgent("", cm, new ai.brokk.testutil.TestConsoleIO());
+        var fileInfo = new ai.brokk.difftool.ui.FileComparisonInfo(
+            cm.toFile("file.java"),
+            new ai.brokk.difftool.ui.BufferSource.StringSource("", "", "file.java", null),
+            new ai.brokk.difftool.ui.BufferSource.StringSource(content, "", "file.java", null)
+        );
+
+        ReviewAgent agent = new ReviewAgent("", cm, new ai.brokk.testutil.TestConsoleIO(), List.of(fileInfo));
 
         // LLM suggests the second occurrence (near line 6)
         Map<Integer, CodeExcerpt> excerpts = Map.of(
@@ -88,8 +95,9 @@ class ReviewAgentTest {
         Map<Integer, CodeExcerpt> resolved = agent.resolveExcerpts(excerpts);
 
         assertEquals(1, resolved.size());
-        // Matches are at 0 and 4. LLM suggests 6.
-        // 4 is closer to 6 than 0 is.
-        assertEquals(4, resolved.get(0).line());
+        // Matches are at 0 and 4 (0-based). LLM suggests 6.
+        // Index 4 is closer to 6 than index 0 is.
+        // The result should be 1-based line number: 4 + 1 = 5.
+        assertEquals(5, resolved.get(0).line());
     }
 }

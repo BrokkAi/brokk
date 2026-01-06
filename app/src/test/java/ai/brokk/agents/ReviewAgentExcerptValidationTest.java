@@ -58,7 +58,7 @@ class ReviewAgentExcerptValidationTest {
             +    void newMethod() {}
              }
             """;
-        agent = new ReviewAgent(diff, cm, consoleIO);
+        agent = new ReviewAgent(diff, cm, consoleIO, List.of());
     }
 
     /**
@@ -114,7 +114,7 @@ class ReviewAgentExcerptValidationTest {
             diff --git a/src/Existing.java b/src/Existing.java
             +    void newMethod() {}
             """;
-        agent = new ReviewAgent(diff, cm, consoleIO);
+        agent = new ReviewAgent(diff, cm, consoleIO, List.of());
 
         // Initial excerpts with one that doesn't match the diff
         Map<Integer, CodeExcerpt> initialExcerpts = new HashMap<>();
@@ -192,7 +192,7 @@ class ReviewAgentExcerptValidationTest {
     @Test
     void testExcerptNotFoundRetryLimit() throws Exception {
         String diff = "actual diff content";
-        agent = new ReviewAgent(diff, cm, consoleIO);
+        agent = new ReviewAgent(diff, cm, consoleIO, List.of());
 
         Map<Integer, CodeExcerpt> initialExcerpts = new HashMap<>();
         initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", 0, ICodeReview.DiffSide.NEW, "wrong content"));
@@ -258,7 +258,7 @@ class ReviewAgentExcerptValidationTest {
     @Test
     void testNoRetryWhenAllExcerptsMatchDiff() throws Exception {
         String diff = "matching content here";
-        agent = new ReviewAgent(diff, cm, consoleIO);
+        agent = new ReviewAgent(diff, cm, consoleIO, List.of());
 
         Map<Integer, CodeExcerpt> initialExcerpts = new HashMap<>();
         initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", 0, ICodeReview.DiffSide.NEW, "matching content"));

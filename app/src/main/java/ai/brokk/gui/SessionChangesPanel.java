@@ -686,7 +686,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 if (cachedJson.isPresent()) {
                     review = ICodeReview.GuidedReview.fromJson(cachedJson.get());
                 } else {
-                    var agent = new ReviewAgent(formattedDiff, contextManager, tio);
+                    var agent = new ReviewAgent(formattedDiff, contextManager, tio, fileComparisons);
                     review = agent.execute();
                     diskCache.put(cacheKey, review.toJson());
                 }
@@ -727,36 +727,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             tactical.recommendation().length());
                 }
 
-                // Resolve excerpts in place
-                List<ICodeReview.DesignFeedback> resolvedDesign = review.designNotes().stream()
-                        .map(design -> new ICodeReview.DesignFeedback(
-                                design.title(),
-                                design.description(),
-                                design.excerpts().stream()
-                                        .map(this::resolveExcerpt)
-                                        .toList(),
-                                design.recommendation()))
-                        .toList();
-
-                List<ICodeReview.TacticalFeedback> resolvedTactical = review.tacticalNotes().stream()
-                        .map(tactical -> new ICodeReview.TacticalFeedback(
-                                tactical.title(),
-                                resolveExcerpt(tactical.excerpt()),
-                                tactical.recommendation()))
-                        .toList();
-
-                ICodeReview.GuidedReview resolvedReview = new ICodeReview.GuidedReview(
-                        review.overview(),
-                        resolvedDesign,
-                        resolvedTactical,
-                        review.additionalTests());
-
                 SwingUtilities.invokeLater(() -> {
                     if (parent instanceof JSplitPane splitPane) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
                     }
                     if (codeReviewPanel != null) {
-                        codeReviewPanel.displayReview(resolvedReview);
+                        codeReviewPanel.displayReview(review);
                         codeReviewPanel.setBusy(false);
                     }
                     parent.revalidate();
@@ -777,41 +753,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private ICodeReview.CodeExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
-        String relPath = excerpt.file();
-        FileComparisonInfo targetInfo = fileComparisons.stream()
-                .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
-                        || relPath.equals(info.rightSource().filename())
-                        || relPath.equals(info.leftSource().filename()))
-                .findFirst()
-                .orElse(null);
-
-        if (targetInfo == null) {
-            return excerpt;
-        }
-
-        String[] targetLines = excerpt.excerpt().split("\\r?\\n", -1);
-
-        // 1. Try NEW content
-        String newContent = targetInfo.rightSource().content();
-        String[] newLines = newContent.split("\\r?\\n", -1);
-        var matches = WhitespaceMatch.findAll(newLines, targetLines);
-        if (!matches.isEmpty()) {
-            return new ICodeReview.CodeExcerpt(
-                    excerpt.file(), matches.getFirst().startLine() + 1, ICodeReview.DiffSide.NEW, excerpt.excerpt());
-        }
-
-        // 2. Try OLD content
-        String oldContent = targetInfo.leftSource().content();
-        String[] oldLines = oldContent.split("\\r?\\n", -1);
-        var oldMatches = WhitespaceMatch.findAll(oldLines, targetLines);
-        if (!oldMatches.isEmpty()) {
-            return new ICodeReview.CodeExcerpt(
-                    excerpt.file(), oldMatches.getFirst().startLine() + 1, ICodeReview.DiffSide.OLD, excerpt.excerpt());
-        }
-
-        return excerpt;
-    }
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
