@@ -1,7 +1,6 @@
 package ai.brokk.agents;
 
 import ai.brokk.ContextManager;
-import ai.brokk.ICodeReview;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
@@ -21,7 +20,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
-import ai.brokk.ICodeReview.CodeExcerpt;
+import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.difftool.ui.FileComparisonInfo;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -60,7 +59,7 @@ public class ReviewAgent {
     }
 
     @Blocking
-    public ICodeReview.GuidedReview execute() throws InterruptedException {
+    public ReviewParser.GuidedReview execute() throws InterruptedException {
         String goal =
                 """
                 Identify all code locations relevant to the provided diff to perform a comprehensive code review,
@@ -132,8 +131,8 @@ public class ReviewAgent {
                 throw new RuntimeException("Failed to process code review: " + executionResult.resultText());
             }
 
-            var rawReview = ICodeReview.RawReview.fromJson(executionResult.resultText());
-            return ICodeReview.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
+            var rawReview = ReviewParser.RawReview.fromJson(executionResult.resultText());
+            return ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
         }
     }
 
@@ -146,7 +145,7 @@ public class ReviewAgent {
                 .orElse(null);
     }
 
-    record ExcerptMatch(int line, ICodeReview.DiffSide side, String matchedText) {}
+    record ExcerptMatch(int line, ReviewParser.DiffSide side, String matchedText) {}
 
     static @Nullable ExcerptMatch matchExcerptInFile(CodeExcerpt excerpt, FileComparisonInfo fileInfo) {
         String[] excerptLines = excerpt.excerpt().split("\\R", -1);
@@ -157,7 +156,7 @@ public class ReviewAgent {
         var newMatches = ai.brokk.util.WhitespaceMatch.findAll(newLines, excerptLines);
         if (!newMatches.isEmpty()) {
             var best = findBestMatch(newMatches, excerpt.line());
-            return new ExcerptMatch(best.startLine() + 1, ICodeReview.DiffSide.NEW, best.matchedText());
+            return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.NEW, best.matchedText());
         }
 
         // Try OLD content
@@ -166,7 +165,7 @@ public class ReviewAgent {
         var oldMatches = ai.brokk.util.WhitespaceMatch.findAll(oldLines, excerptLines);
         if (!oldMatches.isEmpty()) {
             var best = findBestMatch(oldMatches, excerpt.line());
-            return new ExcerptMatch(best.startLine() + 1, ICodeReview.DiffSide.OLD, best.matchedText());
+            return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.OLD, best.matchedText());
         }
 
         return null;
@@ -287,7 +286,7 @@ public class ReviewAgent {
 
             var filesToInclude = errors.keySet().stream()
                     .map(allParsedExcerpts::get)
-                    .map(CodeExcerpt::file)
+                    .map(ReviewParser.CodeExcerpt::file)
                     .filter(f -> {
                         try { return cm.toFile(f).exists(); }
                         catch (IllegalArgumentException e) { return false; }
@@ -392,12 +391,12 @@ public class ReviewAgent {
             @P(
                     "Explain the trickiest parts of the design and how they can be improved. "
                             + "For each item, provide a 'title' which is a short 5-7 word label summarizing the feedback.")
-            List<ICodeReview.RawDesignFeedback> designNotes,
+            List<ReviewParser.RawDesignFeedback> designNotes,
             @P("A list of local bugs or problems.")
-            List<ICodeReview.RawTacticalFeedback> tacticalNotes,
+            List<ReviewParser.RawTacticalFeedback> tacticalNotes,
             @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
             List<String> additionalTests) {
-        var review = new ICodeReview.RawReview(overview, designNotes, tacticalNotes, additionalTests);
+        var review = new ReviewParser.RawReview(overview, designNotes, tacticalNotes, additionalTests);
         return review.toJson();
     }
 }
