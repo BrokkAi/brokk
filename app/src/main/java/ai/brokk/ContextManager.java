@@ -1639,6 +1639,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Ensure listeners are notified on the EDT
         SwingUtilities.invokeLater(() -> notifyContextListeners(context));
 
+        // Notify about task list changes
+        var taskList = context.getTaskListDataOrEmpty();
+        for (var callback : analyzerCallbacks) {
+            callback.onTaskListChanged(taskList);
+        }
+
         // Defer save until TaskScope closes to ensure group mappings are captured
         if (!taskScopeInProgress.get()) {
             project.getSessionManager().saveHistory(contextHistory, currentSessionId);

@@ -1048,6 +1048,13 @@ public class Chrome
             public void onAnalyzerReady() {
                 getProject().getMainProject().getDependencyUpdateScheduler().onAnalyzerReady();
             }
+
+            @Override
+            public void onTaskListChanged(ai.brokk.tasks.TaskList.TaskListData data) {
+                // Count incomplete tasks and update the badge
+                int incomplete = (int) data.tasks().stream().filter(t -> !t.done()).count();
+                SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
+            }
         });
 
         // 4. Focus and Action State Management

@@ -1280,9 +1280,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     }
                 }
 
-                // Sync the main "Build" tab badge in the RightPanel
-                chrome.getRightPanel().updateBuildTabBadge(incomplete);
-
                 // Always update tab title suffix for read-only indication
                 try {
                     String baseTitle = tabs.getTitleAt(idx);
@@ -1308,7 +1305,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
-     * Centralized UI refresh. Ensures EDT, refreshes model, buttons, badge, and optionally performs
+     * Centralized UI refresh. Ensures EDT, refreshes model, buttons, and optionally performs
      * structural layout invalidation when list structure changes (add/remove/reorder/split/combine/clear).
      */
     private void refreshUi(boolean structuralChange) {
@@ -1318,7 +1315,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         model.fireRefresh();
         updateButtonStates();
-        updateTasksTabBadge();
         if (structuralChange) {
             clearExpansionOnStructureChange();
         } else {
