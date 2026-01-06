@@ -322,10 +322,7 @@ public class SearchAgent {
                                         TaskResult.StopReason.LLM_ABORTED, "Aborted: " + termExec.resultText()),
                                 taskMeta());
                     } else {
-                        var finalResult = createResult(termReq.name(), goal);
-                        var resultingContext = scope.append(finalResult);
-                        conversation.clearUiMessages();
-                        return finalResult.withContext(resultingContext);
+                        return createResult(termReq.name(), goal);
                     }
                 }
 
@@ -553,12 +550,7 @@ public class SearchAgent {
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
 
         var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
-        if (scanConfig.appendToScope()) {
-        context = scope.append(contextAgentResult);
-        conversation.clearUiMessages();
-        } else {
-        context = contextAgentResult.context();
-        }
+        context = scanConfig.appendToScope() ? scope.append(contextAgentResult) : contextAgentResult.context();
 
         return context;
         }

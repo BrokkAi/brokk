@@ -49,7 +49,9 @@ public final class AgentConversation {
     return List.copyOf(uiMessages);
   }
 
-  public void clearUiMessages() {
+  public List<ChatMessage> consumeUiMessages() {
+    var result = List.copyOf(uiMessages);
     uiMessages.clear();
+    return result;
   }
 }

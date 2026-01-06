@@ -111,21 +111,25 @@ final class AgentConversationTest {
   }
 
   @Test
-  void testClearUiMessagesOnlyClearsUi() {
+  void testConsumeUiMessagesReturnsAndClearsUi() {
     ChatMessage internal = UserMessage.from("internal");
     ChatMessage ui = UserMessage.from("ui");
 
     conversation.appendInternal(internal);
     conversation.appendUi(ui, false);
-    conversation.clearUiMessages();
+
+    var consumed = conversation.consumeUiMessages();
+
+    assertEquals(1, consumed.size());
+    assertEquals(ui, consumed.getFirst());
+    assertTrue(conversation.getUiMessages().isEmpty());
 
     assertEquals(1, conversation.getInternalMessages().size());
     assertEquals(internal, conversation.getInternalMessages().getFirst());
-    assertEquals(0, conversation.getUiMessages().size());
   }
 
   @Test
-  void clearUiMessages_preservesInternalMessages() {
+  void consumeUiMessages_preservesInternalMessages() {
     ChatMessage internal1 = UserMessage.from("internal-1");
     ChatMessage internal2 = UserMessage.from("internal-2");
     ChatMessage ui1 = UserMessage.from("ui-1");
@@ -134,12 +138,15 @@ final class AgentConversationTest {
     conversation.appendUi(ui1, false);
     conversation.appendInternal(internal2);
 
-    conversation.clearUiMessages();
+    var consumed = conversation.consumeUiMessages();
+
+    assertEquals(1, consumed.size());
+    assertEquals(ui1, consumed.getFirst());
+    assertTrue(conversation.getUiMessages().isEmpty());
 
     assertEquals(2, conversation.getInternalMessages().size());
     assertEquals(internal1, conversation.getInternalMessages().get(0));
     assertEquals(internal2, conversation.getInternalMessages().get(1));
-    assertTrue(conversation.getUiMessages().isEmpty());
   }
 
   @Test

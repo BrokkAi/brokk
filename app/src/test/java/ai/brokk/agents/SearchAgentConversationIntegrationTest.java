@@ -113,7 +113,7 @@ final class SearchAgentConversationIntegrationTest {
     }
 
     @Test
-    void clearUiMessages_preservesInternalMessages_andUiIsCleanForNextResult() {
+    void consumeUiMessages_preservesInternalMessages_andUiIsCleanForNextResult() {
         var internalPrompt = new UserMessage("internal prompt");
         var uiStatus = new AiMessage("ui status");
         var uiToolResult = new ToolExecutionResultMessage("id-1", "searchSymbols", "Found matches");
@@ -125,9 +125,13 @@ final class SearchAgentConversationIntegrationTest {
         assertEquals(2, conversation.getUiMessages().size());
         assertEquals(3, conversation.getInternalMessages().size());
 
-        conversation.clearUiMessages();
+        var consumed = conversation.consumeUiMessages();
 
-        assertEquals(0, conversation.getUiMessages().size());
+        assertEquals(2, consumed.size());
+        assertEquals(uiStatus, consumed.get(0));
+        assertEquals(uiToolResult, consumed.get(1));
+        assertTrue(conversation.getUiMessages().isEmpty());
+
         assertEquals(3, conversation.getInternalMessages().size());
         assertEquals(internalPrompt, conversation.getInternalMessages().getFirst());
     }
