@@ -201,20 +201,9 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
         while (cursor.nextMatch(match)) {
             for (TSQueryCapture capture : match.getCaptures()) {
                 String captureName = query.getCaptureNameForId(capture.getIndex());
-                if (TEST_MARKER.equals(captureName)) {
-                    TSNode node = capture.getNode();
-                    String text = sourceContent
-                            .substringFromBytes(node.getStartByte(), node.getEndByte())
-                            .strip();
-
-                    if (TYPE_IDENTIFIER.equals(node.getType())) {
-                        if (text.equals("Test") || text.equals("ParameterizedTest") || text.equals("RepeatedTest")) {
-                            return true;
-                        }
-                    } else if (IMPORT_DECLARATION_NODE.equals(node.getType())) {
-                        if (text.contains(SCALATEST_IMPORT_SNIPPET)) {
-                            return true;
-                        }
+                switch (captureName) {
+                    case "test.annotation", "test.import", "test.call", "test.infix" -> {
+                        return true;
                     }
                 }
             }
