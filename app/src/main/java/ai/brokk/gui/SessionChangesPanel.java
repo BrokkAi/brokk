@@ -595,14 +595,29 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
         logArea.setBackground(ThemeColors.getPanelBackground());
         logArea.setForeground(UIManager.getColor("Label.foreground"));
-        JScrollPane scrollPane = new JScrollPane(logArea);
-        scrollPane.setBorder(null);
+        JScrollPane logScrollPane = new JScrollPane(logArea);
+        logScrollPane.setBorder(null);
+
+        // Mimic the ReviewListPanel layout to prevent "bouncing"
+        JPanel progressPanel = new JPanel(new BorderLayout());
+        progressPanel.setBackground(ThemeColors.getPanelBackground());
+        
+        JPanel shimHeader = new JPanel(new BorderLayout());
+        shimHeader.setOpaque(false);
+        shimHeader.setBorder(new EmptyBorder(10, 10, 10, 10));
+        var generatingBtn = new ai.brokk.gui.components.MaterialButton("Generating...");
+        SwingUtil.applyPrimaryButtonStyle(generatingBtn);
+        generatingBtn.setEnabled(false);
+        shimHeader.add(generatingBtn, BorderLayout.CENTER);
+
+        progressPanel.add(shimHeader, BorderLayout.NORTH);
+        progressPanel.add(logScrollPane, BorderLayout.CENTER);
 
         TextAreaConsoleIO tio = new TextAreaConsoleIO(logArea, chrome, "Starting guided review...", false);
 
         SwingUtilities.invokeLater(() -> {
             if (parent instanceof JSplitPane splitPane) {
-                splitPane.setTopComponent(scrollPane);
+                splitPane.setTopComponent(progressPanel);
             }
             parent.revalidate();
             parent.repaint();
