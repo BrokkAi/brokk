@@ -363,18 +363,16 @@ public final class DiffService {
 
             // Compute right content based on right reference
             String rightContent = "";
-            if (!rightRef.isBlank()) {
-                if ("WORKING".equals(rightRef)) {
-                    rightContent = file.read().orElse("");
-                } else {
-                    try {
-                        var rightFragTmp = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-                        rightContent = rightFragTmp.text().join();
-                    } catch (RuntimeException e) {
-                        // File doesn't exist at rightRef (deleted file) - treat as empty right side
-                        logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
-                        rightContent = "";
-                    }
+            if ("WORKING".equals(rightRef)) {
+                rightContent = file.read().orElse("");
+            } else {
+                try {
+                    var rightFragTmp = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                    rightContent = rightFragTmp.text().join();
+                } catch (RuntimeException e) {
+                    // File doesn't exist at rightRef (deleted file) - treat as empty right side
+                    logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
+                    rightContent = "";
                 }
             }
 
@@ -404,7 +402,7 @@ public final class DiffService {
                 }
             }
 
-            var de = new DiffEntry(rightFragForEntry, "", added, deleted, leftContent, rightContent);
+            var de = new DiffEntry(rightFragForEntry, diffRes.diff(), added, deleted, leftContent, rightContent);
             perFileChanges.add(de);
         }
 
