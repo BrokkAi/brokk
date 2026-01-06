@@ -21,6 +21,7 @@ import ai.brokk.mcp.McpUtils;
 import ai.brokk.mcp.StdioMcpServer;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
+import ai.brokk.util.GpgKeyUtil;
 import ai.brokk.util.GlobalUiSettings;
 import io.modelcontextprotocol.spec.McpSchema;
 import java.awt.*;
@@ -94,7 +95,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     private JSpinner terminalFontSizeSpinner = new JSpinner();
 
     // GitHub / MCP / Keybindings
-    private GitHubSettingsPanel gitHubSettingsPanel;
+    private GitHubSettingsPanel gitSettingsPanel;
+    private JCheckBox gpgSigningCheckbox = new JCheckBox("Sign commits with GPG");
+    private JComboBox<GpgKeyUtil.GpgKey> gpgKeyCombo = new JComboBox<>();
     private DefaultListModel<McpServer> mcpServersListModel = new DefaultListModel<>();
     private JList<McpServer> mcpServersList = new JList<>(mcpServersListModel);
 
@@ -189,6 +192,11 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         diffUnifiedRadio.setSelected(unified);
         diffSideBySideRadio.setSelected(!unified);
 
+        // Git / GPG
+        MainProject mainProject = chrome.getProject().getMainProject();
+        gpgSigningCheckbox.setSelected(mainProject.isGpgCommitSigningEnabled());
+        loadGpgKeys(mainProject.getGpgSigningKey());
+
         // GitHub
         populateGitHubTab();
 
@@ -220,10 +228,9 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         var appearancePanel = createAppearancePanel();
         globalSubTabbedPane.addTab("Appearance", null, appearancePanel, "Theme settings");
 
-        // GitHub Tab
-        gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
-        globalSubTabbedPane.addTab(
-                SettingsDialog.GIT_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
+        // Git Tab (GitHub + GPG)
+        var gitTabPanel = createGitTabPanel();
+        globalSubTabbedPane.addTab(SettingsDialog.GIT_SETTINGS_TAB_NAME, null, gitTabPanel, "Git and GitHub settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
@@ -622,8 +629,81 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
     }
 
+    private JPanel createGitTabPanel() {
+        gitSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
+
+        var gpgPanel = new JPanel(new GridBagLayout());
+        gpgPanel.setBorder(BorderFactory.createTitledBorder("GPG Signing"));
+        var gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.anchor = GridBagConstraints.WEST;
+
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.gridwidth = 2;
+        gpgPanel.add(gpgSigningCheckbox, gbc);
+
+        gbc.gridy = 1;
+        gbc.gridwidth = 1;
+        gpgPanel.add(new JLabel("Signing Key:"), gbc);
+
+        gpgKeyCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof GpgKeyUtil.GpgKey key) {
+                    setText(key.userId() + " (" + key.id() + ")");
+                }
+                return this;
+            }
+        });
+
+        gbc.gridx = 1;
+        gbc.weightx = 1.0;
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gpgPanel.add(gpgKeyCombo, gbc);
+
+        gpgSigningCheckbox.addActionListener(e -> gpgKeyCombo.setEnabled(gpgSigningCheckbox.isSelected()));
+        gpgKeyCombo.setEnabled(gpgSigningCheckbox.isSelected());
+
+        var mainPanel = new JPanel(new BorderLayout());
+        mainPanel.add(gitSettingsPanel, BorderLayout.NORTH);
+        mainPanel.add(gpgPanel, BorderLayout.CENTER);
+        return mainPanel;
+    }
+
+    private void loadGpgKeys(@Nullable String selectedKeyId) {
+        new SwingWorker<List<GpgKeyUtil.GpgKey>, Void>() {
+            @Override
+            protected List<GpgKeyUtil.GpgKey> doInBackground() {
+                return GpgKeyUtil.listSecretKeys();
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    List<GpgKeyUtil.GpgKey> keys = get();
+                    gpgKeyCombo.removeAllItems();
+                    GpgKeyUtil.GpgKey toSelect = null;
+                    for (var key : keys) {
+                        gpgKeyCombo.addItem(key);
+                        if (key.id().equals(selectedKeyId)) {
+                            toSelect = key;
+                        }
+                    }
+                    if (toSelect != null) {
+                        gpgKeyCombo.setSelectedItem(toSelect);
+                    }
+                } catch (Exception e) {
+                    logger.error("Failed to load GPG keys", e);
+                }
+            }
+        }.execute();
+    }
+
     private void populateGitHubTab() {
-        gitHubSettingsPanel.loadSettings();
+        gitSettingsPanel.loadSettings();
     }
 
     /**
@@ -1045,8 +1125,16 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
 
         // GitHub settings
-        if (!gitHubSettingsPanel.applySettings()) {
+        if (!gitSettingsPanel.applySettings()) {
             return false;
+        }
+
+        // GPG settings
+        MainProject mainProject = chrome.getProject().getMainProject();
+        mainProject.setGpgCommitSigningEnabled(gpgSigningCheckbox.isSelected());
+        var selectedKey = (GpgKeyUtil.GpgKey) gpgKeyCombo.getSelectedItem();
+        if (selectedKey != null) {
+            mainProject.setGpgSigningKey(selectedKey.id());
         }
 
         // Capture previous values for side-effect decisions
@@ -2208,7 +2296,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     // SettingsChangeListener implementation
     @Override
     public void gitHubTokenChanged() {
-        gitHubSettingsPanel.gitHubTokenChanged();
+        gitSettingsPanel.gitHubTokenChanged();
     }
 
     @Override
