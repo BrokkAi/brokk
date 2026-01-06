@@ -361,18 +361,21 @@ public final class DiffService {
                 }
             }
 
-            // Compute right content based on right reference
-            String rightContent = "";
+            // Build right-side fragment and extract content
+            ContextFragments.GitFileFragment rightFrag;
+            String rightContent;
             if ("WORKING".equals(rightRef)) {
                 rightContent = file.read().orElse("");
+                rightFrag = new ContextFragments.GitFileFragment(file, "WORKING", rightContent);
             } else {
                 try {
-                    var rightFragTmp = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-                    rightContent = rightFragTmp.text().join();
+                    rightFrag = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                    rightContent = rightFrag.text().join();
                 } catch (RuntimeException e) {
                     // File doesn't exist at rightRef (deleted file) - treat as empty right side
                     logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
                     rightContent = "";
+                    rightFrag = new ContextFragments.GitFileFragment(file, rightRef, rightContent);
                 }
             }
 
@@ -389,20 +392,7 @@ public final class DiffService {
             totalAdded += added;
             totalDeleted += deleted;
 
-            // Build DiffEntry using the right-side fragment as representative
-            ContextFragments.GitFileFragment rightFragForEntry;
-            if ("WORKING".equals(rightRef)) {
-                rightFragForEntry = new ContextFragments.GitFileFragment(file, "WORKING", rightContent);
-            } else {
-                try {
-                    rightFragForEntry = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-                } catch (RuntimeException e) {
-                    // File doesn't exist at rightRef (e.g., deleted) - synthesize with current computed rightContent
-                    rightFragForEntry = new ContextFragments.GitFileFragment(file, rightRef, rightContent);
-                }
-            }
-
-            var de = new DiffEntry(rightFragForEntry, diffRes.diff(), added, deleted, leftContent, rightContent);
+            var de = new DiffEntry(rightFrag, diffRes.diff(), added, deleted, leftContent, rightContent);
             perFileChanges.add(de);
         }
 
