@@ -154,10 +154,10 @@ public class ReviewAgent {
                                 .findFirst()
                                 .orElse(new ReviewParser.CodeExcerpt(
                                         fileObj,
-                                        1, // Default to line 1 if unresolved
+                                        null, 1, // Default to line 1 if unresolved
                                         ReviewParser.DiffSide.NEW,
-                                        content,
-                                        null));
+                                        content
+                                ));
                     });
         }
     }
@@ -284,7 +284,7 @@ public class ReviewAgent {
                             .orElse(null);
 
                     resolvedExcerpts.put(
-                            id, new CodeExcerpt(file, match.line(), match.side(), match.matchedText(), unit));
+                            id, new CodeExcerpt(file, unit, match.line(), match.side(), match.matchedText()));
                 }
             }
 

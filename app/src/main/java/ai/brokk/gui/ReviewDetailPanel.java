@@ -88,21 +88,23 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         } else if (item instanceof DesignFeedback design) {
             addMarkdownPanel("### " + design.title());
             addMarkdownPanel(design.description());
+            if (!excerpts.isEmpty()) {
+                addExcerptsTable(excerpts);
+            }
             if (!design.recommendation().isBlank()) {
                 addRecommendationSection(design.recommendation());
             }
         } else if (item instanceof TacticalFeedback tactical) {
             addMarkdownPanel("### " + tactical.title());
             addMarkdownPanel(tactical.description());
+            if (!excerpts.isEmpty()) {
+                addExcerptsTable(excerpts);
+            }
             if (!tactical.recommendation().isBlank()) {
                 addRecommendationSection(tactical.recommendation());
             }
-        } else if (item instanceof CodeExcerpt ce) {
-            addMarkdownPanel("```\n" + ce.excerpt() + "\n```");
-        }
-
-        if (!excerpts.isEmpty()) {
-            addExcerptsTable(excerpts);
+        } else {
+            throw new IllegalArgumentException("Unknown item type: " + item.getClass());
         }
 
         revalidate();
@@ -123,6 +125,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 5));
         btnPanel.setOpaque(false);
         btnPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        btnPanel.setBorder(new EmptyBorder(0, 8, 0, 0));
 
         SplitButton splitBtn = new SplitButton("Enqueue Task");
         splitBtn.addActionListener(e -> enqueueTask(recommendation));
@@ -187,14 +190,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             int idx = i;
 
             String labelText;
-            var analyzer = contextManager.getAnalyzerUninterrupted();
-            var codeUnitOpt = analyzer.enclosingCodeUnit(ce.file(), ce.line(), ce.line());
-            if (codeUnitOpt.isPresent()) {
-                labelText = codeUnitOpt.get().shortName();
-            } else {
+            if (ce.codeUnit() == null) {
                 // Fallback to filename:line format
                 String fileName = ce.file().getRelPath().getFileName().toString();
                 labelText = String.format("%s:%d", fileName, ce.line());
+            } else {
+                labelText = ce.codeUnit().shortName();
             }
             String sideSuffix = (ce.side() == ReviewParser.DiffSide.OLD) ? " (old)" : "";
             labelText = labelText + sideSuffix;
