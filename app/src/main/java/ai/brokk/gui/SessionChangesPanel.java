@@ -74,6 +74,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private CodeReviewPanel codeReviewPanel;
 
     @Nullable
+    private JSplitPane leftSplitPane;
+
+    @Nullable
     private JPanel diffContainer;
 
     @Nullable
@@ -524,8 +527,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
 
         // Left column: Review List above File Tree
-        JSplitPane leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
-        leftSplit.setDividerLocation(300);
+        this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
+        leftSplitPane.setResizeWeight(0.5); // 50% split
 
         // Right side: Review Detail above Diff
         JPanel rightPanel = new JPanel(new BorderLayout());
@@ -534,7 +537,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         rightPanel.add(diffContainer, BorderLayout.CENTER);
 
         // Main horizontal split: [Review List / File Tree] | [Review Detail / Diff]
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplit, rightPanel);
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightPanel);
         mainSplit.setDividerLocation(300);
 
         topContainer.add(mainSplit, BorderLayout.CENTER);
@@ -660,6 +663,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         TextAreaConsoleIO tio = new TextAreaConsoleIO(logArea, chrome, "Starting guided review...", false);
 
+        final int savedDividerLocation = (parent instanceof JSplitPane sp) ? sp.getDividerLocation() : -1;
+
         SwingUtilities.invokeLater(() -> {
             if (parent instanceof JSplitPane splitPane) {
                 splitPane.setTopComponent(progressPanel);
@@ -730,6 +735,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     if (parent instanceof JSplitPane splitPane) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
+                        if (savedDividerLocation > 0) {
+                            splitPane.setDividerLocation(savedDividerLocation);
+                        }
                     }
                     if (codeReviewPanel != null) {
                         codeReviewPanel.displayReview(review);
@@ -743,6 +751,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     if (parent instanceof JSplitPane splitPane) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
+                        if (savedDividerLocation > 0) {
+                            splitPane.setDividerLocation(savedDividerLocation);
+                        }
                     }
                     if (codeReviewPanel != null) codeReviewPanel.setBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());
@@ -770,6 +781,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             diffCore.clearCache();
         }
         diffCore = null;
+        leftSplitPane = null;
     }
 
     public enum BaselineMode {
