@@ -372,6 +372,8 @@ public class ReviewAgent {
                 Reference the excerpts you extracted by their numeric ID (0, 1, 2, ...) in your
                 designNotes and tacticalNotes fields.
                 
+                Use Markdown formatting in description and recommendation fields.
+
                 Remember:
                 - overview: Explain what changes accomplish and whether they do so simply
                 - designNotes: High-level architectural concerns with excerpt references
@@ -383,7 +385,7 @@ public class ReviewAgent {
     @Tool("Create a structured code review of the current changes or proposal.")
     public String createReview(
             @P(
-                    "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
+                    "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible?")
             String overview,
             @P(
                     """

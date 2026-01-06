@@ -182,7 +182,7 @@ public class ReviewParser {
 
     public record RawDesignFeedback(String title, String description, List<Integer> excerptIds, String recommendation) {}
 
-    public record RawTacticalFeedback(String title, int excerptId, String recommendation) {}
+    public record RawTacticalFeedback(String title, String description, int excerptId, String recommendation) {}
 
     public record RawReview(
             String overview,
@@ -200,7 +200,7 @@ public class ReviewParser {
 
     public record DesignFeedback(String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
 
-    public record TacticalFeedback(String title, CodeExcerpt excerpt, String recommendation) {}
+    public record TacticalFeedback(String title, String description, CodeExcerpt excerpt, String recommendation) {}
 
     public record GuidedReview(
             String overview,
@@ -237,7 +237,7 @@ public class ReviewParser {
                         CodeExcerpt excerpt = (raw.excerptId() >= 0 && excerptContents.containsKey(raw.excerptId()))
                                 ? resolver.apply(excerptFiles.get(raw.excerptId()), excerptContents.get(raw.excerptId()))
                                 : resolver.apply("unknown", "");
-                        return new TacticalFeedback(raw.title(), excerpt, raw.recommendation());
+                        return new TacticalFeedback(raw.title(), raw.description, excerpt, raw.recommendation());
                     })
                     .toList();
 
