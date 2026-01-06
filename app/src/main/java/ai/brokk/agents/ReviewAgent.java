@@ -8,14 +8,19 @@ import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
-import ai.brokk.prompts.SearchPrompts;
+import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.util.ReviewExcerptParser;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.SystemMessage;
+import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -70,43 +75,74 @@ public class ReviewAgent {
             var reviewLlm = cm.getLlm(new Llm.Options(model, "Finalizing Code Review").withEcho());
             reviewLlm.setOutput(io);
 
-            String reviewInstructions = """
-                    Based on the gathered context and the proposed changes, provide a structured code review using the createReview tool.
+            var messages = new ArrayList<ChatMessage>();
 
-                    CRITICAL INSTRUCTION FOR CODE EXCERPTS:
-                    When providing `CodeExcerpt` objects in the tool call:
-                    1. For the `excerpt` field, DO NOT provide the actual code. Instead, use a placeholder like `BRK_EXCERPT_1`, `BRK_EXCERPT_2`, etc.
-                    2. In your main assistant response text (OUTSIDE the tool call), you MUST provide the actual code blocks for these placeholders using this EXACT format:
+            // System message with high-level instructions
+            messages.add(new SystemMessage("""
+                    You are an expert code reviewer. Your task is to provide a structured, actionable code review
+                    of the proposed changes. Focus on design quality, correctness, and simplicity.
+                    
+                    You will analyze the diff and the surrounding context to identify:
+                    1. Design issues - architectural concerns, coupling, abstraction problems
+                    2. Tactical issues - local bugs, edge cases, error handling gaps
+                    3. Testing gaps - missing test coverage that would add significant value
+                    
+                    Be constructive and specific. Each piece of feedback should be actionable.
+                    """));
 
-                    BRK_EXCERPT_$ID
-                    $filename
+            // Add workspace content (the context gathered by SearchAgent)
+            var workspaceMessages =
+                    WorkspacePrompts.getMessagesInAddedOrder(finalContext, EnumSet.noneOf(SpecialTextType.class));
+            messages.addAll(workspaceMessages);
+
+            // User message with specific review directions
+            messages.add(new UserMessage("""
+                    Review the proposed changes in the diff against the gathered context.
+                    
+                    When reviewing the code, think about the following points:
+                    - What is this code intended to do?
+                    - Does it accomplish its goals in the simplest way possible?
+                    - What parts are the trickiest and how could they be simplified?
+                    - What additional tests, if any, would add the most value?
+                    
+                    ## Response Format
+                    
+                    You MUST respond using the `createReview` tool with your structured feedback.
+                    
+                    ## Code Excerpts (IMPORTANT)
+                    
+                    When referencing code in your review, you must use the BRK_EXCERPT mechanism:
+                    
+                    1. In the tool call, provide excerpts as a list of `CodeExcerpt` objects. Each excerpt needs:
+                       - `file`: The filename (use "BRK_EXCERPT" as a placeholder)
+                       - `excerpt`: Use a placeholder like "BRK_EXCERPT_0", "BRK_EXCERPT_1", etc.
+                    
+                    2. In the `designNotes` and `tacticalNotes`, reference excerpts by their integer `id`.
+                    
+                    3. In your text response OUTSIDE the tool call, provide the actual code blocks using this EXACT format:
+                    
                     ```
-                    $excerptContent
-                    ```
-
-                    Example:
-                    BRK_EXCERPT_1
-                    src/Main.java
+                    BRK_EXCERPT_0
+                    path/to/file.java
                     ```java
-                    public void hello() {
-                        System.out.println("Hello");
-                    }
+                    // actual code here
                     ```
-                    """;
-
-            var promptResult = SearchPrompts.instance.buildPrompt(
-                    finalContext,
-                    model,
-                    reviewInstructions,
-                    SearchPrompts.Objective.WORKSPACE_ONLY,
-                    List.of(),
-                    List.of());
+                    
+                    BRK_EXCERPT_1
+                    path/to/another/file.java
+                    ```java
+                    // more code here
+                    ```
+                    
+                    This separation allows code excerpts to be displayed properly while keeping the tool call clean.
+                    
+                    Now analyze the diff and provide your structured review.
+                    """));
 
             var tr = cm.getToolRegistry().builder().register(this).build();
             var toolSpecs = tr.getTools(List.of("createReview"));
 
-            var result =
-                    reviewLlm.sendRequest(promptResult.messages(), new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+            var result = reviewLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             if (result.error() != null || result.toolRequests().isEmpty()) {
                 throw new RuntimeException("Failed to generate code review: "
@@ -156,17 +192,21 @@ public class ReviewAgent {
     @Tool("Create a structured code review of the current changes or proposal.")
     public String createReview(
             @P(
+                            "A list of code excerpts referenced in the review. Each has a file path placeholder and excerpt placeholder.")
+                    List<ICodeReview.CodeExcerpt> excerpts,
+            @P(
                             "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
                     String overview,
             @P(
                             "Explain the trickiest parts of the design and how they can be improved. "
                                     + "For each item, provide a 'title' which is a short 5-7 word label summarizing the feedback.")
-                    List<ICodeReview.DesignFeedback> designNotes,
+                    List<ICodeReview.RawDesignFeedback> designNotes,
             @P("A list of local bugs or problems.")
-                    List<ICodeReview.TacticalFeedback> tacticalNotes,
+                    List<ICodeReview.RawTacticalFeedback> tacticalNotes,
             @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
                     List<String> additionalTests) {
-        var review = new ICodeReview.GuidedReview(overview, designNotes, tacticalNotes, additionalTests);
-        return review.toJson();
+        var rawReview = new ICodeReview.RawReview(overview, designNotes, tacticalNotes, additionalTests);
+        var guidedReview = ICodeReview.GuidedReview.fromRaw(rawReview, excerpts);
+        return guidedReview.toJson();
     }
 }
