@@ -146,6 +146,19 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         add(sessionHeaderPanel, BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);
+
+        // Restore persistent docking states
+        SwingUtilities.invokeLater(() -> {
+            if (!GlobalUiSettings.isBuildDocked()) {
+                undockBuild();
+            }
+            if (!GlobalUiSettings.isReviewDocked()) {
+                undockReview();
+            }
+            if (!GlobalUiSettings.isTerminalDocked()) {
+                undockTerminal();
+            }
+        });
     }
 
     private JPanel createSessionHeader() {
@@ -577,10 +590,21 @@ public class RightPanel extends JPanel implements ThemeAware {
         historyOutputPanel.setAdvancedMode(advanced);
 
         int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
-        if (!advanced && terminalIdx != -1) {
-            buildReviewTabs.removeTabAt(terminalIdx);
-        } else if (advanced && terminalIdx == -1) {
-            buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+        if (!advanced) {
+            if (terminalIdx != -1) {
+                buildReviewTabs.removeTabAt(terminalIdx);
+            }
+            if (terminalFrame != null) {
+                terminalFrame.setVisible(false);
+            }
+        } else {
+            // If advanced and docked, ensure it is in the tabs
+            if (GlobalUiSettings.isTerminalDocked() && terminalIdx == -1) {
+                buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+            } else if (!GlobalUiSettings.isTerminalDocked() && terminalFrame != null) {
+                // If advanced and undocked, ensure frame is visible
+                terminalFrame.setVisible(true);
+            }
         }
     }
 
