@@ -86,54 +86,12 @@ public class ReviewAgent {
             reviewLlm.setOutput(io);
 
             // --- Turn 1: Analyze the diff and extract code excerpts ---
-            var messages = new ArrayList<ChatMessage>();
+            var turn1Messages = new ArrayList<ChatMessage>();
+            turn1Messages.add(buildSystemMessage());
+            turn1Messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(finalContext, EnumSet.noneOf(SpecialTextType.class)));
+            turn1Messages.add(buildAnalysisRequestMessage());
 
-            messages.add(new SystemMessage("""
-                    You are an expert code reviewer. Your task is to analyze the proposed changes
-                    and identify the most important code excerpts that warrant discussion.
-                    
-                    Focus on:
-                    1. Design issues - architectural concerns, coupling, abstraction problems
-                    2. Tactical issues - local bugs, edge cases, error handling gaps
-                    3. Testing gaps - missing test coverage that would add significant value
-                    
-                    Be constructive and specific in your analysis.
-                    """));
-
-            var workspaceMessages =
-                    WorkspacePrompts.getMessagesInAddedOrder(finalContext, EnumSet.noneOf(SpecialTextType.class));
-            messages.addAll(workspaceMessages);
-
-            messages.add(new UserMessage("""
-                    Analyze the proposed changes in the diff against the gathered context.
-                    
-                    ### Step 1: Analysis
-                    Think step-by-step about the intent, design, and testing gaps:
-                      - What is this code intended to do?
-                      - Does it accomplish its goals in the simplest way possible?
-                      - What parts are the trickiest and how could they be simplified?
-                      - What additional tests, if any, would add the most value?
-                    
-                    ### Step 2: Code Excerpt Extraction
-                    Extract the subtle, tricky, or potentially incorrect blocks of code that you will
-                    reference in your review. Use this exact format, with sequentially numbered, 0-based IDs:
-                    
-                    BRK_EXCERPT_0
-                    path/to/filename.java
-                    ```java
-                    // code here
-                    ```
-                    
-                    BRK_EXCERPT_1
-                    path/to/another_file.py
-                    ```python
-                    // code here
-                    ```
-                    
-                    Include ALL excerpts you plan to reference in your feedback.
-                    """));
-
-            var turn1Result = reviewLlm.sendRequest(messages);
+            var turn1Result = reviewLlm.sendRequest(turn1Messages);
             if (turn1Result.error() != null) {
                 throw new RuntimeException(
                         "Failed to analyze diff for review: " + turn1Result.error().getMessage());
@@ -144,24 +102,14 @@ public class ReviewAgent {
                     ReviewExcerptParser.instance.parseExcerpts(analysisText);
 
             // --- Turn 2: Generate structured review via tool call ---
-            messages.add(new AiMessage(turn1Result.text(),
+            var turn2Messages = new ArrayList<ChatMessage>(turn1Messages);
+            turn2Messages.add(new AiMessage(turn1Result.text(),
                                        requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
-            messages.add(new UserMessage("""
-                    Now call createReview to produce the final structured review.
-                    
-                    Reference the excerpts you extracted by their numeric ID (0, 1, 2, ...) in your
-                    designNotes and tacticalNotes fields.
-                    
-                    Remember:
-                    - overview: Explain what changes accomplish and whether they do so simply
-                    - designNotes: High-level architectural concerns with excerpt references
-                    - tacticalNotes: Local bugs/issues with excerpt references
-                    - additionalTests: High-value tests that should be added
-                    """));
+            turn2Messages.add(buildReviewRequestMessage());
 
             var tr = cm.getToolRegistry().builder().register(this).build();
             var toolSpecs = tr.getTools(List.of("createReview"));
-            var turn2Result = reviewLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+            var turn2Result = reviewLlm.sendRequest(turn2Messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
             if (turn2Result.error() != null || turn2Result.toolRequests().isEmpty()) {
                 throw new RuntimeException("Failed to generate code review: "
@@ -198,6 +146,66 @@ public class ReviewAgent {
             }
         }
         return errors;
+    }
+
+    private SystemMessage buildSystemMessage() {
+        return new SystemMessage("""
+                You are an expert code reviewer. Your task is to analyze the proposed changes
+                and identify the most important code excerpts that warrant discussion.
+                
+                Focus on:
+                1. Design issues - architectural concerns, coupling, abstraction problems
+                2. Tactical issues - local bugs, edge cases, error handling gaps
+                3. Testing gaps - missing test coverage that would add significant value
+                
+                Be constructive and specific in your analysis.
+                """);
+    }
+
+    private UserMessage buildAnalysisRequestMessage() {
+        return new UserMessage("""
+                Analyze the proposed changes in the diff against the gathered context.
+                
+                ### Step 1: Analysis
+                Think step-by-step about the intent, design, and testing gaps:
+                  - What is this code intended to do?
+                  - Does it accomplish its goals in the simplest way possible?
+                  - What parts are the trickiest and how could they be simplified?
+                  - What additional tests, if any, would add the most value?
+                
+                ### Step 2: Code Excerpt Extraction
+                Extract the subtle, tricky, or potentially incorrect blocks of code that you will
+                reference in your review. Use this exact format, with sequentially numbered, 0-based IDs:
+                
+                BRK_EXCERPT_0
+                path/to/filename.java
+                ```java
+                // code here
+                ```
+                
+                BRK_EXCERPT_1
+                path/to/another_file.py
+                ```python
+                // code here
+                ```
+                
+                Include ALL excerpts you plan to reference in your feedback.
+                """);
+    }
+
+    private UserMessage buildReviewRequestMessage() {
+        return new UserMessage("""
+                Now call createReview to produce the final structured review.
+                
+                Reference the excerpts you extracted by their numeric ID (0, 1, 2, ...) in your
+                designNotes and tacticalNotes fields.
+                
+                Remember:
+                - overview: Explain what changes accomplish and whether they do so simply
+                - designNotes: High-level architectural concerns with excerpt references
+                - tacticalNotes: Local bugs/issues with excerpt references
+                - additionalTests: High-value tests that should be added
+                """);
     }
 
     @Tool("Create a structured code review of the current changes or proposal.")
