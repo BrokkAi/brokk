@@ -183,7 +183,7 @@ public class DiffDisplayCore {
         mainPanel.displayAndRefreshPanel(index, panel, targetLine, targetSide);
     }
 
-    private AbstractDiffPanel createPanel(int index, JMDiffNode diffNode) {
+    protected AbstractDiffPanel createPanel(int index, JMDiffNode diffNode) {
         AbstractDiffPanel panel;
         if (mainPanel.isUnifiedView()) {
             var up = new UnifiedDiffPanel(mainPanel, theme, diffNode);

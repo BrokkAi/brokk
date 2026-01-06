@@ -426,6 +426,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 new ai.brokk.difftool.ui.DiffDisplayCore(
                         dummyPanel, contextManager, chrome.getTheme(), fileComparisons, false, 0) {
                     @Override
+                    protected ai.brokk.difftool.ui.AbstractDiffPanel createPanel(
+                            int index, ai.brokk.difftool.node.JMDiffNode diffNode) {
+                        var panel = new ai.brokk.difftool.ui.unified.UnifiedDiffPanel(
+                                dummyPanel, chrome.getTheme(), diffNode);
+                        panel.setContextMode(ai.brokk.difftool.ui.unified.UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
+                        panel.applyTheme(chrome.getTheme());
+                        return panel;
+                    }
+
+                    @Override
                     public void showFile(int index) {
                         super.showFile(index);
                         if (fileTreePanel != null) {
