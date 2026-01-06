@@ -803,7 +803,15 @@ public class RightPanel extends JPanel implements ThemeAware {
         }
 
         private void triggerUndock(int index) {
+            if (index < 0 || index >= buildReviewTabs.getTabCount()) return;
+
             Component comp = buildReviewTabs.getComponentAt(index);
+
+            // Explicitly exclude Build tab components
+            if (comp == buildSplitPane || comp == verticalActivityCombinedPanel) {
+                return;
+            }
+
             if (comp == reviewTabComponent) {
                 undockReview();
             } else if (comp == previewTabbedPane) {
