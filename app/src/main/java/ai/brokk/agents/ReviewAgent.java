@@ -47,7 +47,7 @@ public class ReviewAgent {
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        Context initialContext = cm.liveContext().addFragments(diffFragment).withPinned(diffFragment, true);
+        Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
 
         // Configure SearchAgent with ARCHITECT model and noAppend scan config
         var model = cm.getService().getModel(ModelType.ARCHITECT);
@@ -66,7 +66,7 @@ public class ReviewAgent {
             }
 
             // Phase 2: Perform the actual review using the gathered context
-            var finalContext = searchResult.context();
+            var finalContext = searchResult.context().withHistory(List.of());
             var reviewLlm = cm.getLlm(new Llm.Options(model, "Finalizing Code Review").withEcho());
             reviewLlm.setOutput(io);
 
