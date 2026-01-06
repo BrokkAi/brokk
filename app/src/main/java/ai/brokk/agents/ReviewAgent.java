@@ -101,8 +101,9 @@ public class ReviewAgent {
             Map<Integer, ICodeReview.CodeExcerpt> parsedExcerpts =
                     ReviewExcerptParser.instance.parseExcerpts(analysisText);
 
-            // --- Turn 1.5: Retry for missing files ---
+            // --- Turn 1.5: Retry for missing files and non-matching excerpts ---
             parsedExcerpts = retryFileNotFound(reviewLlm, turn1Messages, turn1Result, parsedExcerpts);
+            parsedExcerpts = retryExcerptNotFound(reviewLlm, turn1Messages, turn1Result, parsedExcerpts);
 
             // --- Turn 2: Generate structured review via tool call ---
             var turn2Messages = new ArrayList<ChatMessage>(turn1Messages);
@@ -132,12 +133,75 @@ public class ReviewAgent {
     }
 
     @Blocking
+    private Map<Integer, CodeExcerpt> retryExcerptNotFound(
+            Llm llm,
+            List<ChatMessage> turn1Messages,
+            Llm.StreamingResult turn1Result,
+            Map<Integer, CodeExcerpt> initialExcerpts) throws InterruptedException {
+
+        Map<Integer, CodeExcerpt> currentExcerpts = new HashMap<>(initialExcerpts);
+        List<ChatMessage> history = new ArrayList<>(turn1Messages);
+        history.add(new AiMessage(turn1Result.text(),
+                requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+
+        for (int i = 0; i < 2; i++) {
+            Map<Integer, String> errors = validateExcerptInDiff(currentExcerpts, diff);
+            if (errors.isEmpty()) {
+                break;
+            }
+
+            var failedFiles = errors.keySet().stream()
+                    .map(currentExcerpts::get)
+                    .map(ce -> cm.toFile(ce.file()))
+                    .filter(java.util.Objects::nonNull)
+                    .distinct()
+                    .toList();
+
+            var fragments = cm.toPathFragments(failedFiles);
+            Context narrowedContext = new Context(cm).addFragments(fragments);
+            String narrowedContextStr = WorkspacePrompts.getMessagesInAddedOrder(narrowedContext, EnumSet.noneOf(SpecialTextType.class))
+                    .stream()
+                    .map(ChatMessage::toString)
+                    .collect(java.util.stream.Collectors.joining("\n\n"));
+
+            String errorList = errors.entrySet().stream()
+                    .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
+                    .collect(java.util.stream.Collectors.joining("\n"));
+
+            UserMessage retryMessage = new UserMessage("""
+                    The following excerpts could not be found exactly as written in the provided diff. 
+                    Please provide corrected BRK_EXCERPT blocks that match the diff content exactly.
+                    
+                    Errors:
+                    %s
+                    
+                    Reference Context for failed files:
+                    %s
+                    """.formatted(errorList, narrowedContextStr));
+
+            history.add(retryMessage);
+            var result = llm.sendRequest(history);
+            if (result.error() != null) {
+                break;
+            }
+
+            history.add(new AiMessage(result.text(),
+                    requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "")));
+
+            Map<Integer, CodeExcerpt> newExcerpts = ReviewExcerptParser.instance.parseExcerpts(result.text());
+            currentExcerpts.putAll(newExcerpts);
+        }
+
+        return currentExcerpts;
+    }
+
+    @Blocking
     private Map<Integer, CodeExcerpt> retryFileNotFound(
             Llm llm,
             List<ChatMessage> turn1Messages,
             Llm.StreamingResult turn1Result,
             Map<Integer, CodeExcerpt> initialExcerpts) throws InterruptedException {
-        
+
         Map<Integer, CodeExcerpt> currentExcerpts = new HashMap<>(initialExcerpts);
         List<ChatMessage> history = new ArrayList<>(turn1Messages);
         history.add(new AiMessage(turn1Result.text(), 
