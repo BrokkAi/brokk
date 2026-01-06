@@ -15,6 +15,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
@@ -84,12 +85,12 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         for (int i = 0; i < review.designNotes().size(); i++) {
             DesignFeedback design = review.designNotes().get(i);
             List<ParsedExcerpt> parsed = designExcerpts.get(i);
-            addExpandableItem(design.title(), parsed);
+            addExpandableItem(design.title(), design.description(), design.recommendation(), parsed);
         }
 
         addHeader("Tactical");
         for (ParsedExcerpt tactical : tacticalExcerpts) {
-            addExpandableItem(tactical.original().excerpt(), List.of(tactical));
+            addExpandableItem(tactical.original().excerpt(), null, null, List.of(tactical));
         }
 
         addHeader("Tests");
@@ -116,7 +117,11 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         contentPanel.add(label);
     }
 
-    private void addExpandableItem(String title, List<ParsedExcerpt> excerpts) {
+    private void addExpandableItem(
+            String title,
+            @Nullable String description,
+            @Nullable String recommendation,
+            List<ParsedExcerpt> excerpts) {
         JPanel itemPanel = new JPanel();
         itemPanel.setLayout(new BoxLayout(itemPanel, BoxLayout.Y_AXIS));
         itemPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -141,6 +146,21 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
                 itemPanel.repaint();
             }
         });
+
+        if (description != null && !description.isBlank()) {
+            JLabel descLabel = new JLabel("<html>" + description.replace("\n", "<br>") + "</html>");
+            descLabel.setBorder(new EmptyBorder(2, 5, 5, 5));
+            descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            detailsPanel.add(descLabel);
+        }
+
+        if (recommendation != null && !recommendation.isBlank()) {
+            JLabel recLabel =
+                    new JLabel("<html><b>Recommendation:</b> " + recommendation.replace("\n", "<br>") + "</html>");
+            recLabel.setBorder(new EmptyBorder(2, 5, 10, 5));
+            recLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            detailsPanel.add(recLabel);
+        }
 
         if (excerpts.size() > 1) {
             JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
