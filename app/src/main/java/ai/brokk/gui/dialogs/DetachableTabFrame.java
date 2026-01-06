@@ -43,7 +43,7 @@ public class DetachableTabFrame extends JFrame implements ThemeAware {
         // Create toolbar with dock button
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 2));
         MaterialButton dockButton = new MaterialButton("");
-        dockButton.setIcon(Icons.VISIBILITY);
+        dockButton.setIcon(Icons.DOWNLOAD);
         dockButton.setToolTipText("Dock " + title);
         dockButton.addActionListener(e -> handleRedock());
         toolbar.add(dockButton);
