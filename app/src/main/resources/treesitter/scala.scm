@@ -84,5 +84,22 @@
   )
 
 ; Test markers for JUnit/ScalaTest detection
-(annotation name: (type_identifier) @test_marker)
+(annotation
+  name: (type_identifier) @test_marker
+  (#match? @test_marker "^(Test|ParameterizedTest|RepeatedTest)$")
+)
+
 (import_declaration) @test_marker
+(#match? @test_marker "org.scalatest")
+
+; ScalaTest FunSuite: test("description") { ... }
+(call_expression
+  function: (identifier) @test_marker
+  (#eq? @test_marker "test")
+)
+
+; ScalaTest FlatSpec: "test" should "work" in { ... }
+(infix_expression
+  operator: (identifier) @test_marker
+  (#match? @test_marker "^(in|should|must|can)$")
+)
