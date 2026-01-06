@@ -9,6 +9,8 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
+import java.awt.event.AWTEventListener;
+import java.awt.event.MouseEvent;
 import java.util.UUID;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
@@ -165,6 +167,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         setupCommandPaneLogic();
 
         var dragHandler = new TabDragUndockHandler();
+        dragHandler.register();
         buildReviewTabs.addMouseListener(dragHandler);
         buildReviewTabs.addMouseMotionListener(dragHandler);
 
@@ -790,42 +793,73 @@ public class RightPanel extends JPanel implements ThemeAware {
         return commandPane;
     }
 
-    private class TabDragUndockHandler extends java.awt.event.MouseAdapter {
+    private class TabDragUndockHandler extends java.awt.event.MouseAdapter implements AWTEventListener {
         private static final int DRAG_THRESHOLD = 16;
         private @Nullable Point pressPoint;
         private int dragTabIndex = -1;
         private boolean undocked;
 
+        public void register() {
+            Toolkit.getDefaultToolkit()
+                    .addAWTEventListener(this, AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);
+        }
+
         @Override
-        public void mousePressed(java.awt.event.MouseEvent e) {
+        public void eventDispatched(AWTEvent event) {
+            if (!(event instanceof MouseEvent me)) return;
+
+            // Only handle events from components that are descendants of buildReviewTabs (or buildReviewTabs itself)
+            Component source = me.getComponent();
+            if (source == null) return;
+            if (source != buildReviewTabs && !SwingUtilities.isDescendingFrom(source, buildReviewTabs)) return;
+
+            switch (me.getID()) {
+                case MouseEvent.MOUSE_PRESSED -> handleMousePressed(me);
+                case MouseEvent.MOUSE_DRAGGED -> handleMouseDragged(me);
+                case MouseEvent.MOUSE_RELEASED -> handleMouseReleased(me);
+            }
+        }
+
+        private void handleMousePressed(MouseEvent e) {
             undocked = false;
-            // First check if we clicked on a specific tab header
-            int clickedTabIndex = buildReviewTabs.indexAtLocation(e.getX(), e.getY());
+
+            // First check if we clicked on a specific tab header (relative to buildReviewTabs)
+            Point p = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), buildReviewTabs);
+            int clickedTabIndex = buildReviewTabs.indexAtLocation(p.x, p.y);
+
             // If not on a tab header, use the currently selected tab
             dragTabIndex = (clickedTabIndex != -1) ? clickedTabIndex : buildReviewTabs.getSelectedIndex();
 
             if (dragTabIndex != -1) {
-                pressPoint = e.getPoint();
+                // Convert press point to buildReviewTabs coordinate space
+                pressPoint = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), buildReviewTabs);
 
                 // Show visual hint if the tab is detachable
                 Component comp = buildReviewTabs.getComponentAt(dragTabIndex);
-                UndockTarget target = getUndockTarget(comp, reviewTabComponent, previewTabbedPane, terminalPanel, buildSplitPane, verticalActivityCombinedPanel);
+                UndockTarget target = getUndockTarget(
+                        comp,
+                        reviewTabComponent,
+                        previewTabbedPane,
+                        terminalPanel,
+                        buildSplitPane,
+                        verticalActivityCombinedPanel);
                 if (target != UndockTarget.NONE) {
                     buildReviewTabs.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
                 }
             }
         }
 
-        @Override
-        public void mouseDragged(java.awt.event.MouseEvent e) {
+        private void handleMouseDragged(MouseEvent e) {
             if (dragTabIndex == -1 || pressPoint == null || undocked) return;
 
-            double dist = e.getPoint().distance(pressPoint);
+            // Convert current point to buildReviewTabs coordinate space
+            Point currentPoint = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), buildReviewTabs);
+            double dist = currentPoint.distance(pressPoint);
+
             if (dist > DRAG_THRESHOLD) {
                 // Check if we've dragged outside the tabbed pane bounds
-                Point localPoint = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), buildReviewTabs);
                 Rectangle localBounds = new Rectangle(0, 0, buildReviewTabs.getWidth(), buildReviewTabs.getHeight());
-                if (!localBounds.contains(localPoint)) {
+                if (!localBounds.contains(currentPoint)) {
                     buildReviewTabs.setCursor(Cursor.getDefaultCursor());
                     triggerUndock(dragTabIndex);
                     undocked = true;
@@ -833,19 +867,39 @@ public class RightPanel extends JPanel implements ThemeAware {
             }
         }
 
-        @Override
-        public void mouseReleased(java.awt.event.MouseEvent e) {
+        private void handleMouseReleased(MouseEvent e) {
             buildReviewTabs.setCursor(Cursor.getDefaultCursor());
             dragTabIndex = -1;
             pressPoint = null;
             undocked = false;
         }
 
+        @Override
+        public void mousePressed(MouseEvent e) {
+            handleMousePressed(e);
+        }
+
+        @Override
+        public void mouseDragged(MouseEvent e) {
+            handleMouseDragged(e);
+        }
+
+        @Override
+        public void mouseReleased(MouseEvent e) {
+            handleMouseReleased(e);
+        }
+
         private void triggerUndock(int index) {
             if (index < 0 || index >= buildReviewTabs.getTabCount()) return;
 
             Component comp = buildReviewTabs.getComponentAt(index);
-            UndockTarget target = getUndockTarget(comp, reviewTabComponent, previewTabbedPane, terminalPanel, buildSplitPane, verticalActivityCombinedPanel);
+            UndockTarget target = getUndockTarget(
+                    comp,
+                    reviewTabComponent,
+                    previewTabbedPane,
+                    terminalPanel,
+                    buildSplitPane,
+                    verticalActivityCombinedPanel);
 
             switch (target) {
                 case REVIEW -> undockReview();
