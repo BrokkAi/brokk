@@ -25,8 +25,11 @@ import ai.brokk.gui.theme.ThemeAware;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -632,7 +635,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .map(de -> "File: " + de.title() + "\n" + de.diff())
                         .collect(java.util.stream.Collectors.joining("\n\n"));
 
-                String cacheKey = "guided_review_" + dev.langchain4j.internal.Utils.generateUUIDFrom(formattedDiff);
+                byte[] hash = MessageDigest.getInstance("SHA-1").digest(formattedDiff.getBytes(StandardCharsets.UTF_8));
+                String cacheKey = "review_" + HexFormat.of().formatHex(hash);
                 var diskCache = contextManager.getProject().getDiskCache();
 
                 ICodeReview.GuidedReview review;
