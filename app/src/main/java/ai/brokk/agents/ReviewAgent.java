@@ -6,6 +6,7 @@ import static java.util.Objects.requireNonNullElse;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
@@ -155,7 +156,8 @@ public class ReviewAgent {
                                         fileObj,
                                         1, // Default to line 1 if unresolved
                                         ReviewParser.DiffSide.NEW,
-                                        content));
+                                        content,
+                                        null));
                     });
         }
     }
@@ -274,10 +276,15 @@ public class ReviewAgent {
                 if (match == null) {
                     stage2Errors.put(id, "Excerpt text not found in file content");
                 } else {
+                    var file = cm.toFile(excerpt.file());
+                    int lineCount = (int) match.matchedText().lines().count();
+                    @Nullable
+                    CodeUnit unit = cm.getAnalyzerUninterrupted()
+                            .enclosingCodeUnit(file, match.line(), match.line() + Math.max(0, lineCount - 1))
+                            .orElse(null);
+
                     resolvedExcerpts.put(
-                            id,
-                            new CodeExcerpt(
-                                    cm.toFile(excerpt.file()), match.line(), match.side(), match.matchedText()));
+                            id, new CodeExcerpt(file, match.line(), match.side(), match.matchedText(), unit));
                 }
             }
 

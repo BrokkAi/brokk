@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.HashMap;
 import java.util.List;
@@ -183,7 +184,8 @@ public class ReviewParser {
 
     public record RawExcerpt(String file, int line, String excerpt) {}
 
-    public record CodeExcerpt(ProjectFile file, int line, DiffSide side, String excerpt) {}
+    public record CodeExcerpt(
+            ProjectFile file, int line, DiffSide side, String excerpt, @org.jetbrains.annotations.Nullable CodeUnit unit) {}
 
     public record RawDesignFeedback(
             String title, String description, List<Integer> excerptIds, String recommendation) {}
@@ -232,7 +234,7 @@ public class ReviewParser {
                             raw.title(),
                             raw.description(),
                             raw.excerptIds().stream()
-                                    .filter(id -> id >= 0 && excerptContents.containsKey(id))
+                                    .filter(id -> id != null && id >= 0 && excerptContents.containsKey(id))
                                     .map(id -> resolver.apply(excerptFiles.get(id), excerptContents.get(id)))
                                     .toList(),
                             raw.recommendation()))
@@ -244,7 +246,7 @@ public class ReviewParser {
                                 ? resolver.apply(
                                         excerptFiles.get(raw.excerptId()), excerptContents.get(raw.excerptId()))
                                 : resolver.apply("unknown", "");
-                        return new TacticalFeedback(raw.title(), raw.description, excerpt, raw.recommendation());
+                        return new TacticalFeedback(raw.title(), raw.description(), excerpt, raw.recommendation());
                     })
                     .toList();
 
