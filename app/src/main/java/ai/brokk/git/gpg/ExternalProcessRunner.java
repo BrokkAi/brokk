@@ -12,12 +12,12 @@ import org.eclipse.jgit.util.TemporaryBuffer;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
-class ExternalProcessRunner {
+public class ExternalProcessRunner {
     private static final Logger logger = LogManager.getLogger(ExternalProcessRunner.class);
 
     private ExternalProcessRunner() {}
 
-    static void run(ProcessBuilder process, InputStream in, ResultHandler stdout, ResultHandler stderr)
+    public static void run(ProcessBuilder process, InputStream in, ResultHandler stdout, ResultHandler stderr)
             throws IOException, CanceledException {
         String command = process.command().stream().collect(Collectors.joining(" "));
         FS.ExecutionResult result = null;
@@ -72,7 +72,7 @@ class ExternalProcessRunner {
         }
     }
 
-    static String toString(TemporaryBuffer b) {
+    public static String toString(TemporaryBuffer b) {
         if (b != null) {
             try {
                 return new String(b.toByteArray(4000), SystemReader.getInstance().getDefaultCharset());
@@ -84,7 +84,7 @@ class ExternalProcessRunner {
         return "";
     }
 
-    interface ResultHandler {
+    public interface ResultHandler {
         void accept(TemporaryBuffer buffer) throws IOException, CanceledException;
     }
 }

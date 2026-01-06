@@ -19,16 +19,16 @@ import org.eclipse.jgit.util.SystemReader;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
-class ExternalGpg {
+public class ExternalGpg {
     private static final Logger logger = LogManager.getLogger(ExternalGpg.class);
 
     private static final Map<String, String> EXECUTABLES = new ConcurrentHashMap<>();
 
-    static String getGpg() {
+    public static String getGpg() {
         return get("gpg");
     }
 
-    static String getGpgSm() {
+    public static String getGpgSm() {
         return get("gpgsm");
     }
 
