@@ -14,6 +14,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
+import ai.brokk.project.IProject;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.McpPrompts;
 import ai.brokk.prompts.SearchPrompts;
@@ -52,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import picocli.CommandLine;
 
 /**
  * SearchAgent: - Uses tools to curate Workspace context for follow-on coding. - Starts by
@@ -98,6 +100,7 @@ public class SearchAgent {
     protected final IConsoleIO io;
     protected final String goal;
     protected final List<McpPrompts.McpTool> mcpTools;
+    protected final List<String> staticTools;
     protected final SearchMetrics metrics;
     protected final ScanConfig scanConfig;
     protected boolean scanPerformed;
@@ -119,6 +122,17 @@ public class SearchAgent {
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig) {
+        this(initialContext, goal, model, scope, io, scanConfig, null);
+    }
+
+    public SearchAgent(
+            Context initialContext,
+            String goal,
+            StreamingChatModel model,
+            ContextManager.TaskScope scope,
+            IConsoleIO io,
+            ScanConfig scanConfig,
+            @Nullable List<String> staticTools) {
         this.goal = goal;
         this.cm = initialContext.getContextManager();
         this.model = model;
@@ -137,8 +151,15 @@ public class SearchAgent {
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
 
-        var mcpConfig = cm.getProject().getMcpConfig();
-        List<McpPrompts.McpTool> tools = new ArrayList<>();
+        this.mcpTools = initMcpTools(cm.getProject());
+        this.context = initialContext;
+        this.scanConfig = scanConfig;
+        this.staticTools = initStaticTools(staticTools, cm.getProject(), mcpTools);
+    }
+
+    private static List<McpPrompts.McpTool> initMcpTools(IProject project) {
+        var mcpConfig = project.getMcpConfig();
+        var tools = new ArrayList<McpPrompts.McpTool>();
         for (var server : mcpConfig.servers()) {
             if (server.tools() != null) {
                 for (var toolName : server.tools()) {
@@ -146,9 +167,65 @@ public class SearchAgent {
                 }
             }
         }
-        this.mcpTools = List.copyOf(tools);
-        this.context = initialContext;
-        this.scanConfig = scanConfig;
+        return tools;
+    }
+
+    private static final Set<String> ANALYZER_REQUIRED_TOOLS = Set.of(
+            "getClassSkeletons",
+            "searchSymbols",
+            "getSymbolLocations",
+            "getUsages",
+            "addSymbolUsagesToWorkspace",
+            "getMethodSources",
+            "getClassSources",
+            "skimDirectory",
+            "addClassesToWorkspace",
+            "addClassSummariesToWorkspace",
+            "addMethodsToWorkspace",
+            "addFileSummariesToWorkspace");
+
+    private static List<String> initStaticTools(
+            @Nullable List<String> explicitTools, IProject project, List<McpPrompts.McpTool> mcpTools) {
+        boolean hasAnalyzedLanguage = !project.getAnalyzerLanguages().equals(Set.of(Languages.NONE));
+
+        if (explicitTools != null) {
+            if (hasAnalyzedLanguage) {
+                return explicitTools;
+            }
+            return explicitTools.stream()
+                    .filter(tool -> !ANALYZER_REQUIRED_TOOLS.contains(tool))
+                    .toList();
+        }
+
+        var tools = new ArrayList<String>();
+        if (hasAnalyzedLanguage) {
+            tools.add("getClassSkeletons");
+            tools.add("searchSymbols");
+            tools.add("getSymbolLocations");
+            tools.add("getUsages");
+            tools.add("addSymbolUsagesToWorkspace");
+            tools.add("getMethodSources");
+            tools.add("getClassSources");
+            tools.add("skimDirectory");
+            tools.add("addClassesToWorkspace");
+            tools.add("addClassSummariesToWorkspace");
+            tools.add("addMethodsToWorkspace");
+            tools.add("addFileSummariesToWorkspace");
+        }
+
+        tools.add("searchSubstrings");
+        tools.add("searchGitCommitMessages");
+        tools.add("searchFilenames");
+        tools.add("getFileContents");
+        tools.add("getFileSummaries");
+        tools.add("addFilesToWorkspace");
+        tools.add("appendNote");
+
+        if (!mcpTools.isEmpty()) {
+            tools.add("callMcpTool");
+        }
+
+        return tools;
     }
 
     public SearchAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope) {
@@ -372,35 +449,9 @@ public class SearchAgent {
             return List.of();
         }
 
-        var names = new ArrayList<String>();
-        if (!cm.getProject().getAnalyzerLanguages().equals(Set.of(Languages.NONE))) {
-            names.add("searchSymbols");
-            names.add("getSymbolLocations");
-        }
-
-        names.add("getClassSkeletons");
-        names.add("getClassSources");
-        names.add("getMethodSources");
-        names.add("getUsages");
-        names.add("searchSubstrings");
-        names.add("searchGitCommitMessages");
-        names.add("searchFilenames");
-        names.add("getFileContents");
-        names.add("getFileSummaries");
-        names.add("skimDirectory");
-        names.add("addFilesToWorkspace");
-        names.add("addClassesToWorkspace");
-        names.add("addClassSummariesToWorkspace");
-        names.add("addMethodsToWorkspace");
-        names.add("addFileSummariesToWorkspace");
-        names.add("addSymbolUsagesToWorkspace");
-        names.add("appendNote");
+        var names = new ArrayList<String>(staticTools);
         if (hasDroppableFragments()) {
             names.add("dropWorkspaceFragments");
-        }
-
-        if (!mcpTools.isEmpty()) {
-            names.add("callMcpTool");
         }
 
         return names;

@@ -78,7 +78,13 @@ public class ReviewAgent {
         var scanConfig = SearchAgent.ScanConfig.noAppend();
 
         try (ContextManager.TaskScope scope = cm.beginTask(goal, false, "Code Review")) {
-            SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, io, scanConfig);
+            var searchTools = List.of("addSymbolUsagesToWorkspace",
+                                      "addClassesToWorkspace",
+                                      "addClassSummariesToWorkspace",
+                                      "addMethodsToWorkspace",
+                                      "addFileSummariesToWorkspace",
+                                      "addFilesToWorkspace");
+            SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, io, scanConfig, searchTools);
 
             // Phase 1: Establish context using SearchAgent
             agent.scanContext();
