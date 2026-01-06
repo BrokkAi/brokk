@@ -85,6 +85,38 @@ class JavaAnalyzerUpdateTest {
     }
 
     @Test
+    void verifySupertypeUpdate() throws IOException {
+        // Create B and C so they are resolvable
+        new ProjectFile(project.getRoot(), "B.java").write("public class B {}");
+        new ProjectFile(project.getRoot(), "C.java").write("public class C {}");
+
+        // Initial state: A extends B
+        new ProjectFile(project.getRoot(), "A.java").write("public class A extends B {}");
+
+        analyzer = analyzer.update();
+
+        CodeUnit unitA = analyzer.getDefinitions("A").stream().findFirst().orElseThrow();
+
+        // Resolve ancestors to populate the lazy cache in TreeSitterAnalyzer
+        List<CodeUnit> ancestorsInitial = analyzer.getDirectAncestors(unitA);
+        assertEquals(1, ancestorsInitial.size());
+        assertEquals("B", ancestorsInitial.getFirst().shortName());
+
+        // Mutate A to extend C instead
+        new ProjectFile(project.getRoot(), "A.java").write("public class A extends C {}");
+
+        // Update the analyzer. This returns a fresh instance, which should result in a fresh cache.
+        analyzer = analyzer.update();
+
+        CodeUnit unitAUpdated =
+                analyzer.getDefinitions("A").stream().findFirst().orElseThrow();
+        List<CodeUnit> ancestorsUpdated = analyzer.getDirectAncestors(unitAUpdated);
+
+        assertEquals(1, ancestorsUpdated.size());
+        assertEquals("C", ancestorsUpdated.getFirst().shortName(), "Supertype should be updated to C");
+    }
+
+    @Test
     void automaticUpdateDetection() throws IOException {
         // add new method then rely on hash detection
         new ProjectFile(project.getRoot(), "A.java")
