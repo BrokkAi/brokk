@@ -1486,6 +1486,14 @@ public class BrokkDiffPanel extends JPanel
      * Displays a cached panel and updates navigation buttons.
      */
     public void displayAndRefreshPanel(int fileIndex, AbstractDiffPanel panel) {
+        displayAndRefreshPanel(fileIndex, panel, -1, ICodeReview.DiffSide.NEW);
+    }
+
+    /**
+     * Displays a cached panel and updates navigation buttons, optionally scrolling to a specific location.
+     */
+    public void displayAndRefreshPanel(
+            int fileIndex, AbstractDiffPanel panel, int targetLine, ICodeReview.DiffSide targetSide) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         removeLoadingUi();
@@ -1499,19 +1507,37 @@ public class BrokkDiffPanel extends JPanel
         }
 
         panel.resetAutoScrollFlag();
-        panel.resetToFirstDifference();
 
-        if (getCurrentFontIndex() >= 0) {
-            panel.applyEditorFontSize(FONT_SIZES.get(getCurrentFontIndex()));
+        if (targetLine > 0) {
+            // Skip resetToFirstDifference and auto-scroll in diff()
+            if (getCurrentFontIndex() >= 0) {
+                panel.applyEditorFontSize(FONT_SIZES.get(getCurrentFontIndex()));
+            }
+
+            if (panel instanceof BufferDiffPanel bp) {
+                resetDocumentDirtyStateAfterTheme(bp);
+            }
+
+            panel.refreshComponentListeners();
+            needsLayoutReset = true;
+            panel.diff(false);
+
+            scrollToLineInCurrentPanel(targetLine, targetSide);
+        } else {
+            panel.resetToFirstDifference();
+
+            if (getCurrentFontIndex() >= 0) {
+                panel.applyEditorFontSize(FONT_SIZES.get(getCurrentFontIndex()));
+            }
+
+            if (panel instanceof BufferDiffPanel bp) {
+                resetDocumentDirtyStateAfterTheme(bp);
+            }
+
+            panel.refreshComponentListeners();
+            needsLayoutReset = true;
+            panel.diff(true);
         }
-
-        if (panel instanceof BufferDiffPanel bp) {
-            resetDocumentDirtyStateAfterTheme(bp);
-        }
-
-        panel.refreshComponentListeners();
-        needsLayoutReset = true;
-        panel.diff(true);
 
         boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
         if (isGitRepo && menuShowBlame.isSelected()) {

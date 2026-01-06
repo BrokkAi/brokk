@@ -434,7 +434,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     }
 
                     @Override
-                    protected void displayPanel(int index, ai.brokk.difftool.ui.AbstractDiffPanel panel) {
+                    protected void displayPanel(
+                            int index,
+                            ai.brokk.difftool.ui.AbstractDiffPanel panel,
+                            int targetLine,
+                            ICodeReview.DiffSide targetSide) {
                         if (diffContainer != null) {
                             diffContainer.removeAll();
                             diffContainer.add(panel.getComponent(), BorderLayout.CENTER);

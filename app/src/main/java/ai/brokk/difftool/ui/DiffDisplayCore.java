@@ -59,7 +59,7 @@ public class DiffDisplayCore {
     public void showFile(int index) {
         if (index < 0 || index >= fileComparisons.size()) return;
         currentIndex = index;
-        updateCacheAndDisplay();
+        updateCacheAndDisplay(-1, ICodeReview.DiffSide.NEW);
     }
 
     public void showFile(ProjectFile file) {
@@ -77,10 +77,7 @@ public class DiffDisplayCore {
         int index = findIndex(file);
         if (index != -1) {
             currentIndex = index;
-            updateCacheAndDisplay();
-            // Scroll logic is handled by the panel display callback in BrokkDiffPanel
-            // or explicitly called after display.
-            mainPanel.navigateToLocation(file, lineNumber, side);
+            updateCacheAndDisplay(lineNumber, side);
         }
     }
 
@@ -109,7 +106,7 @@ public class DiffDisplayCore {
         }
     }
 
-    private void updateCacheAndDisplay() {
+    private void updateCacheAndDisplay(int targetLine, ICodeReview.DiffSide targetSide) {
         // Simple cache of {prev, current, next}
         List<Integer> keep = List.of(currentIndex - 1, currentIndex, currentIndex + 1);
 
@@ -124,45 +121,47 @@ public class DiffDisplayCore {
         }
 
         // Ensure current is loading/loaded
-        ensurePanel(currentIndex);
+        ensurePanel(currentIndex, targetLine, targetSide);
 
         // Background preload adjacent
-        if (currentIndex > 0) ensurePanel(currentIndex - 1);
-        if (currentIndex < fileComparisons.size() - 1) ensurePanel(currentIndex + 1);
+        if (currentIndex > 0) ensurePanel(currentIndex - 1, -1, ICodeReview.DiffSide.NEW);
+        if (currentIndex < fileComparisons.size() - 1)
+            ensurePanel(currentIndex + 1, -1, ICodeReview.DiffSide.NEW);
     }
 
-    private void ensurePanel(int index) {
+    private void ensurePanel(int index, int targetLine, ICodeReview.DiffSide targetSide) {
         if (index < 0 || index >= fileComparisons.size()) return;
         if (panelCache.containsKey(index)) {
             if (index == currentIndex) {
-                mainPanel.displayAndRefreshPanel(index, panelCache.get(index));
+                mainPanel.displayAndRefreshPanel(index, panelCache.get(index), targetLine, targetSide);
             }
             return;
         }
 
         var info = fileComparisons.get(index);
-        long maxSize =
-                Math.max(info.leftSource().sizeInBytes(), info.rightSource().sizeInBytes());
+        long maxSize = Math.max(info.leftSource().sizeInBytes(), info.rightSource().sizeInBytes());
 
         if (maxSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES) {
-            createAsync(index, info);
+            createAsync(index, info, targetLine, targetSide);
         } else {
-            createSync(index, info);
+            createSync(index, info, targetLine, targetSide);
         }
     }
 
-    private void createSync(int index, FileComparisonInfo info) {
+    private void createSync(
+            int index, FileComparisonInfo info, int targetLine, ICodeReview.DiffSide targetSide) {
         var diffNode = FileComparisonHelper.createDiffNode(
                 info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
 
         AbstractDiffPanel panel = createPanel(index, diffNode);
         panelCache.put(index, panel);
         if (index == currentIndex) {
-            displayPanel(index, panel);
+            displayPanel(index, panel, targetLine, targetSide);
         }
     }
 
-    private void createAsync(int index, FileComparisonInfo info) {
+    private void createAsync(
+            int index, FileComparisonInfo info, int targetLine, ICodeReview.DiffSide targetSide) {
         contextManager.submitBackgroundTask("Computing diff: " + info.getDisplayName(), () -> {
             var diffNode = FileComparisonHelper.createDiffNode(
                     info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
@@ -172,15 +171,16 @@ public class DiffDisplayCore {
                 AbstractDiffPanel panel = createPanel(index, diffNode);
                 panelCache.put(index, panel);
                 if (index == currentIndex) {
-                    displayPanel(index, panel);
+                    displayPanel(index, panel, targetLine, targetSide);
                 }
             });
             return null;
         });
     }
 
-    protected void displayPanel(int index, AbstractDiffPanel panel) {
-        mainPanel.displayAndRefreshPanel(index, panel);
+    protected void displayPanel(
+            int index, AbstractDiffPanel panel, int targetLine, ICodeReview.DiffSide targetSide) {
+        mainPanel.displayAndRefreshPanel(index, panel, targetLine, targetSide);
     }
 
     private AbstractDiffPanel createPanel(int index, JMDiffNode diffNode) {
