@@ -2,6 +2,7 @@ package ai.brokk.git;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.git.gpg.ExternalGpgSigner;
 import ai.brokk.project.MainProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
