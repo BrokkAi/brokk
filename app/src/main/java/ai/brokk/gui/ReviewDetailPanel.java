@@ -92,7 +92,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             }
         } else if (item instanceof TacticalFeedback tactical) {
             addMarkdownPanel("### " + tactical.title());
-            addMarkdownPanel("```\n" + tactical.excerpt().excerpt() + "\n```");
+            addMarkdownPanel(tactical.description());
             if (!tactical.recommendation().isBlank()) {
                 addMarkdownPanel("**Recommendation:**\n" + tactical.recommendation());
             }
