@@ -57,6 +57,9 @@ public class VoiceInputButton extends JButton {
     @Nullable
     private volatile Thread micCaptureThread = null;
 
+    // Generation token to prevent race conditions when user clicks stop before initialization completes
+    private volatile int captureGeneration = 0;
+
     private @Nullable Icon micOnIcon;
     private @Nullable Icon micOffIcon;
 
@@ -247,12 +250,24 @@ public class VoiceInputButton extends JButton {
             setIcon(micOnIcon);
         }
 
+        // Increment generation to invalidate any previous in-flight initialization
+        int currentGeneration = ++captureGeneration;
+
         // Move audio device initialization to background thread to avoid blocking EDT
         AudioFormat format = new AudioFormat(16000.0f, 16, 1, true, true);
         contextManager.submitBackgroundTask("Initializing microphone", () -> {
             try {
                 // Initialize audio device (blocking I/O)
                 TargetDataLine line = initializeAudioDevice(format);
+
+                // Check if user clicked stop while we were initializing (race condition guard)
+                if (captureGeneration != currentGeneration) {
+                    logger.debug("Microphone initialization cancelled (generation mismatch)");
+                    line.stop();
+                    line.close();
+                    return;
+                }
+
                 micLine = line;
 
                 // Reset buffer
@@ -297,6 +312,9 @@ public class VoiceInputButton extends JButton {
 
     /** Stops capturing and sends to STT on a background thread. */
     private void stopMicCaptureAndTranscribe() {
+        // Invalidate any in-flight initialization to prevent race condition
+        captureGeneration++;
+
         // stop capturing
         if (micLine != null) {
             micLine.stop();
