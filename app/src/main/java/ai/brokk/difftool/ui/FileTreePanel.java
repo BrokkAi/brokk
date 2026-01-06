@@ -1,5 +1,6 @@
 package ai.brokk.difftool.ui;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -114,15 +115,24 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                 var allFiles = IntStream.range(0, fileComparisons.size())
                         .mapToObj(i -> {
                             var comparison = fileComparisons.get(i);
-                            var filePath = extractFilePath(comparison);
-                            if (filePath != null) {
-                                var path = Path.of(filePath);
-                                var status = determineDiffStatus(comparison); // File I/O happens in background
-                                return new FileWithPath(path, i, status);
+                            ProjectFile file = comparison.file();
+
+                            Path path;
+                            if (file != null) {
+                                path = file.getRelPath();
+                            } else {
+                                // For purely virtual comparisons, use the display name or source title
+                                String name = comparison.getDisplayName();
+                                try {
+                                    path = Path.of(name);
+                                } catch (InvalidPathException ignored) {
+                                    path = Path.of("unknown_" + i);
+                                }
                             }
-                            return null;
+
+                            var status = determineDiffStatus(comparison);
+                            return new FileWithPath(path, i, status);
                         })
-                        .filter(Objects::nonNull)
                         .sorted(Comparator.comparing(f -> f.path.toString()))
                         .collect(Collectors.toCollection(ArrayList::new));
 
@@ -339,88 +349,6 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         }
     }
 
-    @Nullable
-    private String extractFilePath(FileComparisonInfo comparison) {
-        // If comparison provides a ProjectFile, use its string representation (relPath)
-        if (comparison.file() != null) {
-            return comparison.file().toString();
-        }
-
-        // Try to get the best available path information from sources
-        String leftPath = getSourcePath(comparison.leftSource());
-        String rightPath = getSourcePath(comparison.rightSource());
-
-        // Select the best path - prefer absolute paths, then paths with directory structure
-        String selectedPath = null;
-
-        // First, try to find an absolute path
-        try {
-            if (leftPath != null && Path.of(leftPath).isAbsolute()) {
-                selectedPath = leftPath;
-            } else if (rightPath != null && Path.of(rightPath).isAbsolute()) {
-                selectedPath = rightPath;
-            }
-        } catch (InvalidPathException e) {
-            logger.warn(
-                    "Invalid path encountered during absolute path check - leftPath: '{}', rightPath: '{}'",
-                    leftPath,
-                    rightPath,
-                    e);
-            // Continue with directory structure check
-        }
-
-        // If no absolute path found, prefer paths with directory structure
-        if (selectedPath == null) {
-            if (leftPath != null && leftPath.contains("/")) {
-                selectedPath = leftPath;
-            } else if (rightPath != null && rightPath.contains("/")) {
-                selectedPath = rightPath;
-            }
-            // Fall back to any available path
-            else if (leftPath != null) {
-                selectedPath = leftPath;
-            } else if (rightPath != null) {
-                selectedPath = rightPath;
-            } else {
-                selectedPath = comparison.getDisplayName();
-            }
-        }
-
-        // Strip project root prefix to show relative path from project root
-        return stripProjectRoot(selectedPath);
-    }
-
-    @Nullable
-    private String stripProjectRoot(@Nullable String filePath) {
-        if (filePath == null) {
-            return null;
-        }
-
-        try {
-            var path = Path.of(filePath);
-            if (path.isAbsolute() && path.startsWith(projectRoot)) {
-                var relativePath = projectRoot.relativize(path);
-                return relativePath.toString();
-            }
-        } catch (InvalidPathException e) {
-            logger.warn("Invalid path encountered while stripping project root: '{}'", filePath, e);
-            // Return original path for further processing
-        }
-
-        return filePath;
-    }
-
-    @Nullable
-    private String getSourcePath(BufferSource source) {
-        if (source instanceof BufferSource.FileSource fs) {
-            // For FileSource, always use absolute path to get full directory structure
-            return fs.file().absPath().toString();
-        } else if (source instanceof BufferSource.StringSource ss && ss.filename() != null) {
-            return ss.filename();
-        }
-        return null;
-    }
-
     private DiffStatus determineDiffStatus(FileComparisonInfo comparison) {
         boolean leftExists = comparison.leftSource().sizeInBytes() > 0;
         boolean rightExists = comparison.rightSource().sizeInBytes() > 0;
@@ -454,6 +382,16 @@ public class FileTreePanel extends JPanel implements ThemeAware {
 
     public void setSelectionListener(DiffNavigationTarget listener) {
         this.selectionListener = listener;
+    }
+
+    /** Clear the tree selection without triggering navigation events. */
+    public void clearSelection() {
+        suppressSelectionEvents.set(true);
+        try {
+            fileTree.clearSelection();
+        } finally {
+            suppressSelectionEvents.set(false);
+        }
     }
 
     public void selectFile(int fileIndex) {

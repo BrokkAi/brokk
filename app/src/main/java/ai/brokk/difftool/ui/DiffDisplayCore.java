@@ -7,6 +7,7 @@ import ai.brokk.difftool.performance.PerformanceConstants;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.gui.theme.GuiTheme;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -84,7 +85,10 @@ public class DiffDisplayCore {
     private int findIndex(ProjectFile file) {
         for (int i = 0; i < fileComparisons.size(); i++) {
             var info = fileComparisons.get(i);
+            // Direct comparison via ProjectFile record is preferred
             if (file.equals(info.file())) return i;
+            
+            // Fallback for cases where source metadata might match but record doesn't
             if (matches(info.leftSource(), file) || matches(info.rightSource(), file)) return i;
         }
         return -1;
@@ -93,7 +97,14 @@ public class DiffDisplayCore {
     private boolean matches(BufferSource source, ProjectFile file) {
         if (source instanceof BufferSource.FileSource fs) return fs.file().equals(file);
         String name = source.filename();
-        return name != null && name.replace('\\', '/').endsWith(file.getRelPath().toString().replace('\\', '/'));
+        if (name == null) return false;
+        
+        try {
+            Path p = Path.of(name);
+            return p.equals(file.absPath()) || p.equals(file.getRelPath());
+        } catch (Exception e) {
+            return name.replace('\\', '/').endsWith(file.getRelPath().toString().replace('\\', '/'));
+        }
     }
 
     private void updateCacheAndDisplay() {
