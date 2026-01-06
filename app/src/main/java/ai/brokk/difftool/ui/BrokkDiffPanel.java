@@ -79,18 +79,10 @@ public class BrokkDiffPanel extends JPanel
     @Nullable
     private JToolBar toolBar;
 
-    // All file comparisons with lazy loading cache
-    final List<FileComparisonInfo> fileComparisons;
-    private int currentFileIndex = 0;
+    // Refactored state management
+    private final DiffDisplayCore core;
     private final boolean isMultipleCommitsContext;
-    private final int initialFileIndex;
     private final boolean forceFileTree;
-
-    // Thread-safe sliding window cache for loaded diff panels
-    private static final int WINDOW_SIZE = PerformanceConstants.DEFAULT_SLIDING_WINDOW;
-    private static final int MAX_CACHED_PANELS = PerformanceConstants.MAX_CACHED_DIFF_PANELS;
-    private final SlidingWindowCache<Integer, AbstractDiffPanel> panelCache =
-            new SlidingWindowCache<>(MAX_CACHED_PANELS, WINDOW_SIZE);
 
     // View mode state loaded from GlobalUiSettings
     private boolean isUnifiedView = GlobalUiSettings.isDiffUnifiedView();
@@ -183,6 +175,11 @@ public class BrokkDiffPanel extends JPanel
         });
     }
 
+    private void cachePanel(int index, AbstractDiffPanel panel) {
+        // This is now managed by DiffDisplayCore, but we keep this as a proxy if needed
+        // or remove calls to it.
+    }
+
     /**
      * Asynchronous diff creation for large files - prevents UI blocking. Uses simple background thread instead of
      * over-engineered SwingWorker.
@@ -198,7 +195,7 @@ public class BrokkDiffPanel extends JPanel
             long startTime) {
 
         var taskDescription = "Computing diff: %s"
-                .formatted(mainPanel.fileComparisons.get(fileIndex).getDisplayName());
+                .formatted(mainPanel.core.getFileComparisons().get(fileIndex).getDisplayName());
 
         contextManager.submitBackgroundTask(taskDescription, () -> {
             var diffNode = FileComparisonHelper.createDiffNode(
@@ -238,7 +235,6 @@ public class BrokkDiffPanel extends JPanel
             panel = bufferPanel;
         }
 
-        mainPanel.cachePanel(fileIndex, panel);
         mainPanel.displayAndRefreshPanel(fileIndex, panel);
     }
 
@@ -247,8 +243,16 @@ public class BrokkDiffPanel extends JPanel
         this.theme = theme;
         this.contextManager = builder.contextManager;
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
-        this.initialFileIndex = builder.initialFileIndex;
         this.forceFileTree = builder.forceFileTree;
+
+        // Initialize core logic
+        this.core = new DiffDisplayCore(
+                this,
+                contextManager,
+                theme,
+                builder.fileComparisons,
+                isMultipleCommitsContext,
+                builder.initialFileIndex);
 
         // Initialize blame service if we have a git repo
         if (contextManager.getProject().getRepo() instanceof GitRepo gitRepo) {
@@ -257,10 +261,7 @@ public class BrokkDiffPanel extends JPanel
             this.blameService = null;
         }
 
-        // Initialize file comparisons list - all modes use the same approach
-        this.fileComparisons = new ArrayList<>(builder.fileComparisons);
-        assert !this.fileComparisons.isEmpty() : "File comparisons cannot be empty";
-        this.currentDiffPanel = null; // Initialize @Nullable field
+        this.currentDiffPanel = null;
 
         // Make the container focusable, so it can handle key events
         setFocusable(true);
@@ -271,7 +272,7 @@ public class BrokkDiffPanel extends JPanel
 
         // Initialize file tree panel
         fileTreePanel = new FileTreePanel(
-                this.fileComparisons, contextManager.getProject().getRoot(), builder.rootTitle);
+                core.getFileComparisons(), contextManager.getProject().getRoot(), builder.rootTitle);
 
         // Create split pane with file tree on left and tabs on right (if multiple files or multi-file-only mode)
         mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
@@ -367,7 +368,7 @@ public class BrokkDiffPanel extends JPanel
     }
 
     private boolean showFileTree() {
-        return forceFileTree || fileComparisons.size() > 1;
+        return forceFileTree || core.getFileComparisons().size() > 1;
     }
 
     // Builder Class
@@ -583,7 +584,7 @@ public class BrokkDiffPanel extends JPanel
 
         if (canNavigateToNextFile()) {
             try {
-                switchToFile(currentFileIndex + 1);
+                switchToFile(core.getCurrentIndex() + 1);
             } catch (Exception e) {
                 logger.error("Error navigating to next file", e);
                 // Re-enable buttons on exception
@@ -603,7 +604,7 @@ public class BrokkDiffPanel extends JPanel
 
         if (canNavigateToPreviousFile()) {
             try {
-                switchToFile(currentFileIndex - 1);
+                switchToFile(core.getCurrentIndex() - 1);
             } catch (Exception e) {
                 logger.error("Error navigating to previous file", e);
                 // Re-enable buttons on exception
@@ -617,31 +618,7 @@ public class BrokkDiffPanel extends JPanel
 
     public void switchToFile(int index) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        if (index < 0 || index >= fileComparisons.size()) {
-            logger.warn("Invalid file index {} (valid range: 0-{})", index, fileComparisons.size() - 1);
-            return;
-        }
-
-        // Update sliding window in cache - this automatically evicts files outside window
-        panelCache.updateWindowCenter(index, fileComparisons.size());
-
-        currentFileIndex = index;
-
-        // Load current file if not in cache
-        loadFileOnDemand(currentFileIndex);
-
-        // Predictively load adjacent files in background
-        preloadAdjacentFiles(currentFileIndex);
-
-        // Update tree selection to match current file (only if multiple files)
-        if (fileComparisons.size() > 1) {
-            fileTreePanel.selectFile(currentFileIndex);
-        }
-
-        updateNavigationButtons();
-
-        // Log memory and window status
-        logMemoryUsage();
+        core.showFile(index);
     }
 
     private void updateNavigationButtons() {
@@ -650,6 +627,10 @@ public class BrokkDiffPanel extends JPanel
 
         btnPreviousFile.setEnabled(canNavigateToPreviousFile());
         btnNextFile.setEnabled(canNavigateToNextFile());
+    }
+
+    private void loadFileOnDemand(int index, boolean b) {
+        core.showFile(index);
     }
 
     /**
@@ -782,14 +763,14 @@ public class BrokkDiffPanel extends JPanel
         captureDiffButton.setIcon(Icons.CONTENT_CAPTURE);
         captureDiffButton.setToolTipText("Capture Diff");
         captureDiffButton.addActionListener(e -> {
-            var currentComparison = fileComparisons.get(currentFileIndex);
+            var currentComparison = core.getFileComparisons().get(core.getCurrentIndex());
             capture(List.of(currentComparison));
         });
 
         // "Capture All Diffs" button (visible for multi-file contexts)
         captureAllDiffsButton.setText("Capture All Diffs");
         captureAllDiffsButton.setToolTipText("Capture all file diffs to the context");
-        captureAllDiffsButton.addActionListener(e -> capture(new ArrayList<>(fileComparisons)));
+        captureAllDiffsButton.addActionListener(e -> capture(new ArrayList<>(core.getFileComparisons())));
 
         // Add buttons to toolbar with spacing
         toolBar.add(btnPrevious);
@@ -797,7 +778,7 @@ public class BrokkDiffPanel extends JPanel
         toolBar.add(btnNext);
 
         // Add file navigation buttons if multiple files
-        if (fileComparisons.size() > 1) {
+        if (core.getFileComparisons().size() > 1) {
             toolBar.add(Box.createHorizontalStrut(20)); // 20px spacing
             toolBar.addSeparator();
             toolBar.add(Box.createHorizontalStrut(10));
@@ -853,7 +834,7 @@ public class BrokkDiffPanel extends JPanel
         toolBar.add(btnIncreaseFont);
         toolBar.add(Box.createHorizontalStrut(8));
         toolBar.add(captureDiffButton);
-        if (fileComparisons.size() > 1 || isMultipleCommitsContext) {
+        if (core.getFileComparisons().size() > 1 || isMultipleCommitsContext) {
             toolBar.add(Box.createHorizontalStrut(8));
             toolBar.add(captureAllDiffsButton);
         }
@@ -879,9 +860,9 @@ public class BrokkDiffPanel extends JPanel
         }
 
         if (currentPanel != null) {
-            var isFirstChangeOverall = currentFileIndex == 0 && currentPanel.isAtFirstLogicalChange();
+            var isFirstChangeOverall = core.getCurrentIndex() == 0 && currentPanel.isAtFirstLogicalChange();
             var isLastChangeOverall =
-                    currentFileIndex == fileComparisons.size() - 1 && currentPanel.isAtLastLogicalChange();
+                    core.getCurrentIndex() == core.getFileComparisons().size() - 1 && currentPanel.isAtLastLogicalChange();
             btnPrevious.setEnabled(!isFirstChangeOverall);
             btnNext.setEnabled(!isLastChangeOverall);
         } else {
@@ -915,13 +896,13 @@ public class BrokkDiffPanel extends JPanel
             }
         }
 
-        for (var p : panelCache.nonNullValues()) {
+        for (var p : core.getCachedPanels()) {
             if (visited.add(p) && p.hasUnsavedChanges()) {
                 dirtyCount++;
             }
         }
 
-        String baseSaveText = fileComparisons.size() > 1 ? "Save All" : "Save";
+        String baseSaveText = core.getFileComparisons().size() > 1 ? "Save All" : "Save";
         btnSaveAll.setToolTipText(dirtyCount > 0 ? baseSaveText + " (" + dirtyCount + ")" : baseSaveText);
         // Disable save button when in unified mode, when all sides are read-only, or when there are no changes
         btnSaveAll.setEnabled(enableUndoRedo && dirtyCount > 0);
@@ -933,12 +914,12 @@ public class BrokkDiffPanel extends JPanel
             // Current (visible) file (only if it's a BufferDiffPanel)
             var currentBufferPanel = getBufferDiffPanel();
             if (currentBufferPanel != null && currentBufferPanel.hasUnsavedChanges()) {
-                dirty.add(currentFileIndex);
+                dirty.add(core.getCurrentIndex());
             }
 
             // Cached files (use keys to keep index association, only BufferDiffPanels can be dirty)
-            for (var key : panelCache.getCachedKeys()) {
-                var panel = panelCache.get(key);
+            for (var key : core.getCachedIndices()) {
+                var panel = core.getCachedPanel(key);
                 if (panel instanceof BufferDiffPanel && panel.hasUnsavedChanges()) {
                     dirty.add(key);
                 }
@@ -949,13 +930,13 @@ public class BrokkDiffPanel extends JPanel
     }
 
     /**
-     * Check if any loaded diff-panel holds modified documents. This includes the current visible panel and all cached
-     * panels.
+     * Check if any loaded diff-panel holds modified documents.
      */
     public boolean hasUnsavedChanges() {
         if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
-        for (var p : panelCache.nonNullValues()) {
-            if (p.hasUnsavedChanges()) return true;
+        for (int i = 0; i < getFileComparisonCount(); i++) {
+            var p = core.getCachedPanel(i);
+            if (p != null && p.hasUnsavedChanges()) return true;
         }
         return false;
     }
@@ -971,7 +952,7 @@ public class BrokkDiffPanel extends JPanel
         if (currentBufferPanel != null) {
             visited.add(currentBufferPanel);
         }
-        for (var p : panelCache.nonNullValues()) {
+        for (var p : core.getCachedPanels()) {
             if (p instanceof BufferDiffPanel bufferPanel) {
                 visited.add(bufferPanel);
             }
@@ -1184,42 +1165,32 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public void navigateToFile(int fileIndex) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        switchToFile(fileIndex);
+        core.showFile(fileIndex);
     }
 
     @Override
     public void navigateToFile(ProjectFile file) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        int index = findComparisonIndex(file);
-        if (index != -1) {
-            switchToFile(index);
-        } else {
-            logger.warn("Could not find file in comparisons: {}", file);
-        }
+        core.showFile(file);
     }
 
     @Override
     public void navigateToLocation(int fileIndex, int lineNumber) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        switchToFile(fileIndex);
+        core.showFile(fileIndex);
         scrollToLineInCurrentPanel(lineNumber);
     }
 
     @Override
     public void navigateToLocation(ProjectFile file, int lineNumber) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        int index = findComparisonIndex(file);
-        if (index != -1) {
-            switchToFile(index);
-            scrollToLineInCurrentPanel(lineNumber);
-        } else {
-            logger.warn("Could not find file in comparisons: {}", file);
-        }
+        core.showLocation(file, lineNumber);
+        scrollToLineInCurrentPanel(lineNumber);
     }
 
     private int findComparisonIndex(ProjectFile file) {
-        for (int i = 0; i < fileComparisons.size(); i++) {
-            var info = fileComparisons.get(i);
+        for (int i = 0; i < core.getFileComparisons().size(); i++) {
+            var info = core.getFileComparisons().get(i);
             if (file.equals(info.file())
                     || isMatchingFile(info.leftSource(), file)
                     || isMatchingFile(info.rightSource(), file)) {
@@ -1252,76 +1223,19 @@ public class BrokkDiffPanel extends JPanel
 
     @Override
     public int getCurrentFileIndex() {
-        return currentFileIndex;
+        return core.getCurrentIndex();
     }
 
     /** Returns the number of file comparisons in this panel. */
     @Override
     public int getFileComparisonCount() {
-        return fileComparisons.size();
+        return core.getFileComparisons().size();
     }
 
     public void launchComparison() {
-        // Show the initial file
-        currentFileIndex = initialFileIndex;
-        loadFileOnDemand(currentFileIndex);
-
-        // Select the initial file in the tree (only if multiple files)
-        if (showFileTree()) {
-            fileTreePanel.selectFile(currentFileIndex);
-        }
+        core.showFile(core.getCurrentIndex());
     }
 
-    private void loadFileOnDemand(int fileIndex) {
-        loadFileOnDemand(fileIndex, false);
-    }
-
-    private void loadFileOnDemand(int fileIndex, boolean skipLoadingUI) {
-
-        if (fileIndex < 0 || fileIndex >= fileComparisons.size()) {
-            logger.warn("loadFileOnDemand called with invalid index: {}", fileIndex);
-            return;
-        }
-
-        var compInfo = fileComparisons.get(fileIndex);
-
-        // First check if panel is already cached (fast read operation)
-        var cachedPanel = panelCache.get(fileIndex);
-        if (cachedPanel != null) {
-            displayCachedFile(fileIndex, cachedPanel);
-            return;
-        }
-
-        // Atomic check-and-reserve to prevent concurrent loading
-        if (!panelCache.tryReserve(fileIndex)) {
-            // Another thread is already loading this file or it was cached between checks
-            var nowCachedPanel = panelCache.get(fileIndex);
-            if (nowCachedPanel != null) {
-                displayCachedFile(fileIndex, nowCachedPanel);
-            } else {
-                // Reserved by another thread, show loading and wait (unless skipping loading UI)
-                if (!skipLoadingUI) {
-                    showLoadingForFile();
-                }
-            }
-            return;
-        }
-
-        // Show loading UI only if not skipping (e.g., during view mode switch)
-        if (!skipLoadingUI) {
-            showLoadingForFile();
-        }
-
-        // Use hybrid approach - sync for small files, async for large files
-        createDiffPanel(
-                compInfo.leftSource(),
-                compInfo.rightSource(),
-                this,
-                theme,
-                contextManager,
-                this.isMultipleCommitsContext,
-                fileIndex);
-    }
 
     private void showLoadingForFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
@@ -1341,102 +1255,6 @@ public class BrokkDiffPanel extends JPanel
         repaint();
     }
 
-    private void displayCachedFile(int fileIndex, AbstractDiffPanel cachedPanel) {
-        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-
-        // Check if cached panel type matches current view mode preference
-        boolean cachedIsUnified = cachedPanel instanceof UnifiedDiffPanel;
-
-        if (cachedIsUnified != this.isUnifiedView) {
-
-            // Dispose the incompatible panel
-            cachedPanel.dispose();
-
-            // Clear current panel reference since it's the wrong type now
-            this.currentDiffPanel = null;
-
-            // Clear entire cache to prevent infinite recursion (same pattern as switchViewMode)
-            panelCache.clear();
-
-            // Restore window state for adjacent file caching
-            panelCache.updateWindowCenter(currentFileIndex, fileComparisons.size());
-
-            // Reload file with correct view mode (cache is now clear, so will create new panel)
-            loadFileOnDemand(fileIndex);
-
-            // Verify that panel was actually created after loading
-
-            return;
-        }
-
-        var compInfo = fileComparisons.get(fileIndex);
-
-        // Remove loading panel if present (contains the loading label)
-        // Find and remove any loading panel
-        for (var component : getComponents()) {
-            if (component instanceof JPanel panel && panel.getComponentCount() > 0) {
-                if (panel.getComponent(0) == loadingLabel) {
-                    remove(panel);
-                    break;
-                }
-            }
-        }
-
-        // Clear tabs and add the cached panel
-        tabbedPane.removeAll();
-        tabbedPane.addTab(cachedPanel.getTitle(), cachedPanel.getComponent());
-        this.currentDiffPanel = cachedPanel;
-
-        // IMPORTANT: Sync blame state with menu BEFORE any layout-triggering operations
-        // This must happen before applyTheme() and diff() which can trigger layout calculations
-        // Note: Always set state explicitly to sync cached panels with current menu state
-        boolean canShowBlame = cachedPanel.getTargetPathForBlame() != null;
-        boolean shouldShowBlame = menuShowBlame.isSelected() && canShowBlame;
-        if (shouldShowBlame) {
-            // Blame will be applied asynchronously by updateBlameForPanel
-        }
-        // Reset auto-scroll flag for file navigation to ensure fresh auto-scroll opportunity
-        cachedPanel.resetAutoScrollFlag();
-
-        // Reset selectedDelta to first difference for consistent navigation behavior
-        cachedPanel.resetToFirstDifference();
-
-        // Apply theme to ensure proper syntax highlighting
-        cachedPanel.applyTheme(theme);
-        // Ensure currentFontIndex is initialized from saved font size or default
-        ensureFontIndexInitialized();
-        // Apply current editor font size to the panel so theme application doesn't override it
-        if (getCurrentFontIndex() >= 0) {
-            applySizeToSinglePanel(cachedPanel, FONT_SIZES.get(getCurrentFontIndex()));
-        }
-
-        // Reset dirty state after theme application to prevent false save prompts (only for BufferDiffPanel)
-        // Theme application can trigger document events that incorrectly mark documents as dirty
-        if (cachedPanel instanceof BufferDiffPanel bufferPanel) {
-            resetDocumentDirtyStateAfterTheme(bufferPanel);
-        }
-
-        // Re-establish component resize listeners and set flag for layout reset on next resize
-        cachedPanel.refreshComponentListeners();
-        needsLayoutReset = true;
-
-        // Apply diff highlights immediately after theme to prevent timing issues
-        cachedPanel.diff(true); // Pass true to trigger auto-scroll for cached panels
-
-        // Start async blame loading (gutter state already synced above)
-        if (shouldShowBlame) {
-            updateBlameForPanel(cachedPanel, true);
-        }
-
-        // Update file indicator
-        compInfo.getDisplayName();
-        // No-op: filename label removed from toolbar
-
-        // Re-enable control buttons after loading is complete
-        updateNavigationButtons();
-
-        refreshUI();
-    }
 
     /**
      * Display an error message for a file that cannot be loaded. Clears the loading state and shows the error message.
@@ -1446,7 +1264,7 @@ public class BrokkDiffPanel extends JPanel
 
         logger.error("Cannot display file {}: {}", fileIndex, errorMessage);
 
-        var compInfo = fileComparisons.get(fileIndex);
+        var compInfo = core.getFileComparisons().get(fileIndex);
 
         // Remove loading panel if present
         for (var component : getComponents()) {
@@ -1475,9 +1293,6 @@ public class BrokkDiffPanel extends JPanel
         // Re-enable navigation buttons but keep current panel null
         updateNavigationButtons();
 
-        // Clear the reserved slot in cache
-        panelCache.removeReserved(fileIndex);
-
         refreshUI();
     }
 
@@ -1497,8 +1312,8 @@ public class BrokkDiffPanel extends JPanel
      * @param title   The title for the tab
      */
     public void showInTab(ai.brokk.gui.PreviewManager manager, String title) {
-        var leftSources = fileComparisons.stream().map(fc -> fc.leftSource()).toList();
-        var rightSources = fileComparisons.stream().map(fc -> fc.rightSource()).toList();
+        var leftSources = core.getFileComparisons().stream().map(fc -> fc.leftSource()).toList();
+        var rightSources = core.getFileComparisons().stream().map(fc -> fc.rightSource()).toList();
         manager.showDiffInTab(title, this, leftSources, rightSources);
     }
 
@@ -1553,11 +1368,11 @@ public class BrokkDiffPanel extends JPanel
     }
 
     private boolean canNavigateToNextFile() {
-        return fileComparisons.size() > 1 && currentFileIndex < fileComparisons.size() - 1;
+        return core.getFileComparisons().size() > 1 && core.getCurrentIndex() < core.getFileComparisons().size() - 1;
     }
 
     private boolean canNavigateToPreviousFile() {
-        return fileComparisons.size() > 1 && currentFileIndex > 0;
+        return core.getFileComparisons().size() > 1 && core.getCurrentIndex() > 0;
     }
 
     @Nullable
@@ -1633,7 +1448,7 @@ public class BrokkDiffPanel extends JPanel
         var rightOverrides = new LinkedHashMap<FileComparisonInfo, String>();
 
         if (isSingle) {
-            var currentComparison = fileComparisons.get(currentFileIndex);
+            var currentComparison = core.getFileComparisons().get(core.getCurrentIndex());
             if (comps.getFirst().equals(currentComparison)) {
                 var bufferPanel = getBufferDiffPanel();
                 if (bufferPanel != null) {
@@ -1771,10 +1586,10 @@ public class BrokkDiffPanel extends JPanel
     private void refreshAllDiffPanels() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Refresh existing cached panels (preserves cache for performance)
-        panelCache.nonNullValues().forEach(panel -> panel.diff(true)); // Scroll to selection for user-initiated refresh
+        core.getCachedPanels().forEach(panel -> panel.diff(true)); // Scroll to selection for user-initiated refresh
         // Refresh current panel if it's not cached
         var current = getBufferDiffPanel();
-        if (current != null && !panelCache.containsValue(current)) {
+        if (current != null) {
             current.diff(true); // Scroll to selection for user-initiated refresh
         }
         // Update navigation buttons after refresh
@@ -1791,7 +1606,7 @@ public class BrokkDiffPanel extends JPanel
         guiTheme.updateComponentTreeUIPreservingFonts(this);
 
         // Apply theme to cached panels
-        for (var panel : panelCache.nonNullValues()) {
+        for (var panel : core.getCachedPanels()) {
             panel.applyTheme(guiTheme);
         }
 
@@ -1870,148 +1685,51 @@ public class BrokkDiffPanel extends JPanel
     }
 
     /**
-     * Displays a cached panel and updates navigation buttons. This is the proper way to display panels created by
-     * HybridFileComparison.
+     * Displays a cached panel and updates navigation buttons.
      */
     public void displayAndRefreshPanel(int fileIndex, AbstractDiffPanel panel) {
-        displayCachedFile(fileIndex, panel);
-    }
-
-    /**
-     * Cache a panel for the given file index. Helper method for both sync and async panel creation. Uses putReserved if
-     * the slot was reserved, otherwise regular put.
-     */
-    public void cachePanel(int fileIndex, AbstractDiffPanel panel) {
-        // Validate that panel type matches current view mode
-        boolean isPanelUnified = panel instanceof UnifiedDiffPanel;
-        if (isPanelUnified != isUnifiedView) {
-            // Don't cache panels that don't match current view mode (prevents async race conditions)
-            return;
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        
+        // Remove loading panel if present
+        for (var component : getComponents()) {
+            if (component instanceof JPanel p && p.getComponentCount() > 0 && p.getComponent(0) == loadingLabel) {
+                remove(p);
+                break;
+            }
         }
 
-        // Ensure the panel is associated with the correct file index for later operations (blame, saves, etc.)
-        panel.setAssociatedFileIndex(fileIndex);
+        tabbedPane.removeAll();
+        tabbedPane.addTab(panel.getTitle(), panel.getComponent());
+        this.currentDiffPanel = panel;
 
-        // Reset auto-scroll flag for newly created panels
+        if (showFileTree()) {
+            fileTreePanel.selectFile(fileIndex);
+        }
+
         panel.resetAutoScrollFlag();
-        // Ensure newly-created panel respects the current editor font size (if we've initialized it)
-        if (currentFontIndex >= 0) {
-            applySizeToSinglePanel(panel, FONT_SIZES.get(currentFontIndex));
+        panel.resetToFirstDifference();
+        
+        if (getCurrentFontIndex() >= 0) {
+            panel.applyEditorFontSize(FONT_SIZES.get(getCurrentFontIndex()));
         }
 
-        // Ensure creation context is set for debugging (only for BufferDiffPanel)
-        if (panel instanceof BufferDiffPanel bufferPanel) {
-            if ("unknown".equals(bufferPanel.getCreationContext())) {
-                bufferPanel.markCreationContext("cachePanel");
-            }
-            // Reset selectedDelta to first difference for consistent navigation behavior
-            bufferPanel.resetToFirstDifference();
+        if (panel instanceof BufferDiffPanel bp) {
+            resetDocumentDirtyStateAfterTheme(bp);
         }
 
-        // Only cache if within current window
-        if (panelCache.isInWindow(fileIndex)) {
-            var cachedPanel = panelCache.get(fileIndex);
-            if (cachedPanel == null) {
-                // This was a reserved slot, replace with actual panel
-                panelCache.putReserved(fileIndex, panel);
-            } else {
-                // Direct cache (shouldn't happen in normal flow but handle gracefully)
-                panelCache.put(fileIndex, panel);
-            }
-        } else {
-            // Still display but don't cache
+        panel.refreshComponentListeners();
+        needsLayoutReset = true;
+        panel.diff(true);
+
+        boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
+        if (isGitRepo && menuShowBlame.isSelected()) {
+            updateBlameForPanel(panel, true);
         }
+
+        updateNavigationButtons();
+        refreshUI();
     }
 
-    /** Preload adjacent files in the background for smooth navigation */
-    private void preloadAdjacentFiles(int currentIndex) {
-        contextManager.submitBackgroundTask("Preload adjacent files", () -> {
-            // Preload previous file if not cached and in window
-            int prevIndex = currentIndex - 1;
-            if (prevIndex >= 0 && panelCache.get(prevIndex) == null && panelCache.isInWindow(prevIndex)) {
-                preloadFile(prevIndex);
-            }
-
-            // Preload next file if not cached and in window
-            int nextIndex = currentIndex + 1;
-            if (nextIndex < fileComparisons.size()
-                    && panelCache.get(nextIndex) == null
-                    && panelCache.isInWindow(nextIndex)) {
-                preloadFile(nextIndex);
-            }
-            return null;
-        });
-    }
-
-    /** Preload a single file in the background */
-    private void preloadFile(int fileIndex) {
-        try {
-            var compInfo = fileComparisons.get(fileIndex);
-
-            // Use extracted file validation logic
-            if (!FileComparisonHelper.isValidForPreload(compInfo.leftSource(), compInfo.rightSource())) {
-                logger.warn("Skipping preload of file {} - too large for preload", fileIndex);
-                return;
-            }
-
-            // Create file loading result (includes size validation and error handling)
-            var loadingResult = FileComparisonHelper.createFileLoadingResult(
-                    compInfo.leftSource(), compInfo.rightSource(), contextManager, isMultipleCommitsContext);
-
-            // CRITICAL FIX: Compute diff for preloaded JMDiffNode to avoid empty view
-            if (loadingResult.isSuccess() && loadingResult.getDiffNode() != null) {
-                loadingResult.getDiffNode().diff();
-            }
-
-            // Create and cache panel on EDT
-            SwingUtilities.invokeLater(() -> {
-                // Double-check still needed and in window
-                if (panelCache.get(fileIndex) == null && panelCache.isInWindow(fileIndex)) {
-                    if (loadingResult.isSuccess()) {
-                        // Create appropriate panel type based on current view mode
-                        AbstractDiffPanel panel;
-                        if (isUnifiedView) {
-                            // For UnifiedDiffPanel, we need to check if diffNode is null since constructor requires
-                            // non-null
-                            var diffNode = loadingResult.getDiffNode();
-                            if (diffNode != null) {
-                                panel = new UnifiedDiffPanel(this, theme, diffNode);
-                            } else {
-                                // Fallback to BufferDiffPanel if diffNode is null
-                                logger.warn(
-                                        "Cannot create UnifiedDiffPanel with null diffNode for file {}, using BufferDiffPanel",
-                                        fileIndex);
-                                var bufferPanel = new BufferDiffPanel(this, theme);
-                                bufferPanel.markCreationContext("preload-fallback");
-                                panel = bufferPanel;
-                            }
-                        } else {
-                            var bufferPanel = new BufferDiffPanel(this, theme);
-                            bufferPanel.markCreationContext("preload");
-                            bufferPanel.setDiffNode(loadingResult.getDiffNode());
-                            panel = bufferPanel;
-                        }
-
-                        // Apply theme to ensure consistent state and avoid false dirty flags
-                        panel.applyTheme(theme);
-                        // Clear any transient dirty state caused by mirroring during preload (only for BufferDiffPanel)
-                        if (panel instanceof BufferDiffPanel bufferPanel) {
-                            resetDocumentDirtyStateAfterTheme(bufferPanel);
-                        }
-
-                        // Cache will automatically check window constraints
-                        panelCache.put(fileIndex, panel);
-                    } else {
-                        logger.warn("Skipping preload of file {} - {}", fileIndex, loadingResult.getErrorMessage());
-                    }
-                } else {
-                }
-            });
-
-        } catch (Exception e) {
-            logger.warn("Failed to preload file {}: {}", fileIndex, e.getMessage());
-        }
-    }
 
     /** Log current memory usage and window status */
     private void logMemoryUsage() {
@@ -2033,7 +1751,7 @@ public class BrokkDiffPanel extends JPanel
     /** Perform cleanup when memory usage is high */
     private void performWindowCleanup() {
         // Clear caches in all window panels
-        for (var panel : panelCache.nonNullValues()) {
+        for (var panel : core.getCachedPanels()) {
             panel.clearCaches(); // Clear undo history, search results, etc.
         }
 
@@ -2062,7 +1780,7 @@ public class BrokkDiffPanel extends JPanel
         GlobalUiSettings.saveEditorFontSize(fontSize);
 
         // Apply to cached panels
-        for (var p : panelCache.nonNullValues()) {
+        for (var p : core.getCachedPanels()) {
             applySizeToSinglePanel(p, fontSize);
         }
 
@@ -2164,19 +1882,11 @@ public class BrokkDiffPanel extends JPanel
     }
 
     /**
-     * Clean up resources when the panel is disposed. This ensures cached panels are properly disposed of to free
-     * memory.
+     * Clean up resources when the panel is disposed.
      */
     public void dispose() {
-        // Caller is responsible for saving before disposal
-
-        // Clear all cached panels and dispose their resources (thread-safe)
-        panelCache.clear();
-
-        // Clear current panel reference
+        core.clearCache();
         this.currentDiffPanel = null;
-
-        // Remove all components
         removeAll();
     }
 
@@ -2190,7 +1900,7 @@ public class BrokkDiffPanel extends JPanel
      */
     public boolean matchesContent(List<BufferSource> leftSources, List<BufferSource> rightSources) {
 
-        if (fileComparisons.size() != leftSources.size() || leftSources.size() != rightSources.size()) {
+        if (core.getFileComparisons().size() != leftSources.size() || leftSources.size() != rightSources.size()) {
             return false;
         }
 
@@ -2204,8 +1914,8 @@ public class BrokkDiffPanel extends JPanel
         }
 
         // Regular order-based comparison for other types of diffs
-        for (int i = 0; i < fileComparisons.size(); i++) {
-            var existing = fileComparisons.get(i);
+        for (int i = 0; i < core.getFileComparisons().size(); i++) {
+            var existing = core.getFileComparisons().get(i);
             var leftSource = leftSources.get(i);
             var rightSource = rightSources.get(i);
 
@@ -2228,7 +1938,7 @@ public class BrokkDiffPanel extends JPanel
                 .collect(Collectors.toSet());
 
         // Extract the set of filenames from existing panel
-        var existingFiles = fileComparisons.stream()
+        var existingFiles = core.getFileComparisons().stream()
                 .filter(fc -> fc.rightSource() instanceof BufferSource.FileSource)
                 .map(fc -> ((BufferSource.FileSource) fc.rightSource()).title())
                 .collect(Collectors.toSet());
@@ -2321,10 +2031,10 @@ public class BrokkDiffPanel extends JPanel
 
         // Determine which file comparison this panel represents. Fall back to currentFileIndex if none assigned.
         int fileIndex = panel.getAssociatedFileIndex();
-        if (fileIndex < 0 || fileIndex >= fileComparisons.size()) {
-            fileIndex = currentFileIndex;
+        if (fileIndex < 0 || fileIndex >= core.getFileComparisons().size()) {
+            fileIndex = core.getCurrentIndex();
         }
-        var comparison = fileComparisons.get(fileIndex);
+        var comparison = core.getFileComparisons().get(fileIndex);
 
         // Extract revision information from BufferSources
         String leftRevision = comparison.leftSource().revisionSha();
@@ -2490,28 +2200,13 @@ public class BrokkDiffPanel extends JPanel
         // Update toolbar controls for the new view mode
         updateToolbarForViewMode();
 
-        // Clear the current file from cache since we need a different panel type
-        var cachedPanel = panelCache.get(currentFileIndex);
-        if (cachedPanel != null) {
-            // Dispose the old panel to free resources
-            cachedPanel.dispose();
-        }
-
         // Clear current panel reference since it's the wrong type now
         this.currentDiffPanel = null;
 
-        // Force cache invalidation - since sliding window manipulation doesn't work reliably,
-        // we'll clear the entire cache to ensure the old panel type is removed
-        panelCache.clear();
-
-        // Verify the cache is actually clear
-        var verifyPanel = panelCache.get(currentFileIndex);
-        if (verifyPanel != null) {
-            logger.error(
-                    "Cache clearing failed - panel still cached after clear(). This indicates a serious cache issue.");
-        }
+        // Force cache invalidation
+        core.clearCache();
 
         // Refresh the current file with the new view mode (skip loading UI since we already have the data)
-        loadFileOnDemand(currentFileIndex, true);
+        loadFileOnDemand(core.getCurrentIndex(), true);
     }
 }
