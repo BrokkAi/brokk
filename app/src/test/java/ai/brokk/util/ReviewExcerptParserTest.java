@@ -110,6 +110,33 @@ class ReviewExcerptParserTest {
     }
 
     @Test
+    void testNestedCodeFencesInContent() {
+        String input = """
+                BRK_EXCERPT_5
+                nested.md
+                ```markdown
+                Outer start
+                  ```
+                  Indented fence is content
+                  ```
+                Inline ``` fence is content
+                Outer end
+                ```
+                """;
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+
+        assertEquals(1, results.size());
+        String expected = """
+                Outer start
+                  ```
+                  Indented fence is content
+                  ```
+                Inline ``` fence is content
+                Outer end""".stripIndent();
+        assertEquals(expected, results.get(5).excerpt());
+    }
+
+    @Test
     void testGuidedReviewFromRaw() {
         var excerpts = Map.of(
                 0, new ICodeReview.CodeExcerpt("FileA.java", "code A"),

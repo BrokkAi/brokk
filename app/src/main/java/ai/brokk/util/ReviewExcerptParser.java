@@ -21,15 +21,14 @@ public class ReviewExcerptParser {
 
     public static final ReviewExcerptParser instance = new ReviewExcerptParser();
 
-    private static final Pattern EXCERPT_PATTERN = Pattern.compile(
-            "^\\s*BRK_EXCERPT_(\\S+)\\s*$\\R" + // Marker and ID
-            "^\\s*([^\\r\\n]+?)\\s*$\\R" + // Filename
-            "^\\s*```[^\\r\\n]*\\R" + // Opening fence (optional lang)
-            "((?:(?!^\\s*BRK_EXCERPT_).)*?)" + // Content, but must not span into the next excerpt header
-            "^\\s*```\\s*$", // Closing fence line
-            Pattern.MULTILINE | Pattern.DOTALL);
-
     private ReviewExcerptParser() {}
+
+    private enum State {
+        SEARCHING,
+        EXPECTING_FILENAME,
+        EXPECTING_FENCE,
+        IN_CONTENT
+    }
 
     /**
      * Parses the provided text for BRK_EXCERPT blocks.
@@ -39,31 +38,85 @@ public class ReviewExcerptParser {
      */
     public Map<Integer, ICodeReview.CodeExcerpt> parseExcerpts(String text) {
         Map<Integer, ICodeReview.CodeExcerpt> excerpts = new HashMap<>();
-        Matcher matcher = EXCERPT_PATTERN.matcher(text);
+        String[] lines = text.split("\\R", -1);
 
-        while (matcher.find()) {
-            String idString = matcher.group(1);
-            try {
-                int id = Integer.parseInt(idString);
-                String filename = matcher.group(2).trim();
-                String content = stripSingleTrailingLineBreak(matcher.group(3));
+        State state = State.SEARCHING;
+        Integer currentId = null;
+        String currentFile = null;
+        StringBuilder currentContent = new StringBuilder();
 
-                excerpts.put(id, new ICodeReview.CodeExcerpt(filename, content));
-            } catch (NumberFormatException ignored) {
-                // If the LLM didn't follow instructions and used a non-numeric ID, we skip it
+        for (String line : lines) {
+            String trimmed = line.trim();
+
+            // Check for new BRK_EXCERPT marker in any state except SEARCHING
+            // This handles unclosed blocks by abandoning them when a new marker appears
+            if (state != State.SEARCHING && trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
+                try {
+                    int newId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
+                    // Found a new excerpt marker - abandon current block and start fresh
+                    currentId = newId;
+                    currentFile = null;
+                    currentContent.setLength(0);
+                    state = State.EXPECTING_FILENAME;
+                    continue;
+                } catch (NumberFormatException ignored) {
+                    // Not a valid marker, fall through to normal processing
+                }
+            }
+
+            switch (state) {
+                case SEARCHING -> {
+                    if (trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
+                        try {
+                            currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
+                            state = State.EXPECTING_FILENAME;
+                        } catch (NumberFormatException ignored) {
+                            // Skip non-numeric IDs
+                        }
+                    }
+                }
+                case EXPECTING_FILENAME -> {
+                    if (!trimmed.isEmpty()) {
+                        currentFile = trimmed;
+                        state = State.EXPECTING_FENCE;
+                    }
+                }
+                case EXPECTING_FENCE -> {
+                    if (trimmed.startsWith("```")) {
+                        state = State.IN_CONTENT;
+                        currentContent.setLength(0);
+                    } else if (trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
+                        try {
+                            currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
+                            state = State.EXPECTING_FILENAME;
+                        } catch (NumberFormatException ignored) {
+                            state = State.SEARCHING;
+                        }
+                    } else if (!trimmed.isEmpty()) {
+                        // Unexpected text between filename and fence, reset
+                        state = State.SEARCHING;
+                    }
+                }
+                case IN_CONTENT -> {
+                    // Closing fence must start at column 0 (no leading whitespace) and be exactly ```
+                    if (line.equals("```") || line.startsWith("```") && line.substring(3).isBlank()) {
+                        if (currentId != null && currentFile != null) {
+                            excerpts.put(currentId, new ICodeReview.CodeExcerpt(currentFile, currentContent.toString()));
+                        }
+                        state = State.SEARCHING;
+                        currentId = null;
+                        currentFile = null;
+                        currentContent.setLength(0);
+                    } else {
+                        if (!currentContent.isEmpty()) {
+                            currentContent.append("\n");
+                        }
+                        currentContent.append(line);
+                    }
+                }
             }
         }
 
         return Map.copyOf(excerpts);
-    }
-
-    private static String stripSingleTrailingLineBreak(String s) {
-        if (s.endsWith("\r\n")) {
-            return s.substring(0, s.length() - 2);
-        }
-        if (s.endsWith("\n") || s.endsWith("\r")) {
-            return s.substring(0, s.length() - 1);
-        }
-        return s;
     }
 }
