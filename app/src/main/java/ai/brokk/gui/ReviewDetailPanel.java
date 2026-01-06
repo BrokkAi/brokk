@@ -3,8 +3,7 @@ package ai.brokk.gui;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialChip;
-import ai.brokk.gui.mop.MarkdownOutputPanel;
-import ai.brokk.gui.mop.MarkdownOutputPool;
+import ai.brokk.gui.components.SimpleHtmlPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser;
@@ -43,7 +42,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final JTextArea placeholderArea;
     private final CardLayout cardLayout;
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
-    private final List<MarkdownOutputPanel> borrowedPanels = new ArrayList<>();
+    private final List<SimpleHtmlPanel> htmlPanels = new ArrayList<>();
 
     public ReviewDetailPanel() {
         cardLayout = new CardLayout();
@@ -110,19 +109,16 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     private void addMarkdownPanel(String markdown) {
-        MarkdownOutputPanel panel = MarkdownOutputPool.instance().borrow();
-        panel.setText(List.of(ai.brokk.util.Messages.customSystem(markdown)));
+        var panel = new SimpleHtmlPanel();
+        panel.setMarkdown(markdown);
         panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        borrowedPanels.add(panel);
+        htmlPanels.add(panel);
         contentPanel.add(panel);
     }
 
     private void clearContent() {
         contentPanel.removeAll();
-        for (MarkdownOutputPanel panel : borrowedPanels) {
-            MarkdownOutputPool.instance().giveBack(panel);
-        }
-        borrowedPanels.clear();
+        htmlPanels.clear();
     }
 
     private void addExcerptsTable(List<CodeExcerpt> excerpts) {
