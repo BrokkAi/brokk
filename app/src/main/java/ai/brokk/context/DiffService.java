@@ -392,8 +392,8 @@ public final class DiffService {
                     }
 
                     synchronized (perFileChanges) {
-                        perFileChanges.add(new DiffEntry(
-                                rightFrag, diffRes.diff(), added, deleted, leftContent, rightContent));
+                        perFileChanges.add(
+                                new DiffEntry(rightFrag, diffRes.diff(), added, deleted, leftContent, rightContent));
                     }
                 });
 

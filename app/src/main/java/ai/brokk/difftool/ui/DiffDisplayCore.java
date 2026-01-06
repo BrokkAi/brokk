@@ -1,6 +1,7 @@
 package ai.brokk.difftool.ui;
 
 import ai.brokk.ContextManager;
+import ai.brokk.ICodeReview;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.performance.PerformanceConstants;
@@ -8,20 +9,16 @@ import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * Core logic for managing a list of file comparisons, the current index, 
+ * Core logic for managing a list of file comparisons, the current index,
  * and a sliding cache of diff panels.
  */
 public class DiffDisplayCore {
@@ -73,12 +70,17 @@ public class DiffDisplayCore {
     }
 
     public void showLocation(ProjectFile file, int lineNumber) {
+        showLocation(file, lineNumber, ICodeReview.DiffSide.NEW);
+    }
+
+    public void showLocation(ProjectFile file, int lineNumber, ICodeReview.DiffSide side) {
         int index = findIndex(file);
         if (index != -1) {
             currentIndex = index;
             updateCacheAndDisplay();
             // Scroll logic is handled by the panel display callback in BrokkDiffPanel
             // or explicitly called after display.
+            mainPanel.navigateToLocation(file, lineNumber, side);
         }
     }
 
@@ -87,7 +89,7 @@ public class DiffDisplayCore {
             var info = fileComparisons.get(i);
             // Direct comparison via ProjectFile record is preferred
             if (file.equals(info.file())) return i;
-            
+
             // Fallback for cases where source metadata might match but record doesn't
             if (matches(info.leftSource(), file) || matches(info.rightSource(), file)) return i;
         }
@@ -98,7 +100,7 @@ public class DiffDisplayCore {
         if (source instanceof BufferSource.FileSource fs) return fs.file().equals(file);
         String name = source.filename();
         if (name == null) return false;
-        
+
         try {
             Path p = Path.of(name);
             return p.equals(file.absPath()) || p.equals(file.getRelPath());
@@ -110,7 +112,7 @@ public class DiffDisplayCore {
     private void updateCacheAndDisplay() {
         // Simple cache of {prev, current, next}
         List<Integer> keep = List.of(currentIndex - 1, currentIndex, currentIndex + 1);
-        
+
         // Evict
         var it = panelCache.entrySet().iterator();
         while (it.hasNext()) {
@@ -123,7 +125,7 @@ public class DiffDisplayCore {
 
         // Ensure current is loading/loaded
         ensurePanel(currentIndex);
-        
+
         // Background preload adjacent
         if (currentIndex > 0) ensurePanel(currentIndex - 1);
         if (currentIndex < fileComparisons.size() - 1) ensurePanel(currentIndex + 1);
@@ -139,8 +141,9 @@ public class DiffDisplayCore {
         }
 
         var info = fileComparisons.get(index);
-        long maxSize = Math.max(info.leftSource().sizeInBytes(), info.rightSource().sizeInBytes());
-        
+        long maxSize =
+                Math.max(info.leftSource().sizeInBytes(), info.rightSource().sizeInBytes());
+
         if (maxSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES) {
             createAsync(index, info);
         } else {
@@ -151,7 +154,7 @@ public class DiffDisplayCore {
     private void createSync(int index, FileComparisonInfo info) {
         var diffNode = FileComparisonHelper.createDiffNode(
                 info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
-        
+
         AbstractDiffPanel panel = createPanel(index, diffNode);
         panelCache.put(index, panel);
         if (index == currentIndex) {
@@ -164,7 +167,7 @@ public class DiffDisplayCore {
             var diffNode = FileComparisonHelper.createDiffNode(
                     info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
             diffNode.diff();
-            
+
             SwingUtilities.invokeLater(() -> {
                 AbstractDiffPanel panel = createPanel(index, diffNode);
                 panelCache.put(index, panel);
@@ -184,9 +187,10 @@ public class DiffDisplayCore {
         AbstractDiffPanel panel;
         if (mainPanel.isUnifiedView()) {
             var up = new UnifiedDiffPanel(mainPanel, theme, diffNode);
-            up.setContextMode(mainPanel.getGlobalShowAllLinesInUnified() 
-                ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT 
-                : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES);
+            up.setContextMode(
+                    mainPanel.getGlobalShowAllLinesInUnified()
+                            ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
+                            : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES);
             panel = up;
         } else {
             var bp = new BufferDiffPanel(mainPanel, theme);

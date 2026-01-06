@@ -35,7 +35,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private GuiTheme currentTheme;
 
     @Nullable
-    private DiffNavigationTarget selectionListener;
+    private DiffProjectFileNavigationTarget selectionListener;
 
     private final AtomicBoolean suppressSelectionEvents = new AtomicBoolean(false);
 
@@ -47,8 +47,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         this(fileComparisons, projectRoot, null);
     }
 
-    public FileTreePanel(
-            List<FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
+    public FileTreePanel(List<FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
         super(new BorderLayout());
         this.fileComparisons = fileComparisons;
         this.projectRoot = projectRoot;
@@ -380,7 +379,7 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         return -1;
     }
 
-    public void setSelectionListener(DiffNavigationTarget listener) {
+    public void setSelectionListener(DiffProjectFileNavigationTarget listener) {
         this.selectionListener = listener;
     }
 

@@ -31,7 +31,6 @@ class EditBlockInternalsTest {
         assertEquals("  ", EditBlock.getLeadingWhitespace("  lineX "));
     }
 
-
     @Test
     void testPerfectReplace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
         String[] whole = {"A", "B", "C"};

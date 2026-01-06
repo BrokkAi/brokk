@@ -1,8 +1,8 @@
 package ai.brokk.gui;
 
 import ai.brokk.ICodeReview.GuidedReview;
-import ai.brokk.gui.CodeReviewCommon.ParsedExcerpt;
-import ai.brokk.gui.CodeReviewCommon.ReviewNavigationListener;
+import ai.brokk.ICodeReview.ParsedExcerpt;
+import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import java.awt.BorderLayout;
@@ -10,7 +10,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.swing.JPanel;
-import javax.swing.JSplitPane;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
@@ -40,7 +39,10 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
     private void handleItemSelected(Object item) {
         List<ParsedExcerpt> excerpts = itemExcerpts.getOrDefault(item, List.of());
-        logger.debug("handleItemSelected: item={}, excerpts found={}", item.getClass().getSimpleName(), excerpts.size());
+        logger.debug(
+                "handleItemSelected: item={}, excerpts found={}",
+                item.getClass().getSimpleName(),
+                excerpts.size());
         detailPanel.showItem(item, excerpts);
     }
 

@@ -1,12 +1,11 @@
 package ai.brokk.gui;
 
 import ai.brokk.ICodeReview.DesignFeedback;
-import ai.brokk.gui.CodeReviewCommon.ParsedExcerpt;
-import ai.brokk.gui.CodeReviewCommon.ReviewNavigationListener;
+import ai.brokk.ICodeReview.ParsedExcerpt;
+import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Component;
 import java.awt.Cursor;
@@ -19,13 +18,12 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.border.EmptyBorder;
-import org.jetbrains.annotations.Nullable;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -62,7 +60,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
         add(placeholderArea, CARD_PLACEHOLDER);
         add(scrollPane, CARD_CONTENT);
-        
+
         showPlaceholder();
     }
 
@@ -147,7 +145,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         for (ParsedExcerpt pe : excerpts) {
             String filePath = pe.original().file();
             String fileName = filePath.contains("/") ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
-            String labelText = pe.lineNumber() != -1 ? String.format("%s:%d", fileName, pe.lineNumber()) : fileName;
+            String sideSuffix = (pe.side() == ai.brokk.ICodeReview.DiffSide.OLD) ? " (old)" : "";
+            String labelText = String.format("%s:%d%s", fileName, pe.lineNumber(), sideSuffix);
             JLabel label = new JLabel("<html><a href='#'>" + labelText + "</a></html>");
             label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             label.setBorder(new EmptyBorder(2, 5, 2, 5));
@@ -163,7 +162,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     private void notifyNavigate(ParsedExcerpt pe) {
-        logger.info(
+        logger.debug(
                 "notifyNavigate: file='{}', line={}, listeners={}",
                 pe.original().file(),
                 pe.lineNumber(),
@@ -175,9 +174,10 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        setBackground(guiTheme.isDarkTheme() 
-            ? ai.brokk.gui.mop.ThemeColors.getPanelBackground() 
-            : javax.swing.UIManager.getColor("Panel.background"));
+        setBackground(
+                guiTheme.isDarkTheme()
+                        ? ai.brokk.gui.mop.ThemeColors.getPanelBackground()
+                        : javax.swing.UIManager.getColor("Panel.background"));
         contentPanel.setBackground(getBackground());
         placeholderArea.setForeground(javax.swing.UIManager.getColor("Label.disabledForeground"));
     }

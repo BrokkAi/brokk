@@ -697,7 +697,8 @@ public class EditBlock {
                 resultLines.add(adjusted);
             }
         }
-        resultLines.addAll(Arrays.asList(originalLines).subList(matchStart + truncatedTarget.length, originalLines.length));
+        resultLines.addAll(
+                Arrays.asList(originalLines).subList(matchStart + truncatedTarget.length, originalLines.length));
 
         // Reconstruct string: join raw lines with \n, then add a final \n if original had one.
         if (resultLines.isEmpty()) {

@@ -3,14 +3,14 @@ package ai.brokk.gui;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.EditBlock;
 import ai.brokk.ICodeReview;
 import ai.brokk.IConsoleIO;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.DiffService;
-import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.difftool.ui.DiffProjectFileNavigationTarget;
+import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
@@ -22,6 +22,7 @@ import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.WhitespaceMatch;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -75,7 +76,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private JPanel diffContainer;
 
-    private List<ai.brokk.difftool.ui.FileComparisonInfo> fileComparisons = List.of();
+    private List<FileComparisonInfo> fileComparisons = List.of();
 
     @FunctionalInterface
     public interface TabTitleUpdater {
@@ -402,9 +403,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     ProjectFile pf = null;
                     try {
                         pf = contextManager.toFile(entry.getKey());
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                    }
 
-                    return new ai.brokk.difftool.ui.FileComparisonInfo(
+                    return new FileComparisonInfo(
                             pf,
                             new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
                             new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null));
@@ -418,57 +420,52 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // though ideally DiffDisplayCore should be decoupled from BrokkDiffPanel.
         // For this refactor, we focus on the composition in SessionChangesPanel.
         var dummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
-                new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager),
-                chrome.getTheme());
+                new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
 
-        this.diffCore = new ai.brokk.difftool.ui.DiffDisplayCore(
-                dummyPanel,
-                contextManager,
-                chrome.getTheme(),
-                fileComparisons,
-                false,
-                0) {
-            @Override
-            public void showFile(int index) {
-                super.showFile(index);
-                if (fileTreePanel != null) {
-                    fileTreePanel.selectFile(index);
-                }
-            }
+        this.diffCore =
+                new ai.brokk.difftool.ui.DiffDisplayCore(
+                        dummyPanel, contextManager, chrome.getTheme(), fileComparisons, false, 0) {
+                    @Override
+                    public void showFile(int index) {
+                        super.showFile(index);
+                        if (fileTreePanel != null) {
+                            fileTreePanel.selectFile(index);
+                        }
+                    }
 
-            @Override
-            protected void displayPanel(int index, ai.brokk.difftool.ui.AbstractDiffPanel panel) {
-                if (diffContainer != null) {
-                    diffContainer.removeAll();
-                    diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
-                    diffContainer.revalidate();
-                    diffContainer.repaint();
-                }
-            }
-        };
+                    @Override
+                    protected void displayPanel(int index, ai.brokk.difftool.ui.AbstractDiffPanel panel) {
+                        if (diffContainer != null) {
+                            diffContainer.removeAll();
+                            diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+                            diffContainer.revalidate();
+                            diffContainer.repaint();
+                        }
+                    }
+                };
 
         // Inject the display logic to update our local diffContainer instead of the dummy panel's tabs
         dummyPanel.setBufferDiffPanel(null); // Clear any default behavior
 
         this.fileTreePanel = new ai.brokk.difftool.ui.FileTreePanel(fileComparisons, root, projectName);
-        this.fileTreePanel.setSelectionListener(new ai.brokk.difftool.ui.DiffNavigationTarget() {
-            @Override public void navigateToFile(int fileIndex) {
+        this.fileTreePanel.setSelectionListener(new DiffProjectFileNavigationTarget() {
+            @Override
+            public void navigateToFile(int fileIndex) {
                 if (codeReviewPanel != null) codeReviewPanel.clearSelection();
                 diffCore.showFile(fileIndex);
             }
-            @Override public void navigateToFile(ProjectFile file) { diffCore.showFile(file); }
-            @Override public void navigateToLocation(int fileIndex, int lineNumber) {
-                var file = fileComparisons.get(fileIndex).file();
-                if (file != null) {
-                    diffCore.showLocation(file, lineNumber);
-                } else {
-                    // Fallback for virtual files where we can't pin a lineNumber to a ProjectFile
-                    diffCore.showFile(fileIndex);
-                }
+
+            @Override
+            public void navigateToFile(ProjectFile file) {
+                if (codeReviewPanel != null) codeReviewPanel.clearSelection();
+                diffCore.showFile(file);
             }
-            @Override public void navigateToLocation(ProjectFile file, int lineNumber) { diffCore.showLocation(file, lineNumber); }
-            @Override public int getCurrentFileIndex() { return diffCore.getCurrentIndex(); }
-            @Override public int getFileComparisonCount() { return fileComparisons.size(); }
+
+            @Override
+            public void navigateToLocation(ProjectFile file, int lineNumber, ICodeReview.DiffSide side) {
+                if (codeReviewPanel != null) codeReviewPanel.clearSelection();
+                diffCore.showLocation(file, lineNumber, side);
+            }
         });
         this.fileTreePanel.initializeTree();
 
@@ -476,11 +473,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel.addReviewNavigationListener(pe -> {
             if (fileTreePanel != null) fileTreePanel.clearSelection();
             ProjectFile pf = contextManager.toFile(pe.original().file());
-            if (pe.lineNumber() != -1) {
-                diffCore.showLocation(pf, pe.lineNumber());
-            } else {
-                diffCore.showFile(pf);
-            }
+            diffCore.showLocation(pf, pe.lineNumber(), pe.side());
         });
 
         // Left column: Review List above File Tree
@@ -661,7 +654,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 // Log each design note's excerpts
                 for (int i = 0; i < review.designNotes().size(); i++) {
                     var design = review.designNotes().get(i);
-                    logger.info("  DesignNote[{}] '{}': {} excerpts", i, design.title(), design.excerpts().size());
+                    logger.info(
+                            "  DesignNote[{}] '{}': {} excerpts",
+                            i,
+                            design.title(),
+                            design.excerpts().size());
                     for (var excerpt : design.excerpts()) {
                         logger.info(
                                 "    Excerpt file='{}', excerpt={} chars, commentary={} chars",
@@ -683,21 +680,24 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 }
 
                 // Pre-resolve excerpts
-                List<List<CodeReviewCommon.ParsedExcerpt>> designExcerpts = review.designNotes().stream()
+                List<List<ICodeReview.ParsedExcerpt>> designExcerpts = review.designNotes().stream()
                         .map(design -> design.excerpts().stream()
                                 .map(this::resolveExcerpt)
                                 .filter(java.util.Objects::nonNull)
                                 .toList())
                         .toList();
 
-                List<CodeReviewCommon.ParsedExcerpt> tacticalExcerpts = review.tacticalNotes().stream()
+                List<ICodeReview.ParsedExcerpt> tacticalExcerpts = review.tacticalNotes().stream()
                         .map(this::resolveExcerpt)
                         .filter(java.util.Objects::nonNull)
                         .toList();
 
                 logger.info("Resolved designExcerpts: {} lists", designExcerpts.size());
                 for (int i = 0; i < designExcerpts.size(); i++) {
-                    logger.info("  DesignExcerpts[{}]: {} resolved", i, designExcerpts.get(i).size());
+                    logger.info(
+                            "  DesignExcerpts[{}]: {} resolved",
+                            i,
+                            designExcerpts.get(i).size());
                 }
                 logger.info("Resolved tacticalExcerpts: {}", tacticalExcerpts.size());
 
@@ -727,18 +727,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private @Nullable CodeReviewCommon.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
-        logger.debug("resolveExcerpt: file='{}', excerpt={} chars", excerpt.file(), excerpt.excerpt().length());
+    private @Nullable ICodeReview.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
+        logger.debug(
+                "resolveExcerpt: file='{}', excerpt={} chars",
+                excerpt.file(),
+                excerpt.excerpt().length());
         String relPath = excerpt.file();
-        ai.brokk.difftool.ui.FileComparisonInfo targetInfo = fileComparisons.stream()
-                .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
-                        || relPath.equals(info.rightSource().filename())
-                        || relPath.equals(info.leftSource().filename()))
+        FileComparisonInfo targetInfo = fileComparisons.stream()
+                .filter(info ->
+                        (info.file() != null && relPath.equals(info.file().toString()))
+                                || relPath.equals(info.rightSource().filename())
+                                || relPath.equals(info.leftSource().filename()))
                 .findFirst()
                 .orElse(null);
 
         if (targetInfo == null) {
-            logger.warn("resolveExcerpt: Could not find file '{}' in {} fileComparisons", relPath, fileComparisons.size());
+            logger.warn(
+                    "resolveExcerpt: Could not find file '{}' in {} fileComparisons", relPath, fileComparisons.size());
             fileComparisons.forEach(info -> logger.debug(
                     "  Available: file={}, left={}, right={}",
                     info.file(),
@@ -753,22 +758,22 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // 1. Try NEW content first
         String newContent = targetInfo.rightSource().content();
         String[] newLines = newContent.split("\\r?\\n", -1);
-        var matches = ai.brokk.util.WhitespaceMatch.findAll(newLines, targetLines);
+        var matches = WhitespaceMatch.findAll(newLines, targetLines);
         if (!matches.isEmpty()) {
             int lineNum = matches.getFirst().startLine() + 1;
             logger.debug("resolveExcerpt: Found in NEW content at line {}", lineNum);
-            return new CodeReviewCommon.ParsedExcerpt(excerpt, lineNum);
+            return new ICodeReview.ParsedExcerpt(excerpt, lineNum, ICodeReview.DiffSide.NEW);
         }
         logger.debug("resolveExcerpt: Not found in NEW content ({} lines)", newLines.length);
 
         // 2. Try OLD content
         String oldContent = targetInfo.leftSource().content();
         String[] oldLines = oldContent.split("\\r?\\n", -1);
-        if (!ai.brokk.util.WhitespaceMatch.findAll(oldLines, targetLines).isEmpty()) {
-            // If found in old content, we navigate to the file but we can't reliably pinpoint the line in the "new"
-            // view since it was deleted or changed. We return line -1 to indicate file-level navigation.
-            logger.debug("resolveExcerpt: Found in OLD content (returning line -1 for file-level nav)");
-            return new CodeReviewCommon.ParsedExcerpt(excerpt, -1);
+        var oldMatches = WhitespaceMatch.findAll(oldLines, targetLines);
+        if (!oldMatches.isEmpty()) {
+            int lineNum = oldMatches.getFirst().startLine() + 1;
+            logger.debug("resolveExcerpt: Found in OLD content at line {}", lineNum);
+            return new ICodeReview.ParsedExcerpt(excerpt, lineNum, ICodeReview.DiffSide.OLD);
         }
         logger.debug("resolveExcerpt: Not found in OLD content ({} lines)", oldLines.length);
 

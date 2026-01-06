@@ -1831,10 +1831,20 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
      * @param lineNumber 1-based line number to scroll to
      */
     public void scrollToLine(int lineNumber) {
-        var rightPanel = getFilePanel(PanelSide.RIGHT);
-        if (rightPanel == null) return;
+        scrollToLine(lineNumber, PanelSide.RIGHT);
+    }
 
-        var editor = rightPanel.getEditor();
+    /**
+     * Scrolls the specified panel side to center the specified line.
+     *
+     * @param lineNumber 1-based line number to scroll to
+     * @param side the panel side to scroll
+     */
+    public void scrollToLine(int lineNumber, PanelSide side) {
+        var panel = getFilePanel(side);
+        if (panel == null) return;
+
+        var editor = panel.getEditor();
         try {
             // Convert 1-based to 0-based line number
             int offset = editor.getLineStartOffset(Math.max(0, lineNumber - 1));
@@ -1843,13 +1853,13 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
             // Center the line in the viewport
             var rect = editor.modelToView2D(offset);
             if (rect != null) {
-                var viewport = rightPanel.getScrollPane().getViewport();
+                var viewport = panel.getScrollPane().getViewport();
                 int viewHeight = viewport.getHeight();
                 int y = (int) rect.getY() - viewHeight / 2;
                 viewport.setViewPosition(new Point(0, Math.max(0, y)));
             }
         } catch (javax.swing.text.BadLocationException e) {
-            logger.warn("Could not scroll to line {}", lineNumber, e);
+            logger.warn("Could not scroll to line {} on side {}", lineNumber, side, e);
         }
     }
 }

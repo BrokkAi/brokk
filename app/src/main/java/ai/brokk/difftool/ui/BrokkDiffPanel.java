@@ -22,7 +22,6 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
-import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
@@ -56,7 +55,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 public class BrokkDiffPanel extends JPanel
-        implements ThemeAware, EditorFontSizeControl, FontSizeAware, DiffNavigationTarget, DiffProjectFileNavigationTarget {
+        implements ThemeAware, EditorFontSizeControl, FontSizeAware, DiffProjectFileNavigationTarget {
     private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
@@ -84,7 +83,6 @@ public class BrokkDiffPanel extends JPanel
     private final DiffDisplayCore core;
     private final boolean isMultipleCommitsContext;
     private final boolean forceFileTree;
-
 
     public BrokkDiffPanel(Builder builder, GuiTheme theme) {
         this.theme = theme;
@@ -712,7 +710,8 @@ public class BrokkDiffPanel extends JPanel
         if (currentPanel != null) {
             var isFirstChangeOverall = core.getCurrentIndex() == 0 && currentPanel.isAtFirstLogicalChange();
             var isLastChangeOverall =
-                    core.getCurrentIndex() == core.getFileComparisons().size() - 1 && currentPanel.isAtLastLogicalChange();
+                    core.getCurrentIndex() == core.getFileComparisons().size() - 1
+                            && currentPanel.isAtLastLogicalChange();
             btnPrevious.setEnabled(!isFirstChangeOverall);
             btnNext.setEnabled(!isLastChangeOverall);
         } else {
@@ -1025,59 +1024,27 @@ public class BrokkDiffPanel extends JPanel
     }
 
     @Override
-    public void navigateToLocation(int fileIndex, int lineNumber) {
+    public void navigateToLocation(ProjectFile file, int lineNumber, ICodeReview.DiffSide side) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        core.showFile(fileIndex);
-        scrollToLineInCurrentPanel(lineNumber);
+        // Note: Core calls back to navigateToLocation if we are switching files,
+        // but we ensure scrolling happens on the correct side here.
+        scrollToLineInCurrentPanel(lineNumber, side);
     }
 
-    @Override
-    public void navigateToLocation(ProjectFile file, int lineNumber) {
-        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        core.showLocation(file, lineNumber);
-        scrollToLineInCurrentPanel(lineNumber);
-    }
-
-    private int findComparisonIndex(ProjectFile file) {
-        for (int i = 0; i < core.getFileComparisons().size(); i++) {
-            var info = core.getFileComparisons().get(i);
-            if (file.equals(info.file())
-                    || isMatchingFile(info.leftSource(), file)
-                    || isMatchingFile(info.rightSource(), file)) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private boolean isMatchingFile(BufferSource source, ProjectFile file) {
-        if (source instanceof BufferSource.FileSource fs) {
-            return fs.file().equals(file);
-        }
-        String sourceFilename = source.filename();
-        if (sourceFilename != null) {
-            String normalizedSource = sourceFilename.replace('\\', '/');
-            String targetRelPath = file.getRelPath().toString().replace('\\', '/');
-            return normalizedSource.endsWith(targetRelPath);
-        }
-        return false;
-    }
-
-    private void scrollToLineInCurrentPanel(int lineNumber) {
+    private void scrollToLineInCurrentPanel(int lineNumber, ICodeReview.DiffSide side) {
         if (currentDiffPanel instanceof BufferDiffPanel bp) {
-            bp.scrollToLine(lineNumber);
+            var panelSide = (side == ICodeReview.DiffSide.OLD)
+                    ? BufferDiffPanel.PanelSide.LEFT
+                    : BufferDiffPanel.PanelSide.RIGHT;
+            bp.scrollToLine(lineNumber, panelSide);
         } else if (currentDiffPanel instanceof UnifiedDiffPanel up) {
+            // UnifiedDiffPanel doesn't easily distinguish side-based scrolling yet,
+            // but we pass the line. Future implementation might use side to highlight.
             up.scrollToLine(lineNumber);
         }
     }
 
-    @Override
-    public int getCurrentFileIndex() {
-        return core.getCurrentIndex();
-    }
-
     /** Returns the number of file comparisons in this panel. */
-    @Override
     public int getFileComparisonCount() {
         return core.getFileComparisons().size();
     }
@@ -1140,8 +1107,10 @@ public class BrokkDiffPanel extends JPanel
      * @param title   The title for the tab
      */
     public void showInTab(ai.brokk.gui.PreviewManager manager, String title) {
-        var leftSources = core.getFileComparisons().stream().map(fc -> fc.leftSource()).toList();
-        var rightSources = core.getFileComparisons().stream().map(fc -> fc.rightSource()).toList();
+        var leftSources =
+                core.getFileComparisons().stream().map(fc -> fc.leftSource()).toList();
+        var rightSources =
+                core.getFileComparisons().stream().map(fc -> fc.rightSource()).toList();
         manager.showDiffInTab(title, this, leftSources, rightSources);
     }
 
@@ -1196,7 +1165,8 @@ public class BrokkDiffPanel extends JPanel
     }
 
     private boolean canNavigateToNextFile() {
-        return core.getFileComparisons().size() > 1 && core.getCurrentIndex() < core.getFileComparisons().size() - 1;
+        return core.getFileComparisons().size() > 1
+                && core.getCurrentIndex() < core.getFileComparisons().size() - 1;
     }
 
     private boolean canNavigateToPreviousFile() {
@@ -1551,7 +1521,6 @@ public class BrokkDiffPanel extends JPanel
         updateNavigationButtons();
         refreshUI();
     }
-
 
     /** Log current memory usage and window status */
     private void logMemoryUsage() {

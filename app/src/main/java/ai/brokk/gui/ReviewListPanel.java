@@ -2,7 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.ICodeReview.DesignFeedback;
 import ai.brokk.ICodeReview.GuidedReview;
-import ai.brokk.gui.CodeReviewCommon.ParsedExcerpt;
+import ai.brokk.ICodeReview.ParsedExcerpt;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -15,12 +15,12 @@ import java.awt.event.MouseEvent;
 import java.util.List;
 import java.util.function.Consumer;
 import javax.swing.BoxLayout;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.border.EmptyBorder;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -124,9 +124,10 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        setBackground(guiTheme.isDarkTheme() 
-            ? ai.brokk.gui.mop.ThemeColors.getPanelBackground() 
-            : javax.swing.UIManager.getColor("Panel.background"));
+        setBackground(
+                guiTheme.isDarkTheme()
+                        ? ai.brokk.gui.mop.ThemeColors.getPanelBackground()
+                        : javax.swing.UIManager.getColor("Panel.background"));
         contentPanel.setBackground(getBackground());
     }
 }

@@ -11,14 +11,14 @@ class WhitespaceMatchTest {
     void testFindAll() {
         String[] whole = {"    line1", "        line2", "line1", "  line2"};
         String[] part = {"line1 ", "    line2"};
-        
+
         var results = WhitespaceMatch.findAll(whole, part);
-        
+
         assertEquals(2, results.size());
-        
+
         assertEquals(0, results.get(0).startLine());
         assertEquals("    line1\n        line2", results.get(0).matchedText());
-        
+
         assertEquals(2, results.get(1).startLine());
         assertEquals("line1\n  line2", results.get(1).matchedText());
     }

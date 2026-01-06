@@ -10,10 +10,13 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public interface ICodeReview {
 
+    interface ReviewNavigationListener {
+        void onNavigate(ParsedExcerpt excerpt);
+    }
+
     record CodeExcerpt(String file, String excerpt, String commentary) {}
 
-    record DesignFeedback(
-            String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
+    record DesignFeedback(String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
 
     record GuidedReview(
             String overview,
@@ -29,4 +32,11 @@ public interface ICodeReview {
             return Json.fromJson(json, GuidedReview.class);
         }
     }
+
+    enum DiffSide {
+        OLD,
+        NEW
+    }
+
+    record ParsedExcerpt(CodeExcerpt original, int lineNumber, DiffSide side) {}
 }

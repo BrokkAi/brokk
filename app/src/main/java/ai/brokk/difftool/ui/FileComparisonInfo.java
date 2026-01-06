@@ -6,10 +6,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Metadata for a single file comparison in the diff tool.
  */
-public record FileComparisonInfo(
-        @Nullable ProjectFile file,
-        BufferSource leftSource,
-        BufferSource rightSource) {
+public record FileComparisonInfo(@Nullable ProjectFile file, BufferSource leftSource, BufferSource rightSource) {
 
     public String getDisplayName() {
         // Returns formatted name for UI display
