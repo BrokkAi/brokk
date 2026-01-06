@@ -1,5 +1,8 @@
 package ai.brokk.agents;
 
+import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
+
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
@@ -8,10 +11,12 @@ import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.util.ReviewParser;
+import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.RawExcerpt;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -21,21 +26,15 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
-import ai.brokk.util.ReviewParser.CodeExcerpt;
-import ai.brokk.difftool.ui.FileComparisonInfo;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
-
-import static java.util.Objects.requireNonNull;
-import static java.util.Objects.requireNonNullElse;
 
 /**
  * ReviewAgent wraps SearchAgent to perform a guided code review on a specific diff.
@@ -48,11 +47,7 @@ public class ReviewAgent {
     private final IConsoleIO io;
     private final List<FileComparisonInfo> fileComparisons;
 
-    public ReviewAgent(
-            String diff,
-            IContextManager cm,
-            IConsoleIO io,
-            List<FileComparisonInfo> fileComparisons) {
+    public ReviewAgent(String diff, IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
         this.diff = diff;
         this.cm = cm;
         this.io = io;
@@ -78,12 +73,13 @@ public class ReviewAgent {
         var scanConfig = SearchAgent.ScanConfig.noAppend();
 
         try (ContextManager.TaskScope scope = cm.beginTask(goal, false, "Code Review")) {
-            var searchTools = List.of("addSymbolUsagesToWorkspace",
-                                      "addClassesToWorkspace",
-                                      "addClassSummariesToWorkspace",
-                                      "addMethodsToWorkspace",
-                                      "addFileSummariesToWorkspace",
-                                      "addFilesToWorkspace");
+            var searchTools = List.of(
+                    "addSymbolUsagesToWorkspace",
+                    "addClassesToWorkspace",
+                    "addClassSummariesToWorkspace",
+                    "addMethodsToWorkspace",
+                    "addFileSummariesToWorkspace",
+                    "addFilesToWorkspace");
             SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, io, scanConfig, searchTools);
 
             // Phase 1: Establish context using SearchAgent
@@ -91,7 +87,7 @@ public class ReviewAgent {
 
             if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
                 throw new RuntimeException("Review context gathering failed: "
-                                                   + searchResult.stopDetails().explanation());
+                        + searchResult.stopDetails().explanation());
             }
 
             // Phase 2: Two-turn review process
@@ -102,13 +98,14 @@ public class ReviewAgent {
             // --- Turn 1: Analyze the diff and extract code excerpts ---
             var turn1Messages = new ArrayList<ChatMessage>();
             turn1Messages.add(buildSystemMessage());
-            turn1Messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(finalContext, EnumSet.noneOf(SpecialTextType.class)));
+            turn1Messages.addAll(
+                    WorkspacePrompts.getMessagesInAddedOrder(finalContext, EnumSet.noneOf(SpecialTextType.class)));
             turn1Messages.add(buildAnalysisRequestMessage());
 
             var turn1Result = reviewLlm.sendRequest(turn1Messages);
             if (turn1Result.error() != null) {
-                throw new RuntimeException(
-                        "Failed to analyze diff for review: " + turn1Result.error().getMessage());
+                throw new RuntimeException("Failed to analyze diff for review: "
+                        + turn1Result.error().getMessage());
             }
 
             // --- Turn 1.5: Retry for missing files and non-matching excerpts ---
@@ -117,8 +114,10 @@ public class ReviewAgent {
 
             // --- Turn 2: Generate structured review via tool call ---
             var turn2Messages = new ArrayList<ChatMessage>(turn1Messages);
-            turn2Messages.add(new AiMessage(turn1Result.text(),
-                                            requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+            turn2Messages.add(new AiMessage(
+                    turn1Result.text(),
+                    requireNonNullElse(
+                            requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
             turn2Messages.add(buildReviewRequestMessage());
 
             var tr = cm.getToolRegistry().builder().register(this).build();
@@ -127,7 +126,7 @@ public class ReviewAgent {
 
             if (turn2Result.error() != null || turn2Result.toolRequests().isEmpty()) {
                 throw new RuntimeException("Failed to generate code review: "
-                                                   + (turn2Result.error() != null ? turn2Result.error().getMessage() : "No review generated"));
+                        + (turn2Result.error() != null ? turn2Result.error().getMessage() : "No review generated"));
             }
 
             var reviewCall = turn2Result.toolRequests().getFirst();
@@ -141,13 +140,16 @@ public class ReviewAgent {
             return ReviewParser.GuidedReview.fromRaw(
                     rawReview,
                     resolvedExcerpts.entrySet().stream()
-                            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().excerpt())),
+                            .collect(java.util.stream.Collectors.toMap(
+                                    Map.Entry::getKey, e -> e.getValue().excerpt())),
                     resolvedExcerpts.entrySet().stream()
-                            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().file().toString())),
+                            .collect(java.util.stream.Collectors.toMap(
+                                    Map.Entry::getKey, e -> e.getValue().file().toString())),
                     (file, content) -> {
                         var fileObj = (file != null) ? cm.toFile(file) : cm.toFile("unknown");
                         return resolvedExcerpts.values().stream()
-                                .filter(e -> e.file().equals(fileObj) && e.excerpt().equals(content))
+                                .filter(e ->
+                                        e.file().equals(fileObj) && e.excerpt().equals(content))
                                 .findFirst()
                                 .orElse(new ReviewParser.CodeExcerpt(
                                         fileObj,
@@ -160,9 +162,10 @@ public class ReviewAgent {
 
     static @Nullable FileComparisonInfo findFileComparison(String relPath, List<FileComparisonInfo> fileComparisons) {
         return fileComparisons.stream()
-                .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
-                        || relPath.equals(info.rightSource().filename())
-                        || relPath.equals(info.leftSource().filename()))
+                .filter(info ->
+                        (info.file() != null && relPath.equals(info.file().toString()))
+                                || relPath.equals(info.rightSource().filename())
+                                || relPath.equals(info.leftSource().filename()))
                 .findFirst()
                 .orElse(null);
     }
@@ -202,10 +205,8 @@ public class ReviewAgent {
     }
 
     @Blocking
-    Map<Integer, CodeExcerpt> retryInStages(
-            Llm llm,
-            List<ChatMessage> turn1Messages,
-            Llm.StreamingResult turn1Result) throws InterruptedException {
+    Map<Integer, CodeExcerpt> retryInStages(Llm llm, List<ChatMessage> turn1Messages, Llm.StreamingResult turn1Result)
+            throws InterruptedException {
         // we split up "validate filenames" and "validate text" into two stages so that
         // we can tailor the Context to each
 
@@ -218,7 +219,8 @@ public class ReviewAgent {
 
         while (true) {
             String text = currentResult.text();
-            String reasoning = requireNonNullElse(requireNonNull(currentResult.chatResponse()).reasoningContent(), "");
+            String reasoning = requireNonNullElse(
+                    requireNonNull(currentResult.chatResponse()).reasoningContent(), "");
             history.add(new AiMessage(text, reasoning));
 
             Map<Integer, RawExcerpt> parsed = ReviewParser.instance.parseExcerpts(text);
@@ -239,12 +241,14 @@ public class ReviewAgent {
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
                     .collect(java.util.stream.Collectors.joining("\n"));
 
-            history.add(new UserMessage("""
+            history.add(new UserMessage(
+                    """
                     The following excerpts referenced unknown file paths.
                     Please provide corrected BRK_EXCERPT blocks with paths in the diff:
 
                     %s
-                    """.formatted(errorList)));
+                    """
+                            .formatted(errorList)));
 
             currentResult = llm.sendRequest(history);
             if (currentResult.error() != null) break;
@@ -270,11 +274,10 @@ public class ReviewAgent {
                 if (match == null) {
                     stage2Errors.put(id, "Excerpt text not found in file content");
                 } else {
-                    resolvedExcerpts.put(id, new CodeExcerpt(
-                            cm.toFile(excerpt.file()),
-                            match.line(),
-                            match.side(),
-                            match.matchedText()));
+                    resolvedExcerpts.put(
+                            id,
+                            new CodeExcerpt(
+                                    cm.toFile(excerpt.file()), match.line(), match.side(), match.matchedText()));
                 }
             }
 
@@ -296,20 +299,24 @@ public class ReviewAgent {
                     .toList();
 
             Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
-            stage2Messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
+            stage2Messages.addAll(
+                    WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
             stage2Messages.addAll(history);
-            stage2Messages.add(new UserMessage("""
+            stage2Messages.add(new UserMessage(
+                    """
                     The following excerpts could not be matched in the file content.
                     Please provide corrected BRK_EXCERPT blocks:
 
                     %s
-                    """.formatted(errorList)));
+                    """
+                            .formatted(errorList)));
 
             currentResult = llm.sendRequest(stage2Messages);
             if (currentResult.error() != null) break;
 
             String text = currentResult.text();
-            String reasoning = requireNonNullElse(requireNonNull(currentResult.chatResponse()).reasoningContent(), "");
+            String reasoning = requireNonNullElse(
+                    requireNonNull(currentResult.chatResponse()).reasoningContent(), "");
             history.add(new AiMessage(text, reasoning));
 
             // Accumulate newly parsed excerpts into validPathExcerpts only if they pass file check
@@ -325,58 +332,61 @@ public class ReviewAgent {
     }
 
     private SystemMessage buildSystemMessage() {
-        return new SystemMessage("""
+        return new SystemMessage(
+                """
                 You are an expert code reviewer. Your task is to analyze the proposed changes
                 and identify the most important code excerpts that warrant discussion.
-                
+
                 Focus on:
                 1. Design issues - architectural concerns, coupling, abstraction problems
                 2. Tactical issues - local bugs, edge cases, error handling gaps
                 3. Testing gaps - missing test coverage that would add significant value
-                
+
                 Be constructive and specific in your analysis.
                 """);
     }
 
     private UserMessage buildAnalysisRequestMessage() {
-        return new UserMessage("""
+        return new UserMessage(
+                """
                 Analyze the proposed changes in the diff against the gathered context.
-                
+
                 ### Step 1: Analysis
                 Think step-by-step about the intent, design, and testing gaps:
                   - What is this code intended to do?
                   - Does it accomplish its goals in the simplest way possible?
                   - What parts are the trickiest and how could they be simplified?
                   - What additional tests, if any, would add the most value?
-                
+
                 ### Step 2: Code Excerpt Extraction
                 Extract the subtle, tricky, or potentially incorrect blocks of code that you will
                 reference in your review. Use this exact format, with sequentially numbered, 0-based IDs.
                 IMPORTANT: Append @line_number to the filename to indicate where the excerpt starts.
-                
+
                 BRK_EXCERPT_0
                 path/to/filename.java @42
                 ```java
                 // code here
                 ```
-                
+
                 BRK_EXCERPT_1
                 path/to/another_file.py @120
                 ```python
                 // code here
                 ```
-                
+
                 Include ALL excerpts you plan to reference in your feedback.
                 """);
     }
 
     private UserMessage buildReviewRequestMessage() {
-        return new UserMessage("""
+        return new UserMessage(
+                """
                 Now call createReview to produce the final structured review.
-                
+
                 Reference the excerpts you extracted by their numeric ID (0, 1, 2, ...) in your
                 designNotes and tacticalNotes fields.
-                
+
                 Use Markdown formatting in description and recommendation fields.
 
                 Remember:
@@ -384,7 +394,7 @@ public class ReviewAgent {
                 - designNotes: High-level architectural concerns with excerpt references
                 - tacticalNotes: Local bugs/issues with excerpt references
                 - additionalTests: High-value tests that should be added
-                
+
                 Be opinionated in your recommendations: pick the best solution instead of giving multiple options.
                 """);
     }
@@ -392,10 +402,10 @@ public class ReviewAgent {
     @Tool("Create a structured code review of the current changes or proposal.")
     public String createReview(
             @P(
-                    "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible?")
-            String overview,
+                            "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible?")
+                    String overview,
             @P(
-                    """
+                            """
                     Explain the trickiest parts of the design and how they can be improved.
                     For each item, provide a `title` which is a short 5-7 word label summarizing the feedback,
                     a `description` explaining the problem in detail, and
@@ -403,11 +413,12 @@ public class ReviewAgent {
                     Remember that you can give multiple excerpts per RawDesignNote!
                     Use Markdown for formatting both description and recommendation.
                     """)
-            List<ReviewParser.RawDesignFeedback> designNotes,
-            @P("A list of local bugs or problems. `recommendation` should be detailed enough to give to Code Agent for remediation.")
-            List<ReviewParser.RawTacticalFeedback> tacticalNotes,
+                    List<ReviewParser.RawDesignFeedback> designNotes,
+            @P(
+                            "A list of local bugs or problems. `recommendation` should be detailed enough to give to Code Agent for remediation.")
+                    List<ReviewParser.RawTacticalFeedback> tacticalNotes,
             @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
-            List<String> additionalTests) {
+                    List<String> additionalTests) {
         var review = new ReviewParser.RawReview(overview, designNotes, tacticalNotes, additionalTests);
         return review.toJson();
     }

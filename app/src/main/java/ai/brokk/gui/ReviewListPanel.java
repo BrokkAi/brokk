@@ -1,11 +1,11 @@
 package ai.brokk.gui;
 
-import ai.brokk.util.ReviewParser.DesignFeedback;
-import ai.brokk.util.ReviewParser.GuidedReview;
-import ai.brokk.util.ReviewParser.TacticalFeedback;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.ReviewParser.DesignFeedback;
+import ai.brokk.util.ReviewParser.GuidedReview;
+import ai.brokk.util.ReviewParser.TacticalFeedback;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Cursor;

@@ -12,7 +12,6 @@ import ai.brokk.git.TestRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.model.chat.StreamingChatModel;
-import java.io.File;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;

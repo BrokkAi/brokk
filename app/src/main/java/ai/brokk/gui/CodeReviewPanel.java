@@ -1,11 +1,11 @@
 package ai.brokk.gui;
 
-import ai.brokk.IContextManager;
-import ai.brokk.util.ReviewParser.CodeExcerpt;
-import ai.brokk.util.ReviewParser.GuidedReview;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
+import ai.brokk.IContextManager;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.ReviewParser.CodeExcerpt;
+import ai.brokk.util.ReviewParser.GuidedReview;
 import java.awt.BorderLayout;
 import java.util.ArrayList;
 import java.util.HashMap;

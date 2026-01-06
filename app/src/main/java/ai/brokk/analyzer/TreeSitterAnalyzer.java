@@ -3882,8 +3882,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     private @Nullable CUWithDepth findDeepestEnclosingByLine(CodeUnit current, int startLine, int endLine, int depth) {
-        boolean containsCurrent = rangesOf(current).stream()
-                .anyMatch(r -> startLine >= r.startLine() && endLine <= r.endLine());
+        boolean containsCurrent =
+                rangesOf(current).stream().anyMatch(r -> startLine >= r.startLine() && endLine <= r.endLine());
         if (!containsCurrent) {
             return null;
         }

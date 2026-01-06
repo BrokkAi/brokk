@@ -12,5 +12,4 @@ public interface ICodeReview {
     interface ReviewNavigationListener {
         void onNavigate(ReviewParser.CodeExcerpt excerpt);
     }
-
 }

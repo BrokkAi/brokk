@@ -1,13 +1,11 @@
 package ai.brokk.util;
 
-import ai.brokk.ICodeReview;
+import ai.brokk.analyzer.ProjectFile;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import ai.brokk.analyzer.ProjectFile;
 import org.jspecify.annotations.NullMarked;
 
 /**
@@ -26,8 +24,7 @@ public class ReviewParser {
 
     private ReviewParser() {}
 
-    public static WhitespaceMatch findBestMatch(
-            List<WhitespaceMatch> matches, int targetLine) {
+    public static WhitespaceMatch findBestMatch(List<WhitespaceMatch> matches, int targetLine) {
         var best = matches.getFirst();
         int minDelta = Math.abs(best.startLine() + 1 - targetLine);
         for (int i = 1; i < matches.size(); i++) {
@@ -68,7 +65,8 @@ public class ReviewParser {
                     currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
                     state = State.EXPECTING_FILENAME;
                     continue;
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException ignored) {
+                }
             }
             switch (state) {
                 case SEARCHING -> {
@@ -76,7 +74,8 @@ public class ReviewParser {
                         try {
                             currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
                             state = State.EXPECTING_FILENAME;
-                        } catch (NumberFormatException ignored) {}
+                        } catch (NumberFormatException ignored) {
+                        }
                     }
                 }
                 case EXPECTING_FILENAME -> {
@@ -96,7 +95,8 @@ public class ReviewParser {
                     }
                 }
                 case IN_CONTENT -> {
-                    if (line.equals("```") || line.startsWith("```") && line.substring(3).isBlank()) {
+                    if (line.equals("```")
+                            || line.startsWith("```") && line.substring(3).isBlank()) {
                         state = State.SEARCHING;
                     }
                 }
@@ -133,7 +133,8 @@ public class ReviewParser {
                     currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
                     state = State.EXPECTING_FILENAME;
                     continue;
-                } catch (NumberFormatException ignored) {}
+                } catch (NumberFormatException ignored) {
+                }
             }
             switch (state) {
                 case SEARCHING -> {
@@ -141,7 +142,8 @@ public class ReviewParser {
                         try {
                             currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
                             state = State.EXPECTING_FILENAME;
-                        } catch (NumberFormatException ignored) {}
+                        } catch (NumberFormatException ignored) {
+                        }
                     }
                 }
                 case EXPECTING_FILENAME -> {
@@ -161,7 +163,8 @@ public class ReviewParser {
                     }
                 }
                 case IN_CONTENT -> {
-                    if (line.equals("```") || line.startsWith("```") && line.substring(3).isBlank()) {
+                    if (line.equals("```")
+                            || line.startsWith("```") && line.substring(3).isBlank()) {
                         if (currentId != null) contents.put(currentId, currentContent.toString());
                         state = State.SEARCHING;
                     } else {
@@ -174,13 +177,12 @@ public class ReviewParser {
         return Map.copyOf(contents);
     }
 
-    public record RawExcerpt(String file, int line, String excerpt) {
-    }
+    public record RawExcerpt(String file, int line, String excerpt) {}
 
-    public record CodeExcerpt(ProjectFile file, int line, DiffSide side, String excerpt) {
-    }
+    public record CodeExcerpt(ProjectFile file, int line, DiffSide side, String excerpt) {}
 
-    public record RawDesignFeedback(String title, String description, List<Integer> excerptIds, String recommendation) {}
+    public record RawDesignFeedback(
+            String title, String description, List<Integer> excerptIds, String recommendation) {}
 
     public record RawTacticalFeedback(String title, String description, int excerptId, String recommendation) {}
 
@@ -235,7 +237,8 @@ public class ReviewParser {
             List<TacticalFeedback> tacticalNotes = rawReview.tacticalNotes().stream()
                     .map(raw -> {
                         CodeExcerpt excerpt = (raw.excerptId() >= 0 && excerptContents.containsKey(raw.excerptId()))
-                                ? resolver.apply(excerptFiles.get(raw.excerptId()), excerptContents.get(raw.excerptId()))
+                                ? resolver.apply(
+                                        excerptFiles.get(raw.excerptId()), excerptContents.get(raw.excerptId()))
                                 : resolver.apply("unknown", "");
                         return new TacticalFeedback(raw.title(), raw.description, excerpt, raw.recommendation());
                     })

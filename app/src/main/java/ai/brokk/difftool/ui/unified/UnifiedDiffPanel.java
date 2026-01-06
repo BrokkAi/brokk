@@ -11,6 +11,7 @@ import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.ReviewParser;
 import java.awt.BorderLayout;
 import java.awt.Point;
 import java.awt.event.ComponentAdapter;
@@ -24,8 +25,6 @@ import javax.swing.SwingUtilities;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DocumentFilter;
-
-import ai.brokk.util.ReviewParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -595,7 +594,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         @Override
-        public void paint(java.awt.Graphics g, int p0, int p1, java.awt.Shape bounds, javax.swing.text.JTextComponent c) {
+        public void paint(
+                java.awt.Graphics g, int p0, int p1, java.awt.Shape bounds, javax.swing.text.JTextComponent c) {
             try {
                 java.awt.Rectangle r0 = c.modelToView2D(p0).getBounds();
                 java.awt.Rectangle r1 = c.modelToView2D(p1).getBounds();
@@ -606,7 +606,8 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
                 g2d.setColor(color);
                 g2d.setStroke(new java.awt.BasicStroke(2.0f));
-                g2d.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g2d.setRenderingHint(
+                        java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
 
                 int x = 2;
                 int y = r0.y;

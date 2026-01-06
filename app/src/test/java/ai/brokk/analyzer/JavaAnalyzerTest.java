@@ -1015,7 +1015,7 @@ public class JavaAnalyzerTest {
         var cuMethod2 = CodeUnit.fn(file, "", "A.method2");
         int m1Start = analyzer.getStartLineForCodeUnit(cuMethod1);
         int m2Start = analyzer.getStartLineForCodeUnit(cuMethod2);
-        
+
         var cu3 = analyzer.enclosingCodeUnit(file, Math.min(m1Start, m2Start), Math.max(m1Start, m2Start));
         assertTrue(cu3.isPresent());
         assertEquals("A", cu3.get().fqName());

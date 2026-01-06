@@ -1,30 +1,27 @@
 package ai.brokk.agents;
 
-import ai.brokk.util.ReviewParser.CodeExcerpt;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import ai.brokk.IContextManager;
+import ai.brokk.Llm;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.ReviewParser;
-import ai.brokk.util.WhitespaceMatch;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
+import ai.brokk.util.ReviewParser.CodeExcerpt;
+import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import ai.brokk.Llm;
-import dev.langchain4j.data.message.UserMessage;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import java.util.ArrayList;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 class ReviewAgentTest {
 
@@ -42,7 +39,6 @@ class ReviewAgentTest {
         assertEquals(info, ReviewAgent.findFileComparison("new_path.java", comparisons));
         assertNull(ReviewAgent.findFileComparison("other.java", comparisons));
     }
-
 
     @Test
     void testMatchExcerptInFile() {
@@ -91,23 +87,26 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        var info1 = new FileComparisonInfo(null,
+        var info1 = new FileComparisonInfo(
+                null,
                 new BufferSource.StringSource("content1", "NEW", "file1.java"),
                 new BufferSource.StringSource("content1", "NEW", "file1.java"));
-        var info2 = new FileComparisonInfo(null,
+        var info2 = new FileComparisonInfo(
+                null,
                 new BufferSource.StringSource("content2", "NEW", "file2.java"),
                 new BufferSource.StringSource("content2", "NEW", "file2.java"));
 
         ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info1, info2));
 
         // Turn 1: Excerpt 0 is good, Excerpt 1 is bad (wrong file)
-        String resp1 = """
+        String resp1 =
+                """
             BRK_EXCERPT_0
             file1.java @1
             ```java
             content1
             ```
-            
+
             BRK_EXCERPT_1
             wrong.java @1
             ```java
@@ -117,7 +116,8 @@ class ReviewAgentTest {
 
         // Retry 1: Provides ONLY the fixed Excerpt 1.
         // The implementation must remember Excerpt 0 from the previous turn.
-        String resp2 = """
+        String resp2 =
+                """
             BRK_EXCERPT_1
             file2.java @1
             ```java
@@ -146,7 +146,8 @@ class ReviewAgentTest {
         ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of());
 
         // Always return the same bad excerpt
-        String badResp = """
+        String badResp =
+                """
             BRK_EXCERPT_0
             missing.java @1
             ```java
@@ -180,7 +181,7 @@ class ReviewAgentTest {
         var source = new BufferSource.StringSource(content, "NEW", "full.java");
         var fullInfo = new FileComparisonInfo(null, source, source);
         var fullExcerpt = new ReviewParser.RawExcerpt("full.java", 1, content);
-        
+
         var match = ReviewAgent.matchExcerptInFile(fullExcerpt, fullInfo);
         assertNotNull(match);
         assertEquals(1, match.line());
@@ -191,23 +192,23 @@ class ReviewAgentTest {
         Files.writeString(tempDir.resolve("file.java"), "line1\nline2\nline3\nline4");
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
-        
+
         var info = new FileComparisonInfo(
-            null, 
-            new BufferSource.StringSource("line1\nline2\nline3\nline4", "OLD", "file.java"),
-            new BufferSource.StringSource("line1\nline2-new\nline3\nline4", "NEW", "file.java")
-        );
+                null,
+                new BufferSource.StringSource("line1\nline2\nline3\nline4", "OLD", "file.java"),
+                new BufferSource.StringSource("line1\nline2-new\nline3\nline4", "NEW", "file.java"));
         ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info));
 
         // 1. Excerpt ID gaps (0 and 5)
         // 2. Content normalization (excerpt has \r\n, file has \n - WhitespaceMatch handles this)
-        String resp1 = """
+        String resp1 =
+                """
             BRK_EXCERPT_0
             file.java @1
             ```java
             line1\r\nline2-new
             ```
-            
+
             BRK_EXCERPT_5
             file.java @3
             ```java
@@ -226,23 +227,25 @@ class ReviewAgentTest {
         assertEquals(2, result.size());
         assertEquals(1, result.get(0).line());
         assertEquals(3, result.get(5).line());
-        
+
         // 3. Stage 1 passes (file exists), but Stage 2 fails (content doesn't match)
-        String mismatchContent = """
+        String mismatchContent =
+                """
             BRK_EXCERPT_10
             file.java @1
             ```java
             no-match-here
             ```
             """;
-        String fixContent = """
+        String fixContent =
+                """
             BRK_EXCERPT_10
             file.java @4
             ```java
             line4
             ```
             """;
-            
+
         var stage2Model = new TestScriptedLanguageModel(mismatchContent, fixContent);
         var stage2Llm = new Llm(stage2Model, "test", cm, false, false, false, false);
         var t1Result = stage2Llm.sendRequest(initialMessages);
@@ -259,23 +262,26 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        var info1 = new FileComparisonInfo(null,
+        var info1 = new FileComparisonInfo(
+                null,
                 new BufferSource.StringSource("public class Good {}", "NEW", "good.java"),
                 new BufferSource.StringSource("public class Good {}", "NEW", "good.java"));
-        var info2 = new FileComparisonInfo(null,
+        var info2 = new FileComparisonInfo(
+                null,
                 new BufferSource.StringSource("public class Fixed {}", "NEW", "fixed.java"),
                 new BufferSource.StringSource("public class Fixed {}", "NEW", "fixed.java"));
 
         ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info1, info2));
 
         // Initial response: 0 is good, 1 has bad path
-        String resp1 = """
+        String resp1 =
+                """
             BRK_EXCERPT_0
             good.java @1
             ```java
             public class Good {}
             ```
-            
+
             BRK_EXCERPT_1
             bad.java @1
             ```java
@@ -284,7 +290,8 @@ class ReviewAgentTest {
             """;
 
         // Retry response: Fixes 1, does NOT repeat 0
-        String resp2 = """
+        String resp2 =
+                """
             BRK_EXCERPT_1
             fixed.java @1
             ```java

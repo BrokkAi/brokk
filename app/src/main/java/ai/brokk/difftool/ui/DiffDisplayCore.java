@@ -7,13 +7,12 @@ import ai.brokk.difftool.performance.PerformanceConstants;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.util.ReviewParser;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.swing.SwingUtilities;
-
-import ai.brokk.util.ReviewParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -126,8 +125,7 @@ public class DiffDisplayCore {
 
         // Background preload adjacent
         if (currentIndex > 0) ensurePanel(currentIndex - 1, -1, ReviewParser.DiffSide.NEW);
-        if (currentIndex < fileComparisons.size() - 1)
-            ensurePanel(currentIndex + 1, -1, ReviewParser.DiffSide.NEW);
+        if (currentIndex < fileComparisons.size() - 1) ensurePanel(currentIndex + 1, -1, ReviewParser.DiffSide.NEW);
     }
 
     private void ensurePanel(int index, int targetLine, ReviewParser.DiffSide targetSide) {
@@ -140,7 +138,8 @@ public class DiffDisplayCore {
         }
 
         var info = fileComparisons.get(index);
-        long maxSize = Math.max(info.leftSource().sizeInBytes(), info.rightSource().sizeInBytes());
+        long maxSize =
+                Math.max(info.leftSource().sizeInBytes(), info.rightSource().sizeInBytes());
 
         if (maxSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES) {
             createAsync(index, info, targetLine, targetSide);
@@ -149,8 +148,7 @@ public class DiffDisplayCore {
         }
     }
 
-    private void createSync(
-            int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
+    private void createSync(int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
         var diffNode = FileComparisonHelper.createDiffNode(
                 info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
 
@@ -161,8 +159,7 @@ public class DiffDisplayCore {
         }
     }
 
-    private void createAsync(
-            int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
+    private void createAsync(int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
         contextManager.submitBackgroundTask("Computing diff: " + info.getDisplayName(), () -> {
             var diffNode = FileComparisonHelper.createDiffNode(
                     info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
@@ -179,8 +176,7 @@ public class DiffDisplayCore {
         });
     }
 
-    protected void displayPanel(
-            int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
+    protected void displayPanel(int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
         mainPanel.displayAndRefreshPanel(index, panel, targetLine, targetSide);
     }
 

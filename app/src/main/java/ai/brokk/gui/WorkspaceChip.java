@@ -8,18 +8,14 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.ChipColorUtils.ChipKind;
 import ai.brokk.gui.components.MaterialChip;
-import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.project.MainProject;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ProjectGuideResolver;
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Image;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -97,11 +93,11 @@ public class WorkspaceChip extends JPanel {
     private void initUi() {
         ContextFragment fragment = getPrimaryFragment();
         String safeShortDescription = fragment.shortDescription().renderNowOr("Loading...");
-        
-        String labelText = (kind == ChipKind.OTHER) 
+
+        String labelText = (kind == ChipKind.OTHER)
                 ? truncateForDisplay(capitalizeFirst(safeShortDescription))
                 : truncateForDisplay(safeShortDescription);
-        
+
         materialChip.setText(labelText);
         refreshLabelAndTooltip();
 
@@ -161,7 +157,7 @@ public class WorkspaceChip extends JPanel {
 
     protected void installHoverListeners() {
         if (hoverCallback == null) return;
-        
+
         final int[] hoverCounter = {0};
         MouseAdapter hoverAdapter = new MouseAdapter() {
             @Override
@@ -248,14 +244,14 @@ public class WorkspaceChip extends JPanel {
     public void updateReadOnlyIcon() {
         ContextFragment fragment = getPrimaryFragment();
         boolean showRo = fragment.getType().isEditable() && isFragmentReadOnly(fragment);
-        
+
         var ctx = contextManager.selectedContext();
         boolean showPinned = ctx != null && ctx.isPinned(fragment);
 
         List<Icon> icons = new ArrayList<>();
         if (showPinned) icons.add(Icons.PUSH_PIN);
         if (showRo) icons.add(Icons.EDIT_OFF);
-        
+
         materialChip.setLeadingIcons(icons);
     }
 
@@ -321,9 +317,8 @@ public class WorkspaceChip extends JPanel {
 
     protected void updateTextAndTooltip(ContextFragment fragment) {
         String sd = fragment.shortDescription().renderNowOr("Loading...");
-        String newLabelText = (kind == ChipKind.OTHER)
-                ? truncateForDisplay(capitalizeFirst(sd))
-                : truncateForDisplay(sd);
+        String newLabelText =
+                (kind == ChipKind.OTHER) ? truncateForDisplay(capitalizeFirst(sd)) : truncateForDisplay(sd);
 
         if (!Objects.equals(materialChip.getAccessibleContext().getAccessibleName(), newLabelText)) {
             materialChip.setText(newLabelText);
@@ -392,23 +387,31 @@ public class WorkspaceChip extends JPanel {
         var actions = scenario.getActions(chrome.getContextActionsHandler());
         boolean separatorPending = false;
         for (var action : actions) {
-            if (action == null) { separatorPending = true; continue; }
+            if (action == null) {
+                separatorPending = true;
+                continue;
+            }
             if (isDropAction(action)) continue;
-            if (separatorPending) { safeAddSeparator(menu); separatorPending = false; }
+            if (separatorPending) {
+                safeAddSeparator(menu);
+                separatorPending = false;
+            }
             menu.add(action);
         }
 
         JMenuItem dropOther = new JMenuItem("Drop Others");
         var selected = contextManager.selectedContext();
-        List<ContextFragment> toDrop = (selected == null) ? List.of() : 
-                selected.getAllFragmentsInDisplayOrder().stream()
+        List<ContextFragment> toDrop = (selected == null)
+                ? List.of()
+                : selected.getAllFragmentsInDisplayOrder().stream()
                         .filter(f -> !fragments.contains(f))
                         .filter(f -> f.getType() != ContextFragment.FragmentType.HISTORY)
                         .toList();
 
         dropOther.setEnabled(!toDrop.isEmpty());
         dropOther.addActionListener(e -> {
-            if (ensureMutatingAllowed()) contextManager.submitContextTask(() -> contextManager.dropWithHistorySemantics(toDrop));
+            if (ensureMutatingAllowed())
+                contextManager.submitContextTask(() -> contextManager.dropWithHistorySemantics(toDrop));
         });
 
         safeAddSeparator(menu);
@@ -428,7 +431,8 @@ public class WorkspaceChip extends JPanel {
     private static String buildMetricsHtml(ContextFragment fragment) {
         if (fragment.isText() || fragment.getType().isOutput()) {
             FragmentMetrics metrics = getOrComputeMetrics(fragment);
-            return String.format("<div>%s LOC • ~%s tokens</div><br/>", formatCount(metrics.loc()), formatCount(metrics.tokens()));
+            return String.format(
+                    "<div>%s LOC • ~%s tokens</div><br/>", formatCount(metrics.loc()), formatCount(metrics.tokens()));
         }
         return "";
     }
@@ -456,7 +460,10 @@ public class WorkspaceChip extends JPanel {
     private static String capitalizeFirst(String s) {
         if (s.isEmpty()) return s;
         int first = s.codePointAt(0);
-        return new StringBuilder(s.length()).appendCodePoint(Character.toUpperCase(first)).append(s.substring(Character.charCount(first))).toString();
+        return new StringBuilder(s.length())
+                .appendCodePoint(Character.toUpperCase(first))
+                .append(s.substring(Character.charCount(first)))
+                .toString();
     }
 
     private static String truncateForDisplay(String text) {
@@ -465,16 +472,32 @@ public class WorkspaceChip extends JPanel {
     }
 
     public static final class SummaryChip extends WorkspaceChip {
-        private enum ValidityState { ALL_VALID, MIXED, ALL_INVALID }
+        private enum ValidityState {
+            ALL_VALID,
+            MIXED,
+            ALL_INVALID
+        }
 
         private List<ContextFragment> summaryFragments;
         private int invalidSummaryCount = 0;
         private ValidityState validityState = ValidityState.ALL_VALID;
 
         @SuppressWarnings("NullAway.Init")
-        public SummaryChip(Chrome chrome, ContextManager contextManager, Supplier<Boolean> readOnlySupplier,
-                           @Nullable BiConsumer<ContextFragment, Boolean> hoverCallback, @Nullable Consumer<ContextFragment> onRemoveFragment, List<ContextFragment> summaries) {
-            super(chrome, contextManager, readOnlySupplier, hoverCallback, onRemoveFragment, new LinkedHashSet<>(summaries), ChipKind.SUMMARY);
+        public SummaryChip(
+                Chrome chrome,
+                ContextManager contextManager,
+                Supplier<Boolean> readOnlySupplier,
+                @Nullable BiConsumer<ContextFragment, Boolean> hoverCallback,
+                @Nullable Consumer<ContextFragment> onRemoveFragment,
+                List<ContextFragment> summaries) {
+            super(
+                    chrome,
+                    contextManager,
+                    readOnlySupplier,
+                    hoverCallback,
+                    onRemoveFragment,
+                    new LinkedHashSet<>(summaries),
+                    ChipKind.SUMMARY);
             this.summaryFragments = List.copyOf(summaries);
             ComputedSubscription.disposeAll(this);
             bindComputed();
@@ -507,7 +530,8 @@ public class WorkspaceChip extends JPanel {
         }
 
         private void updateValidityState() {
-            this.invalidSummaryCount = (int) summaryFragments.stream().filter(f -> !f.isValid()).count();
+            this.invalidSummaryCount =
+                    (int) summaryFragments.stream().filter(f -> !f.isValid()).count();
             if (invalidSummaryCount == 0) {
                 validityState = ValidityState.ALL_VALID;
             } else if (invalidSummaryCount == summaryFragments.size()) {
@@ -517,7 +541,9 @@ public class WorkspaceChip extends JPanel {
             }
 
             if (validityState == ValidityState.MIXED) {
-                materialChip.setSplitPainting(true, ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_INVALID_BACKGROUND));
+                materialChip.setSplitPainting(
+                        true,
+                        ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_INVALID_BACKGROUND));
             } else {
                 materialChip.setSplitPainting(false, null);
             }
@@ -551,6 +577,7 @@ public class WorkspaceChip extends JPanel {
                         for (var f : summaryFragments) hoverCallback.accept(f, true);
                     }
                 }
+
                 @Override
                 public void mouseExited(MouseEvent e) {
                     if (hoverCounter[0] > 0 && --hoverCounter[0] == 0) {
@@ -572,19 +599,29 @@ public class WorkspaceChip extends JPanel {
         private String computeAggregateSummaryTooltip() {
             var allFiles = summaryFragments.stream()
                     .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
-                    .map(ProjectFile::toString).distinct().sorted().toList();
+                    .map(ProjectFile::toString)
+                    .distinct()
+                    .sorted()
+                    .toList();
             StringBuilder body = new StringBuilder();
             int totalLoc = 0, totalTokens = 0;
             for (var summary : summaryFragments) {
                 FragmentMetrics metrics = getOrComputeMetrics(summary);
-                totalLoc += metrics.loc(); totalTokens += metrics.tokens();
+                totalLoc += metrics.loc();
+                totalTokens += metrics.tokens();
             }
-            body.append("<div>").append(formatCount(totalLoc)).append(" LOC • ~").append(formatCount(totalTokens)).append(" tokens</div><br/>");
-            body.append("<div><b>Summaries</b></div><hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
+            body.append("<div>")
+                    .append(formatCount(totalLoc))
+                    .append(" LOC • ~")
+                    .append(formatCount(totalTokens))
+                    .append(" tokens</div><br/>");
+            body.append(
+                    "<div><b>Summaries</b></div><hr style='border:0;border-top:1px solid #ccc;margin:4px 0 6px 0;'/>");
             if (allFiles.isEmpty()) body.append("[No summaries with valid filenames]");
             else {
                 body.append("<ul style='margin:0;padding-left:16px'>");
-                for (var f : allFiles) body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
+                for (var f : allFiles)
+                    body.append("<li>").append(StringEscapeUtils.escapeHtml4(f)).append("</li>");
                 body.append("</ul>");
             }
             body.append("<br/><i>Click to preview all contents</i>");
@@ -594,16 +631,25 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected void onPrimaryClick() {
             var syntaxStyle = summaryFragments.stream()
-                    .map(f -> f.syntaxStyle().renderNowOrNull()).filter(Objects::nonNull)
+                    .map(f -> f.syntaxStyle().renderNowOrNull())
+                    .filter(Objects::nonNull)
                     .collect(Collectors.groupingBy(s -> s, Collectors.counting()))
-                    .entrySet().stream().max(Map.Entry.comparingByValue()).map(Map.Entry::getKey)
+                    .entrySet()
+                    .stream()
+                    .max(Map.Entry.comparingByValue())
+                    .map(Map.Entry::getKey)
                     .orElse(SyntaxConstants.SYNTAX_STYLE_NONE);
             List<ContextFragments.SummaryFragment> fragmentsToProcess = summaryFragments.stream()
                     .filter(f -> f instanceof ContextFragments.SummaryFragment)
-                    .map(f -> (ContextFragments.SummaryFragment) f).toList();
-            contextManager.submitBackgroundTask("Aggregating summaries", () -> ContextFragments.SummaryFragment.combinedText(fragmentsToProcess))
+                    .map(f -> (ContextFragments.SummaryFragment) f)
+                    .toList();
+            contextManager
+                    .submitBackgroundTask(
+                            "Aggregating summaries",
+                            () -> ContextFragments.SummaryFragment.combinedText(fragmentsToProcess))
                     .thenAccept(combinedText -> SwingUtilities.invokeLater(() -> {
-                        var syntheticFragment = new ContextFragments.StringFragment(chrome.getContextManager(), combinedText, "Summaries", syntaxStyle);
+                        var syntheticFragment = new ContextFragments.StringFragment(
+                                chrome.getContextManager(), combinedText, "Summaries", syntaxStyle);
                         chrome.openFragmentPreview(syntheticFragment);
                     }));
         }
@@ -625,21 +671,32 @@ public class WorkspaceChip extends JPanel {
 
             boolean separatorPending = false;
             for (var action : actions) {
-                if (action == null) { separatorPending = true; continue; }
+                if (action == null) {
+                    separatorPending = true;
+                    continue;
+                }
                 String actionName = (String) action.getValue(Action.NAME);
                 if ("Summarize all References".equals(actionName) || isDropAction(action)) continue;
-                if (separatorPending) { safeAddSeparator(menu); separatorPending = false; }
+                if (separatorPending) {
+                    safeAddSeparator(menu);
+                    separatorPending = false;
+                }
                 menu.add(action);
             }
 
             if (invalidSummaryCount > 0) {
                 safeAddSeparator(menu);
-                var invalidSummaries = summaryFragments.stream().filter(f -> !f.isValid()).toList();
-                JMenuItem dropInvalidItem = new JMenuItem(invalidSummaryCount == 1 ? "Drop Invalid Summary" : "Drop Invalid Summaries (" + invalidSummaryCount + ")");
+                var invalidSummaries =
+                        summaryFragments.stream().filter(f -> !f.isValid()).toList();
+                JMenuItem dropInvalidItem = new JMenuItem(
+                        invalidSummaryCount == 1
+                                ? "Drop Invalid Summary"
+                                : "Drop Invalid Summaries (" + invalidSummaryCount + ")");
                 dropInvalidItem.addActionListener(e -> {
                     if (ensureMutatingAllowed()) {
                         invalidSummaries.forEach(metricsCache::remove);
-                        contextManager.submitContextTask(() -> contextManager.dropWithHistorySemantics(invalidSummaries));
+                        contextManager.submitContextTask(
+                                () -> contextManager.dropWithHistorySemantics(invalidSummaries));
                     }
                 });
                 menu.add(dropInvalidItem);
@@ -659,11 +716,24 @@ public class WorkspaceChip extends JPanel {
 
     public static final class StyleGuideChip extends WorkspaceChip {
         private static final String LABEL_TEXT = "AGENTS.md";
-        private static final String ACCESSIBLE_DESC = "Project style guide (AGENTS.md). Informational; cannot be removed.";
+        private static final String ACCESSIBLE_DESC =
+                "Project style guide (AGENTS.md). Informational; cannot be removed.";
 
-        public StyleGuideChip(Chrome chrome, ContextManager contextManager, Supplier<Boolean> readOnlySupplier,
-                              @Nullable BiConsumer<ContextFragment, Boolean> hoverCallback, @Nullable Consumer<ContextFragment> onRemoveFragment, ContextFragment fragment) {
-            super(chrome, contextManager, readOnlySupplier, hoverCallback, onRemoveFragment, Set.of(fragment), ChipKind.OTHER);
+        public StyleGuideChip(
+                Chrome chrome,
+                ContextManager contextManager,
+                Supplier<Boolean> readOnlySupplier,
+                @Nullable BiConsumer<ContextFragment, Boolean> hoverCallback,
+                @Nullable Consumer<ContextFragment> onRemoveFragment,
+                ContextFragment fragment) {
+            super(
+                    chrome,
+                    contextManager,
+                    readOnlySupplier,
+                    hoverCallback,
+                    onRemoveFragment,
+                    Set.of(fragment),
+                    ChipKind.OTHER);
             setCloseEnabled(false);
             materialChip.setCloseVisible(false);
             materialChip.setText(LABEL_TEXT);
@@ -677,7 +747,9 @@ public class WorkspaceChip extends JPanel {
         }
 
         private String buildStyleGuideTooltip() {
-            return wrapTooltipHtml("<b>AGENTS.md</b> — informational Style Guide<br/>It is always applied automatically to prompts.<br/><br/><i>This chip cannot be removed.</i>", 420);
+            return wrapTooltipHtml(
+                    "<b>AGENTS.md</b> — informational Style Guide<br/>It is always applied automatically to prompts.<br/><br/><i>This chip cannot be removed.</i>",
+                    420);
         }
 
         @Override
@@ -690,7 +762,8 @@ public class WorkspaceChip extends JPanel {
 
         @Override
         protected void onCloseClick() {
-            chrome.systemNotify("AGENTS.md is informational and cannot be removed.", "Workspace", JOptionPane.INFORMATION_MESSAGE);
+            chrome.systemNotify(
+                    "AGENTS.md is informational and cannot be removed.", "Workspace", JOptionPane.INFORMATION_MESSAGE);
         }
 
         @Override
@@ -712,11 +785,17 @@ public class WorkspaceChip extends JPanel {
             var actions = scenario.getActions(chrome.getContextActionsHandler());
             boolean separatorPending = false;
             for (var action : actions) {
-                if (action == null) { separatorPending = true; continue; }
+                if (action == null) {
+                    separatorPending = true;
+                    continue;
+                }
                 if (isDropAction(action)) continue;
                 String name = (String) action.getValue(Action.NAME);
                 if ("Show Contents".equals(name) || "Drop".equals(name) || "Drop Others".equals(name)) continue;
-                if (separatorPending) { safeAddSeparator(menu); separatorPending = false; }
+                if (separatorPending) {
+                    safeAddSeparator(menu);
+                    separatorPending = false;
+                }
                 menu.add(action);
             }
             chrome.getThemeManager().registerPopupMenu(menu);
@@ -726,14 +805,24 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected void onPrimaryClick() {
             var selected = contextManager.selectedContext();
-            List<ProjectFile> candidateFiles = (selected == null) ? List.of() : 
-                    selected.getAllFragmentsInDisplayOrder().stream()
+            List<ProjectFile> candidateFiles = (selected == null)
+                    ? List.of()
+                    : selected.getAllFragmentsInDisplayOrder().stream()
                             .filter(f -> !(f instanceof ContextFragments.SummaryFragment))
                             .filter(f -> f.getType() != ContextFragment.FragmentType.SKELETON)
-                            .flatMap(f -> f.files().renderNowOr(Set.of()).stream()).distinct().toList();
-            contextManager.submitBackgroundTask("Compute AGENTS.md", () -> ProjectGuideResolver.resolve(candidateFiles, contextManager.getProject()))
+                            .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                            .distinct()
+                            .toList();
+            contextManager
+                    .submitBackgroundTask(
+                            "Compute AGENTS.md",
+                            () -> ProjectGuideResolver.resolve(candidateFiles, contextManager.getProject()))
                     .thenAccept(content -> SwingUtilities.invokeLater(() -> {
-                        var syntheticFragment = new ContextFragments.StringFragment(chrome.getContextManager(), content, "AGENTS.md", SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
+                        var syntheticFragment = new ContextFragments.StringFragment(
+                                chrome.getContextManager(),
+                                content,
+                                "AGENTS.md",
+                                SyntaxConstants.SYNTAX_STYLE_MARKDOWN);
                         chrome.openFragmentPreview(syntheticFragment);
                     }));
         }

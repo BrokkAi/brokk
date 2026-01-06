@@ -53,7 +53,6 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
-import picocli.CommandLine;
 
 /**
  * SearchAgent: - Uses tools to curate Workspace context for follow-on coding. - Starts by

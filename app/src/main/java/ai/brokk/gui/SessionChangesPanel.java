@@ -22,7 +22,6 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser;
-
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -762,7 +761,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
         });
     }
-
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {

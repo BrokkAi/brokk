@@ -1,41 +1,34 @@
 package ai.brokk.gui;
 
-import ai.brokk.IContextManager;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.IContextManager;
 import ai.brokk.gui.components.MaterialChip;
 import ai.brokk.gui.components.SimpleHtmlPanel;
+import ai.brokk.gui.components.SplitButton;
+import ai.brokk.gui.dialogs.AskHumanDialog;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
-import ai.brokk.gui.components.SplitButton;
-import ai.brokk.gui.dialogs.AskHumanDialog;
-import ai.brokk.tasks.TaskList;
 import java.awt.CardLayout;
 import java.awt.Component;
-import java.awt.Cursor;
-import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.swing.Box;
 import javax.swing.BoxLayout;
-import javax.swing.JMenuItem;
-import javax.swing.JPopupMenu;
-import javax.swing.UIManager;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -144,9 +137,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             editItem.addActionListener(e -> {
                 contextManager.getBackgroundTasks().submit(() -> {
                     String edited = AskHumanDialog.showEditDialog(
-                            (Chrome) contextManager.getIo(),
-                            "Edit Recommendation",
-                            recommendation);
+                            (Chrome) contextManager.getIo(), "Edit Recommendation", recommendation);
                     if (edited != null && !edited.isBlank()) {
                         SwingUtilities.invokeLater(() -> enqueueTask(edited));
                     }
@@ -217,8 +208,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             chip.setChipColors(
                     ChipColorUtils.getBackgroundColor(ChipColorUtils.ChipKind.OTHER, isDark),
                     ChipColorUtils.getForegroundColor(ChipColorUtils.ChipKind.OTHER, isDark),
-                    ChipColorUtils.getBorderColor(ChipColorUtils.ChipKind.OTHER, isDark)
-            );
+                    ChipColorUtils.getBorderColor(ChipColorUtils.ChipKind.OTHER, isDark));
 
             chip.addChipClickListener(() -> {
                 currentIndex.set(idx);

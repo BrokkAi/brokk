@@ -11,7 +11,8 @@ class ReviewParserTest {
 
     @Test
     void testParseSingleExcerpt() {
-        String input = """
+        String input =
+                """
                 Here is the excerpt:
                 BRK_EXCERPT_1
                 src/main/java/Foo.java @10
@@ -30,7 +31,8 @@ class ReviewParserTest {
 
     @Test
     void testParseMultipleExcerpts() {
-        String input = """
+        String input =
+                """
                 BRK_EXCERPT_10
                 FileA.txt @5
                 ```
@@ -58,7 +60,8 @@ class ReviewParserTest {
 
     @Test
     void testHandlesOptionalLanguageSpecifier() {
-        String input = """
+        String input =
+                """
                 BRK_EXCERPT_1
                 file.js @1
                 ```javascript
@@ -71,7 +74,8 @@ class ReviewParserTest {
 
     @Test
     void testMalformedAndUnclosedBlocks() {
-        String input = """
+        String input =
+                """
                 Malformed 1: missing newline after ID
                 BRK_EXCERPT_1 file.txt @10
                 ```
@@ -107,11 +111,12 @@ class ReviewParserTest {
 
     @Test
     void testEmptyContent() {
-        String input = """
+        String input =
+                """
                 BRK_EXCERPT_0
                 empty.txt @1
                 ```
-                
+
                 ```
                 """;
         Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
@@ -120,7 +125,8 @@ class ReviewParserTest {
 
     @Test
     void testNestedCodeFencesInContent() {
-        String input = """
+        String input =
+                """
                 BRK_EXCERPT_5
                 nested.md @100
                 ```markdown
@@ -135,19 +141,22 @@ class ReviewParserTest {
         Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
 
         assertEquals(1, results.size());
-        String expected = """
+        String expected =
+                """
                 Outer start
                   ```
                   Indented fence is content
                   ```
                 Inline ``` fence is content
-                Outer end""".stripIndent();
+                Outer end"""
+                        .stripIndent();
         assertEquals(expected, results.get(5).excerpt());
     }
 
     @Test
     void testRejectsFilenameWithoutLineNumber() {
-        String input = """
+        String input =
+                """
                 BRK_EXCERPT_1
                 src/main/java/NoLine.java
                 ```java
@@ -160,7 +169,8 @@ class ReviewParserTest {
 
     @Test
     void testParsesLineNumberCorrectly() {
-        String input = """
+        String input =
+                """
                 BRK_EXCERPT_1
                 path/to/MyClass.java @42
                 ```java
@@ -179,35 +189,27 @@ class ReviewParserTest {
     void testGuidedReviewFromRaw() {
         var contents = Map.of(
                 0, "code A",
-                1, "code B"
-        );
+                1, "code B");
         var files = Map.of(
                 0, "FileA.java",
-                1, "FileB.java"
-        );
+                1, "FileB.java");
 
-        var rawDesign = new ReviewParser.RawDesignFeedback(
-                "Design Issue", "Desc", List.of(0, 1), "Fix it");
-        var rawTactical = new ReviewParser.RawTacticalFeedback(
-                "Bug", 0, "Fix bug");
+        var rawDesign = new ReviewParser.RawDesignFeedback("Design Issue", "Desc", List.of(0, 1), "Fix it");
+        var rawTactical = new ReviewParser.RawTacticalFeedback("Bug", 0, "Fix bug");
 
-        var rawReview = new ReviewParser.RawReview(
-                "Overview",
-                List.of(rawDesign),
-                List.of(rawTactical),
-                List.of("Test more"));
+        var rawReview =
+                new ReviewParser.RawReview("Overview", List.of(rawDesign), List.of(rawTactical), List.of("Test more"));
 
         ReviewParser.GuidedReview guided = ReviewParser.GuidedReview.fromRaw(
-                rawReview,
-                contents,
-                files,
-                (f, c) -> new ReviewParser.CodeExcerpt(f, 1, ReviewParser.DiffSide.NEW, c));
+                rawReview, contents, files, (f, c) -> new ReviewParser.CodeExcerpt(f, 1, ReviewParser.DiffSide.NEW, c));
 
         assertEquals("Overview", guided.overview());
         assertEquals(1, guided.designNotes().size());
         assertEquals(2, guided.designNotes().getFirst().excerpts().size());
-        assertEquals("FileA.java", guided.designNotes().getFirst().excerpts().get(0).file());
-        assertEquals("FileB.java", guided.designNotes().getFirst().excerpts().get(1).file());
+        assertEquals(
+                "FileA.java", guided.designNotes().getFirst().excerpts().get(0).file());
+        assertEquals(
+                "FileB.java", guided.designNotes().getFirst().excerpts().get(1).file());
 
         assertEquals(1, guided.tacticalNotes().size());
         assertEquals("FileA.java", guided.tacticalNotes().getFirst().excerpt().file());
@@ -220,8 +222,7 @@ class ReviewParserTest {
         var matches = List.of(
                 new WhitespaceMatch(10, "line 11"),
                 new WhitespaceMatch(20, "line 21"),
-                new WhitespaceMatch(30, "line 31")
-        );
+                new WhitespaceMatch(30, "line 31"));
 
         // Exact match
         assertEquals(10, ReviewParser.findBestMatch(matches, 11).startLine());
@@ -244,10 +245,7 @@ class ReviewParserTest {
 
     @Test
     void testFindBestMatch_additionalEdgeCases() {
-        var matches = List.of(
-                new WhitespaceMatch(10, "line 11"),
-                new WhitespaceMatch(20, "line 21")
-        );
+        var matches = List.of(new WhitespaceMatch(10, "line 11"), new WhitespaceMatch(20, "line 21"));
 
         // Single match
         var single = List.of(new WhitespaceMatch(5, "only"));

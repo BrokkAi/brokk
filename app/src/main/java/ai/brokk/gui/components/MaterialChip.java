@@ -21,7 +21,6 @@ import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
-import javax.swing.SwingConstants;
 import javax.swing.UIManager;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,7 +29,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class MaterialChip extends JPanel {
     protected static final int ARC = 12;
-    
+
     private final JLabel label = new JLabel();
     private final JPanel iconPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
     private final MaterialButton closeButton = new MaterialButton("");
@@ -226,12 +225,16 @@ public class MaterialChip extends JPanel {
                 int x2 = centerX + halfDiag, y2 = centerY - halfDiag;
 
                 java.awt.Polygon leftPoly = new java.awt.Polygon();
-                leftPoly.addPoint(x1, y1); leftPoly.addPoint(x2, y2);
-                leftPoly.addPoint(w + halfDiag, -halfDiag); leftPoly.addPoint(-halfDiag, -halfDiag);
+                leftPoly.addPoint(x1, y1);
+                leftPoly.addPoint(x2, y2);
+                leftPoly.addPoint(w + halfDiag, -halfDiag);
+                leftPoly.addPoint(-halfDiag, -halfDiag);
 
                 java.awt.Polygon rightPoly = new java.awt.Polygon();
-                rightPoly.addPoint(x1, y1); rightPoly.addPoint(x2, y2);
-                rightPoly.addPoint(w + halfDiag, h + halfDiag); rightPoly.addPoint(-halfDiag, h + halfDiag);
+                rightPoly.addPoint(x1, y1);
+                rightPoly.addPoint(x2, y2);
+                rightPoly.addPoint(w + halfDiag, h + halfDiag);
+                rightPoly.addPoint(-halfDiag, h + halfDiag);
 
                 g2.setClip(leftPoly);
                 g2.setColor(getBackground());
@@ -283,7 +286,7 @@ public class MaterialChip extends JPanel {
         int targetW = 10;
         int targetH = 10;
         boolean isHighContrast = GuiTheme.THEME_HIGH_CONTRAST.equalsIgnoreCase(MainProject.getTheme());
-        
+
         if (isHighContrast) {
             BufferedImage icon = new BufferedImage(targetW, targetH, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g2 = icon.createGraphics();
@@ -303,11 +306,12 @@ public class MaterialChip extends JPanel {
         Icon uiIcon = UIManager.getIcon("Brokk.close");
         if (uiIcon == null) uiIcon = ai.brokk.gui.util.Icons.CLOSE;
 
-        BufferedImage buf = new BufferedImage(uiIcon.getIconWidth(), uiIcon.getIconHeight(), BufferedImage.TYPE_INT_ARGB);
+        BufferedImage buf =
+                new BufferedImage(uiIcon.getIconWidth(), uiIcon.getIconHeight(), BufferedImage.TYPE_INT_ARGB);
         Graphics2D g2 = buf.createGraphics();
         uiIcon.paintIcon(null, g2, 0, 0);
         g2.dispose();
-        
+
         Image scaled = buf.getScaledInstance(targetW, targetH, Image.SCALE_SMOOTH);
         return new ImageIcon(scaled);
     }
