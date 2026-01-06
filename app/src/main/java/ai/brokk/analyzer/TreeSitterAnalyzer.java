@@ -39,6 +39,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
@@ -74,6 +75,23 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     // Progress listeners for reporting parsing progress to UI
     private final ProgressListener progressListener;
+
+    // Helper util for lazy supertype computation and recursion guarding.
+    //
+    // DESIGN NOTE: This cache is transient and specific to this analyzer instance.
+    // It is NOT invalidated when files change because update() returns a fresh Analyzer instance
+    // and discards the current one (along with this cache).
+    // The new analyzer is initialized from 'this.state' (which contains the immutable state
+    // from the start of this instance's lifecycle), effectively resetting any lazy computations.
+    // This prevents stale supertypes from persisting across updates when inheritance hierarchies change.
+    //
+    // The only time this cache is merged into the persistent state is during snapshotState(),
+    // which allows saving the work to disk.
+    //
+    // NOTE: update() does NOT merge this cache into the new state. This is intentional:
+    // when source files change, previous supertype relationships may be invalid.
+    // Discarding the cache ensures we re-compute ancestors against the new state.
+    private final LazySupertypeCache lazySupertypes = new LazySupertypeCache();
 
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
@@ -133,6 +151,56 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
+     * Sealed interface for supertype computation state.
+     */
+    public sealed interface SuperTypeInfo {
+        record Computed(List<CodeUnit> supertypes) implements SuperTypeInfo {}
+
+        record Uncomputed() implements SuperTypeInfo {}
+    }
+
+    /**
+     * Helper class to encapsulate lazy supertype caching and recursion detection.
+     */
+    private static final class LazySupertypeCache {
+        private final ConcurrentHashMap<CodeUnit, List<CodeUnit>> cache = new ConcurrentHashMap<>();
+        private final ThreadLocal<Set<CodeUnit>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
+
+        boolean isComputing(CodeUnit cu) {
+            return recursionGuard.get().contains(cu);
+        }
+
+        @Nullable
+        List<CodeUnit> get(CodeUnit cu) {
+            return cache.get(cu);
+        }
+
+        List<CodeUnit> computeIfAbsent(CodeUnit cu, Function<CodeUnit, List<CodeUnit>> computer) {
+            return cache.computeIfAbsent(cu, k -> {
+                var visiting = recursionGuard.get();
+                visiting.add(k);
+                try {
+                    return computer.apply(k);
+                } finally {
+                    visiting.remove(k);
+                }
+            });
+        }
+
+        boolean isEmpty() {
+            return cache.isEmpty();
+        }
+
+        int size() {
+            return cache.size();
+        }
+
+        void forEach(BiConsumer<? super CodeUnit, ? super List<CodeUnit>> action) {
+            cache.forEach(action);
+        }
+    }
+
+    /**
      * Per-CodeUnit state: children, signatures, ranges, supertypes, and AST-derived hasBody flag.
      * <p>
      * hasBody indicates that at least one occurrence of this CodeUnit in the analyzed sources has a non-empty body.
@@ -144,8 +212,21 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             List<String> signatures,
             List<Range> ranges,
             List<String> rawSupertypes,
-            List<CodeUnit> supertypes,
+            SuperTypeInfo superTypes,
             boolean hasBody) {
+
+        /**
+         * Compatibility constructor for legacy deserialization logic that provides raw supertypes
+         * but not the computed SuperTypeInfo. Initializes superTypes as Uncomputed.
+         */
+        public CodeUnitProperties(
+                List<CodeUnit> children,
+                List<String> signatures,
+                List<Range> ranges,
+                List<String> rawSupertypes,
+                boolean hasBody) {
+            this(children, signatures, ranges, rawSupertypes, new SuperTypeInfo.Uncomputed(), hasBody);
+        }
 
         public static CodeUnitProperties empty() {
             return new CodeUnitProperties(
@@ -153,8 +234,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     Collections.emptyList(),
                     Collections.emptyList(),
                     Collections.emptyList(),
-                    Collections.emptyList(),
+                    new SuperTypeInfo.Uncomputed(),
                     false);
+        }
+
+        // Convenience for accessing supertypes if computed, or empty list if uncomputed or not applicable.
+        public List<CodeUnit> supertypes() {
+            return superTypes instanceof SuperTypeInfo.Computed c ? c.supertypes() : Collections.emptyList();
         }
     }
 
@@ -608,7 +694,38 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        return this.state;
+        if (lazySupertypes.isEmpty()) {
+            return this.state;
+        }
+
+        // Efficiently merge lazy-computed supertypes into the snapshot state using PMap structural sharing.
+        // Instead of copying the entire map (O(N)), we collect only the updates (O(M)) and apply them (O(M log N)).
+        Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>(lazySupertypes.size());
+
+        lazySupertypes.forEach((cu, supers) -> {
+            CodeUnitProperties existing = this.state.codeUnitState().get(cu);
+            if (existing != null) {
+                // Create new record with Computed supertypes
+                var newProps = new CodeUnitProperties(
+                        existing.children(),
+                        existing.signatures(),
+                        existing.ranges(),
+                        existing.rawSupertypes(),
+                        new SuperTypeInfo.Computed(supers),
+                        existing.hasBody());
+                updates.put(cu, newProps);
+            }
+        });
+
+        PMap<CodeUnit, CodeUnitProperties> nextCodeUnitState =
+                this.state.codeUnitState().plusAll(updates);
+
+        return new AnalyzerState(
+                this.state.symbolIndex(),
+                nextCodeUnitState,
+                this.state.fileState(),
+                this.state.symbolKeyIndex(),
+                this.state.snapshotEpochNanos());
     }
 
     @Override
@@ -2224,7 +2341,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             List.copyOf(sigs),
                             List.copyOf(rngs),
                             List.copyOf(rawSupers),
-                            List.of(),
+                            new SuperTypeInfo.Uncomputed(),
                             hasBody));
         }
 
@@ -3043,7 +3160,28 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         if (!cu.isClass()) {
             return List.of();
         }
-        return supertypesOf(cu);
+
+        // Guard against recursive computation on the same thread.
+        // This prevents infinite recursion and avoids IllegalStateException from ConcurrentHashMap.computeIfAbsent.
+        if (lazySupertypes.isComputing(cu)) {
+            log.trace("Recursive getDirectAncestors detected for {}", cu.fqName());
+            return List.of();
+        }
+
+        // 1. Check lazy cache
+        List<CodeUnit> cached = lazySupertypes.get(cu);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Check persistent state
+        CodeUnitProperties props = codeUnitProperties(cu);
+        if (props.superTypes() instanceof SuperTypeInfo.Computed computed) {
+            return computed.supertypes();
+        }
+
+        // 3. Compute lazily (atomic per key)
+        return lazySupertypes.computeIfAbsent(cu, this::computeSupertypes);
     }
 
     /* ---------- file filtering helpers ---------- */
@@ -3207,7 +3345,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             newState.signatures(),
                             newState.ranges(),
                             newState.rawSupertypes(),
-                            newState.supertypes(),
+                            newState.superTypes(),
                             newState.hasBody());
                 }
                 List<CodeUnit> mergedKids = existing.children();
@@ -3243,19 +3381,25 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     mergedRawSupers = List.copyOf(tmp);
                 }
 
-                List<CodeUnit> mergedSupertypes = existing.supertypes();
-                var newSupertypes = newState.supertypes();
-                if (!newSupertypes.isEmpty()) {
-                    var tmp = new ArrayList<CodeUnit>(existing.supertypes().size() + newSupertypes.size());
-                    tmp.addAll(existing.supertypes());
-                    for (var r : newSupertypes) if (!tmp.contains(r)) tmp.add(r);
-                    mergedSupertypes = List.copyOf(tmp);
+                SuperTypeInfo mergedSuperTypes = existing.superTypes();
+                // If raw supertypes or ranges have changed, invalidate previously computed supertypes
+                if (!mergedRawSupers.equals(existing.rawSupertypes()) || !mergedRanges.equals(existing.ranges())) {
+                    mergedSuperTypes = new SuperTypeInfo.Uncomputed();
+                } else if (newState.superTypes() instanceof SuperTypeInfo.Computed newComputed) {
+                    if (mergedSuperTypes instanceof SuperTypeInfo.Computed existingComputed) {
+                        var tmp = new ArrayList<>(existingComputed.supertypes());
+                        for (var r : newComputed.supertypes()) if (!tmp.contains(r)) tmp.add(r);
+                        mergedSuperTypes = new SuperTypeInfo.Computed(List.copyOf(tmp));
+                    } else {
+                        mergedSuperTypes = newComputed;
+                    }
                 }
+
                 // Merge semantics: hasBody is combined using logical OR so that any occurrence of a body
                 // in any analyzed file marks the CodeUnit as having a body in the merged snapshot.
                 boolean mergedHasBody = existing.hasBody() || newState.hasBody();
                 return new CodeUnitProperties(
-                        mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSupertypes, mergedHasBody);
+                        mergedKids, mergedSigs, mergedRanges, mergedRawSupers, mergedSuperTypes, mergedHasBody);
             });
         });
 
@@ -3334,7 +3478,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                                 state.signatures(),
                                                 state.ranges(),
                                                 state.rawSupertypes(),
-                                                state.supertypes(),
+                                                state.superTypes(),
                                                 state.hasBody());
                             });
                             // Purge from symbol index
@@ -3526,12 +3670,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Combined post-processing pipeline: delegates to runImportResolution followed by runTypeAnalysis
+     * Combined post-processing pipeline: delegates to runImportResolution
      * without rebinding this.state. Each step returns a new AnalyzerState snapshot.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        var afterImports = runImportResolution(baseState);
-        return runTypeAnalysis(afterImports);
+        return runImportResolution(baseState);
     }
 
     /**
@@ -3602,7 +3745,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     CodeUnit cu = entry.getKey();
                                     CodeUnitProperties props = entry.getValue();
                                     List<CodeUnit> supers = delegateForTypes.computeSupertypes(cu);
-                                    if (!Objects.equals(props.supertypes(), supers)) {
+                                    SuperTypeInfo info = new SuperTypeInfo.Computed(supers);
+                                    if (!Objects.equals(props.superTypes(), info)) {
                                         updatedCodeUnitState.put(
                                                 cu,
                                                 new CodeUnitProperties(
@@ -3610,7 +3754,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                                         props.signatures(),
                                                         props.ranges(),
                                                         props.rawSupertypes(),
-                                                        supers,
+                                                        info,
                                                         props.hasBody()));
                                     }
                                     progressReporter.increment();
