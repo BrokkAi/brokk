@@ -2083,14 +2083,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // Must have a log to compress
-        if (!entry.hasLog()) {
+        if (!entry.hasLog() || entry.toString().isBlank()) {
             logger.warn("Cannot compress entry without a log: {}", entry);
             return entry;
         }
 
         // Compress the log into a summary
-        var historyString = entry.toString();
-        var msgs = SummarizerPrompts.instance.compressHistory(historyString);
+        var msgs = SummarizerPrompts.instance.compressHistory(entry.toString());
         Llm.StreamingResult result = getLlm(serviceProvider.get().summarizeModel(), "Compress history entry")
                 .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
 
