@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -58,7 +59,10 @@ public class VoiceInputButton extends JButton {
     private volatile Thread micCaptureThread = null;
 
     // Generation token to prevent race conditions when user clicks stop before initialization completes
-    private volatile int captureGeneration = 0;
+    private final AtomicInteger captureGeneration = new AtomicInteger(0);
+
+    // Recording state - volatile for thread-safe visibility across EDT and background threads
+    private volatile boolean isRecording = false;
 
     private @Nullable Icon micOnIcon;
     private @Nullable Icon micOffIcon;
@@ -146,23 +150,20 @@ public class VoiceInputButton extends JButton {
         putClientProperty("JButton.buttonType", "borderless");
         setRolloverEnabled(true);
 
-        // Track recording state
-        putClientProperty("isRecording", false);
-
         // Set tooltip for keyboard shortcut discoverability
         setToolTipText("Toggle Microphone (Cmd/Ctrl+L)");
 
         // Configure the toggle behavior
         addActionListener(e -> {
-            boolean isRecording = (boolean) getClientProperty("isRecording");
             if (isRecording) {
                 // If recording, stop and transcribe
+                isRecording = false;
                 stopMicCaptureAndTranscribe();
-                putClientProperty("isRecording", false);
             } else {
-                // Otherwise start recording
+                // Otherwise start recording - disable button to prevent concurrent clicks during init
+                isRecording = true;
+                setEnabled(false);
                 startMicCapture();
-                putClientProperty("isRecording", true);
             }
         });
 
@@ -241,6 +242,9 @@ public class VoiceInputButton extends JButton {
             logger.warn(msg);
             onError.accept(msg);
             contextManager.getIo().toolError(msg, "Speech-to-text unavailable");
+            // Restore state and re-enable button
+            isRecording = false;
+            setEnabled(true);
             return;
         }
 
@@ -251,7 +255,7 @@ public class VoiceInputButton extends JButton {
         }
 
         // Increment generation to invalidate any previous in-flight initialization
-        int currentGeneration = ++captureGeneration;
+        int currentGeneration = captureGeneration.incrementAndGet();
 
         // Move audio device initialization to background thread to avoid blocking EDT
         AudioFormat format = new AudioFormat(16000.0f, 16, 1, true, true);
@@ -261,10 +265,12 @@ public class VoiceInputButton extends JButton {
                 TargetDataLine line = initializeAudioDevice(format);
 
                 // Check if user clicked stop while we were initializing (race condition guard)
-                if (captureGeneration != currentGeneration) {
+                if (captureGeneration.get() != currentGeneration) {
                     logger.debug("Microphone initialization cancelled (generation mismatch)");
                     line.stop();
                     line.close();
+                    // Re-enable button on EDT since initialization was cancelled
+                    SwingUtilities.invokeLater(() -> setEnabled(true));
                     return;
                 }
 
@@ -291,8 +297,11 @@ public class VoiceInputButton extends JButton {
                         "mic-capture-thread");
                 micCaptureThread.start();
 
-                // Notify that recording has started (on EDT in case callback touches Swing components)
-                SwingUtilities.invokeLater(onRecordingStart);
+                // Re-enable button and notify that recording has started (on EDT)
+                SwingUtilities.invokeLater(() -> {
+                    setEnabled(true);
+                    onRecordingStart.run();
+                });
             } catch (Exception ex) {
                 logger.error("Failed to start mic capture", ex);
                 String errorMsg = "Error starting mic capture: " + ex.getMessage();
@@ -300,11 +309,12 @@ public class VoiceInputButton extends JButton {
                 // Restore UI state and notify error on EDT
                 SwingUtilities.invokeLater(() -> {
                     onError.accept(errorMsg);
+                    isRecording = false;
                     targetTextArea.setEnabled(true);
+                    setEnabled(true);
                     if (micOffIcon != null) {
                         setIcon(micOffIcon);
                     }
-                    putClientProperty("isRecording", false);
                 });
             }
         });
@@ -313,7 +323,7 @@ public class VoiceInputButton extends JButton {
     /** Stops capturing and sends to STT on a background thread. */
     private void stopMicCaptureAndTranscribe() {
         // Invalidate any in-flight initialization to prevent race condition
-        captureGeneration++;
+        captureGeneration.incrementAndGet();
 
         // stop capturing
         if (micLine != null) {
