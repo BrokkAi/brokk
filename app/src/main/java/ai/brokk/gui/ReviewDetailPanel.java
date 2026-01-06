@@ -2,6 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.components.MaterialChip;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.theme.GuiTheme;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.BoxLayout;
+import javax.swing.UIManager;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -124,49 +126,85 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     private void addExcerptsTable(List<CodeExcerpt> excerpts) {
-        JPanel tablePanel = new JPanel();
-        tablePanel.setLayout(new BoxLayout(tablePanel, BoxLayout.Y_AXIS));
-        tablePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        tablePanel.setOpaque(false);
-        tablePanel.setBorder(new EmptyBorder(10, 0, 0, 0));
+        JPanel container = new JPanel();
+        container.setLayout(new BoxLayout(container, BoxLayout.Y_AXIS));
+        container.setAlignmentX(Component.LEFT_ALIGNMENT);
+        container.setOpaque(false);
+        container.setBorder(new EmptyBorder(10, 0, 0, 0));
 
-        if (excerpts.size() > 1) {
-            JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-            navPanel.setOpaque(false);
-            MaterialButton prevBtn = new MaterialButton("Prev");
-            MaterialButton nextBtn = new MaterialButton("Next");
+        JPanel chipPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        chipPanel.setOpaque(false);
+        chipPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-            AtomicInteger currentIndex = new AtomicInteger(0);
-            prevBtn.addActionListener(e -> {
-                currentIndex.set((currentIndex.get() - 1 + excerpts.size()) % excerpts.size());
-                notifyNavigate(excerpts.get(currentIndex.get()));
-            });
-            nextBtn.addActionListener(e -> {
-                currentIndex.set((currentIndex.get() + 1) % excerpts.size());
-                notifyNavigate(excerpts.get(currentIndex.get()));
-            });
+        List<MaterialChip> chips = new ArrayList<>();
+        AtomicInteger currentIndex = new AtomicInteger(0);
 
-            navPanel.add(prevBtn);
-            navPanel.add(nextBtn);
-            tablePanel.add(navPanel);
-        }
+        Runnable updateSelection = () -> {
+            for (int i = 0; i < chips.size(); i++) {
+                chips.get(i).setSelected(i == currentIndex.get());
+                chips.get(i).setAlpha(i == currentIndex.get() ? 1.0f : 0.7f);
+            }
+        };
 
-        for (CodeExcerpt ce : excerpts) {
+        for (int i = 0; i < excerpts.size(); i++) {
+            CodeExcerpt ce = excerpts.get(i);
+            int idx = i;
             String fileName = ce.file().getRelPath().getFileName().toString();
             String sideSuffix = (ce.side() == ReviewParser.DiffSide.OLD) ? " (old)" : "";
             String labelText = String.format("%s:%d%s", fileName, ce.line(), sideSuffix);
-            JLabel label = new JLabel("<html><a href='#'>" + labelText + "</a></html>");
-            label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            label.setBorder(new EmptyBorder(2, 5, 2, 5));
-            label.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    notifyNavigate(ce);
-                }
+
+            MaterialChip chip = new MaterialChip(labelText);
+            boolean isDark = UIManager.getBoolean("laf.dark");
+            chip.setChipColors(
+                    ChipColorUtils.getBackgroundColor(ChipColorUtils.ChipKind.OTHER, isDark),
+                    ChipColorUtils.getForegroundColor(ChipColorUtils.ChipKind.OTHER, isDark),
+                    ChipColorUtils.getBorderColor(ChipColorUtils.ChipKind.OTHER, isDark)
+            );
+
+            chip.addChipClickListener(() -> {
+                currentIndex.set(idx);
+                updateSelection.run();
+                notifyNavigate(ce);
             });
-            tablePanel.add(label);
+
+            chips.add(chip);
+            chipPanel.add(chip);
         }
-        contentPanel.add(tablePanel);
+
+        updateSelection.run();
+
+        if (excerpts.size() > 1) {
+            JPanel headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+            headerPanel.setOpaque(false);
+            headerPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            
+            JLabel countLabel = new JLabel(String.format("Locations (%d):", excerpts.size()));
+            countLabel.setFont(countLabel.getFont().deriveFont(Font.BOLD));
+            headerPanel.add(countLabel);
+
+            MaterialButton prevBtn = new MaterialButton("Prev");
+            MaterialButton nextBtn = new MaterialButton("Next");
+            
+            prevBtn.addActionListener(e -> {
+                int nextIdx = (currentIndex.get() - 1 + excerpts.size()) % excerpts.size();
+                currentIndex.set(nextIdx);
+                updateSelection.run();
+                notifyNavigate(excerpts.get(nextIdx));
+            });
+            nextBtn.addActionListener(e -> {
+                int nextIdx = (currentIndex.get() + 1) % excerpts.size();
+                currentIndex.set(nextIdx);
+                updateSelection.run();
+                notifyNavigate(excerpts.get(nextIdx));
+            });
+
+            headerPanel.add(prevBtn);
+            headerPanel.add(nextBtn);
+            container.add(headerPanel);
+        }
+
+        container.add(chipPanel);
+        contentPanel.add(container);
     }
 
     private void notifyNavigate(CodeExcerpt ce) {
