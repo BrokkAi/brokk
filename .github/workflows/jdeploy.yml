@@ -18,10 +18,13 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up JBR 21
         uses: jansorg/github-actions-jbr-setup/setup_jbr21@main
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Get version from git
         id: version
@@ -31,9 +34,7 @@ jobs:
           echo "Building version: $VERSION"
 
       - name: Build with Gradle
-        uses: gradle/gradle-build-action@67421db6bd0bf253fb4bd25b31ebb98943c375e1
-        with:
-          arguments: assemble
+        run: ./gradlew assemble
 
       - name: Build shadow JAR
         run: ./gradlew shadowJar
