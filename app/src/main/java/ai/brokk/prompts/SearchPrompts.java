@@ -124,7 +124,7 @@ public class SearchPrompts {
                 %s
 
                 Critical rules:
-                  1) PRUNE FIRST at every turn.
+                  1) PRUNE the Workspace at every turn in parallel with your next steps.
                      - Remove fragments that are not directly useful for the goal (add a reason).
                      - Prefer concise, goal-focused summaries over full files when possible.
                      - When you pull information from a long fragment, first add your extraction/summary, then drop the original from workspace.
@@ -133,8 +133,7 @@ public class SearchPrompts {
                   3) The symbol-based tools only have visibility into the following file types: %s
                      Use text-based tools if you need to search other file types.
                   4) Group related lookups into a single tool call when possible.
-                  5) Make multiple tool calls at once when searching for different types of code.
-                  6) Your responsibility ends at providing context.
+                  5) Your responsibility ends at providing context.
                      Do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
                      Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
@@ -143,9 +142,11 @@ public class SearchPrompts {
                      Note: Code Agent will also take care of creating new files, you only need to add existing files
                      to the Workspace.
 
-                Output discipline:
-                  - Start each turn by pruning and summarizing before any new exploration.
+                Working efficiently:
                   - Think before calling tools.
+                  - Make multiple tool calls at once when searching for different types of code. Dropping
+                    fragments should always be done in conjunction with other tools, since you will gain
+                    no new information from the drop result.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
                 </instructions>
                 """
@@ -331,17 +332,16 @@ public class SearchPrompts {
 
         String testsGuidance = "";
         if (objective.terminals().contains(Terminal.WORKSPACE)) {
-            var toolHint =
-                    "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods.";
             testsGuidance =
                     """
                     Tests:
                       - Code Agent will run the tests in the Workspace to validate its changes.
                         These can be full files (if it also needs to edit or understand test implementation details),
-                        or simple summaries if they just need to be run for validation.
+                        or simple summaries if they just need to be run for validation. Thus, you should
+                        convert tests whose full source you don't need to summaries by dropping the file and
+                        adding the summary. In general, you should avoid dropping test summaries.
                       %s
-                    """
-                            .formatted(toolHint);
+                    """;
         }
 
         var terminalObjective = buildTerminalObjective(objective);
@@ -388,9 +388,10 @@ public class SearchPrompts {
                         Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
                         Pruning mandate:
-                          - Before any new exploration, prune the Workspace.
-                          - Replace full text with concise, goal-focused summaries and drop the originals.
-                          - Expand the Workspace only after pruning; avoid re-adding irrelevant content.
+                          - In parallel with new exploration, prune the Workspace by dropping less-relevant fragments.
+                          - Replace large file fragments with concise, goal-focused summaries (or targeted class/method fragments) and drop the originals.
+                          - The Discarded Context fragment provides a record of fragments you have seen and dropped;
+                            avoid re-adding this content unnecessarily.
 
                         %s
 

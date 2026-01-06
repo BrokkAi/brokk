@@ -200,8 +200,8 @@ public class SearchAgent {
         while (true) {
             wst.setContext(context);
 
-            var promptResult = SearchPrompts.instance.buildPrompt(
-                    context, model, goal, getObjective(), mcpTools, sessionMessages);
+            var promptResult =
+                    SearchPrompts.instance.buildPrompt(context, model, goal, getObjective(), mcpTools, sessionMessages);
             var messages = promptResult.messages();
 
             if (!beastMode && promptResult.engageBeastMode()) {
