@@ -110,8 +110,7 @@ public class PythonTestDetectionTest {
 
     @Test
     void testTestNameWithoutUnderscore() throws IOException {
-        String code =
-                """
+        String code = """
             def test():
                 pass
             """;
