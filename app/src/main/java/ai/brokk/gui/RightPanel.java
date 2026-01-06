@@ -43,6 +43,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     // Review tab infrastructure
     private final JComponent reviewTabComponent;
+    private @Nullable ai.brokk.gui.util.BadgedIcon buildTabBadgedIcon;
 
     private int getReviewTabIndex() {
         return buildReviewTabs.indexOfComponent(reviewTabComponent);
@@ -630,6 +631,28 @@ public class RightPanel extends JPanel implements ThemeAware {
             scp.refreshTitleAsync();
             scp.requestUpdate();
         }
+    }
+
+    /**
+     * Updates the "Build" tab icon with a numeric badge showing the incomplete task count.
+     * @param count The number of incomplete tasks.
+     */
+    public void updateBuildTabBadge(int count) {
+        SwingUtilities.invokeLater(() -> {
+            int idx = buildReviewTabs.indexOfTab("Build");
+            if (idx == -1) return;
+
+            if (count <= 0) {
+                buildReviewTabs.setIconAt(idx, Icons.HANDYMAN);
+                buildTabBadgedIcon = null;
+            } else {
+                if (buildTabBadgedIcon == null) {
+                    buildTabBadgedIcon = new ai.brokk.gui.util.BadgedIcon(Icons.HANDYMAN, chrome.getTheme());
+                }
+                buildTabBadgedIcon.setCount(count, buildReviewTabs);
+                buildReviewTabs.setIconAt(idx, buildTabBadgedIcon);
+            }
+        });
     }
 
     public void selectPreviewTab() {

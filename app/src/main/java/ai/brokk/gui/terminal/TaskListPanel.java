@@ -1280,6 +1280,9 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     }
                 }
 
+                // Sync the main "Build" tab badge in the RightPanel
+                chrome.getRightPanel().updateBuildTabBadge(incomplete);
+
                 // Always update tab title suffix for read-only indication
                 try {
                     String baseTitle = tabs.getTitleAt(idx);
