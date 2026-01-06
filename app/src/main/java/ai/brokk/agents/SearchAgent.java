@@ -200,8 +200,8 @@ public class SearchAgent {
         while (true) {
             wst.setContext(context);
 
-            var promptResult = SearchPrompts.instance.buildPrompt(
-                    context, model, goal, SearchPrompts.Objective.WORKSPACE_ONLY, mcpTools, sessionMessages);
+            var promptResult =
+                    SearchPrompts.instance.buildPrompt(context, model, goal, getObjective(), mcpTools, sessionMessages);
             var messages = promptResult.messages();
 
             if (!beastMode && promptResult.engageBeastMode()) {
@@ -500,6 +500,10 @@ public class SearchAgent {
     protected void performAutoScan() throws InterruptedException {
         scanContext();
         scanPerformed = true;
+    }
+
+    protected SearchPrompts.Objective getObjective() {
+        return SearchPrompts.Objective.WORKSPACE_ONLY;
     }
 
     public Context scanContext() throws InterruptedException {
