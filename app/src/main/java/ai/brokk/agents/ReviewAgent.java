@@ -11,10 +11,12 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.util.ReviewExcerptParser;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -26,6 +28,9 @@ import java.util.Map;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jspecify.annotations.NullMarked;
+
+import static java.util.Objects.requireNonNull;
+import static java.util.Objects.requireNonNullElse;
 
 /**
  * ReviewAgent wraps SearchAgent to perform a guided code review on a specific diff.
@@ -46,7 +51,10 @@ public class ReviewAgent {
     @Blocking
     public ICodeReview.GuidedReview execute() throws InterruptedException {
         String goal =
-                "Identify all code locations relevant to the provided diff to perform a comprehensive code review focusing on design, correctness, and simplicity.";
+                """
+                Identify all code locations relevant to the provided diff to perform a comprehensive code review,
+                focusing on design, correctness, and simplicity.
+                """;
 
         // Prepare the initial context with the diff pinned
         var diffFragment = new ContextFragments.StringFragment(
@@ -70,91 +78,102 @@ public class ReviewAgent {
                         + searchResult.stopDetails().explanation());
             }
 
-            // Phase 2: Perform the actual review using the gathered context
+            // Phase 2: Two-turn review process
             var finalContext = searchResult.context().withHistory(List.of());
-            var reviewLlm = cm.getLlm(new Llm.Options(model, "Finalizing Code Review").withEcho());
+            var reviewLlm = cm.getLlm(new Llm.Options(model, "Code Review").withEcho());
             reviewLlm.setOutput(io);
 
+            // --- Turn 1: Analyze the diff and extract code excerpts ---
             var messages = new ArrayList<ChatMessage>();
 
-            // System message with high-level instructions
             messages.add(new SystemMessage("""
-                    You are an expert code reviewer. Your task is to provide a structured, actionable code review
-                    of the proposed changes. Focus on design quality, correctness, and simplicity.
+                    You are an expert code reviewer. Your task is to analyze the proposed changes
+                    and identify the most important code excerpts that warrant discussion.
                     
-                    You will analyze the diff and the surrounding context to identify:
+                    Focus on:
                     1. Design issues - architectural concerns, coupling, abstraction problems
                     2. Tactical issues - local bugs, edge cases, error handling gaps
                     3. Testing gaps - missing test coverage that would add significant value
                     
-                    Be constructive and specific. Each piece of feedback should be actionable.
+                    Be constructive and specific in your analysis.
                     """));
 
-            // Add workspace content (the context gathered by SearchAgent)
             var workspaceMessages =
                     WorkspacePrompts.getMessagesInAddedOrder(finalContext, EnumSet.noneOf(SpecialTextType.class));
             messages.addAll(workspaceMessages);
 
-            // User message with specific review directions
             messages.add(new UserMessage("""
-            Review the proposed changes in the diff against the gathered context.
-            ALL of the following steps are REQUIRED.
-            
-            ### Step 1: Analysis
-            Think step-by-step about the intent, design, and testing gaps:
-              - What is this code intended to do?
-              - Does it accomplish its goals in the simplest way possible?
-              - What parts are the trickiest and how could they be simplified?
-              - What additional tests, if any, would add the most value?
-            
-            ### Step 2: Code Excerpt Extraction
-            Before calling any tools, you MUST output the subtle, tricky,
-            or potentially incorrect blocks of code directly in your response text. Use this exact format,
-            with sequentially numbered, 0-based blocks:
-            
-            BRK_EXCERPT_0
-            path/to/filename.java
-            ```java
-            // code here
-            ```
+                    Analyze the proposed changes in the diff against the gathered context.
+                    
+                    ### Step 1: Analysis
+                    Think step-by-step about the intent, design, and testing gaps:
+                      - What is this code intended to do?
+                      - Does it accomplish its goals in the simplest way possible?
+                      - What parts are the trickiest and how could they be simplified?
+                      - What additional tests, if any, would add the most value?
+                    
+                    ### Step 2: Code Excerpt Extraction
+                    Extract the subtle, tricky, or potentially incorrect blocks of code that you will
+                    reference in your review. Use this exact format, with sequentially numbered, 0-based IDs:
+                    
+                    BRK_EXCERPT_0
+                    path/to/filename.java
+                    ```java
+                    // code here
+                    ```
+                    
+                    BRK_EXCERPT_1
+                    path/to/another_file.py
+                    ```python
+                    // code here
+                    ```
+                    
+                    Include ALL excerpts you plan to reference in your feedback.
+                    """));
 
-            BRK_EXCERPT_1
-            path/to/another_file.py
-            ```
-            // code here
-            ```
+            var turn1Result = reviewLlm.sendRequest(messages);
+            if (turn1Result.error() != null) {
+                throw new RuntimeException(
+                        "Failed to analyze diff for review: " + turn1Result.error().getMessage());
+            }
 
-            ### Step 3: Structured Tool Call
-            Finally, call createReview.
-            
-            Refer to the excerpts you listed by their ordinal id [1, 2, ...] in your design and tactical notes.
-            
-            IMPORTANT: Do not skip Step 2 or you will not be able to reference meaningful excerpts!
-            """));
+            String analysisText = turn1Result.text();
+            Map<Integer, ICodeReview.CodeExcerpt> parsedExcerpts =
+                    ReviewExcerptParser.instance.parseExcerpts(analysisText);
+
+            // --- Turn 2: Generate structured review via tool call ---
+            messages.add(new AiMessage(turn1Result.text(),
+                                       requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+            messages.add(new UserMessage("""
+                    Now call createReview to produce the final structured review.
+                    
+                    Reference the excerpts you extracted by their numeric ID (0, 1, 2, ...) in your
+                    designNotes and tacticalNotes fields.
+                    
+                    Remember:
+                    - overview: Explain what changes accomplish and whether they do so simply
+                    - designNotes: High-level architectural concerns with excerpt references
+                    - tacticalNotes: Local bugs/issues with excerpt references
+                    - additionalTests: High-value tests that should be added
+                    """));
 
             var tr = cm.getToolRegistry().builder().register(this).build();
             var toolSpecs = tr.getTools(List.of("createReview"));
+            var turn2Result = reviewLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
-            var result = reviewLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
-
-            if (result.error() != null || result.toolRequests().isEmpty()) {
+            if (turn2Result.error() != null || turn2Result.toolRequests().isEmpty()) {
                 throw new RuntimeException("Failed to generate code review: "
-                        + (result.error() != null ? result.error().getMessage() : "No review generated"));
+                        + (turn2Result.error() != null ? turn2Result.error().getMessage() : "No review generated"));
             }
 
-            var reviewCall = result.toolRequests().getFirst();
+            var reviewCall = turn2Result.toolRequests().getFirst();
             var executionResult = tr.executeTool(reviewCall);
 
-            if (executionResult.status() != ai.brokk.tools.ToolExecutionResult.Status.SUCCESS) {
+            if (executionResult.status() != ToolExecutionResult.Status.SUCCESS) {
                 throw new RuntimeException("Failed to process code review: " + executionResult.resultText());
             }
 
             var rawReview = ICodeReview.RawReview.fromJson(executionResult.resultText());
-
-            // Post-process to resolve out-of-band excerpts
-            Map<Integer, ICodeReview.CodeExcerpt> parsedExcerpts =
-                    ReviewExcerptParser.instance.parseExcerpts(result.text());
-
             return ICodeReview.GuidedReview.fromRaw(rawReview, parsedExcerpts);
         }
     }
