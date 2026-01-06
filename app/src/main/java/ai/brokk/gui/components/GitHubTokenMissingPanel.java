@@ -16,7 +16,7 @@ public class GitHubTokenMissingPanel extends JPanel implements SettingsChangeLis
         add(tokenMissingLabel);
         MaterialButton settingsButton = new MaterialButton("Settings");
         settingsButton.addActionListener(
-                e -> SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GITHUB_SETTINGS_TAB_NAME));
+                e -> SettingsDialog.showSettingsDialog(chrome, SettingsDialog.GIT_SETTINGS_TAB_NAME));
         add(settingsButton);
         MainProject.addSettingsChangeListener(this);
         updateVisibility();

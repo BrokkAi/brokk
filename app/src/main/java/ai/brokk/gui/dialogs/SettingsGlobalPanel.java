@@ -223,7 +223,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         // GitHub Tab
         gitHubSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
         globalSubTabbedPane.addTab(
-                SettingsDialog.GITHUB_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
+                SettingsDialog.GIT_SETTINGS_TAB_NAME, null, gitHubSettingsPanel, "GitHub integration settings");
 
         // MCP Servers Tab
         var mcpPanel = createMcpPanel();
