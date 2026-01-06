@@ -156,44 +156,18 @@ public class ReviewAgent {
                 throw new RuntimeException("Failed to process code review: " + executionResult.resultText());
             }
 
-            ICodeReview.GuidedReview rawReview = ICodeReview.GuidedReview.fromJson(executionResult.resultText());
+            var rawReview = ICodeReview.RawReview.fromJson(executionResult.resultText());
 
             // Post-process to resolve out-of-band excerpts
-            Map<String, ICodeReview.CodeExcerpt> parsedExcerpts =
+            Map<Integer, ICodeReview.CodeExcerpt> parsedExcerpts =
                     ReviewExcerptParser.instance.parseExcerpts(result.text());
 
-            return resolveReviewExcerpts(rawReview, parsedExcerpts);
+            return ICodeReview.GuidedReview.fromRaw(rawReview, parsedExcerpts);
         }
-    }
-
-    private ICodeReview.GuidedReview resolveReviewExcerpts(
-            ICodeReview.GuidedReview review, Map<String, ICodeReview.CodeExcerpt> resolvedMap) {
-        List<ICodeReview.DesignFeedback> resolvedDesign = review.designNotes().stream()
-                .map(design -> {
-                    List<ICodeReview.CodeExcerpt> resolvedExcerpts = design.excerpts().stream()
-                            .map(ex -> resolvedMap.getOrDefault(ex.excerpt(), ex))
-                            .toList();
-                    return new ICodeReview.DesignFeedback(
-                            design.title(), design.description(), resolvedExcerpts, design.recommendation());
-                })
-                .toList();
-
-        List<ICodeReview.TacticalFeedback> resolvedTactical = review.tacticalNotes().stream()
-                .map(tactical -> {
-                    ICodeReview.CodeExcerpt resolvedEx = resolvedMap.getOrDefault(tactical.excerpt().excerpt(), tactical.excerpt());
-                    return new ICodeReview.TacticalFeedback(tactical.title(), resolvedEx, tactical.recommendation());
-                })
-                .toList();
-
-        return new ICodeReview.GuidedReview(
-                review.overview(), resolvedDesign, resolvedTactical, review.additionalTests());
     }
 
     @Tool("Create a structured code review of the current changes or proposal.")
     public String createReview(
-            @P(
-                            "A list of code excerpts referenced in the review. Each has a file path placeholder and excerpt placeholder.")
-                    List<ICodeReview.CodeExcerpt> excerpts,
             @P(
                             "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
                     String overview,
@@ -205,8 +179,7 @@ public class ReviewAgent {
                     List<ICodeReview.RawTacticalFeedback> tacticalNotes,
             @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
                     List<String> additionalTests) {
-        var rawReview = new ICodeReview.RawReview(overview, designNotes, tacticalNotes, additionalTests);
-        var guidedReview = ICodeReview.GuidedReview.fromRaw(rawReview, excerpts);
-        return guidedReview.toJson();
+        var review = new ICodeReview.RawReview(overview, designNotes, tacticalNotes, additionalTests);
+        return review.toJson();
     }
 }

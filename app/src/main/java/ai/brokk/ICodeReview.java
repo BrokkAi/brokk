@@ -2,6 +2,8 @@ package ai.brokk;
 
 import ai.brokk.util.Json;
 import java.util.List;
+import java.util.Map;
+
 import org.jspecify.annotations.NullMarked;
 
 /**
@@ -25,6 +27,13 @@ public interface ICodeReview {
             List<RawDesignFeedback> designNotes,
             List<RawTacticalFeedback> tacticalNotes,
             List<String> additionalTests) {
+        public String toJson() {
+            return Json.toJson(this);
+        }
+
+        public static RawReview fromJson(String json) {
+            return Json.fromJson(json, RawReview.class);
+        }
     }
 
     record DesignFeedback(String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
@@ -37,7 +46,15 @@ public interface ICodeReview {
             List<TacticalFeedback> tacticalNotes,
             List<String> additionalTests) {
 
-        public static GuidedReview fromRaw(RawReview rawReview, List<CodeExcerpt> excerpts) {
+        public String toJson() {
+            return Json.toJson(this);
+        }
+
+        public static GuidedReview fromJson(String json) {
+            return Json.fromJson(json, GuidedReview.class);
+        }
+
+        public static GuidedReview fromRaw(RawReview rawReview, Map<Integer, CodeExcerpt> excerpts) {
             List<DesignFeedback> designNotes = rawReview.designNotes().stream()
                     .map(raw -> new DesignFeedback(
                             raw.title(),
@@ -59,14 +76,6 @@ public interface ICodeReview {
                     .toList();
 
             return new GuidedReview(rawReview.overview(), designNotes, tacticalNotes, rawReview.additionalTests());
-        }
-
-        public String toJson() {
-            return Json.toJson(this);
-        }
-
-        public static GuidedReview fromJson(String json) {
-            return Json.fromJson(json, GuidedReview.class);
         }
     }
 

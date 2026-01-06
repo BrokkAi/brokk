@@ -35,18 +35,23 @@ public class ReviewExcerptParser {
      * Parses the provided text for BRK_EXCERPT blocks.
      *
      * @param text The raw response text to parse.
-     * @return A map of ID to CodeExcerpt.
+     * @return A map of integer ID to CodeExcerpt.
      */
-    public Map<String, ICodeReview.CodeExcerpt> parseExcerpts(String text) {
-        Map<String, ICodeReview.CodeExcerpt> excerpts = new HashMap<>();
+    public Map<Integer, ICodeReview.CodeExcerpt> parseExcerpts(String text) {
+        Map<Integer, ICodeReview.CodeExcerpt> excerpts = new HashMap<>();
         Matcher matcher = EXCERPT_PATTERN.matcher(text);
 
         while (matcher.find()) {
-            String id = matcher.group(1);
-            String filename = matcher.group(2).trim();
-            String content = stripSingleTrailingLineBreak(matcher.group(3));
+            String idString = matcher.group(1);
+            try {
+                int id = Integer.parseInt(idString);
+                String filename = matcher.group(2).trim();
+                String content = stripSingleTrailingLineBreak(matcher.group(3));
 
-            excerpts.put(id, new ICodeReview.CodeExcerpt(filename, content));
+                excerpts.put(id, new ICodeReview.CodeExcerpt(filename, content));
+            } catch (NumberFormatException ignored) {
+                // If the LLM didn't follow instructions and used a non-numeric ID, we skip it
+            }
         }
 
         return Map.copyOf(excerpts);
