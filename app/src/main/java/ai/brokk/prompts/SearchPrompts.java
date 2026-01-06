@@ -220,6 +220,7 @@ public class SearchPrompts {
      * @return PromptResult containing the messages and whether beast mode should now be engaged
      */
     public PromptResult buildPrompt(
+            Context initialContext,
             Context context,
             StreamingChatModel model,
             String goal,
@@ -256,7 +257,8 @@ public class SearchPrompts {
         messages.addAll(workspaceMessages);
 
         // Conversation history plus this agent's messages
-        messages.addAll(cm.getHistoryMessages());
+        // Use always the history from the initial context
+        messages.addAll(CodePrompts.instance.getHistoryMessages(initialContext));
         messages.addAll(sessionMessages);
 
         // Related identifiers from nearby files (Discovery suggestions after history)

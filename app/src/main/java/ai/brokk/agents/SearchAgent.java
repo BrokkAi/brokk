@@ -101,6 +101,7 @@ public class SearchAgent {
     protected boolean contextPruned;
 
     // Local working context snapshot for this agent
+    private Context initialContext;
     protected Context context;
 
     // Session-local conversation for this agent
@@ -149,6 +150,7 @@ public class SearchAgent {
             }
         }
         this.mcpTools = List.copyOf(tools);
+        this.initialContext = initialContext;
         this.context = initialContext;
         this.scanConfig = scanConfig;
     }
@@ -203,7 +205,7 @@ public class SearchAgent {
             wst.setContext(context);
 
             var promptResult = SearchPrompts.instance.buildPrompt(
-                    context, model, goal, getObjective(), mcpTools, conversation.getInternalMessages());
+                    initialContext, context, model, goal, getObjective(), mcpTools, conversation.getInternalMessages());
             var messages = promptResult.messages();
 
             if (!beastMode && promptResult.engageBeastMode()) {

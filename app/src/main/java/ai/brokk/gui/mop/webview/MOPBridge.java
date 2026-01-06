@@ -14,10 +14,7 @@ import ai.brokk.util.Messages;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.data.message.SystemMessage;
-import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import java.awt.Component;
 import java.awt.KeyboardFocusManager;
 import java.io.UncheckedIOException;
@@ -222,24 +219,8 @@ public final class MOPBridge {
 
         if (taskFragment != null) {
             var msgs = taskFragment.messages();
-            // Get registry for tool call rendering (may be null if contextManager is null)
-            var cm = contextManager;
-            var registry = cm != null ? cm.getToolRegistry() : null;
-
             for (var message : msgs) {
-                // Filter out ToolExecutionResultMessage and SystemMessage from display
-                if (message instanceof ToolExecutionResultMessage || message instanceof SystemMessage) {
-                    continue;
-                }
-
-                // Use getTextWithToolCalls for AiMessage when registry is available
-                String text;
-                if (message instanceof AiMessage && registry != null) {
-                    text = Messages.getTextWithToolCalls(message, registry);
-                } else {
-                    text = Messages.getText(message);
-                }
-
+                var text = Messages.getTextWithToolCalls(message, contextManager.getToolRegistry());
                 messages.add(
                         new BrokkEvent.HistoryTask.Message(text, message.type(), Messages.isReasoningMessage(message)));
             }
