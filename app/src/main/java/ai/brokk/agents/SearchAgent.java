@@ -463,7 +463,7 @@ public class SearchAgent {
     }
 
     public Context pruneContext() throws InterruptedException {
-        if (contextPruned || context.isEmpty()) {
+        if (contextPruned || !hasDroppableFragments()) {
             return context;
         }
 
