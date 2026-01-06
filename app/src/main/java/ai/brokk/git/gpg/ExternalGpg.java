@@ -16,9 +16,7 @@ import org.eclipse.jgit.api.errors.CanceledException;
 import org.eclipse.jgit.util.FS;
 import org.eclipse.jgit.util.StringUtils;
 import org.eclipse.jgit.util.SystemReader;
-import org.jspecify.annotations.NullMarked;
 
-@NullMarked
 public class ExternalGpg {
     private static final Logger logger = LogManager.getLogger(ExternalGpg.class);
 
@@ -66,12 +64,16 @@ public class ExternalGpg {
                 String[] result = new String[1];
 
                 try {
-                    ExternalProcessRunner.run(process, (InputStream) null, (b) -> {
-                        try (BufferedReader r = new BufferedReader(
-                                new InputStreamReader(b.openInputStream(), system.getDefaultCharset()))) {
-                            result[0] = r.readLine();
-                        }
-                    }, null);
+                    ExternalProcessRunner.run(
+                            process,
+                            (InputStream) null,
+                            (b) -> {
+                                try (BufferedReader r = new BufferedReader(
+                                        new InputStreamReader(b.openInputStream(), system.getDefaultCharset()))) {
+                                    result[0] = r.readLine();
+                                }
+                            },
+                            null);
                 } catch (CanceledException | IOException e) {
                     logger.warn("Cannot search for GPG executable", e);
                 }

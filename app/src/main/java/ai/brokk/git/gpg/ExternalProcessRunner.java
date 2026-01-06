@@ -9,9 +9,7 @@ import org.eclipse.jgit.api.errors.CanceledException;
 import org.eclipse.jgit.util.FS;
 import org.eclipse.jgit.util.SystemReader;
 import org.eclipse.jgit.util.TemporaryBuffer;
-import org.jspecify.annotations.NullMarked;
 
-@NullMarked
 public class ExternalProcessRunner {
     private static final Logger logger = LogManager.getLogger(ExternalProcessRunner.class);
 
@@ -54,8 +52,7 @@ public class ExternalProcessRunner {
             }
 
             if (result != null) {
-                throw new IOException(
-                        "Process '%s' failed: %s".formatted(command, toString(result.getStderr())), e);
+                throw new IOException("Process '%s' failed: %s".formatted(command, toString(result.getStderr())), e);
             }
 
             throw new IOException("Process '%s' failed: %s".formatted(command, e.getMessage()), e);
@@ -75,7 +72,8 @@ public class ExternalProcessRunner {
     public static String toString(TemporaryBuffer b) {
         if (b != null) {
             try {
-                return new String(b.toByteArray(4000), SystemReader.getInstance().getDefaultCharset());
+                return new String(
+                        b.toByteArray(4000), SystemReader.getInstance().getDefaultCharset());
             } catch (IOException e) {
                 logger.warn("Error reading process buffer", e);
             }
