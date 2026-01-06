@@ -802,7 +802,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     private class TabDragUndockHandler implements AWTEventListener {
-        private static final int DRAG_THRESHOLD = 16;
+        private static final int DRAG_THRESHOLD = 32;
         private @Nullable Point pressPoint;
         private int dragTabIndex = -1;
         private boolean undocked;
