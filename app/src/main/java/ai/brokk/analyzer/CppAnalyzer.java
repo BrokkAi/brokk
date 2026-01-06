@@ -966,10 +966,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     }
 
     public String getCacheStatistics() {
-        // Count non-null parsed trees in fileState
         int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
                 .filter(fp -> fp.parsedTree() != null)
                 .count());
-        return String.format("ParsedTrees: %d", parsedTreeCount);
+        return "ParsedTrees: %d".formatted(parsedTreeCount);
     }
 }
