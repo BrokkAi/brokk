@@ -54,6 +54,26 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     private final ContextManager contextManager;
 
+    enum UndockTarget {
+        REVIEW, PREVIEW, TERMINAL, NONE
+    }
+
+    static UndockTarget getUndockTarget(
+            Component comp,
+            Component reviewTabComponent,
+            Component previewTabbedPane,
+            Component terminalPanel,
+            Component buildSplitPane,
+            @Nullable Component verticalActivityCombinedPanel) {
+        if (comp == buildSplitPane || (verticalActivityCombinedPanel != null && comp == verticalActivityCombinedPanel)) {
+            return UndockTarget.NONE;
+        }
+        if (comp == reviewTabComponent) return UndockTarget.REVIEW;
+        if (comp == previewTabbedPane) return UndockTarget.PREVIEW;
+        if (comp == terminalPanel) return UndockTarget.TERMINAL;
+        return UndockTarget.NONE;
+    }
+
     public RightPanel(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
         this.chrome = chrome;
@@ -416,22 +436,26 @@ public class RightPanel extends JPanel implements ThemeAware {
                 if (tabIndex == -1) return;
 
                 Component comp = buildReviewTabs.getComponentAt(tabIndex);
+                UndockTarget target = getUndockTarget(comp, reviewTabComponent, previewTabbedPane, terminalPanel, buildSplitPane, verticalActivityCombinedPanel);
                 JPopupMenu popup = new JPopupMenu();
 
-                if (comp == buildSplitPane) {
-                    // Build undocking is no longer supported
-                } else if (comp == reviewTabComponent) {
-                    JMenuItem undockItem = new JMenuItem("Undock Review", Icons.FLOWSHEET);
-                    undockItem.addActionListener(ae -> undockReview());
-                    popup.add(undockItem);
-                } else if (comp == previewTabbedPane) {
-                    JMenuItem undockItem = new JMenuItem("Undock Preview", Icons.VISIBILITY);
-                    undockItem.addActionListener(ae -> undockPreview());
-                    popup.add(undockItem);
-                } else if (comp == terminalPanel) {
-                    JMenuItem undockItem = new JMenuItem("Undock Terminal", Icons.TERMINAL);
-                    undockItem.addActionListener(ae -> undockTerminal());
-                    popup.add(undockItem);
+                switch (target) {
+                    case REVIEW -> {
+                        JMenuItem undockItem = new JMenuItem("Undock Review", Icons.FLOWSHEET);
+                        undockItem.addActionListener(ae -> undockReview());
+                        popup.add(undockItem);
+                    }
+                    case PREVIEW -> {
+                        JMenuItem undockItem = new JMenuItem("Undock Preview", Icons.VISIBILITY);
+                        undockItem.addActionListener(ae -> undockPreview());
+                        popup.add(undockItem);
+                    }
+                    case TERMINAL -> {
+                        JMenuItem undockItem = new JMenuItem("Undock Terminal", Icons.TERMINAL);
+                        undockItem.addActionListener(ae -> undockTerminal());
+                        popup.add(undockItem);
+                    }
+                    case NONE -> {}
                 }
 
                 if (popup.getComponentCount() > 0) {
@@ -806,18 +830,13 @@ public class RightPanel extends JPanel implements ThemeAware {
             if (index < 0 || index >= buildReviewTabs.getTabCount()) return;
 
             Component comp = buildReviewTabs.getComponentAt(index);
+            UndockTarget target = getUndockTarget(comp, reviewTabComponent, previewTabbedPane, terminalPanel, buildSplitPane, verticalActivityCombinedPanel);
 
-            // Explicitly exclude Build tab components
-            if (comp == buildSplitPane || comp == verticalActivityCombinedPanel) {
-                return;
-            }
-
-            if (comp == reviewTabComponent) {
-                undockReview();
-            } else if (comp == previewTabbedPane) {
-                undockPreview();
-            } else if (comp == terminalPanel) {
-                undockTerminal();
+            switch (target) {
+                case REVIEW -> undockReview();
+                case PREVIEW -> undockPreview();
+                case TERMINAL -> undockTerminal();
+                case NONE -> {}
             }
         }
     }
