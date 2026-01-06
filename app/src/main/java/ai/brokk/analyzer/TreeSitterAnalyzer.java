@@ -656,24 +656,31 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return this.state;
         }
 
-        // Merge lazy-computed supertypes into the snapshot state
-        var nextCodeUnitState = new HashMap<>(this.state.codeUnitState());
+        // Efficiently merge lazy-computed supertypes into the snapshot state using PMap structural sharing.
+        // Instead of copying the entire map (O(N)), we collect only the updates (O(M)) and apply them (O(M log N)).
+        Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>(supertypesCache.size());
+
         supertypesCache.forEach((cu, supers) -> {
-            nextCodeUnitState.compute(cu, (k, existing) -> {
-                if (existing == null) return null;
-                return new CodeUnitProperties(
+            CodeUnitProperties existing = this.state.codeUnitState().get(cu);
+            if (existing != null) {
+                // Create new record with Computed supertypes
+                var newProps = new CodeUnitProperties(
                         existing.children(),
                         existing.signatures(),
                         existing.ranges(),
                         existing.rawSupertypes(),
                         new SuperTypeInfo.Computed(supers),
                         existing.hasBody());
-            });
+                updates.put(cu, newProps);
+            }
         });
+
+        PMap<CodeUnit, CodeUnitProperties> nextCodeUnitState =
+                this.state.codeUnitState().plusAll(updates);
 
         return new AnalyzerState(
                 this.state.symbolIndex(),
-                HashTreePMap.from(nextCodeUnitState),
+                nextCodeUnitState,
                 this.state.fileState(),
                 this.state.symbolKeyIndex(),
                 this.state.snapshotEpochNanos());
