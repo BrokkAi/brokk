@@ -1104,6 +1104,20 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 cm.checkBalanceAndNotify();
             }
 
+            boolean shouldRefreshUi = false;
+
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS
+                    && Objects.equals(runningIndex, idx)) {
+                var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+                if (idx >= 0 && idx < items.size()) {
+                    var it = items.get(idx);
+                    items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
+                    cm.setTaskList(new TaskList.TaskListData(items));
+                    shouldRefreshUi = true;
+                }
+            }
+
+            boolean finalShouldRefreshUi = shouldRefreshUi;
             SwingUtilities.invokeLater(() -> {
                 try {
                     if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
@@ -1111,15 +1125,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         return;
                     }
 
-                    if (Objects.equals(runningIndex, idx)) {
-                        var items = new ArrayList<TaskList.TaskItem>(
-                                cm.getTaskList().tasks());
-                        if (idx >= 0 && idx < items.size()) {
-                            var it = items.get(idx);
-                            items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
-                            cm.setTaskList(new TaskList.TaskListData(items));
-                            refreshUi(false);
-                        }
+                    if (finalShouldRefreshUi) {
+                        refreshUi(false);
                     }
                 } finally {
                     runningIndex = null;
