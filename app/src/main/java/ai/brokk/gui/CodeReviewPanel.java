@@ -2,6 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.ICodeReview.GuidedReview;
 import ai.brokk.ICodeReview.ParsedExcerpt;
+import ai.brokk.ICodeReview.TacticalFeedback;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -87,8 +88,12 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
             itemExcerpts.put(review.designNotes().get(i), designExcerpts.get(i));
         }
 
-        for (ParsedExcerpt excerpt : tacticalExcerpts) {
-            itemExcerpts.put(excerpt, List.of(excerpt));
+        for (TacticalFeedback tactical : review.tacticalNotes()) {
+            List<ParsedExcerpt> matches = tacticalExcerpts.stream()
+                    .filter(pe -> pe.original().file().equals(tactical.excerpt().file())
+                            && pe.original().excerpt().equals(tactical.excerpt().excerpt()))
+                    .toList();
+            itemExcerpts.put(tactical, matches);
         }
 
         logger.info("displayReview: itemExcerpts map size after population: {}", itemExcerpts.size());

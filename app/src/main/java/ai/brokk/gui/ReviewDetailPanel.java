@@ -2,6 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.ICodeReview.DesignFeedback;
 import ai.brokk.ICodeReview.ParsedExcerpt;
+import ai.brokk.ICodeReview.TacticalFeedback;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
@@ -89,6 +90,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             addMarkdownText(design.description());
             if (!design.recommendation().isBlank()) {
                 addMarkdownText("<b>Recommendation:</b> " + design.recommendation());
+            }
+        } else if (item instanceof TacticalFeedback tactical) {
+            addMarkdownText("<b>" + tactical.title() + "</b>");
+            addMarkdownText("<code>" + tactical.excerpt().excerpt().replace("\n", "<br>") + "</code>");
+            if (!tactical.recommendation().isBlank()) {
+                addMarkdownText("<b>Recommendation:</b> " + tactical.recommendation());
             }
         } else if (item instanceof ParsedExcerpt pe) {
             addMarkdownText("<code>" + pe.original().excerpt().replace("\n", "<br>") + "</code>");
