@@ -36,6 +36,7 @@ import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -851,6 +852,7 @@ public class GitRepo implements Closeable, IGitRepo {
      * @param from repository-relative source path
      * @param to repository-relative destination path
      */
+    @Blocking
     public synchronized void move(String from, String to) throws GitAPIException {
         Path wt = repository.getWorkTree().toPath();
         Path absFrom = wt.resolve(from);
