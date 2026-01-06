@@ -87,4 +87,41 @@ public class PythonTestDetectionTest {
                 analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
                 "Should not detect tests in a normal Python file");
     }
+
+    @Test
+    void testPytestFixtureDetection() throws IOException {
+        String code =
+                """
+            import pytest
+
+            @pytest.fixture
+            def some_data():
+                return 42
+            """;
+
+        IProject project = InlineTestProjectCreator.code(code, "Example.py").build();
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+        analyzer.update();
+
+        assertFalse(
+                analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
+                "Should not detect @pytest.fixture as a test");
+    }
+
+    @Test
+    void testTestNameWithoutUnderscore() throws IOException {
+        String code =
+                """
+            def test():
+                pass
+            """;
+
+        IProject project = InlineTestProjectCreator.code(code, "Example.py").build();
+        PythonAnalyzer analyzer = new PythonAnalyzer(project);
+        analyzer.update();
+
+        assertFalse(
+                analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
+                "Should not detect 'def test():' as a test (requires test_ prefix)");
+    }
 }
