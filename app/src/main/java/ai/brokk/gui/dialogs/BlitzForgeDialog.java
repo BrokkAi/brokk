@@ -1458,13 +1458,11 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         });
 
         // Kick off background execution
-        var analyzerWrapper = cm.getAnalyzerWrapper();
         cm.submitLlmAction(() -> {
             logger.debug(
                     "BlitzForge parallel processing started (Tools path) on thread {}",
                     Thread.currentThread().getName());
-            analyzerWrapper.pause();
-            try (var scope = cm.beginTask(instructions, false)) {
+            try (var scope = cm.beginTask(instructions, true, "BlitzForge")) {
                 var parallelResult = runParallel(
                         runCfg,
                         progressDialog,
@@ -1563,8 +1561,6 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     TaskResult postProcessResult = agent.executeWithScan();
                     scope.append(postProcessResult);
                 }
-            } finally {
-                analyzerWrapper.resume();
             }
         });
         // Show the progress dialog (modeless)

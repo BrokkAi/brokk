@@ -6,6 +6,7 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
@@ -249,15 +250,15 @@ public final class JobRunner {
                                     }
                                     case LUTZ -> {
                                         // Phase 1: Use SearchAgent to generate a task list from the initial task
-                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
-                                            var searchAgent = new SearchAgent(
+                                            var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
                                                             architectPlannerModel,
                                                             "plannerModel required for LUTZ jobs"),
-                                                    SearchAgent.Objective.TASKS_ONLY,
+                                                    SearchPrompts.Objective.TASKS_ONLY,
                                                     scope);
                                             var taskListResult = searchAgent.execute();
                                             scope.append(taskListResult);
@@ -324,7 +325,7 @@ public final class JobRunner {
                                                 cm,
                                                 Objects.requireNonNull(
                                                         codeModeModel, "code model unavailable for CODE jobs"));
-                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var result = agent.execute(spec.taskInput(), Set.of());
                                             scope.append(result);
                                         }
@@ -335,15 +336,114 @@ public final class JobRunner {
                                         // and the current Workspace. Do NOT invoke SearchAgent.execute() or
                                         // any tools that could modify the workspace. Append the answer to the
                                         // task scope and continue.
-                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
 
                                             // Optional pre-scan: resolve scan model similarly to SEARCH mode.
-                                            // [This code never updated context so it was a no-op; I have removed it.]
+                                            if (spec.preScan()) {
+                                                // Construct agent only for potential pre-scan usage (no execute).
+                                                var searchAgent = new LutzAgent(
+                                                        context,
+                                                        spec.taskInput(),
+                                                        Objects.requireNonNull(
+                                                                askPlannerModel, "plannerModel required for ASK jobs"),
+                                                        SearchPrompts.Objective.ANSWER_ONLY,
+                                                        scope);
 
-                                            // Emit deterministic completion NOTIFICATION so headless
-                                            // clients/tests can reliably observe that the Context Engine
-                                            // pre-scan phase finished.
+                                                String rawScanModel = spec.scanModel();
+                                                String trimmedScanModel =
+                                                        rawScanModel == null ? "" : rawScanModel.trim();
+
+                                                // Emit deterministic start NOTIFICATION so headless clients/tests
+                                                // can observe the pre-scan start.
+                                                try {
+                                                    store.appendEvent(
+                                                            jobId,
+                                                            JobEvent.of(
+                                                                    "NOTIFICATION",
+                                                                    "Brokk Context Engine: analyzing repository context..."));
+                                                } catch (IOException ioe) {
+                                                    logger.warn(
+                                                            "Failed to append pre-scan start notification event for job {}: {}",
+                                                            jobId,
+                                                            ioe.getMessage(),
+                                                            ioe);
+                                                }
+
+                                                StreamingChatModel scanModelToUse = null;
+                                                try {
+                                                    scanModelToUse = !trimmedScanModel.isEmpty()
+                                                            ? resolveModelOrThrow(trimmedScanModel)
+                                                            : cm.getService().getScanModel();
+                                                } catch (IllegalArgumentException iae) {
+                                                    // resolveModelOrThrow may throw; log and continue without
+                                                    // failing job.
+                                                    logger.warn(
+                                                            "Pre-scan model unavailable for job {}: {}",
+                                                            jobId,
+                                                            iae.getMessage());
+                                                } catch (Exception e) {
+                                                    logger.warn(
+                                                            "Unexpected error during pre-scan model resolution for job {}: {}",
+                                                            jobId,
+                                                            e.getMessage(),
+                                                            e);
+                                                }
+
+                                                if (scanModelToUse == null) {
+                                                    // No scan model available; log and skip pre-scan but still emit
+                                                    // completion below.
+                                                    logger.warn(
+                                                            "ASK pre-scan requested but no scan model is available (spec.scanModel='{}'). Skipping pre-scan for job {}.",
+                                                            trimmedScanModel,
+                                                            jobId);
+                                                } else {
+                                                    // Attempt the pre-scan, but do not allow failures to abort the
+                                                    // job.
+                                                    try {
+                                                        context = searchAgent.scanContext();
+                                                    } catch (InterruptedException ie) {
+                                                        // Preserve interruption status but continue with the job.
+                                                        Thread.currentThread().interrupt();
+                                                        logger.warn(
+                                                                "Pre-scan interrupted for job {}: {}",
+                                                                jobId,
+                                                                ie.getMessage(),
+                                                                ie);
+                                                    } catch (IllegalArgumentException iae) {
+                                                        // Model resolution or argument problems: log and continue.
+                                                        logger.warn(
+                                                                "Pre-scan skipped due to model error for job {}: {}",
+                                                                jobId,
+                                                                iae.getMessage());
+                                                    } catch (Exception ex) {
+                                                        // Any other exception during pre-scan should not fail the
+                                                        // job.
+                                                        logger.warn(
+                                                                "Pre-scan failed for job {}: {}",
+                                                                jobId,
+                                                                ex.getMessage(),
+                                                                ex);
+                                                    }
+                                                }
+
+                                                // Emit deterministic completion NOTIFICATION so headless
+                                                // clients/tests can reliably observe that the Context Engine
+                                                // pre-scan phase finished.
+                                                try {
+                                                    store.appendEvent(
+                                                            jobId,
+                                                            JobEvent.of(
+                                                                    "NOTIFICATION",
+                                                                    "Brokk Context Engine: complete — contextual insights added to Workspace."));
+                                                } catch (IOException ioe) {
+                                                    logger.warn(
+                                                            "Failed to append pre-scan completion event for job {}: {}",
+                                                            jobId,
+                                                            ioe.getMessage(),
+                                                            ioe);
+                                                }
+                                            }
 
                                             try {
                                                 // Use helper that builds a workspace-only prompt and calls the
@@ -411,7 +511,7 @@ public final class JobRunner {
                                     case SEARCH -> {
                                         // Read-only repository search using a scan model (spec.scanModel preferred,
                                         // otherwise project default)
-                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
 
                                             // Determine scan model: prefer explicit spec.scanModel() if provided,
@@ -425,12 +525,12 @@ public final class JobRunner {
 
                                             // SearchAgent now handles scanning internally via execute()
                                             var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
-                                            var searchAgent = new SearchAgent(
+                                            var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
                                                             scanModelToUse, "scan model unavailable for SEARCH jobs"),
-                                                    SearchAgent.Objective.ANSWER_ONLY,
+                                                    SearchPrompts.Objective.ANSWER_ONLY,
                                                     scope,
                                                     cm.getIo(),
                                                     scanConfig);
@@ -454,7 +554,7 @@ public final class JobRunner {
                                                         "plannel model unavailable for REVIEW jobs"));
 
                                         TaskResult result;
-                                        try (var scope = cm.beginTask("Review", false)) {
+                                        try (var scope = cm.beginTaskUngrouped("Review")) {
                                             result = agent.execute(reviewPrompt, Set.of());
                                             scope.append(result);
                                         }

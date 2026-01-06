@@ -12,14 +12,11 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.git.GitWorkflow;
-import ai.brokk.gui.Chrome;
 import ai.brokk.mcp.McpUtils;
 import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.McpPrompts;
 import ai.brokk.prompts.SearchPrompts;
-import ai.brokk.prompts.SearchPrompts.Terminal;
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
@@ -42,7 +39,6 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -58,43 +54,14 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * SearchAgent: - Uses tools to both answer questions AND curate Workspace context for follow-on coding. - Starts by
+ * SearchAgent: - Uses tools to curate Workspace context for follow-on coding. - Starts by
  * calling ContextAgent to add recommended fragments to the Workspace. - Adds every learning step to Context history (no
  * hidden state). - Summarizes very large tool outputs before recording them. - Enters "beast mode" to finalize with
- * existing info if interrupted or context is near full. - Never writes code itself; it prepares the Workspace for a
- * later Code Agent run.
+ * existing info if interrupted or context is near full. - Never writes code or answers questions itself; it prepares
+ * the Workspace for a later Code Agent run.
  */
 public class SearchAgent {
-    private static final Logger logger = LogManager.getLogger(SearchAgent.class);
-
-    public enum Objective {
-        ANSWER_ONLY {
-            @Override
-            public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.ANSWER);
-            }
-        },
-        TASKS_ONLY {
-            @Override
-            public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.TASK_LIST);
-            }
-        },
-        WORKSPACE_ONLY {
-            @Override
-            public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.WORKSPACE);
-            }
-        },
-        LUTZ {
-            @Override
-            public Set<Terminal> terminals() {
-                return EnumSet.of(Terminal.ANSWER, Terminal.CODE, Terminal.TASK_LIST);
-            }
-        };
-
-        public abstract Set<Terminal> terminals();
-    }
+    protected static final Logger logger = LogManager.getLogger(SearchAgent.class);
 
     /**
      * Configuration for automatic context scanning behavior.
@@ -121,47 +88,34 @@ public class SearchAgent {
         }
     }
 
-    private static final int SUMMARIZE_THRESHOLD = 1_000; // ~120 LOC equivalent
+    protected static final int SUMMARIZE_THRESHOLD = 1_000;
 
-    private final IContextManager cm;
-    private final StreamingChatModel model;
-    private final ContextManager.TaskScope scope;
-    private final Llm llm;
-    private final Llm summarizer;
-    private final IConsoleIO io;
-    private final String goal;
-    private final Objective objective;
-    private final List<McpPrompts.McpTool> mcpTools;
-    private final SearchMetrics metrics;
-    private final ScanConfig scanConfig;
-    private boolean scanPerformed;
-    private boolean contextPruned;
+    protected final IContextManager cm;
+    protected final StreamingChatModel model;
+    protected final ContextManager.TaskScope scope;
+    protected final Llm llm;
+    protected final Llm summarizer;
+    protected final IConsoleIO io;
+    protected final String goal;
+    protected final List<McpPrompts.McpTool> mcpTools;
+    protected final SearchMetrics metrics;
+    protected final ScanConfig scanConfig;
+    protected boolean scanPerformed;
+    protected boolean contextPruned;
 
     // Local working context snapshot for this agent
-    private Context context;
+    protected Context context;
 
     // Session-local conversation for this agent
-    private final List<ChatMessage> sessionMessages = new ArrayList<>();
+    protected final List<ChatMessage> sessionMessages = new ArrayList<>();
 
     // State toggles
-    private boolean beastMode;
+    protected boolean beastMode;
 
-    /**
-     * Primary constructor with explicit IO and ScanConfig.
-     *
-     * @param initialContext the initial context
-     * @param goal the search goal
-     * @param model the LLM model to use
-     * @param objective the search objective
-     * @param scope the task scope for history recording
-     * @param io the IConsoleIO instance for output
-     * @param scanConfig configuration for automatic context scanning
-     */
     public SearchAgent(
             Context initialContext,
             String goal,
             StreamingChatModel model,
-            Objective objective,
             ContextManager.TaskScope scope,
             IConsoleIO io,
             ScanConfig scanConfig) {
@@ -179,7 +133,6 @@ public class SearchAgent {
         this.summarizer = cm.getLlm(summarizeModel, "Summarizer: " + goal);
 
         this.beastMode = false;
-        this.objective = objective;
         this.metrics = "true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))
                 ? SearchMetrics.tracking()
                 : SearchMetrics.noOp();
@@ -198,26 +151,16 @@ public class SearchAgent {
         this.scanConfig = scanConfig;
     }
 
-    /**
-     * Creates a SearchAgent with output streaming enabled (default behavior) and default IO.
-     */
-    public SearchAgent(
-            Context initialContext,
-            String goal,
-            StreamingChatModel model,
-            Objective objective,
-            ContextManager.TaskScope scope) {
+    public SearchAgent(Context initialContext, String goal, StreamingChatModel model, ContextManager.TaskScope scope) {
         this(
                 initialContext,
                 goal,
                 model,
-                objective,
                 scope,
                 initialContext.getContextManager().getIo(),
                 ScanConfig.defaults());
     }
 
-    /** Entry point. Runs until answer/abort or interruption. */
     public TaskResult execute() {
         try {
             var tr = executeInternal();
@@ -236,7 +179,6 @@ public class SearchAgent {
     }
 
     private static int countTurns(List<ChatMessage> messages) {
-        // Count AI messages as turns
         return (int) messages.stream()
                 .filter(msg -> msg.type() == ChatMessageType.AI)
                 .count();
@@ -246,69 +188,40 @@ public class SearchAgent {
         return scanConfig.autoScan() && !scanPerformed;
     }
 
-    private TaskResult executeInternal() throws InterruptedException {
-        // Create a per-turn WorkspaceTools instance bound to the agent-local Context
+    protected TaskResult executeInternal() throws InterruptedException {
         var wst = new WorkspaceTools(context);
-        var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
+        var tr = createToolRegistry(wst);
 
         pruneContext();
         if (shouldAutomaticallyScan() && context.isFileContentEmpty()) {
             performAutoScan();
         }
 
-        // Main loop: propose actions, execute, record, repeat until finalization
         while (true) {
             wst.setContext(context);
 
-            // Build prompt and check if beast mode should be engaged
             var promptResult =
-                    SearchPrompts.instance.buildPrompt(context, model, goal, objective, mcpTools, sessionMessages);
+                    SearchPrompts.instance.buildPrompt(context, model, goal, getObjective(), mcpTools, sessionMessages);
             var messages = promptResult.messages();
 
-            // Update beast mode if newly engaged
             if (!beastMode && promptResult.engageBeastMode()) {
                 io.showNotification(
                         IConsoleIO.NotificationRole.INFO,
                         "Workspace is near the context limit; attempting finalization based on current knowledge");
                 beastMode = true;
             }
+
             var allowedToolNames = calculateAllowedToolNames();
+            var agentTerminalTools = calculateTerminalTools();
 
-            // Agent-owned tools (instance methods)
-            var allowedTerminals = objective.terminals();
-            var agentTerminalTools = new ArrayList<String>();
-            if (allowedTerminals.contains(Terminal.ANSWER)) {
-                agentTerminalTools.add("answer");
-                agentTerminalTools.add("askForClarification");
-            }
-            if (allowedTerminals.contains(Terminal.WORKSPACE)) {
-                agentTerminalTools.add("workspaceComplete");
-            }
-            if (allowedTerminals.contains(Terminal.CODE)) {
-                agentTerminalTools.add("callCodeAgent");
-            }
-            // Always allow abort
-            agentTerminalTools.add("abortSearch");
-
-            // Global terminal tool(s) implemented outside SearchAgent (e.g., in SearchTools)
-            var globalTerminals = new ArrayList<String>();
-            if (allowedTerminals.contains(Terminal.TASK_LIST)) {
-                globalTerminals.add("createOrReplaceTaskList");
-            }
-
-            // Merge allowed names with agent terminals and global terminals
-            var allAllowed =
-                    new ArrayList<String>(allowedToolNames.size() + agentTerminalTools.size() + globalTerminals.size());
+            var allAllowed = new ArrayList<String>(allowedToolNames.size() + agentTerminalTools.size());
             allAllowed.addAll(allowedToolNames);
             allAllowed.addAll(agentTerminalTools);
-            allAllowed.addAll(globalTerminals);
             var toolSpecs = tr.getTools(allAllowed);
 
-            // Start tracking this turn before LLM call
             metrics.startTurn();
             long turnStartTime = System.currentTimeMillis();
 
-            // Decide next action(s)
             io.showTransientMessage("Brokk Search is preparing the next actions…");
             var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
@@ -327,20 +240,16 @@ public class SearchAgent {
                 return errorResult(details, taskMeta());
             }
 
-            // If we haven't scanned yet and the model needs to search, preempt the turn with scan and retry
             var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
             if (shouldAutomaticallyScan()
                     && ai.toolExecutionRequests().stream().anyMatch(req -> isSearchTool(req.name()))) {
-                logger.debug("Lazy scan triggered by first search tool");
                 performAutoScan();
                 continue;
             }
 
-            // Record turn
             sessionMessages.add(new UserMessage("What tools do you want to use next?"));
             sessionMessages.add(result.aiMessage());
 
-            // LLM tries to enforce tc requirement so don't retry if it's missing; we're done
             if (!ai.hasToolExecutionRequests()) {
                 return errorResult(
                         new TaskResult.StopDetails(
@@ -348,16 +257,13 @@ public class SearchAgent {
                         taskMeta());
             }
 
-            // Get workspace snapshot for file diff tracking
             Set<ProjectFile> filesBeforeSet = getWorkspaceFileSet();
-
             boolean executedResearch = false;
             Context contextAtTurnStart = context;
             try {
-                // Execute all tool calls in a deterministic order (Workspace ops before exploration helps pruning)
                 var sortedNonterminalCalls = ai.toolExecutionRequests().stream()
                         .filter(req -> categorizeTool(req.name()) != ToolCategory.TERMINAL)
-                        .sorted(Comparator.comparingInt(req -> priority(req.name())))
+                        .sorted(Comparator.comparingInt(this::priority))
                         .toList();
 
                 for (var req : sortedNonterminalCalls) {
@@ -368,7 +274,6 @@ public class SearchAgent {
                         return errorResult(details, taskMeta());
                     }
 
-                    // Summarize large results
                     var display = toolResult.resultText();
                     boolean summarize = toolResult.status() == ToolExecutionResult.Status.SUCCESS
                             && Messages.getApproximateTokens(display) > SUMMARIZE_THRESHOLD
@@ -384,47 +289,41 @@ public class SearchAgent {
                         finalResult = toolResult;
                     }
 
-                    // Write to visible transcript and to Context history
                     sessionMessages.add(finalResult.toExecutionResultMessage());
-
-                    // Track research categories to decide later if finalization is permitted
-                    var category = categorizeTool(req.name());
-                    if (category == ToolCategory.RESEARCH) {
+                    if (categorizeTool(req.name()) == ToolCategory.RESEARCH) {
                         if (!isWorkspaceTool(req, tr)) {
                             executedResearch = true;
                         }
                     }
                 }
 
-                // allow terminals if workspace has not changed and we did no new research
                 var terminal = ai.toolExecutionRequests().stream()
                         .filter(req -> categorizeTool(req.name()) == ToolCategory.TERMINAL)
-                        .min(Comparator.comparingInt(req -> priority(req.name())));
+                        .min(Comparator.comparingInt(this::priority));
+
                 if (terminal.isPresent() && context.equals(contextAtTurnStart) && !executedResearch) {
                     var termReq = terminal.get();
                     var termExec = executeTool(termReq, tr, wst);
-
-                    var display = termExec.resultText();
                     sessionMessages.add(termExec.toExecutionResultMessage());
 
                     if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                         return errorResult(
                                 new TaskResult.StopDetails(
                                         TaskResult.StopReason.TOOL_ERROR,
-                                        "Terminal tool '" + termReq.name() + "' failed: " + display),
+                                        "Terminal tool '" + termReq.name() + "' failed: " + termExec.resultText()),
                                 taskMeta());
                     }
 
                     if (termReq.name().equals("abortSearch")) {
                         return errorResult(
-                                new TaskResult.StopDetails(TaskResult.StopReason.LLM_ABORTED, "Aborted: " + display),
+                                new TaskResult.StopDetails(
+                                        TaskResult.StopReason.LLM_ABORTED, "Aborted: " + termExec.resultText()),
                                 taskMeta());
                     } else {
                         return createResult(termReq.name(), goal);
                     }
                 }
 
-                // publish progress-so-far whenever we add something new
                 Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
                 Set<ProjectFile> added = new HashSet<>(filesAfterSet);
                 added.removeAll(filesBeforeSet);
@@ -432,13 +331,23 @@ public class SearchAgent {
                     scope.publish(context);
                 }
             } finally {
-                // End turn tracking - always called even on exceptions
                 endTurnAndRecordFileChanges(filesBeforeSet);
             }
         }
     }
 
-    private void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet) {
+    protected ToolRegistry createToolRegistry(WorkspaceTools wst) {
+        return cm.getToolRegistry().builder().register(wst).register(this).build();
+    }
+
+    protected List<String> calculateTerminalTools() {
+        var terminals = new ArrayList<String>();
+        terminals.add("workspaceComplete");
+        terminals.add("abortSearch");
+        return terminals;
+    }
+
+    protected void endTurnAndRecordFileChanges(Set<ProjectFile> filesBeforeSet) {
         Set<ProjectFile> filesAfterSet = getWorkspaceFileSet();
         Set<ProjectFile> added = new HashSet<>(filesAfterSet);
         added.removeAll(filesBeforeSet);
@@ -447,53 +356,38 @@ public class SearchAgent {
         metrics.endTurn(toRelativePaths(filesBeforeSet), toRelativePaths(filesAfterSet));
     }
 
-    private ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst)
+    protected ToolExecutionResult executeTool(ToolExecutionRequest req, ToolRegistry registry, WorkspaceTools wst)
             throws InterruptedException {
         metrics.recordToolCall(req.name());
-
-        // ensure WorkspaceTools sees the freshest Context before executing any tool.
-        // This hardens against future tools that might mutate context between calls
         wst.setContext(context);
-
         var result = registry.executeTool(req);
-
-        // If this was a WorkspaceTools call, copy its immutable update back to the agent-local Context.
         if (isWorkspaceTool(req, registry)) {
             context = wst.getContext();
         }
-
         return result;
     }
 
-    private List<String> calculateAllowedToolNames() {
+    protected List<String> calculateAllowedToolNames() {
         if (beastMode) {
-            // Only answer/abort will be exposed alongside this when we build tools list
             return List.of();
         }
 
         var names = new ArrayList<String>();
-
-        // Any Analyzer at all provides these
         if (!cm.getProject().getAnalyzerLanguages().equals(Set.of(Languages.NONE))) {
             names.add("searchSymbols");
             names.add("getSymbolLocations");
         }
 
-        // Fine-grained Analyzer capabilities
         names.add("getClassSkeletons");
         names.add("getClassSources");
         names.add("getMethodSources");
         names.add("getUsages");
-
-        // Text-based search
         names.add("searchSubstrings");
         names.add("searchGitCommitMessages");
         names.add("searchFilenames");
         names.add("getFileContents");
         names.add("getFileSummaries");
         names.add("skimDirectory");
-
-        // Workspace curation
         names.add("addFilesToWorkspace");
         names.add("addClassesToWorkspace");
         names.add("addClassSummariesToWorkspace");
@@ -505,29 +399,20 @@ public class SearchAgent {
             names.add("dropWorkspaceFragments");
         }
 
-        // Human-in-the-loop tool (only meaningful when GUI is available; safe to include otherwise)
-        if (io instanceof Chrome && objective != Objective.WORKSPACE_ONLY) {
-            names.add("askHuman");
-        }
-
         if (!mcpTools.isEmpty()) {
             names.add("callMcpTool");
         }
 
-        // Task list tools are exposed only when the objective allows TASK_LIST via globalTerminals.
-        // Do not add them here to avoid exposing them for other objectives.
-
-        logger.debug("Allowed tool names: {}", names);
         return names;
     }
 
-    private enum ToolCategory {
-        TERMINAL, // answer, createOrReplaceTaskList, workspaceComplete, abortSearch
-        WORKSPACE_HYGIENE, // dropWorkspaceFragments, appendNote (safe to pair with terminals)
-        RESEARCH // everything else (blocks terminals)
+    protected enum ToolCategory {
+        TERMINAL,
+        WORKSPACE_HYGIENE,
+        RESEARCH
     }
 
-    private ToolCategory categorizeTool(String toolName) {
+    protected ToolCategory categorizeTool(String toolName) {
         return switch (toolName) {
             case "answer",
                     "askForClarification",
@@ -540,7 +425,7 @@ public class SearchAgent {
         };
     }
 
-    private boolean isWorkspaceTool(ToolExecutionRequest request, ToolRegistry tr) {
+    protected boolean isWorkspaceTool(dev.langchain4j.agent.tool.ToolExecutionRequest request, ToolRegistry tr) {
         try {
             var vi = tr.validateTool(request);
             return vi.instance() instanceof WorkspaceTools;
@@ -549,8 +434,7 @@ public class SearchAgent {
         }
     }
 
-    private int priority(String toolName) {
-        // Prioritize workspace pruning and adding summaries before deeper exploration.
+    protected int priority(String toolName) {
         return switch (toolName) {
             case "dropWorkspaceFragments" -> 1;
             case "appendNote" -> 2;
@@ -568,20 +452,22 @@ public class SearchAgent {
 
             case "callCodeAgent" -> 99;
             case "createOrReplaceTaskList" -> 100;
-            case "answer", "askForClarification", "workspaceComplete" -> 101; // should never co-occur
+            case "answer", "askForClarification", "workspaceComplete" -> 101;
             case "abortSearch" -> 200;
             default -> 9;
         };
     }
 
+    protected int priority(ToolExecutionRequest req) {
+        return priority(req.name());
+    }
+
     public Context pruneContext() throws InterruptedException {
-        // Skip if workspace is empty
         if (contextPruned || context.isEmpty()) {
             return context;
         }
 
-        var model = getScanModel();
-
+        var scanModel = getScanModel();
         var wst = new WorkspaceTools(context);
         var tr = cm.getToolRegistry().builder().register(wst).register(this).build();
 
@@ -594,7 +480,7 @@ public class SearchAgent {
         var toolSpecs = tr.getTools(toolNames);
 
         io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
-        var janitorOpts = new Llm.Options(model, "Janitor: " + goal).withEcho();
+        var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
@@ -602,7 +488,6 @@ public class SearchAgent {
             return context;
         }
 
-        // Execute tool requests (one shot; we're not responding back with results)
         var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
         for (var req : ai.toolExecutionRequests()) {
             executeTool(req, tr, wst);
@@ -612,18 +497,17 @@ public class SearchAgent {
         return context;
     }
 
-    /**
-     * Performs auto-scan using configured scan model and append behavior.
-     * Sets scanAlreadyPerformed to true on success or failure to prevent retries.
-     */
-    private void performAutoScan() throws InterruptedException {
+    protected void performAutoScan() throws InterruptedException {
         scanContext();
         scanPerformed = true;
     }
 
+    protected SearchPrompts.Objective getObjective() {
+        return SearchPrompts.Objective.WORKSPACE_ONLY;
+    }
+
     public Context scanContext() throws InterruptedException {
         StreamingChatModel scanModel = getScanModel();
-
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
         var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
@@ -647,7 +531,6 @@ public class SearchAgent {
                         "Summary of ContextAgent Findings",
                         SyntaxConstants.SYNTAX_STYLE_NONE)));
             } else {
-                logger.debug("Recommended context fits within final budget.");
                 addToWorkspace(recommendation);
                 io.llmOutput(
                         "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
@@ -657,7 +540,6 @@ public class SearchAgent {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
         }
 
-        // Record metrics and finalize context
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
         Set<ProjectFile> filesAdded = new HashSet<>(filesAfterScan);
         filesAdded.removeAll(filesBeforeScan);
@@ -669,37 +551,26 @@ public class SearchAgent {
         return context;
     }
 
-    private StreamingChatModel getScanModel() {
+    protected StreamingChatModel getScanModel() {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
     }
 
-    /**
-     * Returns true if the tool is a search/exploration tool that benefits from ContextAgent scanning.
-     * Tool names must match those in calculateAllowedToolNames().
-     */
-    private boolean isSearchTool(String toolName) {
+    protected boolean isSearchTool(String toolName) {
         return toolName.startsWith("search");
     }
 
     @Blocking
     public void addToWorkspace(ContextAgent.RecommendationResult recommendationResult) {
-        logger.debug("Recommended context fits within final budget.");
         List<ContextFragment> selected = recommendationResult.fragments();
-        // Group selected fragments by type
         var groupedByType = selected.stream().collect(Collectors.groupingBy(ContextFragment::getType));
 
-        // Process ProjectPathFragments
         var pathFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.PROJECT_PATH, List.of()).stream()
                 .map(ContextFragments.ProjectPathFragment.class::cast)
                 .toList();
         if (!pathFragments.isEmpty()) {
-            logger.debug(
-                    "Adding selected ProjectPathFragments: {}",
-                    pathFragments.stream().map(ppf -> ppf.file().toString()).collect(Collectors.joining(", ")));
             context = context.addFragments(pathFragments);
         }
 
-        // Process SkeletonFragments
         var skeletonFragments = groupedByType.getOrDefault(ContextFragment.FragmentType.SKELETON, List.of()).stream()
                 .map(ContextFragments.SummaryFragment.class::cast)
                 .toList();
@@ -707,7 +578,6 @@ public class SearchAgent {
             context = context.addFragments(skeletonFragments);
         }
 
-        // Emit pseudo-tool explanation for UX parity
         emitContextAddedExplanation(pathFragments, skeletonFragments);
     }
 
@@ -739,44 +609,20 @@ public class SearchAgent {
         io.llmOutput(explanation, ChatMessageType.AI);
     }
 
-    // =======================
-    // Answer/abort tools
-    // =======================
-
     @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
     public String performedInitialReview() {
-        logger.debug("performedInitialReview: workspace is already well-curated");
         return "Initial review complete; workspace is well-curated.";
-    }
-
-    @Tool("Provide a final answer to a purely informational request. Use this when no code changes are required.")
-    public String answer(
-            @P(
-                            "Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
-                    String explanation) {
-        io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI);
-        return explanation;
-    }
-
-    @Tool(
-            "Ask the human for clarification when the goal is unclear or necessary information cannot be found. Outputs the provided question to the user and stops.")
-    public String askForClarification(
-            @P("A concise question or clarification request for the human user.") String queryForUser) {
-        io.llmOutput(queryForUser, ChatMessageType.AI);
-        return queryForUser;
     }
 
     @Tool(
             "Signal that the Workspace now contains all the information necessary to accomplish the goal. Call this when you have finished gathering and pruning context.")
     public String workspaceComplete() {
-        logger.debug("workspaceComplete selected");
         return "Workspace marked complete for the current goal.";
     }
 
     @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")
     public String abortSearch(
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
-        logger.debug("abortSearch selected with explanation length {}", explanation.length());
         io.llmOutput(explanation, ChatMessageType.AI);
         return explanation;
     }
@@ -792,125 +638,60 @@ public class SearchAgent {
                 mcpTools.stream().filter(t -> t.toolName().equals(toolName)).findFirst();
 
         if (mcpToolOptional.isEmpty()) {
-            var err = "Error: MCP tool '" + toolName + "' not found in configuration.";
-            if (toolName.contains("(") || toolName.contains("{")) {
-                err = err
-                        + " Possible arguments found in the tool name. Hint: The first argument, 'toolName', is the tool name only. Any arguments must be defined as a map in the second argument, named 'arguments'.";
-            }
-            logger.warn(err);
-            return err;
+            return "Error: MCP tool '" + toolName + "' not found in configuration.";
         }
 
         var server = mcpToolOptional.get().server();
         try {
-            var projectRoot = this.cm.getProject().getRoot();
-            var result = McpUtils.callTool(server, toolName, args, projectRoot);
-            var preamble = McpPrompts.mcpToolPreamble();
-            var msg = preamble + "\n\n" + "MCP tool '" + toolName + "' output:\n" + result;
-            logger.info("MCP tool '{}' executed successfully via server '{}'", toolName, server.name());
-            return msg;
+            var result =
+                    McpUtils.callTool(server, toolName, args, cm.getProject().getRoot());
+            return McpPrompts.mcpToolPreamble() + "\n\n" + "MCP tool '" + toolName + "' output:\n" + result;
         } catch (IOException | RuntimeException e) {
-            var err = "Error calling MCP tool '" + toolName + "': " + e.getMessage();
-            logger.error(err, e);
-            return err;
+            return "Error calling MCP tool '" + toolName + "': " + e.getMessage();
         }
     }
 
-    @Tool(
-            "Invoke the Code Agent to implement the current goal in a single shot using your provided instructions. Provide complete, self-contained instructions; only the Workspace and your instructions are visible to the Code Agent.")
-    public String callCodeAgent(
-            @P("Detailed instructions for the CodeAgent, referencing the current project and Workspace.")
-                    String instructions)
-            throws InterruptedException, ToolRegistry.FatalLlmException {
-        // Append first the SearchAgent's result so far; CodeAgent appends its own result
-        context = scope.append(createResult("Search: " + goal, goal));
-
-        // Call the agent (actually Architect, not Code, so it can recover if the Context isn't quite complete)
-        logger.debug("SearchAgent.callCodeAgent invoked with instructions: {}", instructions);
-        var agent = new ArchitectAgent(
-                cm, cm.getService().getModel(ModelType.ARCHITECT), cm.getCodeModel(), instructions, scope, context);
-        var result = agent.execute();
-        var stopDetails = result.stopDetails();
-        var reason = stopDetails.reason();
-        context = scope.append(result);
-
-        if (reason == TaskResult.StopReason.SUCCESS) {
-            // housekeeping
-            new GitWorkflow(cm).performAutoCommit(instructions);
-            context = cm.compressHistory(context);
-            // CodeAgent appended its own result; we don't need to llmOutput anything redundant
-            logger.debug("SearchAgent.callCodeAgent finished successfully");
-            return "CodeAgent finished with a successful build!";
-        }
-
-        // handle failure
-        if (reason == TaskResult.StopReason.INTERRUPTED) {
-            throw new InterruptedException();
-        }
-        if (reason == TaskResult.StopReason.LLM_ERROR) {
-            io.llmOutput("# Code Agent\n\nFatal LLM error during CodeAgent execution.", ChatMessageType.AI);
-            logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
-            throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
-        }
-        throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.FATAL, stopDetails.explanation());
-    }
-
-    // =======================
-    // Finalization and errors
-    // =======================
-
-    private TaskResult createResult(String action, String goal) {
+    protected TaskResult createResult(String action, String goal) {
         return createResult(action, goal, taskMeta());
     }
 
-    private TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta) {
-        // Build final messages from already-streamed transcript
+    protected TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta) {
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
-
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
-        // Record final metrics
         recordFinalWorkspaceState();
         metrics.recordOutcome(stopDetails.reason(), getWorkspaceFileSet().size());
 
         return new TaskResult(action, fragment, context, stopDetails, meta);
     }
 
-    private TaskResult errorResult(TaskResult.StopDetails details) {
+    protected TaskResult errorResult(TaskResult.StopDetails details) {
         return errorResult(details, null);
     }
 
-    private TaskResult errorResult(TaskResult.StopDetails details, @Nullable TaskResult.TaskMeta meta) {
-        // Build final messages from already-streamed transcript
+    protected TaskResult errorResult(TaskResult.StopDetails details, @Nullable TaskResult.TaskMeta meta) {
         List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
-
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
-        // Record final metrics
         recordFinalWorkspaceState();
         metrics.recordOutcome(details.reason(), getWorkspaceFileSet().size());
 
         return new TaskResult(action, fragment, context, details, meta);
     }
 
-    private void recordFinalWorkspaceState() {
+    protected void recordFinalWorkspaceState() {
         metrics.recordFinalWorkspaceFiles(toRelativePaths(getWorkspaceFileSet()));
         metrics.recordFinalWorkspaceFragments(getWorkspaceFragments());
     }
 
-    /**
-     * Returns true if the fragment represents a workspace file (PROJECT_PATH or SKELETON).
-     * These are the fragment types that contribute actual files to the workspace for editing/viewing.
-     */
     private static boolean isWorkspaceFileFragment(ContextFragment f) {
         return f.getType() == ContextFragment.FragmentType.PROJECT_PATH
                 || f.getType() == ContextFragment.FragmentType.SKELETON;
     }
 
-    private Set<ProjectFile> getWorkspaceFileSet() {
-        // Allow time to compute
+    protected Set<ProjectFile> getWorkspaceFileSet() {
         try {
             context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
@@ -922,12 +703,11 @@ public class SearchAgent {
                 .collect(Collectors.toSet());
     }
 
-    private Set<String> toRelativePaths(Set<ProjectFile> files) {
+    protected Set<String> toRelativePaths(Set<ProjectFile> files) {
         return files.stream().map(pf -> pf.getRelPath().toString()).collect(Collectors.toSet());
     }
 
-    private List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
-        // Allow time to compute
+    protected List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
         try {
             context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
@@ -946,19 +726,11 @@ public class SearchAgent {
                 .toList();
     }
 
-    /**
-     * True when there exists at least one droppable fragment in the current workspace.
-     * A fragment is considered droppable if it is not pinned.
-     */
-    private boolean hasDroppableFragments() {
+    protected boolean hasDroppableFragments() {
         return context.allFragments().anyMatch(f -> !context.isPinned(f));
     }
 
-    // =======================
-    // State and summarization
-    // =======================
-
-    private boolean shouldSummarize(String toolName) {
+    protected boolean shouldSummarize(String toolName) {
         return Set.of(
                         "getSymbolLocations",
                         "searchSymbols",
@@ -972,7 +744,7 @@ public class SearchAgent {
                 .contains(toolName);
     }
 
-    private String summarizeResult(
+    protected String summarizeResult(
             String query, ToolExecutionRequest request, String rawResult, @Nullable String reasoning)
             throws InterruptedException {
         var sys = new SystemMessage(
@@ -999,23 +771,19 @@ public class SearchAgent {
                 """
                         .formatted(query, reasoning == null ? "" : reasoning, request.name(), rawResult));
         Llm.StreamingResult sr = summarizer.sendRequest(List.of(sys, user));
-        if (sr.error() != null) {
-            return rawResult; // fallback to raw
-        }
-        return sr.text();
+        return (sr.error() != null) ? rawResult : sr.text();
     }
 
-    private static Map<String, Object> getArgumentsMap(ToolExecutionRequest request) {
+    protected static Map<String, Object> getArgumentsMap(ToolExecutionRequest request) {
         try {
-            var mapper = new ObjectMapper();
-            return mapper.readValue(request.arguments(), new TypeReference<>() {});
+            return new ObjectMapper().readValue(request.arguments(), new TypeReference<>() {});
         } catch (JsonProcessingException e) {
             logger.error("Error parsing request args for {}: {}", request.name(), e.getMessage());
             return Map.of();
         }
     }
 
-    private TaskResult.TaskMeta taskMeta() {
+    protected TaskResult.TaskMeta taskMeta() {
         return new TaskResult.TaskMeta(TaskResult.Type.SEARCH, Service.ModelConfig.from(model, cm.getService()));
     }
 }

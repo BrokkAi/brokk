@@ -103,12 +103,13 @@ public class ContextHistory {
         this.diffService = new DiffService(this);
     }
 
-    private synchronized void replaceTopInternal(Context newLive) {
+    private synchronized Context replaceTopInternal(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
         history.removeLast();
         history.addLast(newLive);
         redo.clear();
         selected = newLive;
+        return newLive;
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
@@ -165,16 +166,42 @@ public class ContextHistory {
         return false;
     }
 
-    public synchronized Context push(Function<Context, Context> contextGenerator) {
-        var updatedLiveContext = contextGenerator.apply(liveContext());
-        // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
-        // materialize
-        if (Objects.equals(liveContext(), updatedLiveContext)) {
-            return liveContext();
-        }
+    public Context push(Function<Context, Context> contextGenerator) {
+        while (true) {
+            Context snapshot = liveContext();
+            Context updated = contextGenerator.apply(snapshot);
 
-        pushContext(updatedLiveContext);
-        return liveContext();
+            synchronized (this) {
+                // Verify the context hasn't changed since we started computing 'updated'
+                if (liveContext().equals(snapshot)) {
+                    if (Objects.equals(snapshot, updated)) {
+                        return snapshot;
+                    }
+                    pushContextInternal(updated, true);
+                    return liveContext();
+                }
+            }
+            // If we're here, context changed; loop and retry with the new liveContext
+        }
+    }
+
+    /**
+     * Inherently not undo-able, use with care!
+     */
+    public Context replaceTop(Function<Context, Context> contextGenerator) {
+        while (true) {
+            Context snapshot = liveContext();
+            Context updated = contextGenerator.apply(snapshot);
+
+            synchronized (this) {
+                if (liveContext().equals(snapshot)) {
+                    if (Objects.equals(snapshot, updated)) {
+                        return snapshot;
+                    }
+                    return replaceTopInternal(updated);
+                }
+            }
+        }
     }
 
     /**
