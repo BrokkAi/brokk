@@ -97,47 +97,40 @@ public class ReviewAgent {
 
             // User message with specific review directions
             messages.add(new UserMessage("""
-                    Review the proposed changes in the diff against the gathered context.
-                    
-                    When reviewing the code, think about the following points:
-                    - What is this code intended to do?
-                    - Does it accomplish its goals in the simplest way possible?
-                    - What parts are the trickiest and how could they be simplified?
-                    - What additional tests, if any, would add the most value?
-                    
-                    ## Response Format
-                    
-                    You MUST respond using the `createReview` tool with your structured feedback.
-                    
-                    ## Code Excerpts (IMPORTANT)
-                    
-                    When referencing code in your review, you must use the BRK_EXCERPT mechanism:
-                    
-                    1. In the tool call, provide excerpts as a list of `CodeExcerpt` objects. Each excerpt needs:
-                       - `file`: The filename (use "BRK_EXCERPT" as a placeholder)
-                       - `excerpt`: Use a placeholder like "BRK_EXCERPT_0", "BRK_EXCERPT_1", etc.
-                    
-                    2. In the `designNotes` and `tacticalNotes`, reference excerpts by their integer `id`.
-                    
-                    3. In your text response OUTSIDE the tool call, provide the actual code blocks using this EXACT format:
-                    
-                    ```
-                    BRK_EXCERPT_0
-                    path/to/file.java
-                    ```java
-                    // actual code here
-                    ```
-                    
-                    BRK_EXCERPT_1
-                    path/to/another/file.java
-                    ```java
-                    // more code here
-                    ```
-                    
-                    This separation allows code excerpts to be displayed properly while keeping the tool call clean.
-                    
-                    Now analyze the diff and provide your structured review.
-                    """));
+            Review the proposed changes in the diff against the gathered context.
+            ALL of the following steps are REQUIRED.
+            
+            ### Step 1: Analysis
+            Think step-by-step about the intent, design, and testing gaps:
+              - What is this code intended to do?
+              - Does it accomplish its goals in the simplest way possible?
+              - What parts are the trickiest and how could they be simplified?
+              - What additional tests, if any, would add the most value?
+            
+            ### Step 2: Code Excerpt Extraction
+            Before calling any tools, you MUST output the subtle, tricky,
+            or potentially incorrect blocks of code directly in your response text. Use this exact format,
+            with sequentially numbered, 0-based blocks:
+            
+            BRK_EXCERPT_0
+            path/to/filename.java
+            ```java
+            // code here
+            ```
+
+            BRK_EXCERPT_1
+            path/to/another_file.py
+            ```
+            // code here
+            ```
+
+            ### Step 3: Structured Tool Call
+            Finally, call createReview.
+            
+            Refer to the excerpts you listed by their ordinal id [1, 2, ...] in your design and tactical notes.
+            
+            IMPORTANT: Do not skip Step 2 or you will not be able to reference meaningful excerpts!
+            """));
 
             var tr = cm.getToolRegistry().builder().register(this).build();
             var toolSpecs = tr.getTools(List.of("createReview"));
