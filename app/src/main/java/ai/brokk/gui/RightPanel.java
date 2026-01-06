@@ -41,6 +41,10 @@ public class RightPanel extends JPanel implements ThemeAware {
     private @Nullable JSplitPane verticalActivityCombinedPanel = null;
     private @Nullable JSplitPane verticalLayoutLeftSplit = null;
 
+    private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame buildFrame = null;
+    private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame reviewFrame = null;
+    private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame terminalFrame = null;
+
     // Review tab infrastructure
     private final JComponent reviewTabComponent;
 
@@ -395,15 +399,84 @@ public class RightPanel extends JPanel implements ThemeAware {
                 if (tabIndex == -1) return;
 
                 String title = buildReviewTabs.getTitleAt(tabIndex);
-                if ("Preview".equals(title)) {
-                    JPopupMenu popup = new JPopupMenu();
+                JPopupMenu popup = new JPopupMenu();
+                if ("Build".equals(title)) {
+                    JMenuItem undockItem = new JMenuItem("Undock Build", Icons.HANDYMAN);
+                    undockItem.addActionListener(ae -> undockBuild());
+                    popup.add(undockItem);
+                } else if ("Review".equals(title)) {
+                    JMenuItem undockItem = new JMenuItem("Undock Review", Icons.FLOWSHEET);
+                    undockItem.addActionListener(ae -> undockReview());
+                    popup.add(undockItem);
+                } else if ("Preview".equals(title)) {
                     JMenuItem undockItem = new JMenuItem("Undock Preview", Icons.VISIBILITY);
                     undockItem.addActionListener(ae -> undockPreview());
                     popup.add(undockItem);
+                } else if ("Terminal".equals(title)) {
+                    JMenuItem undockItem = new JMenuItem("Undock Terminal", Icons.TERMINAL);
+                    undockItem.addActionListener(ae -> undockTerminal());
+                    popup.add(undockItem);
+                }
+
+                if (popup.getComponentCount() > 0) {
                     popup.show(buildReviewTabs, e.getX(), e.getY());
                 }
             }
         });
+    }
+
+    private void undockBuild() {
+        if (!GlobalUiSettings.isBuildDocked()) return;
+
+        GlobalUiSettings.saveBuildDocked(false);
+        int idx = buildReviewTabs.indexOfTab("Build");
+        if (idx != -1) {
+            buildReviewTabs.removeTabAt(idx);
+        }
+
+        buildFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Build", buildSplitPane, Icons.HANDYMAN, this::redockBuild);
+        buildFrame.setVisible(true);
+    }
+
+    public void redockBuild() {
+        if (GlobalUiSettings.isBuildDocked()) return;
+
+        GlobalUiSettings.saveBuildDocked(true);
+        buildReviewTabs.insertTab("Build", Icons.HANDYMAN, buildSplitPane, null, 0);
+        buildReviewTabs.setSelectedIndex(0);
+
+        if (buildFrame != null) {
+            buildFrame.dispose();
+            buildFrame = null;
+        }
+    }
+
+    private void undockReview() {
+        if (!GlobalUiSettings.isReviewDocked()) return;
+
+        GlobalUiSettings.saveReviewDocked(false);
+        int idx = buildReviewTabs.indexOfTab("Review");
+        if (idx != -1) {
+            buildReviewTabs.removeTabAt(idx);
+        }
+
+        reviewFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Review", reviewTabComponent, Icons.FLOWSHEET, this::redockReview);
+        reviewFrame.setVisible(true);
+    }
+
+    public void redockReview() {
+        if (GlobalUiSettings.isReviewDocked()) return;
+
+        GlobalUiSettings.saveReviewDocked(true);
+        // Review is 2nd (after Build)
+        int idx = Math.min(1, buildReviewTabs.getTabCount());
+        buildReviewTabs.insertTab("Review", Icons.FLOWSHEET, reviewTabComponent, null, idx);
+        buildReviewTabs.setSelectedIndex(idx);
+
+        if (reviewFrame != null) {
+            reviewFrame.dispose();
+            reviewFrame = null;
+        }
     }
 
     private void undockPreview() {
@@ -436,6 +509,32 @@ public class RightPanel extends JPanel implements ThemeAware {
         }
 
         selectPreviewTab();
+    }
+
+    private void undockTerminal() {
+        if (!GlobalUiSettings.isTerminalDocked()) return;
+
+        GlobalUiSettings.saveTerminalDocked(false);
+        int idx = buildReviewTabs.indexOfTab("Terminal");
+        if (idx != -1) {
+            buildReviewTabs.removeTabAt(idx);
+        }
+
+        terminalFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Terminal", terminalPanel, Icons.TERMINAL, this::redockTerminal);
+        terminalFrame.setVisible(true);
+    }
+
+    public void redockTerminal() {
+        if (GlobalUiSettings.isTerminalDocked()) return;
+
+        GlobalUiSettings.saveTerminalDocked(true);
+        buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+        selectTerminalTab();
+
+        if (terminalFrame != null) {
+            terminalFrame.dispose();
+            terminalFrame = null;
+        }
     }
 
     public void setPreviewDocked(boolean docked) {
