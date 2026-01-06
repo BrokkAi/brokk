@@ -60,6 +60,9 @@ public final class GlobalUiSettings {
     private static final String KEY_CLONE_DIRECTORY = "clone.lastDirectory";
     private static final String KEY_SKIP_COMMIT_GATE_EZ_MODE = "ui.skipCommitGateEzMode";
     private static final String KEY_PREVIEW_DOCKED = "preview.docked";
+    private static final String KEY_BUILD_DOCKED = "build.docked";
+    private static final String KEY_REVIEW_DOCKED = "review.docked";
+    private static final String KEY_TERMINAL_DOCKED = "terminal.docked";
 
     private static volatile @Nullable Properties cachedProps;
 
@@ -420,6 +423,33 @@ public final class GlobalUiSettings {
 
     public static void savePreviewDocked(boolean docked) {
         setBoolean(KEY_PREVIEW_DOCKED, docked);
+    }
+
+    // Build docked state (default: true = docked in RightPanel)
+    public static boolean isBuildDocked() {
+        return getBoolean(KEY_BUILD_DOCKED, true);
+    }
+
+    public static void saveBuildDocked(boolean docked) {
+        setBoolean(KEY_BUILD_DOCKED, docked);
+    }
+
+    // Review docked state (default: true = docked in RightPanel)
+    public static boolean isReviewDocked() {
+        return getBoolean(KEY_REVIEW_DOCKED, true);
+    }
+
+    public static void saveReviewDocked(boolean docked) {
+        setBoolean(KEY_REVIEW_DOCKED, docked);
+    }
+
+    // Terminal docked state (default: true = docked in RightPanel)
+    public static boolean isTerminalDocked() {
+        return getBoolean(KEY_TERMINAL_DOCKED, true);
+    }
+
+    public static void saveTerminalDocked(boolean docked) {
+        setBoolean(KEY_TERMINAL_DOCKED, docked);
     }
 
     public static boolean isVerticalActivityLayout() {
