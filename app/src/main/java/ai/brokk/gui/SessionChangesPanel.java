@@ -604,7 +604,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // Mimic the ReviewListPanel layout to prevent "bouncing"
         JPanel progressPanel = new JPanel(new BorderLayout());
         progressPanel.setBackground(ThemeColors.getPanelBackground());
-        
+        progressPanel.setMinimumSize(new Dimension(200, 200));
+        progressPanel.setPreferredSize(listPanel.getPreferredSize());
+
         JPanel shimHeader = new JPanel(new BorderLayout());
         shimHeader.setOpaque(false);
         shimHeader.setBorder(new EmptyBorder(10, 10, 10, 10));
