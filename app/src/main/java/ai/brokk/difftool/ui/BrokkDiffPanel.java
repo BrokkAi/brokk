@@ -72,8 +72,9 @@ public class BrokkDiffPanel extends JPanel
     private final JCheckBoxMenuItem menuShowAllLines = new JCheckBoxMenuItem("Show All Lines");
     private final JCheckBoxMenuItem menuShowBlankLineDiffs = new JCheckBoxMenuItem("Show Empty Line Diffs");
 
-    // Global preferences loaded from GlobalUiSettings
-    private boolean globalShowAllLinesInUnified = GlobalUiSettings.isDiffShowAllLines();
+    // Settings loaded from GlobalUiSettings on start()
+    private boolean globalShowAllLinesInUnified;
+    private boolean isUnifiedView;
 
     // Toolbar for UI controls
     @Nullable
@@ -83,160 +84,6 @@ public class BrokkDiffPanel extends JPanel
     private final DiffDisplayCore core;
     private final boolean isMultipleCommitsContext;
     private final boolean forceFileTree;
-
-    // View mode state loaded from GlobalUiSettings
-    private boolean isUnifiedView = GlobalUiSettings.isDiffUnifiedView();
-
-    /** Creates and displays a diff panel using the optimal sync/async strategy. */
-    public static void createDiffPanel(
-            BufferSource leftSource,
-            BufferSource rightSource,
-            BrokkDiffPanel mainPanel,
-            GuiTheme theme,
-            ContextManager contextManager,
-            boolean isMultipleCommitsContext,
-            int fileIndex) {
-
-        long startTime = System.currentTimeMillis();
-
-        long maxSize = Math.max(leftSource.sizeInBytes(), rightSource.sizeInBytes());
-
-        var sizeValidationError = FileComparisonHelper.validateFileSizes(leftSource, rightSource);
-        if (sizeValidationError != null) {
-            logger.error("File size validation failed: {}", sizeValidationError);
-
-            // Show error on EDT and clear loading state
-            SwingUtilities.invokeLater(() -> {
-                // Clear the loading state and re-enable buttons
-                mainPanel.displayErrorForFile(fileIndex, sizeValidationError);
-            });
-            return; // Don't process the file
-        }
-
-        // Warn about potentially problematic files
-        if (maxSize > PerformanceConstants.HUGE_FILE_THRESHOLD_BYTES) {
-            logger.warn("Processing huge file ({} bytes): may cause memory issues", maxSize);
-        }
-
-        // Use async for large files
-        boolean useAsync = maxSize > PerformanceConstants.LARGE_FILE_THRESHOLD_BYTES;
-
-        if (useAsync) {
-            createAsyncDiffPanel(
-                    leftSource,
-                    rightSource,
-                    mainPanel,
-                    theme,
-                    contextManager,
-                    isMultipleCommitsContext,
-                    fileIndex,
-                    startTime);
-        } else {
-            createSyncDiffPanel(
-                    leftSource,
-                    rightSource,
-                    mainPanel,
-                    theme,
-                    contextManager,
-                    isMultipleCommitsContext,
-                    fileIndex,
-                    startTime);
-        }
-    }
-
-    /** Synchronous diff creation for small files - faster and simpler. */
-    private static void createSyncDiffPanel(
-            BufferSource leftSource,
-            BufferSource rightSource,
-            BrokkDiffPanel mainPanel,
-            GuiTheme theme,
-            ContextManager contextManager,
-            boolean isMultipleCommitsContext,
-            int fileIndex,
-            long startTime) {
-
-        SwingUtilities.invokeLater(() -> {
-            long diffStartTime = System.currentTimeMillis();
-
-            var diffNode = FileComparisonHelper.createDiffNode(
-                    leftSource, rightSource, contextManager, isMultipleCommitsContext);
-
-            long diffCreationTime = System.currentTimeMillis() - diffStartTime;
-            if (diffCreationTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS / 2) {
-                logger.warn("Slow diff node creation: {}ms", diffCreationTime);
-            }
-
-            buildAndDisplayPanelOnEdt(diffNode, mainPanel, theme, fileIndex);
-
-            long elapsedTime = System.currentTimeMillis() - startTime;
-            if (elapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS) {
-                logger.warn("Slow sync diff creation: {}ms", elapsedTime);
-            }
-        });
-    }
-
-    private void cachePanel(int index, AbstractDiffPanel panel) {
-        // This is now managed by DiffDisplayCore, but we keep this as a proxy if needed
-        // or remove calls to it.
-    }
-
-    /**
-     * Asynchronous diff creation for large files - prevents UI blocking. Uses simple background thread instead of
-     * over-engineered SwingWorker.
-     */
-    private static void createAsyncDiffPanel(
-            BufferSource leftSource,
-            BufferSource rightSource,
-            BrokkDiffPanel mainPanel,
-            GuiTheme theme,
-            ContextManager contextManager,
-            boolean isMultipleCommitsContext,
-            int fileIndex,
-            long startTime) {
-
-        var taskDescription = "Computing diff: %s"
-                .formatted(mainPanel.core.getFileComparisons().get(fileIndex).getDisplayName());
-
-        contextManager.submitBackgroundTask(taskDescription, () -> {
-            var diffNode = FileComparisonHelper.createDiffNode(
-                    leftSource, rightSource, contextManager, isMultipleCommitsContext);
-
-            diffNode.diff();
-
-            SwingUtilities.invokeLater(() -> {
-                buildAndDisplayPanelOnEdt(diffNode, mainPanel, theme, fileIndex);
-
-                long elapsedTime = System.currentTimeMillis() - startTime;
-                if (elapsedTime > PerformanceConstants.SLOW_UPDATE_THRESHOLD_MS * 5) {
-                    logger.warn("Slow async diff creation: {}ms", elapsedTime);
-                }
-            });
-            return null;
-        });
-    }
-
-    /** Creates, caches, and displays the appropriate diff panel on the EDT. */
-    private static void buildAndDisplayPanelOnEdt(
-            JMDiffNode diffNode, BrokkDiffPanel mainPanel, GuiTheme theme, int fileIndex) {
-        AbstractDiffPanel panel;
-        if (mainPanel.isUnifiedView()) {
-            var unifiedPanel = new UnifiedDiffPanel(mainPanel, theme, diffNode);
-
-            // Apply global context mode preference from main panel
-            var targetMode = mainPanel.getGlobalShowAllLinesInUnified()
-                    ? UnifiedDiffDocument.ContextMode.FULL_CONTEXT
-                    : UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
-            unifiedPanel.setContextMode(targetMode);
-
-            panel = unifiedPanel;
-        } else {
-            var bufferPanel = new BufferDiffPanel(mainPanel, theme);
-            bufferPanel.setDiffNode(diffNode);
-            panel = bufferPanel;
-        }
-
-        mainPanel.displayAndRefreshPanel(fileIndex, panel);
-    }
 
 
     public BrokkDiffPanel(Builder builder, GuiTheme theme) {
@@ -314,8 +161,6 @@ public class BrokkDiffPanel extends JPanel
         });
 
         // Set up menu items
-        menuShowBlankLineDiffs.setSelected(GlobalUiSettings.isDiffShowBlankLines());
-        JMDiffNode.setIgnoreBlankLineDiffs(!GlobalUiSettings.isDiffShowBlankLines());
         menuShowBlankLineDiffs.addActionListener(e -> {
             boolean show = menuShowBlankLineDiffs.isSelected();
             GlobalUiSettings.saveDiffShowBlankLines(show);
@@ -323,7 +168,6 @@ public class BrokkDiffPanel extends JPanel
             refreshAllDiffPanels();
         });
 
-        menuShowAllLines.setSelected(globalShowAllLinesInUnified);
         menuShowAllLines.addActionListener(e -> {
             boolean showAll = menuShowAllLines.isSelected();
             globalShowAllLinesInUnified = showAll;
@@ -338,10 +182,6 @@ public class BrokkDiffPanel extends JPanel
             }
         });
 
-        boolean initialBlameState = GlobalUiSettings.isDiffShowBlame();
-        boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
-        menuShowBlame.setSelected(initialBlameState && isGitRepo);
-        menuShowBlame.setEnabled(isGitRepo);
         menuShowBlame.addActionListener(e -> {
             var panel = getCurrentContentPanel();
             boolean show = menuShowBlame.isSelected();
@@ -354,7 +194,6 @@ public class BrokkDiffPanel extends JPanel
             }
         });
 
-        viewModeToggle.setSelected(isUnifiedView); // Load from global preference
         // Set up view mode toggle with icons
         viewModeToggle.setIcon(Icons.VIEW_UNIFIED); // Show unified icon when in side-by-side mode
         viewModeToggle.setSelectedIcon(Icons.VIEW_SIDE_BY_SIDE); // Show side-by-side icon when in unified mode
@@ -454,6 +293,21 @@ public class BrokkDiffPanel extends JPanel
             return;
         }
         started = true;
+
+        // Initialize settings from GlobalUiSettings
+        this.globalShowAllLinesInUnified = GlobalUiSettings.isDiffShowAllLines();
+        this.isUnifiedView = GlobalUiSettings.isDiffUnifiedView();
+
+        // Update menu/toggle states to match loaded settings
+        menuShowBlankLineDiffs.setSelected(GlobalUiSettings.isDiffShowBlankLines());
+        JMDiffNode.setIgnoreBlankLineDiffs(!GlobalUiSettings.isDiffShowBlankLines());
+        menuShowAllLines.setSelected(globalShowAllLinesInUnified);
+        viewModeToggle.setSelected(isUnifiedView);
+
+        boolean isGitRepo = contextManager.getProject().getRepo() instanceof GitRepo;
+        menuShowBlame.setSelected(GlobalUiSettings.isDiffShowBlame() && isGitRepo);
+        menuShowBlame.setEnabled(isGitRepo);
+
         getTabbedPane().setFocusable(false);
         setLayout(new BorderLayout());
         KeyboardShortcutUtil.registerCloseEscapeShortcut(this, this::close);
@@ -627,10 +481,6 @@ public class BrokkDiffPanel extends JPanel
 
         btnPreviousFile.setEnabled(canNavigateToPreviousFile());
         btnNextFile.setEnabled(canNavigateToNextFile());
-    }
-
-    private void loadFileOnDemand(int index, boolean b) {
-        core.showFile(index);
     }
 
     /**
@@ -1236,26 +1086,6 @@ public class BrokkDiffPanel extends JPanel
         core.showFile(core.getCurrentIndex());
     }
 
-
-    private void showLoadingForFile() {
-        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-
-        // Disable all control buttons during loading
-        disableAllControlButtons();
-
-        // Clear existing tabs and show loading label at top center
-        tabbedPane.removeAll();
-
-        // Create a panel to hold the loading label at the top
-        var loadingPanel = new JPanel(new BorderLayout());
-        loadingPanel.add(loadingLabel, BorderLayout.NORTH);
-        add(loadingPanel, BorderLayout.CENTER);
-
-        revalidate();
-        repaint();
-    }
-
-
     /**
      * Display an error message for a file that cannot be loaded. Clears the loading state and shows the error message.
      */
@@ -1266,34 +1096,32 @@ public class BrokkDiffPanel extends JPanel
 
         var compInfo = core.getFileComparisons().get(fileIndex);
 
-        // Remove loading panel if present
-        for (var component : getComponents()) {
-            if (component instanceof JPanel panel && panel.getComponentCount() > 0) {
-                if (panel.getComponent(0) == loadingLabel) {
-                    remove(panel);
-                    break;
-                }
-            }
-        }
+        // Remove loading UI if present
+        removeLoadingUi();
 
         // Clear tabs and show error message
         tabbedPane.removeAll();
 
-        // Create error panel similar to loading panel
+        // Create error panel
         var errorPanel = new JPanel(new BorderLayout());
         var errorLabel = createErrorLabel(errorMessage);
         errorPanel.add(errorLabel, BorderLayout.NORTH);
 
-        tabbedPane.addTab(compInfo.getDisplayName() + " (Too Big)", errorPanel);
-
-        // Update file indicator
-        compInfo.getDisplayName();
-        // No-op: filename label removed from toolbar
+        tabbedPane.addTab(compInfo.getDisplayName() + " (Error)", errorPanel);
 
         // Re-enable navigation buttons but keep current panel null
         updateNavigationButtons();
 
         refreshUI();
+    }
+
+    private void removeLoadingUi() {
+        for (var component : getComponents()) {
+            if (component instanceof JPanel p && p.getComponentCount() > 0 && p.getComponent(0) == loadingLabel) {
+                remove(p);
+                break;
+            }
+        }
     }
 
     @Nullable
@@ -1689,14 +1517,8 @@ public class BrokkDiffPanel extends JPanel
      */
     public void displayAndRefreshPanel(int fileIndex, AbstractDiffPanel panel) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        
-        // Remove loading panel if present
-        for (var component : getComponents()) {
-            if (component instanceof JPanel p && p.getComponentCount() > 0 && p.getComponent(0) == loadingLabel) {
-                remove(p);
-                break;
-            }
-        }
+
+        removeLoadingUi();
 
         tabbedPane.removeAll();
         tabbedPane.addTab(panel.getTitle(), panel.getComponent());
@@ -1708,7 +1530,7 @@ public class BrokkDiffPanel extends JPanel
 
         panel.resetAutoScrollFlag();
         panel.resetToFirstDifference();
-        
+
         if (getCurrentFontIndex() >= 0) {
             panel.applyEditorFontSize(FONT_SIZES.get(getCurrentFontIndex()));
         }
@@ -2206,7 +2028,7 @@ public class BrokkDiffPanel extends JPanel
         // Force cache invalidation
         core.clearCache();
 
-        // Refresh the current file with the new view mode (skip loading UI since we already have the data)
-        loadFileOnDemand(core.getCurrentIndex(), true);
+        // Refresh the current file with the new view mode
+        core.showFile(core.getCurrentIndex());
     }
 }
