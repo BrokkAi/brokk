@@ -137,7 +137,7 @@ public class ReviewAgent {
         }
     }
 
-    private @Nullable FileComparisonInfo findFileComparison(String relPath) {
+    static @Nullable FileComparisonInfo findFileComparison(String relPath, List<FileComparisonInfo> fileComparisons) {
         return fileComparisons.stream()
                 .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
                         || relPath.equals(info.rightSource().filename())
@@ -146,9 +146,9 @@ public class ReviewAgent {
                 .orElse(null);
     }
 
-    private record ExcerptMatch(int line, ICodeReview.DiffSide side, String matchedText) {}
+    record ExcerptMatch(int line, ICodeReview.DiffSide side, String matchedText) {}
 
-    private @Nullable ExcerptMatch matchExcerptInFile(CodeExcerpt excerpt, FileComparisonInfo fileInfo) {
+    static @Nullable ExcerptMatch matchExcerptInFile(CodeExcerpt excerpt, FileComparisonInfo fileInfo) {
         String[] excerptLines = excerpt.excerpt().split("\\R", -1);
 
         // Try NEW content first
@@ -172,7 +172,7 @@ public class ReviewAgent {
         return null;
     }
 
-    private ai.brokk.util.WhitespaceMatch findBestMatch(
+    static ai.brokk.util.WhitespaceMatch findBestMatch(
             List<ai.brokk.util.WhitespaceMatch> matches, int targetLine) {
         var best = matches.getFirst();
         int minDelta = Math.abs(best.startLine() + 1 - targetLine);
@@ -251,7 +251,7 @@ public class ReviewAgent {
                 int id = entry.getKey();
                 CodeExcerpt excerpt = entry.getValue();
 
-                FileComparisonInfo fileInfo = findFileComparison(excerpt.file());
+                FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
                 if (fileInfo == null) {
                     errors.put(id, "File not in diff: " + excerpt.file());
                     continue;
