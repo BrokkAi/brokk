@@ -480,38 +480,35 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
             }
 
             // 2. Inspect parameters: must have exactly one parameter of type testing.T or *testing.T
-            int paramCount = 0;
-            TSNode singleParamDecl = null;
+            // In Go: "func Test(t *testing.T)" has 1 parameter_declaration with 1 identifier.
+            // "func Test(a, b *testing.T)" has 1 parameter_declaration with 2 identifiers.
+            // "func Test(a T1, b T2)" has 2 parameter_declarations.
+            int totalIdentifierCount = 0;
+            TSNode firstParamDecl = null;
+
             for (int i = 0; i < paramsNode.getNamedChildCount(); i++) {
                 TSNode child = paramsNode.getNamedChild(i);
                 if (PARAMETER_DECLARATION.equals(child.getType())) {
-                    paramCount++;
-                    singleParamDecl = child;
+                    if (firstParamDecl == null) {
+                        firstParamDecl = child;
+                    }
+                    for (int j = 0; j < child.getNamedChildCount(); j++) {
+                        if ("identifier".equals(child.getNamedChild(j).getType())) {
+                            totalIdentifierCount++;
+                        }
+                    }
                 }
             }
 
-            if (paramCount != 1 || singleParamDecl == null) {
+            if (totalIdentifierCount != 1 || firstParamDecl == null) {
                 continue;
             }
 
-            // Ensure the single parameter declaration only contains one identifier.
-            // In Go: "func(a, b *testing.T)" is one parameter_declaration with two identifiers.
-            // A valid test must have exactly one identifier: "func(t *testing.T)".
-            int identifierCount = 0;
-            for (int i = 0; i < singleParamDecl.getNamedChildCount(); i++) {
-                if ("identifier".equals(singleParamDecl.getNamedChild(i).getType())) {
-                    identifierCount++;
-                }
-            }
-            if (identifierCount != 1) {
-                continue;
-            }
-
-            TSNode typeNode = singleParamDecl.getChildByFieldName(FIELD_TYPE);
+            TSNode typeNode = firstParamDecl.getChildByFieldName(FIELD_TYPE);
             // Fallback for types without field name (depending on TS version/grammar)
             if (typeNode == null || typeNode.isNull()) {
-                for (int i = 0; i < singleParamDecl.getNamedChildCount(); i++) {
-                    TSNode child = singleParamDecl.getNamedChild(i);
+                for (int i = 0; i < firstParamDecl.getNamedChildCount(); i++) {
+                    TSNode child = firstParamDecl.getNamedChild(i);
                     String type = child.getType();
                     if (POINTER_TYPE.equals(type) || QUALIFIED_TYPE.equals(type) || TYPE_IDENTIFIER.equals(type)) {
                         typeNode = child;
