@@ -45,7 +45,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
 
         contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        contentPanel.setBorder(new EmptyBorder(0, 15, 10, 15)); // Stylish wide margins
+        contentPanel.setBorder(new EmptyBorder(0, 0, 10, 0));
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(null);
@@ -64,6 +64,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
             if (c instanceof JLabel label) {
                 label.setOpaque(false);
                 label.setBackground(null);
+                label.setForeground(javax.swing.UIManager.getColor("Label.foreground"));
             }
         }
         repaint();
@@ -72,22 +73,29 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
     public void displayReview(GuidedReview review) {
         contentPanel.removeAll();
 
-        addHeader("Overview");
-        addItem("Overview", review.overview());
+        addItem("Overview", review.overview(), true);
 
         addHeader("Design");
         for (DesignFeedback design : review.designNotes()) {
-            addItem(design.title(), design);
+            addItem(design.title(), design, false);
         }
 
         addHeader("Tactical");
         for (TacticalFeedback tactical : review.tacticalNotes()) {
-            addItem(tactical.title(), tactical);
+            addItem(tactical.title(), tactical, false);
         }
 
         addHeader("Tests");
         for (ReviewFeedback test : review.additionalTests()) {
-            addItem(test.title(), test);
+            addItem(test.title(), test, false);
+        }
+
+        // Auto-select Overview
+        for (Component c : contentPanel.getComponents()) {
+            if (c instanceof JLabel label && "Overview".equals(label.getText())) {
+                selectItem(label, review.overview());
+                break;
+            }
         }
 
         revalidate();
@@ -97,26 +105,41 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
     private void addHeader(String title) {
         JLabel header = new JLabel(title);
         header.setFont(header.getFont().deriveFont(Font.BOLD, 12f));
-        header.setBorder(new EmptyBorder(15, 0, 5, 0));
+        header.setBorder(new EmptyBorder(15, 15, 5, 15));
+        header.setAlignmentX(Component.LEFT_ALIGNMENT);
+        header.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, header.getPreferredSize().height));
         contentPanel.add(header);
     }
 
-    private void addItem(String label, Object data) {
+    private void addItem(String label, Object data, boolean isHeaderStyle) {
         logger.debug("addItem: label='{}', data={}", label, data.getClass().getSimpleName());
-        JLabel item = new JLabel("• " + label);
+        JLabel item = new JLabel(label);
+        if (isHeaderStyle) {
+            item.setFont(item.getFont().deriveFont(Font.BOLD, 12f));
+            item.setBorder(new EmptyBorder(15, 15, 5, 15));
+        } else {
+            item.setBorder(new EmptyBorder(4, 25, 4, 15));
+        }
         item.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        item.setBorder(new EmptyBorder(4, 5, 4, 5));
         item.setAlignmentX(Component.LEFT_ALIGNMENT);
+        item.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, item.getPreferredSize().height));
+
         item.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                clearSelection();
-                item.setOpaque(true);
-                item.setBackground(javax.swing.UIManager.getColor("List.selectionBackground"));
-                onItemSelected.accept(data);
+                selectItem(item, data);
             }
         });
         contentPanel.add(item);
+    }
+
+    private void selectItem(JLabel item, Object data) {
+        clearSelection();
+        item.setOpaque(true);
+        item.setBackground(javax.swing.UIManager.getColor("List.selectionBackground"));
+        item.setForeground(javax.swing.UIManager.getColor("List.selectionForeground"));
+        onItemSelected.accept(data);
+        repaint();
     }
 
     @Override
