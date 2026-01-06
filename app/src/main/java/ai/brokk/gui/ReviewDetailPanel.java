@@ -152,8 +152,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         }
 
         for (CodeExcerpt ce : excerpts) {
-            String filePath = ce.file();
-            String fileName = filePath.contains("/") ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
+            String fileName = ce.file().getRelPath().getFileName().toString();
             String sideSuffix = (ce.side() == ReviewParser.DiffSide.OLD) ? " (old)" : "";
             String labelText = String.format("%s:%d%s", fileName, ce.line(), sideSuffix);
             JLabel label = new JLabel("<html><a href='#'>" + labelText + "</a></html>");

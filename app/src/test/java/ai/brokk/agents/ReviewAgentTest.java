@@ -135,8 +135,8 @@ class ReviewAgentTest {
         Map<Integer, CodeExcerpt> result = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
 
         assertEquals(2, result.size());
-        assertEquals("file1.java", result.get(0).file());
-        assertEquals("file2.java", result.get(1).file());
+        assertEquals("file1.java", result.get(0).file().toString());
+        assertEquals("file2.java", result.get(1).file().toString());
     }
 
     @Test
@@ -299,7 +299,7 @@ class ReviewAgentTest {
         Map<Integer, CodeExcerpt> result = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
 
         assertEquals(2, result.size(), "Should have accumulated both excerpts");
-        assertEquals("good.java", result.get(0).file());
-        assertEquals("fixed.java", result.get(1).file());
+        assertEquals("good.java", result.get(0).file().toString());
+        assertEquals("fixed.java", result.get(1).file().toString());
     }
 }

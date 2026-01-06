@@ -138,15 +138,18 @@ public class ReviewAgent {
                     resolvedExcerpts.entrySet().stream()
                             .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().excerpt())),
                     resolvedExcerpts.entrySet().stream()
-                            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().file())),
-                    (file, content) -> resolvedExcerpts.values().stream()
-                            .filter(e -> e.file().equals(file) && e.excerpt().equals(content))
-                            .findFirst()
-                            .orElse(new ReviewParser.CodeExcerpt(
-                                    requireNonNullElse(file, "unknown"),
-                                    1, // Default to line 1 if unresolved
-                                    ReviewParser.DiffSide.NEW,
-                                    requireNonNullElse(content, ""))));
+                            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().file().toString())),
+                    (file, content) -> {
+                        var fileObj = (file != null) ? cm.toFile(file) : cm.toFile("unknown");
+                        return resolvedExcerpts.values().stream()
+                                .filter(e -> e.file().equals(fileObj) && e.excerpt().equals(content))
+                                .findFirst()
+                                .orElse(new ReviewParser.CodeExcerpt(
+                                        fileObj,
+                                        1, // Default to line 1 if unresolved
+                                        ReviewParser.DiffSide.NEW,
+                                        content));
+                    });
         }
     }
 
@@ -263,7 +266,7 @@ public class ReviewAgent {
                     stage2Errors.put(id, "Excerpt text not found in file content");
                 } else {
                     resolvedExcerpts.put(id, new CodeExcerpt(
-                            excerpt.file(),
+                            cm.toFile(excerpt.file()),
                             match.line(),
                             match.side(),
                             match.matchedText()));

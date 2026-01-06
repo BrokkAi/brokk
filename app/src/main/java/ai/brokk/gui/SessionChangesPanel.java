@@ -522,8 +522,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel.addReviewNavigationListener(ce -> {
             if (fileTreePanel != null) fileTreePanel.clearSelection();
             activeExcerpt = ce;
-            ProjectFile pf = contextManager.toFile(ce.file());
-            diffCore.showLocation(pf, ce.line(), ce.side());
+            diffCore.showLocation(ce.file(), ce.line(), ce.side());
         });
 
         // Left column: Review List above File Tree
@@ -714,7 +713,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     for (var excerpt : design.excerpts()) {
                         logger.info(
                                 "    Excerpt file='{}', excerpt={} chars",
-                                excerpt.file(),
+                                excerpt.file().toString(),
                                 excerpt.excerpt().length());
                     }
                 }
@@ -727,7 +726,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             "  TacticalNote[{}] title='{}', file='{}', excerpt={} chars, recommendation={} chars",
                             i,
                             tactical.title(),
-                            tactical.excerpt().file(),
+                            tactical.excerpt().file().toString(),
                             tactical.excerpt().excerpt().length(),
                             tactical.recommendation().length());
                 }

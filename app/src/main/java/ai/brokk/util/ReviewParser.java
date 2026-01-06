@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import ai.brokk.analyzer.ProjectFile;
 import org.jspecify.annotations.NullMarked;
 
 /**
@@ -175,7 +177,7 @@ public class ReviewParser {
     public record RawExcerpt(String file, int line, String excerpt) {
     }
 
-    public record CodeExcerpt(String file, int line, DiffSide side, String excerpt) {
+    public record CodeExcerpt(ProjectFile file, int line, DiffSide side, String excerpt) {
     }
 
     public record RawDesignFeedback(String title, String description, List<Integer> excerptIds, String recommendation) {}
@@ -234,7 +236,7 @@ public class ReviewParser {
                     .map(raw -> {
                         CodeExcerpt excerpt = (raw.excerptId() >= 0 && excerptContents.containsKey(raw.excerptId()))
                                 ? resolver.apply(excerptFiles.get(raw.excerptId()), excerptContents.get(raw.excerptId()))
-                                : new CodeExcerpt("unknown", 0, DiffSide.NEW, "");
+                                : resolver.apply("unknown", "");
                         return new TacticalFeedback(raw.title(), excerpt, raw.recommendation());
                     })
                     .toList();
