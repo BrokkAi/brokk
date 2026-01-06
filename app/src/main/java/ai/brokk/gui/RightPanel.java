@@ -149,9 +149,6 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         // Restore persistent docking states
         SwingUtilities.invokeLater(() -> {
-            if (!GlobalUiSettings.isBuildDocked()) {
-                undockBuild();
-            }
             if (!GlobalUiSettings.isReviewDocked()) {
                 undockReview();
             }
@@ -414,11 +411,7 @@ public class RightPanel extends JPanel implements ThemeAware {
                 Component comp = buildReviewTabs.getComponentAt(tabIndex);
                 JPopupMenu popup = new JPopupMenu();
 
-                if (comp == buildSplitPane || comp == verticalActivityCombinedPanel) {
-                    JMenuItem undockItem = new JMenuItem("Undock Build", Icons.HANDYMAN);
-                    undockItem.addActionListener(ae -> undockBuild());
-                    popup.add(undockItem);
-                } else if (comp == reviewTabComponent) {
+                if (comp == reviewTabComponent) {
                     JMenuItem undockItem = new JMenuItem("Undock Review", Icons.FLOWSHEET);
                     undockItem.addActionListener(ae -> undockReview());
                     popup.add(undockItem);
