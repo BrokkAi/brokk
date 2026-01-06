@@ -66,7 +66,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private CodeReviewPanel codeReviewPanel;
 
-    private List<BrokkDiffPanel.FileComparisonInfo> fileData = List.of();
+    private List<ai.brokk.difftool.ui.FileComparisonInfo> fileData = List.of();
 
     @FunctionalInterface
     public interface TabTitleUpdater {
@@ -389,14 +389,22 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
         this.fileData = prepared.stream()
-                .map(entry -> new BrokkDiffPanel.FileComparisonInfo(
-                        new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
-                        new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null)))
+                .map(entry -> {
+                    ProjectFile pf = null;
+                    try {
+                        pf = contextManager.toFile(entry.getKey());
+                    } catch (Exception ignored) {}
+
+                    return new ai.brokk.difftool.ui.FileComparisonInfo(
+                            pf,
+                            new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
+                            new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null));
+                })
                 .toList();
 
         var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager);
         for (var info : fileData) {
-            builder.addComparison(info.leftSource(), info.rightSource());
+            builder.addComparison(info.file(), info.leftSource(), info.rightSource());
         }
         builder.setForceFileTree(true);
         builder.setRootTitle(projectName);
@@ -603,8 +611,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private @Nullable CodeReviewPanel.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
         String relPath = excerpt.file();
-        BrokkDiffPanel.FileComparisonInfo targetInfo = fileData.stream()
-                .filter(info -> relPath.equals(info.rightSource().filename())
+        ai.brokk.difftool.ui.FileComparisonInfo targetInfo = fileData.stream()
+                .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
+                        || relPath.equals(info.rightSource().filename())
                         || relPath.equals(info.leftSource().filename()))
                 .findFirst()
                 .orElse(null);

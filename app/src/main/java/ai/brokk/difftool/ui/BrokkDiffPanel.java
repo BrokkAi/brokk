@@ -242,31 +242,6 @@ public class BrokkDiffPanel extends JPanel
         mainPanel.displayAndRefreshPanel(fileIndex, panel);
     }
 
-    /**
-     * Record to hold a single file comparison metadata.
-     * Note: No longer holds the diffPanel directly - that's managed by the cache.
-     */
-    public record FileComparisonInfo(BufferSource leftSource, BufferSource rightSource) {
-        String getDisplayName() {
-            // Returns formatted name for UI display
-            String leftName = getSourceName(leftSource());
-            String rightName = getSourceName(rightSource());
-
-            if (leftName.equals(rightName)) {
-                return leftName;
-            }
-            return leftName + " vs " + rightName;
-        }
-
-        private String getSourceName(BufferSource source) {
-            if (source instanceof BufferSource.FileSource fs) {
-                return fs.file().getFileName();
-            } else if (source instanceof BufferSource.StringSource ss) {
-                return ss.filename() != null ? ss.filename() : ss.title();
-            }
-            return source.title();
-        }
-    }
 
     public BrokkDiffPanel(Builder builder, GuiTheme theme) {
         this.theme = theme;
@@ -436,7 +411,11 @@ public class BrokkDiffPanel extends JPanel
         }
 
         public void addComparison(BufferSource leftSource, BufferSource rightSource) {
-            this.fileComparisons.add(new FileComparisonInfo(leftSource, rightSource));
+            addComparison(null, leftSource, rightSource);
+        }
+
+        public void addComparison(@Nullable ProjectFile file, BufferSource leftSource, BufferSource rightSource) {
+            this.fileComparisons.add(new FileComparisonInfo(file, leftSource, rightSource));
         }
 
         public Builder setMultipleCommitsContext(boolean isMultipleCommitsContext) {
@@ -1241,7 +1220,9 @@ public class BrokkDiffPanel extends JPanel
     private int findComparisonIndex(ProjectFile file) {
         for (int i = 0; i < fileComparisons.size(); i++) {
             var info = fileComparisons.get(i);
-            if (isMatchingFile(info.leftSource(), file) || isMatchingFile(info.rightSource(), file)) {
+            if (file.equals(info.file())
+                    || isMatchingFile(info.leftSource(), file)
+                    || isMatchingFile(info.rightSource(), file)) {
                 return i;
             }
         }
