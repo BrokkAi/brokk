@@ -202,7 +202,7 @@ public class ReviewAgent {
     }
 
     @Blocking
-    private Map<Integer, CodeExcerpt> retryInStages(
+    Map<Integer, CodeExcerpt> retryInStages(
             Llm llm,
             List<ChatMessage> turn1Messages,
             Llm.StreamingResult turn1Result) throws InterruptedException {
@@ -218,6 +218,9 @@ public class ReviewAgent {
         // Stage 1: Validate file paths exist
         for (int fileRetries = 0; fileRetries < 2; fileRetries++) {
             Map<Integer, CodeExcerpt> currentExcerpts = ReviewExcerptParser.instance.parseExcerpts(latestResponseText);
+            
+            // Any excerpt from a retry that isn't already known or just parsed
+            // will be validated. We keep the ones that pass.
             Map<Integer, String> errors = validateFiles(currentExcerpts, cm);
 
             if (errors.isEmpty()) break;
@@ -243,14 +246,21 @@ public class ReviewAgent {
         }
 
         // Stage 2: Validate excerpts match file content using whitespace-aware matching
+        Map<Integer, CodeExcerpt> allParsedExcerpts = new HashMap<>();
+        // Seed with what we found in Stage 1
+        allParsedExcerpts.putAll(ReviewExcerptParser.instance.parseExcerpts(turn1Result.text()));
+
         for (int excerptRetries = 0; excerptRetries < 2; excerptRetries++) {
             Map<Integer, CodeExcerpt> currentExcerpts = ReviewExcerptParser.instance.parseExcerpts(latestResponseText);
+            allParsedExcerpts.putAll(currentExcerpts);
+
             Map<Integer, String> errors = new HashMap<>();
 
-            for (var entry : currentExcerpts.entrySet()) {
+            for (var entry : allParsedExcerpts.entrySet()) {
                 int id = entry.getKey();
-                CodeExcerpt excerpt = entry.getValue();
+                if (resolvedExcerpts.containsKey(id)) continue;
 
+                CodeExcerpt excerpt = entry.getValue();
                 FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
                 if (fileInfo == null) {
                     errors.put(id, "File not in diff: " + excerpt.file());
@@ -276,7 +286,7 @@ public class ReviewAgent {
             stage2Messages.add(buildSystemMessage());
 
             var filesToInclude = errors.keySet().stream()
-                    .map(currentExcerpts::get)
+                    .map(allParsedExcerpts::get)
                     .map(CodeExcerpt::file)
                     .filter(f -> {
                         try { return cm.toFile(f).exists(); }
