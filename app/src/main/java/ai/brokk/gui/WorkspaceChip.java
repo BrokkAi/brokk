@@ -507,9 +507,7 @@ public class WorkspaceChip extends JPanel {
         @Override
         protected void setFragmentsInternal(Set<ContextFragment> fragments) {
             super.setFragmentsInternal(fragments);
-            if (summaryFragments != null) {
-                this.summaryFragments = List.copyOf(fragments);
-            }
+            this.summaryFragments = List.copyOf(fragments);
             updateValidityState();
         }
 
