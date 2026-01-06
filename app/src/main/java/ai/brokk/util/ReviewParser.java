@@ -24,6 +24,20 @@ public class ReviewParser {
 
     private ReviewParser() {}
 
+    public static WhitespaceMatch findBestMatch(
+            List<WhitespaceMatch> matches, int targetLine) {
+        var best = matches.getFirst();
+        int minDelta = Math.abs(best.startLine() + 1 - targetLine);
+        for (int i = 1; i < matches.size(); i++) {
+            int delta = Math.abs(matches.get(i).startLine() + 1 - targetLine);
+            if (delta < minDelta) {
+                minDelta = delta;
+                best = matches.get(i);
+            }
+        }
+        return best;
+    }
+
     private enum State {
         SEARCHING,
         EXPECTING_FILENAME,

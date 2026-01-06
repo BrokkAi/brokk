@@ -214,4 +214,49 @@ class ReviewParserTest {
         assertEquals("code A", guided.tacticalNotes().getFirst().excerpt().excerpt());
         assertEquals("Test more", guided.additionalTests().getFirst());
     }
+
+    @Test
+    void testFindBestMatch() {
+        var matches = List.of(
+                new WhitespaceMatch(10, "line 11"),
+                new WhitespaceMatch(20, "line 21"),
+                new WhitespaceMatch(30, "line 31")
+        );
+
+        // Exact match
+        assertEquals(10, ReviewParser.findBestMatch(matches, 11).startLine());
+
+        // Target line before all matches
+        assertEquals(10, ReviewParser.findBestMatch(matches, 5).startLine());
+
+        // Target line after all matches
+        assertEquals(30, ReviewParser.findBestMatch(matches, 50).startLine());
+
+        // Closer to middle
+        assertEquals(20, ReviewParser.findBestMatch(matches, 22).startLine());
+
+        // Closer to end
+        assertEquals(30, ReviewParser.findBestMatch(matches, 28).startLine());
+
+        // Tie-breaker (first one wins)
+        assertEquals(10, ReviewParser.findBestMatch(matches, 16).startLine());
+    }
+
+    @Test
+    void testFindBestMatch_additionalEdgeCases() {
+        var matches = List.of(
+                new WhitespaceMatch(10, "line 11"),
+                new WhitespaceMatch(20, "line 21")
+        );
+
+        // Single match
+        var single = List.of(new WhitespaceMatch(5, "only"));
+        assertEquals(5, ReviewParser.findBestMatch(single, 100).startLine());
+
+        // Target line before all matches
+        assertEquals(10, ReviewParser.findBestMatch(matches, 1).startLine());
+
+        // Target line after all matches
+        assertEquals(20, ReviewParser.findBestMatch(matches, 30).startLine());
+    }
 }

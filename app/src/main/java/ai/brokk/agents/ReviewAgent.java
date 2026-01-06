@@ -169,7 +169,7 @@ public class ReviewAgent {
         String[] newLines = newContent.split("\\R", -1);
         var newMatches = ai.brokk.util.WhitespaceMatch.findAll(newLines, excerptLines);
         if (!newMatches.isEmpty()) {
-            var best = findBestMatch(newMatches, excerpt.line());
+            var best = ReviewParser.findBestMatch(newMatches, excerpt.line());
             return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.NEW, best.matchedText());
         }
 
@@ -178,25 +178,11 @@ public class ReviewAgent {
         String[] oldLines = oldContent.split("\\R", -1);
         var oldMatches = ai.brokk.util.WhitespaceMatch.findAll(oldLines, excerptLines);
         if (!oldMatches.isEmpty()) {
-            var best = findBestMatch(oldMatches, excerpt.line());
+            var best = ReviewParser.findBestMatch(oldMatches, excerpt.line());
             return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.OLD, best.matchedText());
         }
 
         return null;
-    }
-
-    static ai.brokk.util.WhitespaceMatch findBestMatch(
-            List<ai.brokk.util.WhitespaceMatch> matches, int targetLine) {
-        var best = matches.getFirst();
-        int minDelta = Math.abs(best.startLine() + 1 - targetLine);
-        for (int i = 1; i < matches.size(); i++) {
-            int delta = Math.abs(matches.get(i).startLine() + 1 - targetLine);
-            if (delta < minDelta) {
-                minDelta = delta;
-                best = matches.get(i);
-            }
-        }
-        return best;
     }
 
     boolean fileExists(String text) {
