@@ -30,11 +30,14 @@ public class ReviewExcerptParser {
         IN_CONTENT
     }
 
-    public Map<Integer, String> parseExcerptFiles(String text) {
-        Map<Integer, String> files = new HashMap<>();
+    private record FileLine(String path, int line) {}
+
+    private Map<Integer, FileLine> parseExcerptFileLines(String text) {
+        Map<Integer, FileLine> files = new HashMap<>();
         String[] lines = text.split("\\R", -1);
         State state = State.SEARCHING;
         Integer currentId = null;
+        Pattern fileLinePattern = Pattern.compile("^(.*)\\s+@(\\d+)$");
 
         for (String line : lines) {
             String trimmed = line.trim();
@@ -56,8 +59,13 @@ public class ReviewExcerptParser {
                 }
                 case EXPECTING_FILENAME -> {
                     if (!trimmed.isEmpty()) {
-                        files.put(currentId, trimmed);
-                        state = State.EXPECTING_FENCE;
+                        Matcher m = fileLinePattern.matcher(trimmed);
+                        if (m.matches()) {
+                            files.put(currentId, new FileLine(m.group(1).trim(), Integer.parseInt(m.group(2))));
+                            state = State.EXPECTING_FENCE;
+                        } else {
+                            state = State.SEARCHING;
+                        }
                     }
                 }
                 case EXPECTING_FENCE -> {
@@ -76,15 +84,22 @@ public class ReviewExcerptParser {
     }
 
     public Map<Integer, ICodeReview.CodeExcerpt> parseExcerpts(String text) {
-        Map<Integer, String> files = parseExcerptFiles(text);
+        Map<Integer, FileLine> files = parseExcerptFileLines(text);
         Map<Integer, String> contents = parseExcerptContents(text);
         Map<Integer, ICodeReview.CodeExcerpt> result = new HashMap<>();
         for (Integer id : files.keySet()) {
             if (contents.containsKey(id)) {
-                result.put(id, new ICodeReview.CodeExcerpt(files.get(id), contents.get(id)));
+                FileLine fl = files.get(id);
+                result.put(id, new ICodeReview.CodeExcerpt(fl.path(), fl.line(), ICodeReview.DiffSide.NEW, contents.get(id)));
             }
         }
         return Map.copyOf(result);
+    }
+
+    public Map<Integer, String> parseExcerptFiles(String text) {
+        Map<Integer, String> files = new HashMap<>();
+        parseExcerptFileLines(text).forEach((id, fl) -> files.put(id, fl.path()));
+        return Map.copyOf(files);
     }
 
     public Map<Integer, String> parseExcerptContents(String text) {
@@ -93,6 +108,7 @@ public class ReviewExcerptParser {
         State state = State.SEARCHING;
         Integer currentId = null;
         StringBuilder currentContent = new StringBuilder();
+        Pattern fileLinePattern = Pattern.compile("^(.*)\\s+@(\\d+)$");
 
         for (String line : lines) {
             String trimmed = line.trim();
@@ -113,7 +129,14 @@ public class ReviewExcerptParser {
                     }
                 }
                 case EXPECTING_FILENAME -> {
-                    if (!trimmed.isEmpty()) state = State.EXPECTING_FENCE;
+                    if (!trimmed.isEmpty()) {
+                        Matcher m = fileLinePattern.matcher(trimmed);
+                        if (m.matches()) {
+                            state = State.EXPECTING_FENCE;
+                        } else {
+                            state = State.SEARCHING;
+                        }
+                    }
                 }
                 case EXPECTING_FENCE -> {
                     if (trimmed.startsWith("```")) {

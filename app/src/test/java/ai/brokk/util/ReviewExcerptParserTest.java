@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ICodeReview;
+import ai.brokk.ICodeReview.DiffSide;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -15,7 +16,7 @@ class ReviewExcerptParserTest {
         String input = """
                 Here is the excerpt:
                 BRK_EXCERPT_1
-                src/main/java/Foo.java
+                src/main/java/Foo.java @10
                 ```java
                 public class Foo {}
                 ```
@@ -25,6 +26,8 @@ class ReviewExcerptParserTest {
         assertEquals(1, results.size());
         ICodeReview.CodeExcerpt excerpt = results.get(1);
         assertEquals("src/main/java/Foo.java", excerpt.file());
+        assertEquals(10, excerpt.line());
+        assertEquals(DiffSide.NEW, excerpt.side());
         assertEquals("public class Foo {}", excerpt.excerpt());
     }
 
@@ -32,7 +35,7 @@ class ReviewExcerptParserTest {
     void testParseMultipleExcerpts() {
         String input = """
                 BRK_EXCERPT_10
-                FileA.txt
+                FileA.txt @5
                 ```
                 content A
                 ```
@@ -40,7 +43,7 @@ class ReviewExcerptParserTest {
                 Some text in between.
 
                 BRK_EXCERPT_20
-                FileB.txt
+                FileB.txt @15
                 ```python
                 content B
                 ```
@@ -49,7 +52,9 @@ class ReviewExcerptParserTest {
 
         assertEquals(2, results.size());
         assertEquals("content A", results.get(10).excerpt());
+        assertEquals(5, results.get(10).line());
         assertEquals("content B", results.get(20).excerpt());
+        assertEquals(15, results.get(20).line());
         assertEquals("FileA.txt", results.get(10).file());
         assertEquals("FileB.txt", results.get(20).file());
     }
@@ -58,7 +63,7 @@ class ReviewExcerptParserTest {
     void testHandlesOptionalLanguageSpecifier() {
         String input = """
                 BRK_EXCERPT_1
-                file.js
+                file.js @1
                 ```javascript
                 const x = 1;
                 ```
@@ -71,20 +76,27 @@ class ReviewExcerptParserTest {
     void testMalformedAndUnclosedBlocks() {
         String input = """
                 Malformed 1: missing newline after ID
-                BRK_EXCERPT_1 file.txt
+                BRK_EXCERPT_1 file.txt @10
                 ```
                 code
                 ```
 
                 Malformed 2: unclosed fence
                 BRK_EXCERPT_2
-                file2.txt
+                file2.txt @10
                 ```
                 unfinished code
 
+                Malformed 3: missing @line
+                BRK_EXCERPT_4
+                file4.txt
+                ```
+                missing line
+                ```
+
                 Valid block after malformed (with some leading whitespace):
                   BRK_EXCERPT_3
-                file3.txt
+                file3.txt @42
                 ```
                 valid
                 ```
@@ -100,7 +112,7 @@ class ReviewExcerptParserTest {
     void testEmptyContent() {
         String input = """
                 BRK_EXCERPT_0
-                empty.txt
+                empty.txt @1
                 ```
                 
                 ```
@@ -113,7 +125,7 @@ class ReviewExcerptParserTest {
     void testNestedCodeFencesInContent() {
         String input = """
                 BRK_EXCERPT_5
-                nested.md
+                nested.md @100
                 ```markdown
                 Outer start
                   ```
@@ -134,6 +146,37 @@ class ReviewExcerptParserTest {
                 Inline ``` fence is content
                 Outer end""".stripIndent();
         assertEquals(expected, results.get(5).excerpt());
+    }
+
+    @Test
+    void testRejectsFilenameWithoutLineNumber() {
+        String input = """
+                BRK_EXCERPT_1
+                src/main/java/NoLine.java
+                ```java
+                public class NoLine {}
+                ```
+                """;
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+        assertTrue(results.isEmpty(), "Should reject excerpt without @line");
+    }
+
+    @Test
+    void testParsesLineNumberCorrectly() {
+        String input = """
+                BRK_EXCERPT_1
+                path/to/MyClass.java @42
+                ```java
+                code here
+                ```
+                """;
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+        assertEquals(1, results.size());
+        ICodeReview.CodeExcerpt excerpt = results.get(1);
+        assertEquals("path/to/MyClass.java", excerpt.file());
+        assertEquals(42, excerpt.line());
+        assertEquals(ICodeReview.DiffSide.NEW, excerpt.side());
+        assertEquals("code here", excerpt.excerpt());
     }
 
     @Test
