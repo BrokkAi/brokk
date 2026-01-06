@@ -26,6 +26,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -258,5 +259,35 @@ public interface IContextManager {
     }
 
     @Blocking
-    default void compressHistory() throws InterruptedException {}
+    default void compressGlobalHistory() throws InterruptedException {
+        if (liveContext().getTaskHistory().isEmpty()) {
+            getIo().showNotification(IConsoleIO.NotificationRole.INFO, "No history to compress.");
+            return;
+        }
+
+        var interrupted = new AtomicReference<InterruptedException>();
+        pushContext(ctx -> {
+            try {
+                return compressHistory(ctx);
+            } catch (InterruptedException e) {
+                // user may interrupt
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        if (interrupted.get() != null) {
+            throw interrupted.get();
+        }
+        getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
+    }
+
+    @Blocking
+    default Context compressHistory(Context ctx) throws InterruptedException {
+        return ctx;
+    }
+
+    @Blocking
+    default CompletableFuture<String> summarizeTaskForConversation(String taskText) {
+        throw new UnsupportedOperationException();
+    }
 }

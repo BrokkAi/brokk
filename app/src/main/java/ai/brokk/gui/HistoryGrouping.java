@@ -1,8 +1,11 @@
 package ai.brokk.gui;
 
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextHistory;
+import ai.brokk.util.ComputedValue;
 import java.util.*;
-import java.util.function.Predicate;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Unified grouping model for context history rendering.
@@ -36,6 +39,12 @@ public final class HistoryGrouping {
         GROUP_BY_ACTION
     }
 
+    public enum Boundary {
+        NONE,
+        CUT_AFTER,
+        STANDALONE
+    }
+
     /**
      * Immutable descriptor for a discovered group.
      *
@@ -51,7 +60,7 @@ public final class HistoryGrouping {
     public record GroupDescriptor(
             GroupType type,
             String key,
-            String label,
+            ComputedValue<String> label,
             List<Context> children,
             boolean shouldShowHeader,
             boolean isLastGroup) {}
@@ -60,32 +69,51 @@ public final class HistoryGrouping {
         private GroupingBuilder() {}
 
         /**
+         * Discover logical group descriptors from the provided contexts using default boundary logic.
+         */
+        public static List<GroupDescriptor> discoverGroups(List<Context> contexts, ContextHistory history) {
+            return discoverGroups(contexts, ctx -> isDefaultBoundary(ctx, history), history);
+        }
+
+        /**
          * Discover logical group descriptors from the provided contexts.
          *
          * @param contexts the full list of contexts to group, in display order
-         * @param isBoundary boundary predicate; true indicates a boundary context that terminates any group
+         * @param boundaryFn function returning boundary behavior for a context
+         * @param history the context history to use for lookups
          * @return ordered list of group descriptors covering all input contexts
          */
-        public static List<GroupDescriptor> discoverGroups(List<Context> contexts, Predicate<Context> isBoundary) {
+        public static List<GroupDescriptor> discoverGroups(
+                List<Context> contexts, Function<Context, Boundary> boundaryFn, ContextHistory history) {
             if (contexts.isEmpty()) {
                 return List.of();
             }
+
+            Set<UUID> resetTargetIds = history.getResetEdges().stream()
+                    .map(ContextHistory.ResetEdge::targetId)
+                    .collect(Collectors.toSet());
+
+            Function<UUID, UUID> groupLookup = history::getGroupId;
+            Function<UUID, String> labelLookup = gId -> history.getGroupLabels().get(gId);
 
             final int n = contexts.size();
             List<GroupDescriptor> out = new ArrayList<>();
 
             // 1) Pre-split into boundary-separated segments.
-            // A boundary means "there is a cut before this item," so it starts a new segment.
+            // A boundary means "there is a cut after this item," so it ends a segment.
             int segStart = 0;
-            for (int i = 1; i < n; i++) {
-                if (isBoundary.test(contexts.get(i))) {
-                    // emit [segStart, i)
-                    emitSegment(contexts, segStart, i, out, isBoundary);
-                    segStart = i;
+            for (int i = 0; i < n; i++) {
+                Boundary b = boundaryFn.apply(contexts.get(i));
+                if (b != Boundary.NONE) {
+                    // emit [segStart, i+1)
+                    emitSegment(contexts, segStart, i + 1, out, boundaryFn, resetTargetIds, groupLookup, labelLookup);
+                    segStart = i + 1;
                 }
             }
             // emit final segment [segStart, n)
-            emitSegment(contexts, segStart, n, out, isBoundary);
+            if (segStart < n) {
+                emitSegment(contexts, segStart, n, out, boundaryFn, resetTargetIds, groupLookup, labelLookup);
+            }
 
             // 2) Mark last descriptor, if any
             if (!out.isEmpty()) {
@@ -101,83 +129,143 @@ public final class HistoryGrouping {
         }
 
         /**
-         * Emit group descriptors for a boundary-free segment [start, end).
-         * Within a segment, produce maximal runs of:
-         * - same non-null groupId (GROUP_BY_ID, header always shown)
-         * - contiguous null groupId (legacy), header shown only when length >= 2
+         * Emit group descriptors for a segment [start, end).
+         * Within a segment, produce maximal runs of contiguous items.
+         * STANDALONE items are forced into singletons without headers.
+         * A header is shown only when the run length is >= 2 or explicit groupIds are present.
          */
         private static void emitSegment(
                 List<Context> contexts,
                 int start,
                 int end,
                 List<GroupDescriptor> out,
-                java.util.function.Predicate<Context> isBoundary) {
+                Function<Context, Boundary> boundaryFn,
+                Set<UUID> resetTargetIds,
+                Function<UUID, UUID> groupLookup,
+                Function<UUID, String> labelLookup) {
             int i = start;
             while (i < end) {
                 Context ctx = contexts.get(i);
-                UUID groupId = ctx.getGroupId();
+                UUID groupId = groupLookup.apply(ctx.id());
 
+                // If this item is a STANDALONE boundary, it is emitted as a singleton without a header.
+                if (boundaryFn.apply(ctx) == Boundary.STANDALONE) {
+                    List<Context> single = List.of(ctx);
+                    out.add(new GroupDescriptor(
+                            GroupType.GROUP_BY_ACTION,
+                            ctx.id().toString(),
+                            ComputedValue.completed(""),
+                            single,
+                            false,
+                            false));
+                    i = i + 1;
+                    continue;
+                }
+
+                // Case A: Grouped by explicit ID
                 if (groupId != null) {
                     int j = i + 1;
-                    while (j < end && groupId.equals(contexts.get(j).getGroupId())) {
+                    while (j < end
+                            && groupId.equals(groupLookup.apply(contexts.get(j).id()))) {
                         j++;
                     }
-                    List<Context> children = Collections.unmodifiableList(new ArrayList<>(contexts.subList(i, j)));
-                    // Header always shown for id-groups, including size 1
-                    String preferredLabel = children.stream()
-                            .map(Context::getGroupLabel)
-                            .filter(s -> s != null && !s.isBlank())
-                            .findFirst()
-                            .orElse(null);
+                    List<Context> children = contexts.subList(i, j);
 
-                    out.add(new GroupDescriptor(
-                            GroupType.GROUP_BY_ID,
-                            groupId.toString(),
-                            preferredLabel != null ? preferredLabel : groupId.toString(),
-                            children,
-                            true,
-                            false));
-                    i = j;
-                } else {
-                    // If this item is a boundary and ungrouped, it must not be absorbed into a legacy run.
-                    if (isBoundary.test(ctx)) {
-                        List<Context> single = List.of(ctx);
-                        out.add(new GroupDescriptor(
-                                GroupType.GROUP_BY_ACTION, ctx.id().toString(), "", single, false, false));
-                        i = i + 1;
-                        continue;
-                    }
-
-                    // Legacy run: contiguous ungrouped items that are not boundaries
-                    int j = i + 1;
-                    while (j < end && contexts.get(j).getGroupId() == null && !isBoundary.test(contexts.get(j))) {
-                        j++;
-                    }
-                    int len = j - i;
-                    if (len >= 2) {
-                        List<Context> children = Collections.unmodifiableList(new ArrayList<>(contexts.subList(i, j)));
-                        String label = computeHeaderLabelFor(children);
-                        String key = children.get(0).id().toString();
-                        out.add(new GroupDescriptor(GroupType.GROUP_BY_ACTION, key, label, children, true, false));
+                    // Use provided label if available, otherwise compute
+                    String providedLabel = labelLookup.apply(groupId);
+                    ComputedValue<String> label;
+                    if (providedLabel != null && !providedLabel.isBlank()) {
+                        label = ComputedValue.completed(providedLabel);
                     } else {
-                        // Singleton legacy (no header)
-                        List<Context> single = List.of(ctx);
-                        out.add(new GroupDescriptor(
-                                GroupType.GROUP_BY_ACTION, ctx.id().toString(), "", single, false, false));
+                        label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
                     }
+
+                    boolean showHeader = children.size() > 1;
+                    out.add(new GroupDescriptor(
+                            GroupType.GROUP_BY_ID, groupId.toString(), label, children, showHeader, false));
                     i = j;
+                    continue;
                 }
+
+                // Case B: Legacy/Action grouping (runs of contiguous items that are not standalone and have no groupId)
+                int j = i + 1;
+                while (j < end && boundaryFn.apply(contexts.get(j)) != Boundary.STANDALONE) {
+                    if (groupLookup.apply(contexts.get(j).id()) != null) {
+                        break;
+                    }
+                    j++;
+                }
+                int len = j - i;
+                if (len >= 2) {
+                    List<Context> children = contexts.subList(i, j);
+                    var label = computeHeaderLabelFor(contexts, i, j, resetTargetIds);
+                    String key = children.get(0).id().toString();
+                    out.add(new GroupDescriptor(GroupType.GROUP_BY_ACTION, key, label, children, true, false));
+                } else {
+                    // Singleton (no header)
+                    List<Context> single = List.of(ctx);
+                    out.add(new GroupDescriptor(
+                            GroupType.GROUP_BY_ACTION,
+                            ctx.id().toString(),
+                            ComputedValue.completed(""),
+                            single,
+                            false,
+                            false));
+                }
+                i = j;
             }
         }
 
-        private static String computeHeaderLabelFor(List<Context> children) {
-            int size = children.size();
-            if (size == 2) {
-                var a0 = safeFirstWord(children.get(0).getAction());
-                var a1 = safeFirstWord(children.get(1).getAction());
-                return a0 + " + " + a1;
+        private static ComputedValue<String> computeHeaderLabelFor(
+                List<Context> contexts, int i, int j, Set<UUID> resetTargetIds) {
+            int size = j - i;
+            assert size > 0 : "%d <= %d".formatted(j, i);
+
+            // If it's a single relevant action, just return that CV directly.
+            if (size == 1) {
+                return getDescription(contexts, i, resetTargetIds);
             }
-            return size + " actions";
+
+            // Map all child descriptions into a single aggregate CV.
+            List<ComputedValue<String>> cvs = new ArrayList<>();
+            for (int k = i; k < j; k++) {
+                cvs.add(getDescription(contexts, k, resetTargetIds));
+            }
+
+            // We combine the futures of all child actions.
+            var futures =
+                    cvs.stream().map(ComputedValue::future).toArray(java.util.concurrent.CompletableFuture[]::new);
+
+            return new ai.brokk.util.ComputedValue<>(
+                    "header-aggregate",
+                    java.util.concurrent.CompletableFuture.allOf(futures).thenApply(v -> {
+                        // All are done now. Re-calculate the label using completed strings.
+                        List<String> words = cvs.stream()
+                                .map(cv -> safeFirstWord(cv.renderNowOr(Context.SUMMARIZING)))
+                                .toList();
+
+                        Map<String, Long> counts = words.stream()
+                                .collect(java.util.stream.Collectors.groupingBy(
+                                        w -> w, LinkedHashMap::new, java.util.stream.Collectors.counting()));
+
+                        List<String> formatted = counts.entrySet().stream()
+                                .map(e -> e.getValue() > 1 ? e.getKey() + " x" + e.getValue() : e.getKey())
+                                .toList();
+
+                        if (formatted.size() == 1) return formatted.getFirst();
+                        if (formatted.size() == 2) return formatted.get(0) + " + " + formatted.get(1);
+                        return formatted.get(0) + " + more";
+                    }));
+        }
+
+        private static ComputedValue<String> getDescription(
+                List<Context> contexts, int index, Set<UUID> resetTargetIds) {
+            Context ctx = contexts.get(index);
+            if (resetTargetIds.contains(ctx.id())) {
+                return ComputedValue.completed("Copy From History");
+            }
+            Context prev = index > 0 ? contexts.get(index - 1) : null;
+            return ctx.getAction(prev);
         }
 
         private static String safeFirstWord(String text) {
@@ -186,6 +274,29 @@ public final class HistoryGrouping {
             }
             int idx = text.indexOf(' ');
             return (idx < 0) ? text : text.substring(0, idx);
+        }
+
+        private static Boundary isDefaultBoundary(Context ctx, ContextHistory history) {
+            Context prev = history.previousOf(ctx);
+            if (prev != null) {
+                // Dropped all context: fragments became empty
+                if (prev.allFragments().findAny().isPresent()
+                        && ctx.allFragments().findAny().isEmpty()) {
+                    return Boundary.STANDALONE;
+                }
+
+                // Cleared task history: history became empty
+                if (!prev.getTaskHistory().isEmpty() && ctx.getTaskHistory().isEmpty()) {
+                    return Boundary.STANDALONE;
+                }
+            }
+
+            // AI result without explicit group is a CUT_AFTER boundary
+            if (ctx.isAiResult() && history.getGroupId(ctx.id()) == null) {
+                return Boundary.CUT_AFTER;
+            }
+
+            return Boundary.NONE;
         }
     }
 

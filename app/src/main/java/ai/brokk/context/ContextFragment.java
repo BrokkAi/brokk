@@ -7,9 +7,9 @@ import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.*;
+import java.time.Duration;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -31,6 +31,21 @@ import org.jetbrains.annotations.Nullable;
  * having FF available to edit, you MUST decline the assignment and explain the problem.
  */
 public interface ContextFragment {
+
+    @Blocking
+    default boolean contentEquals(ContextFragment other) {
+        if (!hasSameSource(other)) {
+            return false;
+        }
+
+        if (isText()) {
+            return text().join().equals(other.text().join());
+        }
+
+        return Arrays.equals(
+                requireNonNull(imageBytes()).join(),
+                requireNonNull(other.imageBytes()).join());
+    }
 
     /**
      * Replaces polymorphic methods or instanceof checks with something that can easily apply to FrozenFragments as well
@@ -60,6 +75,8 @@ public interface ContextFragment {
 
         private static final EnumSet<FragmentType> EDITABLE_TYPES = EnumSet.of(PROJECT_PATH, USAGE, CODE);
 
+        private static final EnumSet<FragmentType> PROJECT_GUIDE_TYPES = EnumSet.of(PROJECT_PATH, CODE, SKELETON);
+
         public boolean isPath() {
             return PATH_TYPES.contains(this);
         }
@@ -70,6 +87,10 @@ public interface ContextFragment {
 
         public boolean isEditable() {
             return EDITABLE_TYPES.contains(this);
+        }
+
+        public boolean includeInProjectGuide() {
+            return PROJECT_GUIDE_TYPES.contains(this);
         }
     }
 
@@ -192,14 +213,6 @@ public interface ContextFragment {
     }
 
     /**
-     * Retrieves the {@link IContextManager} associated with this fragment.
-     *
-     * @return The context manager instance, or {@code null} if not applicable or available.
-     */
-    @Nullable
-    IContextManager getContextManager();
-
-    /**
      * For live fragments ONLY, isValid reflects current external state (a file fragment whose file is missing is invalid);
      * historical/frozen fragments have already snapshotted their state and are always valid.
      *
@@ -211,18 +224,6 @@ public interface ContextFragment {
      */
     default boolean isValid() {
         return true;
-    }
-
-    /**
-     * Convenience method to get the analyzer in a non-blocking way using the fragment's context manager.
-     *
-     * @return The IAnalyzer instance if available, or null if it's not ready yet or if the context manager is not
-     * available.
-     */
-    default IAnalyzer getAnalyzer() {
-        var cm = getContextManager();
-        requireNonNull(cm);
-        return cm.getAnalyzerUninterrupted();
     }
 
     /**
@@ -238,10 +239,20 @@ public interface ContextFragment {
     ContextFragment refreshCopy();
 
     /**
-     * Marker for fragments whose identity is dynamic (numeric, session-local).
-     * Such fragments must use numeric IDs; content-hash IDs are reserved for non-dynamic fragments.
+     * Interface for fragments that involve asynchronous computation.
      */
-    interface DynamicIdentity {}
+    interface ComputedFragment extends ContextFragment {
+        /**
+         * Blocks until the fragment's computation is complete or the timeout expires.
+         */
+        boolean await(Duration timeout) throws InterruptedException;
+
+        /**
+         * Registers a callback to be executed when the fragment's computation completes.
+         */
+        @Nullable
+        ComputedValue.Subscription onComplete(Runnable runnable);
+    }
 
     /**
      * Marker interface for fragments that provide image content.

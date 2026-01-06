@@ -30,8 +30,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -128,28 +126,13 @@ public class DtoMapper {
                 ? (ContextFragments.TaskFragment) fragmentCache.get(dto.parsedOutputId())
                 : null;
 
-        var actionFuture = CompletableFuture.completedFuture(dto.action());
         var ctxId = dto.id() != null ? UUID.fromString(dto.id()) : Context.newContextId();
 
         var combined = Streams.concat(editableFragments.stream(), virtualFragments.stream())
                 .toList();
 
-        UUID groupUuid = null;
-        if (dto.groupId() != null && !dto.groupId().isEmpty()) {
-            groupUuid = UUID.fromString(dto.groupId());
-        }
-
         return Context.createWithId(
-                ctxId,
-                mgr,
-                combined,
-                taskHistory,
-                parsedOutputFragment,
-                actionFuture,
-                groupUuid,
-                dto.groupLabel(),
-                readonlyFragments,
-                pinnedFragments);
+                ctxId, mgr, combined, taskHistory, parsedOutputFragment, readonlyFragments, pinnedFragments);
     }
 
     public record GitStateDto(String commitHash, @Nullable String diffContentId) {}
@@ -157,7 +140,7 @@ public class DtoMapper {
     /**
      * Build a CompactContextDto for serialization, including marked read-only fragment IDs.
      */
-    public static CompactContextDto toCompactDto(Context ctx, ContentWriter writer, String action) {
+    public static CompactContextDto toCompactDto(Context ctx, ContentWriter writer) {
         var taskEntryRefs = ctx.getTaskHistory().stream()
                 .map(te -> {
                     String type = te.meta() != null ? te.meta().type().name() : null;
@@ -191,10 +174,7 @@ public class DtoMapper {
                 virtualIds,
                 pinnedIds,
                 taskEntryRefs,
-                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null,
-                action,
-                ctx.getGroupId() != null ? ctx.getGroupId().toString() : null,
-                ctx.getGroupLabel());
+                ctx.getParsedOutput() != null ? ctx.getParsedOutput().id() : null);
     }
 
     // Central method for resolving and building fragments, called by HistoryIo within computeIfAbsent
@@ -285,7 +265,7 @@ public class DtoMapper {
         var messages = dto.messages().stream()
                 .map(msgDto -> fromChatMessageDto(msgDto, reader))
                 .toList();
-        return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.sessionName());
+        return new ContextFragments.TaskFragment(dto.id(), mgr, messages, dto.taskDescription());
     }
 
     private static @Nullable ContextFragment _buildVirtualFragment(
@@ -336,13 +316,12 @@ public class DtoMapper {
                         usageDto.id(), mgr, usageDto.targetIdentifier(), usageDto.includeTestFiles(), snapshot);
             }
             case PasteTextFragmentDto pasteTextDto ->
-                new ContextFragments.PasteTextFragment(
+                ContextFragments.PasteTextFragment.withResolvedDescription(
                         pasteTextDto.id(),
                         mgr,
                         reader.readContent(pasteTextDto.contentId()),
-                        CompletableFuture.completedFuture(pasteTextDto.description()),
-                        CompletableFuture.completedFuture(
-                                requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN)));
+                        pasteTextDto.description(),
+                        requireNonNullElse(pasteTextDto.syntaxStyle(), SyntaxConstants.SYNTAX_STYLE_MARKDOWN));
             case PasteImageFragmentDto pasteImageDto -> {
                 try {
                     byte[] imageBytes = imageBytesMap != null ? imageBytesMap.get(pasteImageDto.id()) : null;
@@ -498,13 +477,13 @@ public class DtoMapper {
             }
             case ContextFragments.PasteTextFragment ptf -> {
                 // Fine to block on
-                String description = getFutureDescription(ptf.getDescriptionFuture(), "Paste of ");
+                String description = ptf.description().join();
                 String contentId = writer.writeContent(ptf.text().join(), null);
-                String syntaxStyle = getFutureSyntaxStyle(ptf.getSyntaxStyleFuture());
+                String syntaxStyle = ptf.syntaxStyle().join();
                 yield new PasteTextFragmentDto(ptf.id(), contentId, description, syntaxStyle);
             }
             case ContextFragments.AnonymousImageFragment aif -> {
-                String description = getFutureDescription(aif.descriptionFuture, "Paste of ");
+                String description = aif.description().join();
                 yield new PasteImageFragmentDto(aif.id(), description);
             }
             case ContextFragments.StacktraceFragment stf -> {
@@ -540,26 +519,6 @@ public class DtoMapper {
                 yield null;
             }
         };
-    }
-
-    private static String getFutureDescription(Future<String> future, String prefix) {
-        String description;
-        try {
-            String fullDescription = future.get(10, TimeUnit.SECONDS);
-            description =
-                    fullDescription.startsWith(prefix) ? fullDescription.substring(prefix.length()) : fullDescription;
-        } catch (Exception e) {
-            description = "(Error getting paste description: " + e.getMessage() + ")";
-        }
-        return description;
-    }
-
-    private static String getFutureSyntaxStyle(Future<String> future) {
-        try {
-            return future.get(10, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            return SyntaxConstants.SYNTAX_STYLE_MARKDOWN; // Fallback
-        }
     }
 
     private static TaskEntryDto toTaskEntryDto(TaskEntry entry, ContentWriter writer) {
@@ -831,6 +790,15 @@ public class DtoMapper {
                         e -> new ContextHistory.ContextHistoryEntryInfo(e.getValue().deletedFiles().stream()
                                 .map(dto -> fromDeletedFileDto(dto, mgr))
                                 .toList())));
+    }
+
+    public static GroupInfoDto toGroupInfoDto(Map<UUID, UUID> contextToGroupId, Map<UUID, String> groupLabels) {
+        Map<String, String> ctxToGrp = contextToGroupId.entrySet().stream()
+                .collect(Collectors.toMap(
+                        e -> e.getKey().toString(), e -> e.getValue().toString()));
+        Map<String, String> grpLabels = groupLabels.entrySet().stream()
+                .collect(Collectors.toMap(e -> e.getKey().toString(), Map.Entry::getValue));
+        return new GroupInfoDto(ctxToGrp, grpLabels);
     }
 
     private static DeletedFileDto toDeletedFileDto(ContextHistory.DeletedFile df) {

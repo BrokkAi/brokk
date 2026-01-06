@@ -25,6 +25,7 @@ import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.PathNormalizer;
+import ai.brokk.util.StringDiskCache;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.jakewharton.disklrucache.DiskLruCache;
 import java.io.File;
@@ -71,7 +72,7 @@ public final class MainProject extends AbstractProject {
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture = new CompletableFuture<>();
 
     @Nullable
-    private volatile DiskLruCache diskCache = null;
+    private volatile StringDiskCache diskCache = null;
 
     private final DependencyUpdateScheduler dependencyUpdateScheduler;
 
@@ -228,14 +229,15 @@ public final class MainProject extends AbstractProject {
     }
 
     @Override
-    public synchronized DiskLruCache getDiskCache() {
+    public synchronized StringDiskCache getDiskCache() {
         if (diskCache != null) {
             return diskCache;
         }
         var cacheDir = getMasterRootPathForConfig().resolve(BROKK_DIR).resolve("cache");
         try {
             Files.createDirectories(cacheDir);
-            diskCache = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+            DiskLruCache dlc = DiskLruCache.open(cacheDir.toFile(), 1, 1, DEFAULT_DISK_CACHE_SIZE);
+            diskCache = new StringDiskCache(dlc);
             logger.debug("Initialized disk cache at {} (max {} bytes)", cacheDir, DEFAULT_DISK_CACHE_SIZE);
             return diskCache;
         } catch (IOException e) {
@@ -358,7 +360,7 @@ public final class MainProject extends AbstractProject {
                     }
                 }
 
-                // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
+                // Normalize environment variables and migrate JAVA_HOME to workspace properties
                 Map<String, String> envIn = details.environmentVariables();
                 Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
 
@@ -369,7 +371,12 @@ public final class MainProject extends AbstractProject {
                         continue;
                     }
                     if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                        canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+                        // Migration: Move JAVA_HOME from project.properties to workspace.properties
+                        String canonicalPath = PathNormalizer.canonicalizeEnvPathValue(v);
+                        if (!canonicalPath.isBlank()) {
+                            setJdk(canonicalPath);
+                            logger.info("Migrated JAVA_HOME from project build details to workspace JDK settings.");
+                        }
                     } else {
                         canonicalEnv.put(k, v);
                     }
@@ -411,20 +418,17 @@ public final class MainProject extends AbstractProject {
             }
         }
 
-        // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
+        // 2) Normalize environment variables.
+        // Omit JAVA_HOME from project-scoped storage as it is persisted in workspace properties.
         Map<String, String> envIn = details.environmentVariables();
         Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
         for (Map.Entry<String, String> e : envIn.entrySet()) {
             String k = e.getKey();
             String v = e.getValue();
-            if (v == null) {
-                continue; // NullAway should avoid this, but be defensive
+            if (v == null || "JAVA_HOME".equalsIgnoreCase(k)) {
+                continue;
             }
-            if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
-            } else {
-                canonicalEnv.put(k, v);
-            }
+            canonicalEnv.put(k, v);
         }
 
         var canonicalDetails = new BuildAgent.BuildDetails(

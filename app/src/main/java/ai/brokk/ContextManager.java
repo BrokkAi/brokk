@@ -15,6 +15,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.cli.HeadlessConsole;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextFragments.PathFragment;
@@ -83,16 +84,17 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private final UserActionManager userActions;
 
     // Regex to identify test files. Matches the word "test"/"tests" (case-insensitive)
-    // when it appears as its own path segment or at a camel-case boundary.
-    static final Pattern TEST_FILE_PATTERN = Pattern.compile(".*" + // anything before
-            "(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z])|(?<=[A-Z]))"
-            + // valid prefix boundary
-            "(?i:tests?)"
-            + // the word test/tests (case-insensitive only here)
-            "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)"
-            + // suffix: separator, word-boundary, underscore,
-            //         UC not followed by lc  OR UC followed by lc, or EOS
-            ".*");
+    // when it appears as its own path segment or at a camel-case boundary, as well as
+    // common JS/TS conventions: *.spec.<ext>, *.test.<ext>, and files under __tests__/.
+    static final Pattern TEST_FILE_PATTERN = Pattern.compile(".*"
+            + "(?:"
+            + "(?:[/\\\\.]|\\b|_|(?<=[a-z])(?=[A-Z])|(?<=[A-Z]))"
+            + "(?i:tests?)"
+            + "(?:[/\\\\.]|\\b|_|(?=[A-Z][^a-z])|(?=[A-Z][a-z])|$)"
+            + "|"
+            + "(?i:\\.(?:spec|test)\\.[^/\\\\.]+$)"
+            + ")"
+            + ".*");
 
     public static final String DEFAULT_SESSION_NAME = "New Session";
     // Cutoff: sessions modified on or after this UTC instant will NOT be migrated
@@ -568,7 +570,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
                 // 3) Handle all file changes for file change listeners
                 if (!batch.files.isEmpty()) {
-                    logger.debug("File changes detected by ContextManager ({} files)", batch.files.size());
+                    logger.trace("File changes detected by ContextManager ({} files)", batch.files.size());
                     handleFileChange(batch.files);
                 }
             }
@@ -860,9 +862,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Clear conversation history and task list. */
     public void clearHistory() {
-        pushContext(currentLiveCtx -> currentLiveCtx
-                .clearHistory()
-                .withTaskList(new TaskList.TaskListData(List.of()), "Clear task history and tasks"));
+        pushContext(currentLiveCtx -> currentLiveCtx.clearHistory().withTaskList(new TaskList.TaskListData(List.of())));
+    }
+
+    /** Clear conversation history only, preserving the task list. */
+    public void clearHistoryOnly() {
+        pushContext(Context::clearHistory);
     }
 
     /**
@@ -900,8 +905,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Drops a single history entry by its sequence number. If the sequence is not found in the current top context's
      * history, this is a no-op.
      *
-     * <p>Creates a new context state with: - updated task history (with the entry removed), - null parsedOutput, - and
-     * action set to "Dropped message".
+     * <p>Creates a new context state with: - updated task history (with the entry removed), and - null parsedOutput.
      *
      * <p>Special behavior: - sequence == -1 means "drop the last item of the history"
      *
@@ -925,9 +929,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             return;
         }
 
-        // Push an updated context with the modified history and a "Delete message" action
-        pushContext(currentLiveCtx ->
-                currentLiveCtx.withHistory(newHistory).withParsedOutput(null, "Delete task from history"));
+        // Push an updated context with the modified history
+        pushContext(currentLiveCtx -> currentLiveCtx.withHistory(newHistory).withParsedOutput(null));
 
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Remove history entry " + seqToDrop);
     }
@@ -1012,7 +1015,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return submitExclusiveAction(() -> {
             var newLive = Context.createFrom(
                             targetContext, liveContext(), liveContext().getTaskHistory())
-                    .copyAndRefresh("Copy from History");
+                    .copyAndRefresh();
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
@@ -1028,7 +1031,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> resetContextToIncludingHistoryAsync(Context targetContext) {
         return submitExclusiveAction(() -> {
             var newLive = Context.createFrom(targetContext, liveContext(), targetContext.getTaskHistory())
-                    .copyAndRefresh("Copy from History");
+                    .copyAndRefresh();
             contextHistory.pushContext(newLive);
             contextHistory.addResetEdge(targetContext, newLive);
             SwingUtilities.invokeLater(() -> notifyContextListeners(newLive));
@@ -1045,7 +1048,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public ContextFragments.AnonymousImageFragment addPastedImageFragment(
             Image image, @Nullable String descriptionOverride) {
-        Future<String> descriptionFuture;
+        CompletableFuture<String> descriptionFuture;
         if (descriptionOverride != null && !descriptionOverride.isBlank()) {
             descriptionFuture = CompletableFuture.completedFuture(descriptionOverride);
         } else {
@@ -1420,23 +1423,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
         if (items.isEmpty()) {
             // If no valid tasks provided, clear the task list
             var newData = new TaskList.TaskListData(List.of());
-            return deriveContextWithTaskList(context, newData, "Task list cleared");
+            return deriveContextWithTaskList(context, newData);
         }
 
         var newData = new TaskList.TaskListData(List.copyOf(items));
-        return deriveContextWithTaskList(context, newData, "Task list replaced");
+        return deriveContextWithTaskList(context, newData);
     }
 
     /**
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    public Context setTaskList(TaskList.TaskListData data, String action) {
-        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data, action));
+    public Context setTaskList(TaskList.TaskListData data) {
+        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
     }
 
-    public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data, String action) {
-        return context.withTaskList(data, action);
+    public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data) {
+        return context.withTaskList(data);
     }
 
     private void finalizeSessionActivation(UUID sessionId) {
@@ -1483,7 +1486,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // if not, migrate from legacy tasklist.json
             var legacy = project.getSessionManager().readTaskList(sessionId).get(10, TimeUnit.SECONDS);
             if (!legacy.tasks().isEmpty()) {
-                pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(legacy, "Task list migrated"));
+                pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(legacy));
                 // Migration succeeded: drop legacy tasklist.json and log
                 logger.debug("Migrated task list from legacy storage for session {}", sessionId);
                 project.getSessionManager().deleteTaskList(sessionId);
@@ -1517,19 +1520,19 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         TaskResult result;
         var title = task.title() == null ? task.text() : task.title();
-        try (var scope = beginTask(prompt, false, "Task: " + title)) {
+        try (var scope = beginTask(prompt, true, "Task: " + title)) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithScan();
+
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
+                new GitWorkflow(this).performAutoCommit(prompt);
+                var ctx = markTaskDone(result.context(), task);
+                result = result.withContext(ctx);
+                scope.append(result);
+            }
         } finally {
             // mirror panel behavior
             checkBalanceAndNotify();
-        }
-
-        if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS) {
-            new GitWorkflow(this).performAutoCommit(prompt);
-            compressHistory(); // synchronous
-            var ctx = markTaskDone(result.context(), task);
-            result = result.withContext(ctx);
         }
 
         return result;
@@ -1554,8 +1557,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         var updated = new ArrayList<>(tasks);
         updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
-        return deriveContextWithTaskList(
-                context, new TaskList.TaskListData(List.copyOf(updated)), "Task list marked task done");
+        return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)));
     }
 
     private void captureGitState(Context frozenContext) {
@@ -1637,8 +1639,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Ensure listeners are notified on the EDT
         SwingUtilities.invokeLater(() -> notifyContextListeners(context));
 
-        project.getSessionManager()
-                .saveHistory(contextHistory, currentSessionId); // Persist the history of the contexts
+        // Defer save until TaskScope closes to ensure group mappings are captured
+        if (!taskScopeInProgress.get()) {
+            project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+        }
     }
 
     /**
@@ -1670,6 +1674,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private final ConcurrentMap<Callable<?>, String> taskDescriptions = new ConcurrentHashMap<>();
 
+    @Override
     public CompletableFuture<String> summarizeTaskForConversation(String input) {
         var future = new CompletableFuture<String>();
 
@@ -1689,60 +1694,47 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Submits a background task using SwingWorker to summarize a pasted image. This uses the quickest model to generate
+     * Submits a background task to summarize a pasted image. This uses the quickest model to generate
      * a short description.
      *
      * @param pastedImage The java.awt.Image that was pasted.
-     * @return A SwingWorker whose `get()` method will return the description string.
+     * @return A CompletableFuture that will return the description string.
      */
-    public SwingWorker<String, Void> submitSummarizePastedImage(Image pastedImage) {
-        ExceptionAwareSwingWorker<String, Void> worker = new ExceptionAwareSwingWorker<>(io) {
-            @Override
-            protected String doInBackground() {
-                try {
-                    // Convert AWT Image to LangChain4j Image (requires Base64 encoding)
-                    var l4jImage = ImageUtil.toL4JImage(pastedImage); // Assumes ImageUtil helper exists
-                    var imageContent = ImageContent.from(l4jImage);
+    public CompletableFuture<String> submitSummarizePastedImage(Image pastedImage) {
+        return submitBackgroundTask("Summarizing pasted image", () -> {
+            try {
+                // Convert AWT Image to LangChain4j Image (requires Base64 encoding)
+                var l4jImage = ImageUtil.toL4JImage(pastedImage);
+                var imageContent = ImageContent.from(l4jImage);
 
-                    // Create prompt messages for the LLM
-                    var textContent = TextContent.from(
-                            "Briefly describe this image in a few words (e.g., 'screenshot of code', 'diagram of system').");
-                    var userMessage = UserMessage.from(textContent, imageContent);
-                    List<ChatMessage> messages = List.of(userMessage);
-                    Llm.StreamingResult result;
-                    try {
-                        result = getLlm(serviceProvider.get().summarizeModel(), "Summarize pasted image")
-                                .sendRequest(messages);
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
-                    if (result.error() != null) {
-                        logger.warn("Image summarization failed or was cancelled.");
-                        return "(Image summarization failed)";
-                    }
-                    var description = result.text();
-                    return description.isBlank() ? "(Image description empty)" : description.trim();
-                } catch (IOException e) {
-                    logger.error("Failed to convert pasted image for summarization", e);
-                    return "(Error processing image)";
+                // Create prompt messages for the LLM
+                var textContent = TextContent.from(
+                        "Briefly describe this image in a few words (e.g., 'screenshot of code', 'diagram of system').");
+                var userMessage = UserMessage.from(textContent, imageContent);
+                List<ChatMessage> messages = List.of(userMessage);
+
+                Llm.StreamingResult result = getLlm(serviceProvider.get().summarizeModel(), "Summarize pasted image")
+                        .sendRequest(messages);
+
+                if (result.error() != null) {
+                    logger.warn("Image summarization failed or was cancelled.");
+                    return "(Image summarization failed)";
                 }
+                var description = result.text();
+                return description.isBlank() ? "(Image description empty)" : description.trim();
+            } catch (IOException e) {
+                logger.error("Failed to convert pasted image for summarization", e);
+                return "(Error processing image)";
+            } finally {
+                SwingUtilities.invokeLater(io::postSummarize);
             }
-
-            @Override
-            protected void done() {
-                super.done();
-                io.postSummarize();
-            }
-        };
-
-        worker.execute();
-        return worker;
+        });
     }
-
     /** Submits a background task to the internal background executor (non-user actions). */
     @Override
     public <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
-        var future = backgroundTasks.submit(() -> {
+        taskDescriptions.put(task, taskDescription);
+        return backgroundTasks.submit(() -> {
             try {
                 io.backgroundOutput(taskDescription);
                 return task.call();
@@ -1765,10 +1757,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 });
             }
         });
-
-        // Track the future with its description
-        taskDescriptions.put(task, taskDescription);
-        return future;
     }
 
     /**
@@ -2091,14 +2079,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // Must have a log to compress
-        if (!entry.hasLog()) {
+        if (!entry.hasLog() || entry.toString().isBlank()) {
             logger.warn("Cannot compress entry without a log: {}", entry);
             return entry;
         }
 
         // Compress the log into a summary
-        var historyString = entry.toString();
-        var msgs = SummarizerPrompts.instance.compressHistory(historyString);
+        var msgs = SummarizerPrompts.instance.compressHistory(entry.toString());
         Llm.StreamingResult result = getLlm(serviceProvider.get().summarizeModel(), "Compress history entry")
                 .sendRequest(msgs, COMPRESSION_MAX_ATTEMPTS);
 
@@ -2119,14 +2106,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTask(String input, boolean compressAtCommit) {
-        return beginTask(input, compressAtCommit, null);
+    public TaskScope beginTaskUngrouped(String input) {
+        return beginTask(input, false, null);
     }
 
-    /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional grouping label. */
-    public TaskScope beginTask(String input, boolean compressAtCommit, @Nullable String groupLabel) {
-        TaskScope scope = new TaskScope(compressAtCommit, groupLabel);
-
+    /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
+    public TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
@@ -2149,7 +2134,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
         }
 
-        return scope;
+        return new TaskScope(groupAndCompress, taskDescription);
     }
 
     /**
@@ -2159,17 +2144,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * without losing important history.
      */
     public final class TaskScope implements AutoCloseable {
-        private final boolean compressResults;
+        private final boolean groupAndCompress;
         private final AtomicBoolean closed = new AtomicBoolean(false);
-        private final @Nullable UUID groupId;
-        private final @Nullable String groupLabel;
+        private final UUID groupId = UUID.randomUUID();
+        private final String groupLabel;
 
-        private TaskScope(boolean compressResults, @Nullable String groupLabel) {
-            this.compressResults = compressResults;
-            this.groupLabel = groupLabel;
-            this.groupId = (groupLabel != null) ? UUID.randomUUID() : null;
+        private TaskScope(boolean groupAndCompress, @Nullable String taskDescription) {
+            this.groupAndCompress = groupAndCompress;
+            this.groupLabel = taskDescription == null ? "Task" : taskDescription;
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
+
+            analyzerWrapper.pause();
         }
 
         /**
@@ -2179,44 +2165,43 @@ public class ContextManager implements IContextManager, AutoCloseable {
          *
          * @param result   The TaskResult to append.
          */
+        @Blocking
         public Context append(TaskResult result) throws InterruptedException {
             assert !closed.get() : "TaskScope already closed";
 
             // If interrupted before any LLM output, skip
             if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED
                     && result.output().messages().stream().noneMatch(m -> m instanceof AiMessage)) {
-                logger.debug("Command cancelled before LLM responded");
+                logger.debug("Command cancelled before LLM responded — skipping publish");
                 return result.context();
             }
 
             // If there is literally nothing to record (no messages and no content changes), skip
             if (result.output().messages().isEmpty()) {
                 // Treat result.context() as new (right) and current topContext() as old (left)
-                var diffs = result.context().getDiff(liveContext());
-                if (diffs.isEmpty()) {
-                    logger.debug("Empty TaskResult (no messages and no content changes)");
+                Context other = liveContext();
+                var delta = ContextDelta.between(result.context(), other).join();
+                if (delta.isEmpty()) {
+                    logger.debug("Empty TaskResult delta, skipping publish");
                     return result.context();
                 }
             }
 
-            var action = result.actionDescription();
-            logger.debug("Adding session result to history. Action: '{}', Reason: {}", action, result.stopDetails());
-
-            var actionFuture = summarizeTaskForConversation(action).thenApply(r -> {
-                io.postSummarize();
-                return r;
-            });
+            logger.debug("Adding session result to history. Reason: {}", result.stopDetails());
 
             // optionally compress
-            var updated = result.context().withGroup(groupId, groupLabel);
+            var updated = result.context();
             TaskEntry entry = updated.createTaskEntry(result);
-            TaskEntry finalEntry = compressResults ? compressHistory(entry) : entry;
 
             // push context
             var updatedContext = pushContext(currentLiveCtx -> {
-                return updated.addHistoryEntry(finalEntry, result.output(), actionFuture)
-                        .withGroup(groupId, groupLabel);
+                return updated.addHistoryEntry(entry, result.output());
             });
+
+            if (groupAndCompress) {
+                UUID contextId = updatedContext.id();
+                contextHistory.addContextToGroup(contextId, groupId, groupLabel);
+            }
 
             // prepare MOP to display new history with the next streamed message
             // needed because after the last append (before close) the MOP should not update
@@ -2231,19 +2216,35 @@ public class ContextManager implements IContextManager, AutoCloseable {
          */
         public void publish(Context context) {
             assert !closed.get() : "TaskScope already closed";
-            var updated = context.withGroup(groupId, groupLabel);
-            pushContext(currentLiveCtx -> updated);
-            io.prepareOutputForNextStream(updated.getTaskHistory()); // is this necessary?
+            var newId = pushContext(currentLiveCtx -> context).id();
+            contextHistory.addContextToGroup(newId, groupId, groupLabel);
         }
 
         @Override
-        public void close() {
+        public void close() throws InterruptedException {
             if (!closed.compareAndSet(false, true)) return;
+
+            // Save once now that all group mappings are in place
+            project.getSessionManager().saveHistory(contextHistory, currentSessionId);
+
             SwingUtilities.invokeLater(() -> {
                 // deferred cleanup
                 taskScopeInProgress.set(false);
                 io.setTaskInProgress(false);
             });
+
+            if (groupAndCompress) {
+                contextHistory.replaceTop(ctx -> {
+                    try {
+                        return compressHistory(ctx);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return ctx;
+                    }
+                });
+            }
+
+            analyzerWrapper.resume();
         }
     }
 
@@ -2348,7 +2349,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var sessionManager = project.getSessionManager();
         var newSessionInfo = sessionManager.newSession(newSessionName);
         updateActiveSession(newSessionInfo.id());
-        var ctx = newContextFrom(sourceContext).copyAndRefresh("Load External Changes");
+        var ctx = newContextFrom(sourceContext).copyAndRefresh();
 
         // the intent is that we save a history to the new session that initializeCurrentSessionAndHistory will pull in
         // later
@@ -2369,7 +2370,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     logger.debug(
                             "Attempting to create and switch to new session '{}' from workspace of context '{}'",
                             newSessionName,
-                            sourceContext.getAction());
+                            sourceContext.id());
 
                     var sessionManager = project.getSessionManager();
                     // 1. Create new session info
@@ -2380,7 +2381,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // 2. Create the initial context for the new session.
                     // Only its top-level action/parsedOutput will be changed to reflect it's a new session.
                     var initialContextForNewSession =
-                            newContextFrom(sourceContext).copyAndRefresh("Load External Changes");
+                            newContextFrom(sourceContext).copyAndRefresh();
 
                     // 3. Initialize the ContextManager's history for the new session with this single context.
                     // Context should already be live from migration logic
@@ -2402,11 +2403,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** returns a new Context based on the source one */
     private Context newContextFrom(Context sourceContext) {
-        var newActionDescription = "New session (from: " + sourceContext.getAction() + ")";
-        var newActionFuture = CompletableFuture.completedFuture(newActionDescription);
+        var newActionDescription = "New Session";
         var newParsedOutputFragment = new ContextFragments.TaskFragment(
                 this, List.of(SystemMessage.from(newActionDescription)), newActionDescription);
-        return sourceContext.withParsedOutput(newParsedOutputFragment, newActionFuture);
+        return sourceContext.withParsedOutput(newParsedOutputFragment);
     }
 
     /**
@@ -2700,7 +2700,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<?> compressHistoryAsync() {
         return submitLlmAction(() -> {
             try {
-                compressHistory();
+                compressGlobalHistory();
             } catch (InterruptedException ie) {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "History compression canceled");
             }
@@ -2709,28 +2709,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     @Blocking
-    public void compressHistory() throws InterruptedException {
+    public Context compressHistory(Context ctx) throws InterruptedException {
         io.disableHistoryPanel();
         try {
-            // Operate on the task history
-            var taskHistoryToCompress = liveContext().getTaskHistory();
-            if (taskHistoryToCompress.isEmpty()) {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "No history to compress.");
-                return;
-            }
-
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Compressing conversation history...");
-
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
-            List<Future<TaskEntry>> futures = new ArrayList<>(taskHistoryToCompress.size());
+            List<Future<TaskEntry>> futures =
+                    new ArrayList<>(ctx.getTaskHistory().size());
             try (var exec = ExecutorServiceUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
                 // Submit all compression tasks
-                for (TaskEntry entry : taskHistoryToCompress) {
+                for (TaskEntry entry : ctx.getTaskHistory()) {
                     futures.add(exec.submit(() -> compressHistory(entry)));
                 }
 
                 // Collect results in order, with fallback to original on failure
-                List<TaskEntry> compressedTaskEntries = new ArrayList<>(taskHistoryToCompress.size());
+                List<TaskEntry> compressedTaskEntries =
+                        new ArrayList<>(ctx.getTaskHistory().size());
                 for (int i = 0; i < futures.size(); i++) {
                     try {
                         compressedTaskEntries.add(futures.get(i).get());
@@ -2744,29 +2737,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     } catch (ExecutionException ee) {
                         // Individual task failed - use original entry and continue
                         logger.warn("History compression task failed", ee);
-                        compressedTaskEntries.add(taskHistoryToCompress.get(i));
+                        compressedTaskEntries.add(ctx.getTaskHistory().get(i));
                     }
                 }
 
                 // Check if any entries were actually modified (got a summary attached)
-                boolean changed = IntStream.range(0, taskHistoryToCompress.size())
+                boolean changed = IntStream.range(0, ctx.getTaskHistory().size())
                         .anyMatch(i -> {
-                            TaskEntry original = taskHistoryToCompress.get(i);
+                            TaskEntry original = ctx.getTaskHistory().get(i);
                             TaskEntry compressed = compressedTaskEntries.get(i);
                             // Entry changed if it now has a summary when it didn't before
                             return compressed.isCompressed() && !original.isCompressed();
                         });
 
                 if (!changed) {
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, "History is already compressed.");
-                    return;
+                    return ctx;
                 }
 
-                // pushContext will update liveContext with the compressed history
-                // and add a frozen version to contextHistory.
-                // Entries now have both log and summary, so AI uses summary while UI can show either
-                pushContext(currentLiveCtx -> currentLiveCtx.withHistory(compressedTaskEntries));
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
+                return ctx.withHistory(compressedTaskEntries);
             }
         } finally {
             SwingUtilities.invokeLater(io::enableHistoryPanel);

@@ -13,7 +13,7 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
-import ai.brokk.agents.SearchAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -1688,7 +1688,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         var resultingCtx = cm.liveContext();
         return new TaskResult(
                 cm,
-                "Ask: " + question,
+                question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
                 resultingCtx, // Ask never changes files; use current live context
                 stop,
@@ -1801,8 +1801,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         autoClearCompletedTasks();
 
         // Derive objective from action
-        SearchAgent.Objective objective =
-                ACTION_PLAN.equals(action) ? SearchAgent.Objective.TASKS_ONLY : SearchAgent.Objective.LUTZ;
+        SearchPrompts.Objective objective =
+                ACTION_PLAN.equals(action) ? SearchPrompts.Objective.TASKS_ONLY : SearchPrompts.Objective.LUTZ;
 
         submitAction(action, query, scope -> {
                     assert !query.isBlank();
@@ -1815,7 +1815,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     boolean hadIncomplete = hasIncomplete(beforeTasks);
 
                     // SearchAgent now handles scanning internally via execute()
-                    SearchAgent agent = new SearchAgent(context, query, modelToUse, objective, scope);
+                    LutzAgent agent = new LutzAgent(context, query, modelToUse, objective, scope);
 
                     var result = agent.execute();
                     // Apply results to context
@@ -1849,12 +1849,10 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                             // Append: concatenate both lists
                             var combined = new ArrayList<>(beforeTasks.tasks());
                             combined.addAll(agentTasks.tasks());
-                            context = cm.deriveContextWithTaskList(
-                                    context, new TaskList.TaskListData(combined), "Appended new tasks");
+                            context = cm.deriveContextWithTaskList(context, new TaskList.TaskListData(combined));
                         } else {
                             // Replace: already the state of 'context' from result, but we ensure it is set in CM
-                            context = cm.deriveContextWithTaskList(
-                                    context, agentTasks, "Replaced task list with new tasks");
+                            context = cm.deriveContextWithTaskList(context, agentTasks);
                         }
                     }
 
@@ -1889,6 +1887,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * interruption
      */
     public void submitAction(String action, String input, Callable<TaskResult> task) {
+        assert ACTION_CODE.equals(action) || ACTION_ASK.equals(action) : action;
+
         var cm = chrome.getContextManager();
         String spinnerText = spinnerTextFor(action);
 
@@ -1896,7 +1896,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             try {
                 chrome.showOutputSpinner(spinnerText);
 
-                try (var scope = cm.beginTask(input, false)) {
+                try (var scope = cm.beginTaskUngrouped(input)) {
                     var result = task.call();
                     scope.append(result);
                     if (result.stopDetails().reason() == TaskResult.StopReason.INTERRUPTED) {
@@ -3216,7 +3216,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // If any tasks were removed, update the task list and refresh UI
         if (filtered.size() < originalTasks.size()) {
-            cm.setTaskList(new TaskList.TaskListData(filtered), "Auto-cleared completed tasks");
+            cm.setTaskList(new TaskList.TaskListData(filtered));
         }
     }
 

@@ -35,6 +35,16 @@ export WORKSPACE_DIR="/path/to/workspace"
 ./gradlew :app:runHeadlessExecutor
 ```
 
+## Download a Session Zip
+
+To download a previously stored session zip, issue a GET request to the session sub-path.
+
+```bash
+curl -sS -X GET "http://localhost:8080/v1/sessions/<session-id>" \
+  -H "Authorization: Bearer my-secret-token" \
+  -o "<session-id>.zip"
+```
+
 ## ASK Mode: Read-Only Codebase Search
 
 ASK mode enables **interactive, read-only exploration** of your repository. It leverages the internal `SearchAgent` to understand your queries and automatically discover relevant code without making any modifications.

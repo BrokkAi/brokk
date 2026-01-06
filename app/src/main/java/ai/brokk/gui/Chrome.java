@@ -77,6 +77,9 @@ public class Chrome
     private static final double MAX_SIDEBAR_WIDTH_FRACTION_WIDE = 0.25; // 25% maximum sidebar width (wide screens)
     private static final int WIDE_SCREEN_THRESHOLD = 2000; // Screen width threshold for wide screen layout
     private static final int SIDEBAR_COLLAPSED_THRESHOLD = 50;
+    // Minimum width for the collapsed sidebar icon strip; without this, Swing relayout can compress the
+    // left component to 0px, hiding icons and making the sidebar effectively impossible to expand.
+    private static final int COLLAPSED_SIDEBAR_WIDTH_PX = 40;
 
     // Used as the default text for the background tasks label
     private final String BGTASK_EMPTY = "No background tasks";
@@ -693,15 +696,18 @@ public class Chrome
         }
 
         // Open Settings (configurable; default Cmd/Ctrl+,)
-        KeyStroke openSettingsKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.openSettings", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
-        bindKey(rootPane, openSettingsKeyStroke, "openSettings");
-        rootPane.getActionMap().put("openSettings", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(() -> MenuBar.openSettingsDialog(Chrome.this));
-            }
-        });
+        // On macOS, Desktop.setPreferencesHandler() in MenuBar handles Cmd+, natively
+        if (!SystemInfo.isMacOS) {
+            KeyStroke openSettingsKeyStroke = GlobalUiSettings.getKeybinding(
+                    "global.openSettings", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_COMMA));
+            bindKey(rootPane, openSettingsKeyStroke, "openSettings");
+            rootPane.getActionMap().put("openSettings", new AbstractAction() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    SwingUtilities.invokeLater(() -> MenuBar.openSettingsDialog(Chrome.this));
+                }
+            });
+        }
 
         // Close Window (configurable; default Cmd/Ctrl+W; never allow bare ESC)
         KeyStroke closeWindowKeyStroke = GlobalUiSettings.getKeybinding(
@@ -1044,9 +1050,6 @@ public class Chrome
             }
         });
 
-        // 3. UI Component Listeners
-        dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
-
         // 4. Focus and Action State Management
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
             Component oldFocusOwner = (Component) evt.getOldValue();
@@ -1286,23 +1289,15 @@ public class Chrome
             // Collapse sidebar by default or if explicitly saved as closed
             toolsPane.setLastExpandedSidebarLocation(
                     Math.max(toolsPane.getLastExpandedSidebarLocation(), properDividerLocation));
-            // Relax minimum sizes to allow full collapse to compact width
-            leftVerticalSplitPane.setMinimumSize(new Dimension(0, 0));
-            toolsPane.getToolsPane().setMinimumSize(new Dimension(0, 0));
             toolsPane.getToolsPane().setSelectedIndex(0); // Always show Project Files when collapsed
-            horizontalSplitPane.setDividerSize(0);
             toolsPane.setSidebarCollapsed(true);
-            horizontalSplitPane.setDividerLocation(40);
+            applySidebarState(true);
         } else {
             // Open sidebar using the saved or computed divider location
             horizontalSplitPane.setDividerLocation(properDividerLocation);
-            horizontalSplitPane.setDividerSize(originalBottomDividerSize);
             toolsPane.setSidebarCollapsed(false);
             toolsPane.setLastExpandedSidebarLocation(properDividerLocation);
-            // Restore minimum sizes so min-width clamp is enforced
-            int minPx = computeMinSidebarWidthPx();
-            leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
-            toolsPane.getToolsPane().setMinimumSize(new Dimension(minPx, 0));
+            applySidebarState(false);
         }
 
         // Add property change listeners for future updates (also persist globally)
@@ -1314,6 +1309,8 @@ public class Chrome
         // Force a complete layout validation
         frame.revalidate();
 
+        // frame.pack() triggers a full relayout that can reset JSplitPane divider locations; re-assert
+        // the collapsed divider/min sizes after pack/validate so the icon strip cannot disappear to 0px.
         // Fix zero-sized components by forcing layout calculation with pack()
         // Remember the intended size before pack changes it
         int intendedWidth = frame.getWidth();
@@ -1385,8 +1382,8 @@ public class Chrome
             // Keep backward-compat but persist globally as the source of truth
             project.saveHorizontalSplitPosition(newPos);
             GlobalUiSettings.saveHorizontalSplitPosition(newPos);
-            // Remember expanded locations only (ignore collapsed sidebar)
-            if (newPos >= SIDEBAR_COLLAPSED_THRESHOLD) {
+            // Remember expanded locations only when >= minimum usable width
+            if (newPos >= computeMinSidebarWidthPx()) {
                 toolsPane.setLastExpandedSidebarLocation(newPos);
             }
         });
@@ -1672,10 +1669,51 @@ public class Chrome
         return rightPanel;
     }
 
+    /**
+     * Centralizes sidebar collapse/expand layout logic to avoid duplicated split-pane tweaks.
+     * Must be called after operations that swap JSplitPane children (e.g. setRightComponent()) or
+     * trigger layout recalculation (e.g. frame.pack()), otherwise Swing can legally shrink the left side to 0px.
+     */
+    void applySidebarState(boolean collapsed) {
+        assert SwingUtilities.isEventDispatchThread() : "applySidebarState must run on EDT";
+        if (collapsed) {
+            leftVerticalSplitPane.setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
+            toolsPane.getToolsPane().setMinimumSize(new Dimension(COLLAPSED_SIDEBAR_WIDTH_PX, 0));
+            horizontalSplitPane.setDividerSize(0);
+            horizontalSplitPane.setDividerLocation(COLLAPSED_SIDEBAR_WIDTH_PX);
+            return;
+        }
+
+        int minPx = computeMinSidebarWidthPx();
+        leftVerticalSplitPane.setMinimumSize(new Dimension(minPx, 0));
+        toolsPane.getToolsPane().setMinimumSize(new Dimension(minPx, 0));
+        horizontalSplitPane.setDividerSize(originalBottomDividerSize);
+
+        int current = horizontalSplitPane.getDividerLocation();
+        int target;
+        if (current >= minPx) {
+            // Current position is valid and meets minimum requirements, keep it
+            target = current;
+        } else if (current < SIDEBAR_COLLAPSED_THRESHOLD) {
+            // Value is below collapse threshold (likely stale 0 or collapsed state)
+            // Use the saved expanded location instead of the potentially invalid current value
+            target = Math.max(minPx, toolsPane.getLastExpandedSidebarLocation());
+        } else {
+            // In-between (>= threshold but < minPx) - clamp to minimum usable width
+            target = minPx;
+        }
+        horizontalSplitPane.setDividerLocation(target);
+    }
+
     public void applyVerticalActivityLayout() {
         SwingUtilities.invokeLater(() -> {
             rightPanel.applyVerticalActivityLayout();
             horizontalSplitPane.setRightComponent(rightPanel);
+
+            // Swapping split children via setRightComponent() triggers relayout; re-assert sidebar constraints
+            // so Swing cannot legally collapse the left component to 0px during recalculation.
+            applySidebarState(toolsPane.isSidebarCollapsed());
+
             frame.revalidate();
             frame.repaint();
         });
@@ -2377,19 +2415,6 @@ public class Chrome
     public void updateGitTabBadge(int modifiedCount) {
         assert SwingUtilities.isEventDispatchThread() : "updateGitTabBadge(int) must be called on EDT";
         toolsPane.updateGitTabBadge(modifiedCount);
-    }
-
-    /**
-     * Updates the Project Files tab badge with the current number of live dependencies. Should be called whenever
-     * the dependency count changes or on startup to initialize the badge. EDT-safe.
-     */
-    @SuppressWarnings("RedundantNullCheck")
-    public void updateProjectFilesTabBadge(int dependencyCount) {
-        SwingUtil.runOnEdt(() -> {
-            if (toolsPane != null) {
-                toolsPane.updateProjectFilesTabBadge(dependencyCount);
-            }
-        });
     }
 
     public void refreshBranchUi(@Nullable String branchName) {

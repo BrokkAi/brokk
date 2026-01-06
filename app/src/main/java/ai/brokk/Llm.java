@@ -40,7 +40,12 @@ import dev.langchain4j.model.chat.request.json.JsonStringSchema;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
+import dev.langchain4j.model.openai.internal.Json;
+import dev.langchain4j.model.openai.internal.OpenAiUtils;
+import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
+import dev.langchain4j.model.openai.internal.shared.StreamOptions;
 import dev.langchain4j.model.output.FinishReason;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -251,13 +256,42 @@ public class Llm {
             var requestOptions = new StandardOpenOption[] {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };
-            var requestJson = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
+            var requestJson = requestJsonForLogging(request);
             logger.trace("Writing pre-send request JSON to {}", requestPath);
             Files.writeString(requestPath, requestJson, requestOptions);
         } catch (IOException e) {
             logger.error("Failed to write pre-send request JSON", e);
         }
         return assignedSequence;
+    }
+
+    /**
+     * Produces the JSON string for logging a request. For OpenAI models, this matches the exact
+     * wire format sent by the streaming path. For other models, uses the generic ChatRequest serialization.
+     */
+    String requestJsonForLogging(ChatRequest request) {
+        if (model instanceof OpenAiStreamingChatModel openAiModel) {
+            // Mirror the parameter merging done in StreamingChatModel.chat() so that
+            // model defaults (including modelName) are present in the logged JSON
+            var reqParams = request.parameters();
+            var merged = openAiModel.defaultRequestParameters().overrideWith(reqParams);
+            var mergedRequest = ChatRequest.builder()
+                    .messages(request.messages())
+                    .parameters(merged)
+                    .build();
+            var openAiRequest = OpenAiUtils.toOpenAiChatRequest(
+                            mergedRequest, merged, openAiModel.strictTools(), openAiModel.strictJsonSchema())
+                    .stream(true)
+                    .streamOptions(StreamOptions.builder().includeUsage(true).build())
+                    .build();
+            return Json.toJson(
+                    ChatCompletionRequest.builder().from(openAiRequest).build());
+        }
+        try {
+            return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /**

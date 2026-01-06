@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -153,7 +154,7 @@ public class Environment {
             Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
-        logger.debug(
+        logger.trace(
                 "Running internal `{}` in `{}` (sandbox={}, has-consumer={})",
                 command,
                 root,
@@ -229,10 +230,10 @@ public class Environment {
             // Phase 1: Support custom executors for non-sandboxed execution
             if (executorConfig != null && executorConfig.isValid()) {
                 shellCommand = executorConfig.buildCommand(command);
-                logger.info("using custom executor '{}'", executorConfig.getDisplayName());
+                logger.trace("using custom executor '{}'", executorConfig.getDisplayName());
             } else {
                 if (executorConfig != null && !executorConfig.isValid()) {
-                    logger.warn("invalid custom executor '{}', using system default", executorConfig);
+                    logger.info("invalid custom executor '{}', using system default", executorConfig);
                 }
                 // Fall back to system default
                 shellCommand = isWindows()
@@ -241,7 +242,7 @@ public class Environment {
             }
         }
 
-        logger.trace("command: {}", String.join(" ", shellCommand));
+        logger.debug("Running: {} = {}", Arrays.toString(shellCommand), String.join(" ", shellCommand));
         ProcessBuilder pb = createProcessBuilder(root, shellCommand);
 
         if (!environment.isEmpty()) {

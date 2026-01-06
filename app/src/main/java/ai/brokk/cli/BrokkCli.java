@@ -12,6 +12,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.ConflictInspector;
 import ai.brokk.agents.ContextAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.MergeAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.CodeUnit;
@@ -23,9 +24,11 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.InstructionsPanel;
+import ai.brokk.metrics.SearchMetrics;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -161,8 +164,11 @@ public final class BrokkCli implements Callable<Integer> {
 
     @CommandLine.Option(
             names = "--deepscan",
-            description = "Perform a Deep Scan to suggest additional relevant context.")
-    private boolean deepScan = false;
+            arity = "0..1",
+            fallbackValue = "true",
+            description =
+                    "Perform a Deep Scan to suggest additional relevant context. Optionally provide a custom goal.")
+    private @Nullable String deepScanGoal;
 
     @CommandLine.Option(
             names = "--search-workspace",
@@ -228,6 +234,7 @@ public final class BrokkCli implements Callable<Integer> {
                 .count();
         if (merge) actionCount++;
         if (build) actionCount++;
+        boolean deepScan = deepScanGoal != null;
         if (actionCount > 1) {
             System.err.println(
                     "At most one action (--architect, --code, --ask, --search-answer, --lutz, --lutz-lite, --merge, --build, --search-workspace) can be specified.");
@@ -409,20 +416,14 @@ public final class BrokkCli implements Callable<Integer> {
             TaskResult searchResult;
             boolean success;
 
-            try (var scope = cm.beginTask(searchWorkspace, false)) {
+            try (var scope = cm.beginTaskUngrouped(searchWorkspace)) {
                 var searchModel = taskModelOverride == null ? cm.getService().getScanModel() : taskModelOverride;
                 // Honor --disable-context-scan flag via ScanConfig
                 var scanConfig = disableContextScan
                         ? SearchAgent.ScanConfig.disabled()
                         : SearchAgent.ScanConfig.withModel(searchModel);
-                var agent = new SearchAgent(
-                        cm.liveContext(),
-                        searchWorkspace,
-                        searchModel,
-                        SearchAgent.Objective.WORKSPACE_ONLY,
-                        scope,
-                        cm.getIo(),
-                        scanConfig);
+                var agent =
+                        new SearchAgent(cm.liveContext(), searchWorkspace, searchModel, scope, cm.getIo(), scanConfig);
                 searchResult = agent.execute();
                 scope.append(searchResult);
                 success = searchResult.stopDetails().reason() == TaskResult.StopReason.SUCCESS;
@@ -520,12 +521,17 @@ public final class BrokkCli implements Callable<Integer> {
                     IConsoleIO.NotificationRole.INFO,
                     ContextFragment.describe(cm.liveContext().allFragments()));
 
-            String goalForScan = isStandaloneDeepScan
-                    ? "Analyze the workspace and suggest relevant context"
-                    : Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
-                            .filter(s -> s != null && !s.isBlank())
-                            .findFirst()
-                            .orElseThrow();
+            String goalForScan;
+            if (deepScanGoal != null && !deepScanGoal.equals("true") && !deepScanGoal.isBlank()) {
+                goalForScan = deepScanGoal;
+            } else if (isStandaloneDeepScan) {
+                goalForScan = "Analyze the workspace and suggest relevant context";
+            } else {
+                goalForScan = Stream.of(architectPrompt, codePrompt, askPrompt, searchAnswerPrompt, lutzPrompt)
+                        .filter(s -> s != null && !s.isBlank())
+                        .findFirst()
+                        .orElseThrow();
+            }
 
             // Determine task file for cache
             @Nullable
@@ -578,6 +584,28 @@ public final class BrokkCli implements Callable<Integer> {
                 io.toolError("Deep Scan did not complete successfully");
             }
 
+            // Output metrics if BRK_COLLECT_METRICS is set
+            if ("true".equalsIgnoreCase(System.getenv("BRK_COLLECT_METRICS"))) {
+                var metrics = SearchMetrics.tracking();
+                // Collect files added from recommendations
+                var filesAddedPaths = recommendations.fragments().stream()
+                        .flatMap(f -> f.files().renderNowOr(Set.of()).stream())
+                        .map(pf -> pf.getRelPath().toString())
+                        .collect(Collectors.toSet());
+                metrics.recordContextScan(
+                        filesAddedPaths.size(),
+                        !recommendations.success(),
+                        filesAddedPaths,
+                        recommendations.metadata());
+                // Record outcome (no search turns for deepscan)
+                metrics.recordOutcome(
+                        recommendations.success() ? TaskResult.StopReason.SUCCESS : TaskResult.StopReason.LLM_ERROR,
+                        filesAddedPaths.size());
+                metrics.recordFinalWorkspaceFiles(filesAddedPaths);
+                var json = metrics.toJson(goalForScan, 0, recommendations.success());
+                System.err.println("\nBRK_SEARCHAGENT_METRICS=" + json);
+            }
+
             // If deepscan is standalone, exit here with success
             if (isStandaloneDeepScan || "true".equals(System.getenv().get("BRK_SCAN_ONLY"))) {
                 return 0;
@@ -611,7 +639,7 @@ public final class BrokkCli implements Callable<Integer> {
             scopeInput = requireNonNull(lutzPrompt);
         }
 
-        try (var scope = cm.beginTask(scopeInput, false)) {
+        try (var scope = cm.beginTaskUngrouped(scopeInput)) {
             try {
                 if (architectPrompt != null) {
                     // Architect requires a plan model and a code model
@@ -677,11 +705,11 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
-                    var agent = new SearchAgent(
+                    var agent = new LutzAgent(
                             cm.liveContext(),
                             requireNonNull(searchAnswerPrompt),
                             planModel,
-                            SearchAgent.Objective.ANSWER_ONLY,
+                            SearchPrompts.Objective.ANSWER_ONLY,
                             scope);
                     result = agent.execute();
                     context = scope.append(result);
@@ -728,11 +756,11 @@ public final class BrokkCli implements Callable<Integer> {
                         return 1;
                     }
                     // SearchAgent now handles scanning internally via execute()
-                    var agent = new SearchAgent(
+                    var agent = new LutzAgent(
                             cm.liveContext(),
                             requireNonNull(lutzPrompt),
                             planModel,
-                            SearchAgent.Objective.TASKS_ONLY,
+                            SearchPrompts.Objective.TASKS_ONLY,
                             scope);
                     result = agent.execute();
                     context = scope.append(result);

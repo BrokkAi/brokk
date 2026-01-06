@@ -223,10 +223,32 @@ public final class TreeSitterStateIO {
             long snapshotEpochNanos) {}
 
     /**
+     * DTO for CodeUnitProperties that can be easily serialized.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CodeUnitPropertiesDto(
+            List<CodeUnitDto> children,
+            List<String> signatures,
+            List<IAnalyzer.Range> ranges,
+            List<String> rawSupertypes,
+            @Nullable List<CodeUnitDto> supertypes,
+            boolean supertypesComputed,
+            boolean hasBody) {
+
+        /**
+         * Note on serialization: `supertypesComputed` is the discriminator for {@link TreeSitterAnalyzer.SuperTypeInfo}.
+         * If true, we deserialize as {@link TreeSitterAnalyzer.SuperTypeInfo.Computed} using the `supertypes` list
+         * (which must be non-null, though potentially empty).
+         * If false, we deserialize as {@link TreeSitterAnalyzer.SuperTypeInfo.Uncomputed}.
+         */
+        public CodeUnitPropertiesDto {}
+    }
+
+    /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record CodeUnitEntryDto(CodeUnitDto key, TreeSitterAnalyzer.CodeUnitProperties value) {}
+    public record CodeUnitEntryDto(CodeUnitDto key, CodeUnitPropertiesDto value) {}
 
     /**
      * DTO entry for ProjectFile -> FileProperties maps.
@@ -334,7 +356,28 @@ public final class TreeSitterStateIO {
         // codeUnitState -> entries list
         List<CodeUnitEntryDto> cuEntries = new ArrayList<>(state.codeUnitState().size());
         for (var e : state.codeUnitState().entrySet()) {
-            cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), e.getValue()));
+            var props = e.getValue();
+            var childrenDtos =
+                    props.children().stream().map(TreeSitterStateIO::toDto).toList();
+
+            var superTypeInfo = props.superTypes();
+            boolean computed = superTypeInfo instanceof TreeSitterAnalyzer.SuperTypeInfo.Computed;
+            List<CodeUnitDto> supertypesDto = null;
+            if (computed) {
+                var list = ((TreeSitterAnalyzer.SuperTypeInfo.Computed) superTypeInfo).supertypes();
+                supertypesDto = list.stream().map(TreeSitterStateIO::toDto).toList();
+            }
+
+            var propsDto = new CodeUnitPropertiesDto(
+                    childrenDtos,
+                    props.signatures(),
+                    props.ranges(),
+                    props.rawSupertypes(),
+                    supertypesDto,
+                    computed,
+                    props.hasBody());
+
+            cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }
 
         // fileState -> entries list (omit parsed tree)
@@ -379,7 +422,28 @@ public final class TreeSitterStateIO {
         // Rebuild codeUnitState PMap
         Map<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> cuState = new HashMap<>();
         for (var entry : dto.codeUnitState()) {
-            cuState.put(fromDto(entry.key()), entry.value());
+            var v = entry.value();
+
+            TreeSitterAnalyzer.SuperTypeInfo superTypeInfo;
+            if (v.supertypesComputed()) {
+                var listDto = v.supertypes();
+                List<CodeUnit> list = (listDto == null)
+                        ? List.of()
+                        : listDto.stream().map(TreeSitterStateIO::fromDto).toList();
+                superTypeInfo = new TreeSitterAnalyzer.SuperTypeInfo.Computed(list);
+            } else {
+                superTypeInfo = new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed();
+            }
+
+            var props = new TreeSitterAnalyzer.CodeUnitProperties(
+                    v.children().stream().map(TreeSitterStateIO::fromDto).toList(),
+                    v.signatures(),
+                    v.ranges(),
+                    v.rawSupertypes(),
+                    superTypeInfo,
+                    v.hasBody());
+
+            cuState.put(fromDto(entry.key()), props);
         }
         PMap<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> codeUnitState = HashTreePMap.from(cuState);
 

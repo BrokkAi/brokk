@@ -27,7 +27,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
@@ -57,6 +57,7 @@ public final class HistoryIo {
     private static final String RESET_EDGES_FILENAME = "reset_edges.json";
     private static final String GIT_STATES_FILENAME = "git_states.json";
     private static final String ENTRY_INFOS_FILENAME = "entry_infos.json";
+    private static final String GROUP_INFO_FILENAME = "group_info.json";
     private static final String IMAGES_DIR_PREFIX = "images/";
 
     private static final int CURRENT_FORMAT_VERSION = 4;
@@ -145,10 +146,12 @@ public final class HistoryIo {
         Map<String, ContextHistory.GitState> gitStateDtos = new HashMap<>();
         Map<String, DtoMapper.GitStateDto> rawGitStateDtos = null;
         Map<String, ContextHistory.ContextHistoryEntryInfo> entryInfoDtos = new HashMap<>();
+        GroupInfoDto groupInfoDto = null;
         Map<String, ContentMetadataDto> contentMetadata = Map.of();
         var contentBytesMap = new HashMap<String, byte[]>();
 
         try (var zis = new ZipInputStream(Files.newInputStream(zip))) {
+            logger.trace("reading " + zip);
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 var entryName = entry.getName();
@@ -183,6 +186,13 @@ public final class HistoryIo {
                             var typeRefNew = new TypeReference<Map<String, EntryInfoDto>>() {};
                             Map<String, EntryInfoDto> dtoMap = objectMapper.readValue(bytes, typeRefNew);
                             entryInfoDtos = DtoMapper.fromEntryInfosDto(dtoMap, mgr);
+                        }
+                        case GROUP_INFO_FILENAME -> {
+                            groupInfoDto = objectMapper.readValue(zis.readAllBytes(), GroupInfoDto.class);
+                            logger.trace(
+                                    "loaded group_info.json with {} context mappings, {} group labels",
+                                    groupInfoDto.contextToGroupId().size(),
+                                    groupInfoDto.groupLabels().size());
                         }
                         default -> {
                             if (entryName.startsWith(IMAGES_DIR_PREFIX) && !entry.isDirectory()) {
@@ -265,6 +275,7 @@ public final class HistoryIo {
             // First build the context via DtoMapper, then reconstruct to inject read-only fragment IDs
             Context built = DtoMapper.fromCompactDto(compactDto, mgr, fragmentCache, contentReader);
             contexts.add(built);
+            logger.trace("loaded context id={}", built.id());
         }
 
         if (contexts.isEmpty()) {
@@ -276,15 +287,45 @@ public final class HistoryIo {
         var entryInfos = new HashMap<UUID, ContextHistory.ContextHistoryEntryInfo>();
         entryInfoDtos.forEach((key, value) -> entryInfos.put(UUID.fromString(key), value));
 
-        return new ContextHistory(contexts, resetEdges, gitStates, entryInfos);
-    }
-
-    private static String summarizeAction(Context ctx) {
-        try {
-            return ctx.action.get(Context.CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            return "(Summary Unavailable)";
+        Map<UUID, UUID> contextToGroupId = new HashMap<>();
+        Map<UUID, String> groupLabels = new HashMap<>();
+        if (groupInfoDto != null) {
+            groupInfoDto
+                    .contextToGroupId()
+                    .forEach((ctxId, grpId) -> contextToGroupId.put(UUID.fromString(ctxId), UUID.fromString(grpId)));
+            groupInfoDto.groupLabels().forEach((grpId, label) -> groupLabels.put(UUID.fromString(grpId), label));
         }
+
+        logger.trace("contextToGroupId map has {} entries", contextToGroupId.size());
+        for (var entry : contextToGroupId.entrySet()) {
+            logger.trace("  context {} -> group {}", entry.getKey(), entry.getValue());
+        }
+        logger.trace("groupLabels map has {} entries", groupLabels.size());
+        for (var entry : groupLabels.entrySet()) {
+            logger.trace("  group {} -> label '{}'", entry.getKey(), entry.getValue());
+        }
+
+        // Validate that all context IDs in group mappings exist in loaded contexts
+        var loadedContextIds = contexts.stream().map(Context::id).collect(Collectors.toSet());
+        for (var ctxId : contextToGroupId.keySet()) {
+            if (!loadedContextIds.contains(ctxId)) {
+                logger.warn("context {} in group mapping not found in loaded contexts!", ctxId);
+            }
+        }
+
+        // Check for contexts that should have groups but don't
+        int contextsWithGroups = 0;
+        int contextsWithoutGroups = 0;
+        for (var ctx : contexts) {
+            if (contextToGroupId.containsKey(ctx.id())) {
+                contextsWithGroups++;
+            } else {
+                contextsWithoutGroups++;
+            }
+        }
+        logger.trace("{} contexts have group mappings, {} do not", contextsWithGroups, contextsWithoutGroups);
+
+        return new ContextHistory(contexts, resetEdges, gitStates, entryInfos, contextToGroupId, groupLabels);
     }
 
     @Blocking
@@ -351,7 +392,8 @@ public final class HistoryIo {
 
         var contextsJsonlContent = new StringBuilder();
         for (Context ctx : ch.getHistory()) {
-            var compactDto = DtoMapper.toCompactDto(ctx, writer, summarizeAction(ctx));
+            logger.trace("writeZip: serializing context id={}", ctx.id());
+            var compactDto = DtoMapper.toCompactDto(ctx, writer);
             contextsJsonlContent
                     .append(objectMapper.writeValueAsString(compactDto))
                     .append('\n');
@@ -381,6 +423,30 @@ public final class HistoryIo {
             entryInfosBytes = objectMapper.writeValueAsBytes(entryInfosDto);
         }
 
+        byte[] groupInfoBytes;
+        Map<UUID, UUID> ctxToGrp = ch.getContextToGroupId();
+        Map<UUID, String> grpLabels = ch.getGroupLabels();
+
+        var groupDto = DtoMapper.toGroupInfoDto(ctxToGrp, grpLabels);
+        logger.trace("writeZip: ctxToGrp map has {} entries", ctxToGrp.size());
+        for (var entry : ctxToGrp.entrySet()) {
+            logger.trace("  context {} -> group {}", entry.getKey(), entry.getValue());
+        }
+        logger.trace("writeZip: groupLabels map has {} entries", grpLabels.size());
+        for (var entry : grpLabels.entrySet()) {
+            logger.trace("  group {} -> label '{}'", entry.getKey(), entry.getValue());
+        }
+
+        // Validate that all context IDs in group mappings exist in the history
+        var historyContextIds = ch.getHistory().stream().map(Context::id).collect(Collectors.toSet());
+        for (var ctxId : ctxToGrp.keySet()) {
+            if (!historyContextIds.contains(ctxId)) {
+                logger.warn("writeZip: context {} in group mapping not found in history!", ctxId);
+            }
+        }
+
+        groupInfoBytes = objectMapper.writeValueAsBytes(groupDto);
+
         byte[] resetEdgesBytes = null;
         if (!ch.getResetEdges().isEmpty()) {
             record EdgeDto(String sourceId, String targetId) {}
@@ -392,6 +458,7 @@ public final class HistoryIo {
 
         final var finalGitStatesBytes = gitStatesBytes;
         final var finalEntryInfosBytes = entryInfosBytes;
+        final var finalGroupInfoBytes = groupInfoBytes;
         final var finalResetEdgesBytes = resetEdgesBytes;
         AtomicWrites.atomicSave(target, out -> {
             try (var zos = new ZipOutputStream(out)) {
@@ -425,6 +492,12 @@ public final class HistoryIo {
                 if (finalEntryInfosBytes != null) {
                     zos.putNextEntry(new ZipEntry(ENTRY_INFOS_FILENAME));
                     zos.write(finalEntryInfosBytes);
+                    zos.closeEntry();
+                }
+
+                if (finalGroupInfoBytes != null) {
+                    zos.putNextEntry(new ZipEntry(GROUP_INFO_FILENAME));
+                    zos.write(finalGroupInfoBytes);
                     zos.closeEntry();
                 }
 

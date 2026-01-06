@@ -559,7 +559,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             input.setText("");
             input.requestFocusInWindow();
 
-            cm.setTaskList(new TaskList.TaskListData(items), "Tasks added");
+            cm.setTaskList(new TaskList.TaskListData(items));
             refreshUi(true);
         }
     }
@@ -596,7 +596,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
             if (removedAny) {
-                cm.setTaskList(new TaskList.TaskListData(items), "Tasks removed");
+                cm.setTaskList(new TaskList.TaskListData(items));
                 refreshUi(true);
             } else {
                 updateButtonStates();
@@ -623,7 +623,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
             if (changed) {
-                cm.setTaskList(new TaskList.TaskListData(items), "Tasks done state toggled");
+                cm.setTaskList(new TaskList.TaskListData(items));
                 refreshUi(false);
             }
         }
@@ -737,7 +737,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 if (index >= 0 && index < items.size()) {
                     var cur = items.get(index);
                     items.set(index, new TaskList.TaskItem(newTitle, newText, cur.done()));
-                    cm.setTaskList(new TaskList.TaskListData(items), "Task edited");
+                    cm.setTaskList(new TaskList.TaskListData(items));
                     refreshUi(false);
                 }
             }
@@ -986,9 +986,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         int pos = (currentRunOrder != null) ? currentRunOrder.indexOf(idx) : -1;
         final int numTask = (pos >= 0) ? pos + 1 : 1;
         SwingUtilities.invokeLater(() -> chrome.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Submitted " + totalToRun + " task(s) for execution. Running task " + numTask + " of " + totalToRun
-                        + "..."));
+                IConsoleIO.NotificationRole.INFO, "Running task " + numTask + " of " + totalToRun + "..."));
 
         var cm = chrome.getContextManager();
 
@@ -1106,6 +1104,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 cm.checkBalanceAndNotify();
             }
 
+            boolean shouldRefreshUi = false;
+
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS && Objects.equals(runningIndex, idx)) {
+                var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+                if (idx >= 0 && idx < items.size()) {
+                    var it = items.get(idx);
+                    items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
+                    cm.setTaskList(new TaskList.TaskListData(items));
+                    shouldRefreshUi = true;
+                }
+            }
+
+            boolean finalShouldRefreshUi = shouldRefreshUi;
             SwingUtilities.invokeLater(() -> {
                 try {
                     if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
@@ -1113,15 +1124,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         return;
                     }
 
-                    if (Objects.equals(runningIndex, idx)) {
-                        var items = new ArrayList<TaskList.TaskItem>(
-                                cm.getTaskList().tasks());
-                        if (idx >= 0 && idx < items.size()) {
-                            var it = items.get(idx);
-                            items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
-                            cm.setTaskList(new TaskList.TaskListData(items), "Task marked done");
-                            refreshUi(false);
-                        }
+                    if (finalShouldRefreshUi) {
+                        refreshUi(false);
                     }
                 } finally {
                     runningIndex = null;
@@ -1667,7 +1671,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             items.addAll(adjusted, moved);
             addCount = moved.size();
 
-            cm.setTaskList(new TaskList.TaskListData(items), "Tasks reordered");
+            cm.setTaskList(new TaskList.TaskListData(items));
 
             if (addCount > 0) {
                 list.setSelectionInterval(adjusted, adjusted + addCount - 1);
@@ -1744,7 +1748,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
 
-        cm.setTaskList(new TaskList.TaskListData(items), "Tasks combined");
+        cm.setTaskList(new TaskList.TaskListData(items));
         list.setSelectedIndex(firstIdx);
         refreshUi(true);
 
@@ -1828,7 +1832,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             items.add(idx + i, new TaskList.TaskItem("", lines.get(i), false));
         }
 
-        cm.setTaskList(new TaskList.TaskListData(items), "Tasks split");
+        cm.setTaskList(new TaskList.TaskListData(items));
         list.setSelectionInterval(idx, idx + lines.size() - 1);
         refreshUi(true);
 
@@ -1938,7 +1942,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         if (removedAny) {
-            cm.setTaskList(new TaskList.TaskListData(items), "Completed tasks cleared");
+            cm.setTaskList(new TaskList.TaskListData(items));
             refreshUi(true);
         }
         updateButtonStates();
@@ -1994,7 +1998,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     if (!Objects.equals(cur.text(), originalText)) return;
 
                     items.set(index, new TaskList.TaskItem(originalText.strip(), cur.text(), cur.done()));
-                    cm.setTaskList(new TaskList.TaskListData(items), "Task title updated");
+                    cm.setTaskList(new TaskList.TaskListData(items));
                     refreshUi(false);
                 } catch (Exception e) {
                     logger.debug("Error updating short task title at index {}", index, e);
@@ -2027,7 +2031,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     if (!Objects.equals(cur.text(), originalText)) return;
 
                     items.set(index, new TaskList.TaskItem(summary.strip(), cur.text(), cur.done()));
-                    cm.setTaskList(new TaskList.TaskListData(items), "Task title summarized");
+                    cm.setTaskList(new TaskList.TaskListData(items));
                     refreshUi(false);
                 } catch (Exception e) {
                     logger.debug("Error applying summarized task title at index {}", index, e);

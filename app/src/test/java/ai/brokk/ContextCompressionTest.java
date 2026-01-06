@@ -3,11 +3,13 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.context.ContextFragments;
+import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -29,6 +31,65 @@ public class ContextCompressionTest {
     void setup() throws IOException {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
         ContextFragments.setMinimumId(1);
+    }
+
+    private static ContextManager createHeadlessContextManagerWithDeterministicSummarizer(Path projectDir)
+            throws Exception {
+        var project = new MainProject(projectDir);
+
+        Service.Provider provider = new Service.Provider() {
+            private volatile Service service;
+
+            @Override
+            public void reinit(ai.brokk.project.IProject project) {
+                service = new Service(project) {
+                    @Override
+                    public StreamingChatModel summarizeModel() {
+                        return new StreamingChatModel() {};
+                    }
+
+                    @Override
+                    public StreamingChatModel quickestModel() {
+                        return new StreamingChatModel() {};
+                    }
+                };
+            }
+
+            @Override
+            public Service get() {
+                return service;
+            }
+        };
+
+        var cm = new ContextManager(project, provider) {
+            @Override
+            public Llm getLlm(Llm.Options options) {
+                return new Llm(
+                        new StreamingChatModel() {},
+                        "test",
+                        this,
+                        false, // allowPartialResponses
+                        false, // forceReasoningEcho
+                        false, // tagRetain
+                        false // echo
+                        ) {
+                    @Override
+                    public StreamingResult sendRequest(List<ChatMessage> messages) {
+                        var response = new NullSafeResponse("deterministic summary", null, List.of(), null);
+                        return new StreamingResult(response, null, 0, 0L);
+                    }
+
+                    @Override
+                    public StreamingResult sendRequest(List<ChatMessage> messages, int maxAttempts) {
+                        var response = new NullSafeResponse("deterministic summary", null, List.of(), null);
+                        return new StreamingResult(response, null, 0, 0L);
+                    }
+                };
+            }
+        };
+
+        cm.createHeadless();
+        return cm;
     }
 
     @Test

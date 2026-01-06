@@ -12,6 +12,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.SpecialTextType;
@@ -110,14 +111,8 @@ public class CodeAgent {
     public TaskResult execute(ProjectFile file, String instructions, List<ChatMessage> readOnlyMessages) {
         var ctx = new Context(contextManager)
                 .addFragments(List.of(new ContextFragments.ProjectPathFragment(file, contextManager)));
-
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            // TODO runTaskInternal allows creating new files, should we prevent that?
-            return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
-        }
+        // TODO runTaskInternal allows creating new files, should we prevent that?
+        return runTaskInternal(ctx, readOnlyMessages, instructions, EnumSet.of(Option.DEFER_BUILD));
     }
 
     /**
@@ -125,15 +120,7 @@ public class CodeAgent {
      * @return A TaskResult containing the conversation history and original file contents
      */
     public TaskResult execute(String userInput, Set<Option> options) {
-        // pause watching for external changes (so they don't get added to activity history while we're still making
-        // changes);
-        // this means that we're responsible for refreshing the analyzer when we make changes
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
-        }
+        return runTaskInternal(contextManager.liveContext(), List.of(), userInput, options);
     }
 
     /**
@@ -142,20 +129,12 @@ public class CodeAgent {
      */
     @Blocking
     TaskResult executeWithoutHistory(Context context, String userInput, Set<Option> options) {
-        // pause watching for external changes (so they don't get added to activity history while we're still making
-        // changes);
-        // this means that we're responsible for refreshing the analyzer when we make changes
-        contextManager.getAnalyzerWrapper().pause();
-        try {
-            if (context.getTaskHistory().isEmpty()) {
-                // special case no-history to avoid changing Context identity unnecessarily
-                return runTaskInternal(context, List.of(), userInput, options);
-            } else {
-                return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
-                        .withHistory(context.getTaskHistory());
-            }
-        } finally {
-            contextManager.getAnalyzerWrapper().resume();
+        if (context.getTaskHistory().isEmpty()) {
+            // special case no-history to avoid changing Context identity unnecessarily
+            return runTaskInternal(context, List.of(), userInput, options);
+        } else {
+            return runTaskInternal(context.withHistory(List.of()), List.of(), userInput, options)
+                    .withHistory(context.getTaskHistory());
         }
     }
 
@@ -178,7 +157,7 @@ public class CodeAgent {
 
         // Create Coder instance with the user's input as the task description
         var coder = contextManager.getLlm(
-                new Llm.Options(model, "Code: " + userInput).withEcho().withPartialResponses());
+                new Llm.Options(model, userInput).withEcho().withPartialResponses());
         coder.setOutput(io);
 
         // Track changed files
@@ -467,8 +446,7 @@ public class CodeAgent {
         var meta = new TaskResult.TaskMeta(
                 TaskResult.Type.CODE, Service.ModelConfig.from(model, contextManager.getService()));
 
-        var tr = new TaskResult(
-                contextManager, "Code: " + finalActionDescription, finalMessages, context, stopDetails, meta);
+        var tr = new TaskResult(contextManager, finalActionDescription, finalMessages, context, stopDetails, meta);
         logger.debug("Task result: {}", tr);
         return tr;
     }
@@ -782,6 +760,40 @@ public class CodeAgent {
                         new JavaPreLintFalsePositiveException(message), Map.of("sourcefile", pf.getFileName()));
             }
             logger.debug("Build verification succeeded");
+
+            var lastAiText = cs.taskMessages().isEmpty()
+                    ? ""
+                    : Messages.getText(cs.taskMessages().getLast());
+            var mentionedFiles = ContextFragment.extractFilesFromText(lastAiText, contextManager);
+            var filesInContext = context.fileFragments()
+                    .flatMap(f -> f.files().join().stream())
+                    .collect(Collectors.toSet());
+
+            var notInContext = Sets.difference(mentionedFiles, filesInContext);
+            if (!notInContext.isEmpty()) {
+                var quickModel = contextManager.getService().quickestModel();
+                var llm = contextManager.getLlm(quickModel, "Check if asking for files");
+
+                var filterDescription =
+                        "The agent is explicitly asking or suggesting that additional files need to be added to the workspace/context to complete the task";
+                boolean isAskingForFiles;
+                try {
+                    isAskingForFiles = RelevanceClassifier.isRelevant(llm, filterDescription, lastAiText);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return new Step.Fatal(new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED));
+                }
+
+                if (isAskingForFiles) {
+                    var fileNames =
+                            notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
+                    reportComplete("Agent is requesting additional files: " + fileNames);
+                    return new Step.Fatal(new TaskResult.StopDetails(
+                            TaskResult.StopReason.LLM_ABORTED,
+                            "Agent requested additional files not in context: " + fileNames));
+                }
+            }
+
             reportComplete("Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
         } else {
@@ -799,6 +811,7 @@ public class CodeAgent {
             }
             var buildPrompt =
                     """
+                    The build failed.
                     Please analyze the error message and provide SEARCH/REPLACE blocks to fix all the errors and warnings in service of the original goal.
                     You should use the conversation history to understand what has been done so far, but
                     only use the Workspace to generate SEARCH/REPLACE blocks.
@@ -810,13 +823,9 @@ public class CodeAgent {
                     <build_output>
                     %s
                     </build_output>
-
-                    <original_goal>
-                    %s
-                    </original_goal>
                     """
-                            .formatted(buildError, cs.originalGoal());
-            UserMessage nextRequest = CodePrompts.instance.codeRequest(context, buildPrompt, model);
+                            .formatted(buildError);
+            UserMessage nextRequest = new UserMessage(buildPrompt.trim());
             // Compact conversation into a concise summary for the build step
             var newCs = cs.forBuildRetry(nextRequest, es);
             var newEs = es.afterBuildFailure(buildError);

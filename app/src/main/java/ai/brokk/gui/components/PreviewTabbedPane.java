@@ -70,12 +70,12 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
             }
         });
 
-        // Handle close button clicks
+        // Handle close button clicks and context menu
         tabList.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 int index = tabList.locationToIndex(e.getPoint());
-                if (index >= 0) {
+                if (index >= 0 && SwingUtilities.isLeftMouseButton(e)) {
                     var cellBounds = tabList.getCellBounds(index, index);
                     if (cellBounds != null && cellBounds.contains(e.getPoint())) {
                         // Check if click is in the close button area (right side)
@@ -84,6 +84,28 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
                             var entry = listModel.get(index);
                             closeTab(entry.component(), entry.fileKey());
                         }
+                    }
+                }
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                showPopup(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                showPopup(e);
+            }
+
+            private void showPopup(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int index = tabList.locationToIndex(e.getPoint());
+                    if (index >= 0) {
+                        tabList.setSelectedIndex(index);
+                        var entry = listModel.get(index);
+                        JPopupMenu menu = createContextMenu(entry);
+                        menu.show(e.getComponent(), e.getX(), e.getY());
                     }
                 }
             }
@@ -161,6 +183,35 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
         }
 
         tabList.setSelectedIndex(listModel.size() - 1);
+    }
+
+    private JPopupMenu createContextMenu(TabEntry entry) {
+        JPopupMenu menu = new JPopupMenu();
+
+        JMenuItem closeItem = new JMenuItem("Close");
+        closeItem.addActionListener(e -> closeTab(entry.component(), entry.fileKey()));
+        menu.add(closeItem);
+
+        if (listModel.size() > 1) {
+            JMenuItem closeOthersItem = new JMenuItem("Close Others");
+            closeOthersItem.addActionListener(e -> {
+                // Iterate backwards to avoid index shifting issues,
+                // but keep track of components as they might be removed during iteration.
+                java.util.List<TabEntry> toClose = new java.util.ArrayList<>();
+                for (int i = 0; i < listModel.size(); i++) {
+                    TabEntry current = listModel.get(i);
+                    if (!entry.equals(current)) {
+                        toClose.add(current);
+                    }
+                }
+                for (TabEntry t : toClose) {
+                    closeTab(t.component(), t.fileKey());
+                }
+            });
+            menu.add(closeOthersItem);
+        }
+
+        return menu;
     }
 
     private int findIndexByComponent(Component comp) {

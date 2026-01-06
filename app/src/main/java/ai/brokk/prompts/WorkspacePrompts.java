@@ -5,6 +5,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.util.ImageUtil;
+import ai.brokk.util.ProjectGuideResolver;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.Content;
@@ -152,7 +153,7 @@ public final class WorkspacePrompts {
     @Blocking
     public static List<ChatMessage> getMessagesInAddedOrder(Context ctx, Set<SpecialTextType> suppressedTypes) {
         var allFragments = ctx.allFragments().toList();
-        var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
+        var styleGuide = ProjectGuideResolver.resolve(ctx);
 
         if (allFragments.isEmpty() && styleGuide.isBlank()) {
             return List.of();
@@ -166,15 +167,15 @@ public final class WorkspacePrompts {
         var allContents = new ArrayList<Content>();
         var workspaceBuilder = new StringBuilder();
 
+        workspaceBuilder.append("<workspace>\n");
+        workspaceBuilder.append(rendered.text);
+        workspaceBuilder.append("\n</workspace>");
+
         if (!styleGuide.isBlank()) {
             workspaceBuilder.append("<project_guide>\n");
             workspaceBuilder.append(styleGuide.trim());
             workspaceBuilder.append("\n</project_guide>\n\n");
         }
-
-        workspaceBuilder.append("<workspace>\n");
-        workspaceBuilder.append(rendered.text);
-        workspaceBuilder.append("\n</workspace>");
 
         allContents.add(new TextContent(workspaceBuilder.toString()));
         allContents.addAll(rendered.images);
@@ -196,8 +197,7 @@ public final class WorkspacePrompts {
         // message
         var readOnlyMessages = buildReadOnlyForContents(ctx, suppressedTypes);
         var editableMessages = buildEditableAll(ctx, suppressedTypes);
-
-        var styleGuide = ctx.getContextManager().getProject().getStyleGuide();
+        var styleGuide = ProjectGuideResolver.resolve(ctx);
 
         if (readOnlyMessages.isEmpty() && editableMessages.isEmpty() && styleGuide.isBlank()) {
             return List.of();
@@ -244,9 +244,9 @@ public final class WorkspacePrompts {
 
         var workspaceBuilder = new StringBuilder();
         if (!styleGuide.isBlank()) {
-            workspaceBuilder.append("<style_guide>\n");
+            workspaceBuilder.append("<project_guide>\n");
             workspaceBuilder.append(styleGuide.trim());
-            workspaceBuilder.append("\n</style_guide>\n\n");
+            workspaceBuilder.append("\n</project_guide>\n\n");
         }
         workspaceBuilder.append("<workspace>\n");
         workspaceBuilder.append(combinedText.toString().trim());
