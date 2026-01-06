@@ -467,17 +467,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.fileTreePanel.initializeTree();
 
         codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview);
-        codeReviewPanel.setNavigationTarget(new ai.brokk.difftool.ui.DiffProjectFileNavigationTarget() {
-            @Override
-            public void navigateToFile(ProjectFile file) {
-                diffCore.showFile(file);
-            }
-
-            @Override
-            public void navigateToLocation(ProjectFile file, int lineNumber) {
-                diffCore.showLocation(file, lineNumber);
-            }
-        });
         codeReviewPanel.addReviewNavigationListener(pe -> {
             ProjectFile pf = contextManager.toFile(pe.original().file());
             if (pe.lineNumber() != -1) {
@@ -487,12 +476,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
         });
 
-        JSplitPane diffSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, fileTreePanel, diffContainer);
-        diffSplit.setDividerLocation(250);
+        // Left column: Review List above File Tree
+        JSplitPane leftSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
+        leftSplit.setDividerLocation(300);
 
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel, diffSplit);
+        // Right side: Review Detail above Diff
+        JPanel rightPanel = new JPanel(new BorderLayout());
+        rightPanel.setOpaque(false);
+        rightPanel.add(codeReviewPanel.getDetailPanel(), BorderLayout.NORTH);
+        rightPanel.add(diffContainer, BorderLayout.CENTER);
+
+        // Main horizontal split: [Review List / File Tree] | [Review Detail / Diff]
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplit, rightPanel);
         mainSplit.setDividerLocation(300);
-        mainSplit.setResizeWeight(0.5);
 
         topContainer.add(mainSplit, BorderLayout.CENTER);
 
@@ -582,10 +578,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void generateGuidedReview() {
         if (codeReviewPanel == null || lastCumulativeChanges == null) return;
 
-        var parent = codeReviewPanel.getParent();
-        if (parent == null) return;
-
         codeReviewPanel.setBusy(true);
+
+        var listPanel = codeReviewPanel.getListPanel();
+        var parent = listPanel.getParent();
+        if (parent == null) return;
 
         JTextArea logArea = new JTextArea();
         logArea.setEditable(false);
@@ -602,9 +599,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         SwingUtilities.invokeLater(() -> {
             if (parent instanceof JSplitPane splitPane) {
                 splitPane.setTopComponent(scrollPane);
-            } else {
-                parent.remove(codeReviewPanel);
-                parent.add(scrollPane, BorderLayout.CENTER);
             }
             parent.revalidate();
             parent.repaint();
@@ -647,10 +641,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                 SwingUtilities.invokeLater(() -> {
                     if (parent instanceof JSplitPane splitPane) {
-                        splitPane.setTopComponent(codeReviewPanel);
-                    } else {
-                        parent.remove(scrollPane);
-                        parent.add(codeReviewPanel, BorderLayout.CENTER);
+                        splitPane.setTopComponent(codeReviewPanel.getListPanel());
                     }
                     if (codeReviewPanel != null) {
                         codeReviewPanel.displayReview(review, designExcerpts, tacticalExcerpts);
@@ -663,10 +654,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 logger.error("Failed to generate guided review", ex);
                 SwingUtilities.invokeLater(() -> {
                     if (parent instanceof JSplitPane splitPane) {
-                        splitPane.setTopComponent(codeReviewPanel);
-                    } else {
-                        parent.remove(scrollPane);
-                        parent.add(codeReviewPanel, BorderLayout.CENTER);
+                        splitPane.setTopComponent(codeReviewPanel.getListPanel());
                     }
                     if (codeReviewPanel != null) codeReviewPanel.setBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());

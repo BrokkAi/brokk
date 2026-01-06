@@ -25,10 +25,14 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
         listPanel = new ReviewListPanel(triggerCallback, this::handleItemSelected);
         detailPanel = new ReviewDetailPanel();
+    }
 
-        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, listPanel, detailPanel);
-        splitPane.setDividerLocation(300);
-        add(splitPane, BorderLayout.CENTER);
+    public ReviewListPanel getListPanel() {
+        return listPanel;
+    }
+
+    public ReviewDetailPanel getDetailPanel() {
+        return detailPanel;
     }
 
     private void handleItemSelected(Object item) {
