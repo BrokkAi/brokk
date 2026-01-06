@@ -3,6 +3,8 @@ package ai.brokk.util;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.ProjectFile;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -195,24 +197,47 @@ class ReviewParserTest {
                 1, "FileB.java");
 
         var rawDesign = new ReviewParser.RawDesignFeedback("Design Issue", "Desc", List.of(0, 1), "Fix it");
-        var rawTactical = new ReviewParser.RawTacticalFeedback("Bug", 0, "Fix bug");
+        var rawTactical = new ReviewParser.RawTacticalFeedback("Bug", "Bug description", 0, "Fix bug");
 
         var rawReview =
                 new ReviewParser.RawReview("Overview", List.of(rawDesign), List.of(rawTactical), List.of("Test more"));
 
         ReviewParser.GuidedReview guided = ReviewParser.GuidedReview.fromRaw(
-                rawReview, contents, files, (f, c) -> new ReviewParser.CodeExcerpt(f, 1, ReviewParser.DiffSide.NEW, c));
+                rawReview,
+                contents,
+                files,
+                (f, c) -> new ReviewParser.CodeExcerpt(
+                        new ProjectFile(Path.of(".").toAbsolutePath().normalize(), Path.of(f)),
+                        1,
+                        ReviewParser.DiffSide.NEW,
+                        c));
 
         assertEquals("Overview", guided.overview());
         assertEquals(1, guided.designNotes().size());
         assertEquals(2, guided.designNotes().getFirst().excerpts().size());
         assertEquals(
-                "FileA.java", guided.designNotes().getFirst().excerpts().get(0).file());
+                "FileA.java",
+                guided.designNotes()
+                        .getFirst()
+                        .excerpts()
+                        .get(0)
+                        .file()
+                        .getRelPath()
+                        .toString());
         assertEquals(
-                "FileB.java", guided.designNotes().getFirst().excerpts().get(1).file());
+                "FileB.java",
+                guided.designNotes()
+                        .getFirst()
+                        .excerpts()
+                        .get(1)
+                        .file()
+                        .getRelPath()
+                        .toString());
 
         assertEquals(1, guided.tacticalNotes().size());
-        assertEquals("FileA.java", guided.tacticalNotes().getFirst().excerpt().file());
+        assertEquals(
+                "FileA.java",
+                guided.tacticalNotes().getFirst().excerpt().file().getRelPath().toString());
         assertEquals("code A", guided.tacticalNotes().getFirst().excerpt().excerpt());
         assertEquals("Test more", guided.additionalTests().getFirst());
     }

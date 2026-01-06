@@ -28,7 +28,6 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     private final DefaultTreeModel treeModel;
     private DefaultMutableTreeNode rootNode;
     private final List<FileComparisonInfo> fileComparisons;
-    private final Path projectRoot;
     private final JScrollPane scrollPane;
 
     @Nullable
@@ -50,7 +49,6 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     public FileTreePanel(List<FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
         super(new BorderLayout());
         this.fileComparisons = fileComparisons;
-        this.projectRoot = projectRoot;
         this.currentTheme = null; // Initialize to null, will be set via applyTheme
 
         String displayTitle =

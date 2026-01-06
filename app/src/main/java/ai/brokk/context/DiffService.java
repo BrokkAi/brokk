@@ -338,8 +338,6 @@ public final class DiffService {
         }
 
         List<DiffEntry> perFileChanges = new ArrayList<>();
-        int totalAdded = 0;
-        int totalDeleted = 0;
 
         files.stream()
                 .sorted(Comparator.comparing(mf -> mf.file().getRelPath()))
@@ -397,8 +395,9 @@ public final class DiffService {
                     }
                 });
 
-        totalAdded = perFileChanges.stream().mapToInt(DiffEntry::linesAdded).sum();
-        totalDeleted = perFileChanges.stream().mapToInt(DiffEntry::linesDeleted).sum();
+        int totalAdded = perFileChanges.stream().mapToInt(DiffEntry::linesAdded).sum();
+        int totalDeleted =
+                perFileChanges.stream().mapToInt(DiffEntry::linesDeleted).sum();
 
         return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
     }

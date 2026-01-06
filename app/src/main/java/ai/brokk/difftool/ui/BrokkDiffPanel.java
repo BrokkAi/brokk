@@ -6,7 +6,6 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.doc.AbstractBufferDocument;
 import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.node.JMDiffNode;
-import ai.brokk.difftool.performance.PerformanceConstants;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.git.GitRepo;
@@ -64,7 +63,6 @@ public class BrokkDiffPanel extends JPanel
     private final FileTreePanel fileTreePanel;
     private boolean started;
     private final JLabel loadingLabel = createLoadingLabel();
-    private final GuiTheme theme;
     private final JToggleButton viewModeToggle = new JToggleButton("Unified View");
 
     // Tools menu items
@@ -86,7 +84,6 @@ public class BrokkDiffPanel extends JPanel
     private final boolean forceFileTree;
 
     public BrokkDiffPanel(Builder builder, GuiTheme theme) {
-        this.theme = theme;
         this.contextManager = builder.contextManager;
         this.isMultipleCommitsContext = builder.isMultipleCommitsContext;
         this.forceFileTree = builder.forceFileTree;
@@ -1547,34 +1544,6 @@ public class BrokkDiffPanel extends JPanel
 
         updateNavigationButtons();
         refreshUI();
-    }
-
-    /** Log current memory usage and window status */
-    private void logMemoryUsage() {
-        var runtime = Runtime.getRuntime();
-        var totalMemory = runtime.totalMemory();
-        var freeMemory = runtime.freeMemory();
-        var usedMemory = totalMemory - freeMemory;
-        var maxMemory = runtime.maxMemory();
-
-        var percentUsed = (usedMemory * 100) / maxMemory;
-
-        // Use configurable threshold for memory cleanup
-        if (percentUsed > PerformanceConstants.MEMORY_HIGH_THRESHOLD_PERCENT) {
-            logger.warn("Memory usage high ({}%) with sliding window cache", percentUsed);
-            performWindowCleanup();
-        }
-    }
-
-    /** Perform cleanup when memory usage is high */
-    private void performWindowCleanup() {
-        // Clear caches in all window panels
-        for (var panel : core.getCachedPanels()) {
-            panel.clearCaches(); // Clear undo history, search results, etc.
-        }
-
-        // Suggest garbage collection
-        System.gc();
     }
 
     /**

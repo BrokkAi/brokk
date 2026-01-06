@@ -66,6 +66,7 @@ public class ReviewParser {
                     state = State.EXPECTING_FILENAME;
                     continue;
                 } catch (NumberFormatException ignored) {
+                    // expected when ID is not a valid number
                 }
             }
             switch (state) {
@@ -75,6 +76,7 @@ public class ReviewParser {
                             currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
                             state = State.EXPECTING_FILENAME;
                         } catch (NumberFormatException ignored) {
+                            // expected when ID is not a valid number
                         }
                     }
                 }
@@ -96,7 +98,7 @@ public class ReviewParser {
                 }
                 case IN_CONTENT -> {
                     if (line.equals("```")
-                            || line.startsWith("```") && line.substring(3).isBlank()) {
+                            || (line.startsWith("```") && line.substring(3).isBlank())) {
                         state = State.SEARCHING;
                     }
                 }
@@ -134,6 +136,7 @@ public class ReviewParser {
                     state = State.EXPECTING_FILENAME;
                     continue;
                 } catch (NumberFormatException ignored) {
+                    // expected when ID is not a valid number
                 }
             }
             switch (state) {
@@ -143,6 +146,7 @@ public class ReviewParser {
                             currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
                             state = State.EXPECTING_FILENAME;
                         } catch (NumberFormatException ignored) {
+                            // expected when ID is not a valid number
                         }
                     }
                 }
@@ -164,7 +168,7 @@ public class ReviewParser {
                 }
                 case IN_CONTENT -> {
                     if (line.equals("```")
-                            || line.startsWith("```") && line.substring(3).isBlank()) {
+                            || (line.startsWith("```") && line.substring(3).isBlank())) {
                         if (currentId != null) contents.put(currentId, currentContent.toString());
                         state = State.SEARCHING;
                     } else {

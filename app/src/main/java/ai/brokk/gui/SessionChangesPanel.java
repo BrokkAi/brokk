@@ -409,6 +409,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     try {
                         pf = contextManager.toFile(entry.getKey());
                     } catch (Exception ignored) {
+                        // Expected when file cannot be resolved to a ProjectFile
                     }
 
                     return new FileComparisonInfo(
@@ -498,21 +499,27 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             public void navigateToFile(int fileIndex) {
                 if (codeReviewPanel != null) codeReviewPanel.clearSelection();
                 activeExcerpt = null;
-                diffCore.showFile(fileIndex);
+                if (diffCore != null) {
+                    diffCore.showFile(fileIndex);
+                }
             }
 
             @Override
             public void navigateToFile(ProjectFile file) {
                 if (codeReviewPanel != null) codeReviewPanel.clearSelection();
                 activeExcerpt = null;
-                diffCore.showFile(file);
+                if (diffCore != null) {
+                    diffCore.showFile(file);
+                }
             }
 
             @Override
             public void navigateToLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
                 if (codeReviewPanel != null) codeReviewPanel.clearSelection();
                 activeExcerpt = null;
-                diffCore.showLocation(file, lineNumber, side);
+                if (diffCore != null) {
+                    diffCore.showLocation(file, lineNumber, side);
+                }
             }
         });
         this.fileTreePanel.initializeTree();
@@ -521,7 +528,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel.addReviewNavigationListener(ce -> {
             if (fileTreePanel != null) fileTreePanel.clearSelection();
             activeExcerpt = ce;
-            diffCore.showLocation(ce.file(), ce.line(), ce.side());
+            if (diffCore != null) {
+                diffCore.showLocation(ce.file(), ce.line(), ce.side());
+            }
         });
 
         // Left column: Review List above File Tree
@@ -664,7 +673,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         final int savedDividerLocation = (parent instanceof JSplitPane sp) ? sp.getDividerLocation() : -1;
 
         SwingUtilities.invokeLater(() -> {
-            if (parent instanceof JSplitPane splitPane) {
+            if (parent instanceof JSplitPane splitPane && codeReviewPanel != null) {
                 splitPane.setTopComponent(progressPanel);
             }
             parent.revalidate();
@@ -731,7 +740,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 }
 
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane) {
+                    if (parent instanceof JSplitPane splitPane && codeReviewPanel != null) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
                         if (savedDividerLocation > 0) {
                             splitPane.setDividerLocation(savedDividerLocation);
@@ -747,7 +756,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (Exception ex) {
                 logger.error("Failed to generate guided review", ex);
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane) {
+                    if (parent instanceof JSplitPane splitPane && codeReviewPanel != null) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
                         if (savedDividerLocation > 0) {
                             splitPane.setDividerLocation(savedDividerLocation);

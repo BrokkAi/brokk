@@ -28,11 +28,9 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton generateButton;
     private final JPanel contentPanel;
-    private final Runnable triggerCallback;
     private final Consumer<Object> onItemSelected;
 
     public ReviewListPanel(Runnable triggerCallback, Consumer<Object> onItemSelected) {
-        this.triggerCallback = triggerCallback;
         this.onItemSelected = onItemSelected;
         setLayout(new BorderLayout());
 
@@ -74,16 +72,16 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         contentPanel.removeAll();
 
         addHeader("Overview");
-        addItem("Overview", review.overview(), review.overview());
+        addItem("Overview", review.overview());
 
         addHeader("Design");
         for (DesignFeedback design : review.designNotes()) {
-            addItem(design.title(), design, design);
+            addItem(design.title(), design);
         }
 
         addHeader("Tactical");
         for (TacticalFeedback tactical : review.tacticalNotes()) {
-            addItem(tactical.title(), tactical, tactical);
+            addItem(tactical.title(), tactical);
         }
 
         revalidate();
@@ -97,7 +95,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         contentPanel.add(header);
     }
 
-    private void addItem(String label, Object data, Object navigationContext) {
+    private void addItem(String label, Object data) {
         logger.debug("addItem: label='{}', data={}", label, data.getClass().getSimpleName());
         JLabel item = new JLabel("• " + label);
         item.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));

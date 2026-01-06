@@ -13,8 +13,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.swing.SwingUtilities;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -22,7 +20,6 @@ import org.jetbrains.annotations.Nullable;
  * and a sliding cache of diff panels.
  */
 public class DiffDisplayCore {
-    private static final Logger logger = LogManager.getLogger(DiffDisplayCore.class);
 
     private final BrokkDiffPanel mainPanel;
     private final ContextManager contextManager;
