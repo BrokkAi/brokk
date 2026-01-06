@@ -388,6 +388,7 @@ public class ReviewAgent {
                     For each item, provide a `title` which is a short 5-7 word label summarizing the feedback,
                     a `description` explaining the problem in detail, and
                     a `recommendation` for remediation detailed enough to give to Code Agent.
+                    Use Markdown for formatting both description and recommendation.
                     """)
             List<ReviewParser.RawDesignFeedback> designNotes,
             @P("A list of local bugs or problems. `recommendation` should be detailed enough to give to Code Agent for remediation.")

@@ -1,12 +1,15 @@
 package ai.brokk.gui;
 
+import ai.brokk.ICodeReview.ReviewNavigationListener;
+import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.mop.MarkdownOutputPanel;
+import ai.brokk.gui.mop.MarkdownOutputPool;
+import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
-import ai.brokk.ICodeReview.ReviewNavigationListener;
-import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.theme.GuiTheme;
-import ai.brokk.gui.theme.ThemeAware;
 import java.awt.CardLayout;
 import java.awt.Component;
 import java.awt.Cursor;
@@ -23,8 +26,6 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.border.EmptyBorder;
-
-import ai.brokk.util.ReviewParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
@@ -40,6 +41,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final JTextArea placeholderArea;
     private final CardLayout cardLayout;
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
+    private final List<MarkdownOutputPanel> borrowedPanels = new ArrayList<>();
 
     public ReviewDetailPanel() {
         cardLayout = new CardLayout();
@@ -77,24 +79,24 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
     public void showItem(Object item, List<CodeExcerpt> excerpts) {
         cardLayout.show(this, CARD_CONTENT);
-        contentPanel.removeAll();
+        clearContent();
 
         if (item instanceof String overview) {
-            addMarkdownText(overview);
+            addMarkdownPanel(overview);
         } else if (item instanceof DesignFeedback design) {
-            addMarkdownText("<b>" + design.title() + "</b>");
-            addMarkdownText(design.description());
+            addMarkdownPanel("### " + design.title());
+            addMarkdownPanel(design.description());
             if (!design.recommendation().isBlank()) {
-                addMarkdownText("<b>Recommendation:</b> " + design.recommendation());
+                addMarkdownPanel("**Recommendation:**\n" + design.recommendation());
             }
         } else if (item instanceof TacticalFeedback tactical) {
-            addMarkdownText("<b>" + tactical.title() + "</b>");
-            addMarkdownText("<code>" + tactical.excerpt().excerpt().replace("\n", "<br>") + "</code>");
+            addMarkdownPanel("### " + tactical.title());
+            addMarkdownPanel("```\n" + tactical.excerpt().excerpt() + "\n```");
             if (!tactical.recommendation().isBlank()) {
-                addMarkdownText("<b>Recommendation:</b> " + tactical.recommendation());
+                addMarkdownPanel("**Recommendation:**\n" + tactical.recommendation());
             }
         } else if (item instanceof CodeExcerpt ce) {
-            addMarkdownText("<code>" + ce.excerpt().replace("\n", "<br>") + "</code>");
+            addMarkdownPanel("```\n" + ce.excerpt() + "\n```");
         }
 
         if (!excerpts.isEmpty()) {
@@ -105,11 +107,20 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    private void addMarkdownText(String text) {
-        JLabel label = new JLabel("<html>" + text.replace("\n", "<br>") + "</html>");
-        label.setBorder(new EmptyBorder(5, 5, 5, 5));
-        label.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentPanel.add(label);
+    private void addMarkdownPanel(String markdown) {
+        MarkdownOutputPanel panel = MarkdownOutputPool.instance().borrow();
+        panel.setText(List.of(ai.brokk.util.Messages.customSystem(markdown)));
+        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        borrowedPanels.add(panel);
+        contentPanel.add(panel);
+    }
+
+    private void clearContent() {
+        contentPanel.removeAll();
+        for (MarkdownOutputPanel panel : borrowedPanels) {
+            MarkdownOutputPool.instance().giveBack(panel);
+        }
+        borrowedPanels.clear();
     }
 
     private void addExcerptsTable(List<CodeExcerpt> excerpts) {
