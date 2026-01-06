@@ -83,7 +83,11 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 addMarkdownText("<b>Recommendation:</b> " + design.recommendation());
             }
         } else if (item instanceof ParsedExcerpt pe) {
-             addMarkdownText(pe.original().excerpt());
+            String commentary = pe.original().commentary();
+            if (commentary != null && !commentary.isBlank()) {
+                addMarkdownText(commentary);
+            }
+            addMarkdownText("<code>" + pe.original().excerpt().replace("\n", "<br>") + "</code>");
         }
 
         if (!excerpts.isEmpty()) {

@@ -65,8 +65,8 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
             itemExcerpts.put(review.designNotes().get(i), designExcerpts.get(i));
         }
         
-        for (int i = 0; i < review.tacticalNotes().size(); i++) {
-            itemExcerpts.put(tacticalExcerpts.get(i), List.of(tacticalExcerpts.get(i)));
+        for (ParsedExcerpt excerpt : tacticalExcerpts) {
+            itemExcerpts.put(excerpt, List.of(excerpt));
         }
 
         listPanel.displayReview(review, designExcerpts, tacticalExcerpts);

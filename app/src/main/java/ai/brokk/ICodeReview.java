@@ -10,7 +10,7 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public interface ICodeReview {
 
-    record CodeExcerpt(String file, String excerpt) {}
+    record CodeExcerpt(String file, String excerpt, String commentary) {}
 
     record DesignFeedback(
             String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
