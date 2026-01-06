@@ -736,8 +736,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .toList();
 
                 List<ICodeReview.ParsedExcerpt> tacticalExcerpts = review.tacticalNotes().stream()
-                        .map(ICodeReview.TacticalFeedback::excerpt)
-                        .map(this::resolveExcerpt)
+                        .map(tactical -> this.resolveExcerpt(tactical.excerpt()))
                         .filter(java.util.Objects::nonNull)
                         .toList();
 
