@@ -1,5 +1,6 @@
 package ai.brokk.difftool.ui.unified;
 
+import ai.brokk.ICodeReview;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
@@ -747,6 +748,40 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     }
 
     /**
+     * Highlights a range of lines in the source file, translating to unified view coordinates.
+     *
+     * @param startSourceLine 1-based start line in source file
+     * @param endSourceLine 1-based end line in source file
+     * @param side which side of the diff (OLD or NEW)
+     */
+    public void highlightExcerptLines(int startSourceLine, int endSourceLine, ICodeReview.DiffSide side) {
+        clearExcerptHighlight();
+
+        if (unifiedDocument == null) {
+            logger.warn("Cannot highlight - no unified document");
+            return;
+        }
+
+        boolean isRightSide = (side == ICodeReview.DiffSide.NEW);
+        int startDocLine = unifiedDocument.findDocumentLineForSourceLine(startSourceLine, isRightSide);
+        int endDocLine = unifiedDocument.findDocumentLineForSourceLine(endSourceLine, isRightSide);
+
+        if (startDocLine < 0 || endDocLine < 0) {
+            logger.warn(
+                    "Could not find document lines for source lines {}-{} on {} side",
+                    startSourceLine,
+                    endSourceLine,
+                    side);
+            // Fall back to legacy behavior
+            highlightExcerptLines(startSourceLine, endSourceLine);
+            return;
+        }
+
+        // Use 1-based line numbers for the highlight
+        highlightExcerptLinesInternal(startDocLine + 1, endDocLine + 1);
+    }
+
+    /**
      * Highlights a range of lines with a themed border.
      *
      * @param startLine 1-based start line
@@ -754,7 +789,11 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
      */
     public void highlightExcerptLines(int startLine, int endLine) {
         clearExcerptHighlight();
+        highlightExcerptLinesInternal(startLine, endLine);
+    }
 
+    /** Internal method that highlights using unified document line numbers. */
+    private void highlightExcerptLinesInternal(int startLine, int endLine) {
         try {
             int startOffset = textArea.getLineStartOffset(Math.max(0, startLine - 1));
             int endOffset = textArea.getLineEndOffset(Math.max(0, endLine - 1));
@@ -778,6 +817,32 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             excerptHighlightTag = null;
             textArea.repaint();
         }
+    }
+
+    /**
+     * Scrolls to a line in the source file, translating to unified view coordinates.
+     *
+     * @param sourceLineNumber 1-based line number in the source file
+     * @param side which side of the diff (OLD or NEW)
+     */
+    public void scrollToLine(int sourceLineNumber, ICodeReview.DiffSide side) {
+        if (unifiedDocument == null) {
+            logger.warn("Cannot scroll - no unified document");
+            return;
+        }
+
+        boolean isRightSide = (side == ICodeReview.DiffSide.NEW);
+        int docLine = unifiedDocument.findDocumentLineForSourceLine(sourceLineNumber, isRightSide);
+
+        if (docLine < 0) {
+            logger.warn("Could not find document line for source line {} on {} side", sourceLineNumber, side);
+            // Fall back to using the source line directly (legacy behavior)
+            scrollToLine(sourceLineNumber);
+            return;
+        }
+
+        // Convert 0-based to 1-based for the existing scrollToLine method
+        scrollToLine(docLine + 1);
     }
 
     /**

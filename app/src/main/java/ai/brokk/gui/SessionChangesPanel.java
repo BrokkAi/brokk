@@ -466,11 +466,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                                     bp.scrollToLine(targetLine, side);
                                 } else if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
                                     up.clearExcerptHighlight();
-                                    up.scrollToLine(targetLine);
+                                    up.scrollToLine(targetLine, targetSide);
                                     if (activeExcerpt != null) {
                                         String[] lines = activeExcerpt.excerpt().split("\\r?\\n", -1);
                                         int endLine = targetLine + Math.max(0, lines.length - 1);
-                                        up.highlightExcerptLines(targetLine, endLine);
+                                        up.highlightExcerptLines(targetLine, endLine, targetSide);
                                     }
                                 }
                             } else {
