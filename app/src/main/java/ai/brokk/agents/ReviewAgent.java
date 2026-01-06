@@ -12,7 +12,7 @@ import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
-import ai.brokk.util.ReviewExcerptParser;
+import ai.brokk.util.ReviewParser;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -217,7 +217,7 @@ public class ReviewAgent {
 
         // Stage 1: Validate file paths exist
         for (int fileRetries = 0; fileRetries < 2; fileRetries++) {
-            Map<Integer, CodeExcerpt> currentExcerpts = ReviewExcerptParser.instance.parseExcerpts(latestResponseText);
+            Map<Integer, CodeExcerpt> currentExcerpts = ReviewParser.instance.parseExcerpts(latestResponseText);
             
             // Any excerpt from a retry that isn't already known or just parsed
             // will be validated. We keep the ones that pass.
@@ -248,10 +248,10 @@ public class ReviewAgent {
         // Stage 2: Validate excerpts match file content using whitespace-aware matching
         Map<Integer, CodeExcerpt> allParsedExcerpts = new HashMap<>();
         // Seed with what we found in Stage 1
-        allParsedExcerpts.putAll(ReviewExcerptParser.instance.parseExcerpts(turn1Result.text()));
+        allParsedExcerpts.putAll(ReviewParser.instance.parseExcerpts(turn1Result.text()));
 
         for (int excerptRetries = 0; excerptRetries < 2; excerptRetries++) {
-            Map<Integer, CodeExcerpt> currentExcerpts = ReviewExcerptParser.instance.parseExcerpts(latestResponseText);
+            Map<Integer, CodeExcerpt> currentExcerpts = ReviewParser.instance.parseExcerpts(latestResponseText);
             allParsedExcerpts.putAll(currentExcerpts);
 
             Map<Integer, String> errors = new HashMap<>();

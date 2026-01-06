@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-class ReviewExcerptParserTest {
+class ReviewParserTest {
 
     @Test
     void testParseSingleExcerpt() {
@@ -21,7 +21,7 @@ class ReviewExcerptParserTest {
                 public class Foo {}
                 ```
                 """;
-        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewParser.instance.parseExcerpts(input);
 
         assertEquals(1, results.size());
         ICodeReview.CodeExcerpt excerpt = results.get(1);
@@ -48,7 +48,7 @@ class ReviewExcerptParserTest {
                 content B
                 ```
                 """;
-        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewParser.instance.parseExcerpts(input);
 
         assertEquals(2, results.size());
         assertEquals("content A", results.get(10).excerpt());
@@ -68,7 +68,7 @@ class ReviewExcerptParserTest {
                 const x = 1;
                 ```
                 """;
-        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewParser.instance.parseExcerpts(input);
         assertEquals("const x = 1;", results.get(1).excerpt());
     }
 
@@ -101,7 +101,7 @@ class ReviewExcerptParserTest {
                 valid
                 ```
                 """;
-        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewParser.instance.parseExcerpts(input);
 
         assertEquals(1, results.size(), "Should have found exactly one valid block");
         assertTrue(results.containsKey(3), "Should contain key 3");
@@ -117,7 +117,7 @@ class ReviewExcerptParserTest {
                 
                 ```
                 """;
-        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewParser.instance.parseExcerpts(input);
         assertEquals("", results.get(0).excerpt());
     }
 
@@ -135,7 +135,7 @@ class ReviewExcerptParserTest {
                 Outer end
                 ```
                 """;
-        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewParser.instance.parseExcerpts(input);
 
         assertEquals(1, results.size());
         String expected = """
@@ -157,7 +157,7 @@ class ReviewExcerptParserTest {
                 public class NoLine {}
                 ```
                 """;
-        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewParser.instance.parseExcerpts(input);
         assertTrue(results.isEmpty(), "Should reject excerpt without @line");
     }
 
@@ -170,7 +170,7 @@ class ReviewExcerptParserTest {
                 code here
                 ```
                 """;
-        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewExcerptParser.instance.parseExcerpts(input);
+        Map<Integer, ICodeReview.CodeExcerpt> results = ReviewParser.instance.parseExcerpts(input);
         assertEquals(1, results.size());
         ICodeReview.CodeExcerpt excerpt = results.get(1);
         assertEquals("path/to/MyClass.java", excerpt.file());

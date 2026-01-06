@@ -17,11 +17,11 @@ import org.jspecify.annotations.NullMarked;
  * ```
  */
 @NullMarked
-public class ReviewExcerptParser {
+public class ReviewParser {
 
-    public static final ReviewExcerptParser instance = new ReviewExcerptParser();
+    public static final ReviewParser instance = new ReviewParser();
 
-    private ReviewExcerptParser() {}
+    private ReviewParser() {}
 
     private enum State {
         SEARCHING,
