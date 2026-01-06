@@ -15,6 +15,8 @@ import java.awt.event.MouseEvent;
 import java.util.List;
 import java.util.function.Consumer;
 import javax.swing.BoxLayout;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -23,6 +25,8 @@ import org.jspecify.annotations.NullMarked;
 
 @NullMarked
 public class ReviewListPanel extends JPanel implements ThemeAware {
+    private static final Logger logger = LogManager.getLogger(ReviewListPanel.class);
+
     private final MaterialButton generateButton;
     private final JPanel contentPanel;
     private final Runnable triggerCallback;
@@ -67,7 +71,12 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    public void displayReview(GuidedReview review, List<List<ParsedExcerpt>> designExcerpts, List<ParsedExcerpt> tacticalExcerpts) {
+    public void displayReview(
+            GuidedReview review, List<List<ParsedExcerpt>> designExcerpts, List<ParsedExcerpt> tacticalExcerpts) {
+        logger.info(
+                "displayReview: overview present, designNotes={}, tacticalExcerpts={}",
+                review.designNotes().size(),
+                tacticalExcerpts.size());
         contentPanel.removeAll();
 
         addHeader("Overview");
@@ -96,6 +105,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
     }
 
     private void addItem(String label, Object data, Object navigationContext) {
+        logger.debug("addItem: label='{}', data={}", label, data.getClass().getSimpleName());
         JLabel item = new JLabel("• " + label);
         item.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         item.setBorder(new EmptyBorder(4, 5, 4, 5));

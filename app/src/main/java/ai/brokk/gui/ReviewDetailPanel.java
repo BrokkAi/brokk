@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
@@ -28,6 +30,8 @@ import org.jspecify.annotations.NullMarked;
 
 @NullMarked
 public class ReviewDetailPanel extends JPanel implements ThemeAware {
+    private static final Logger logger = LogManager.getLogger(ReviewDetailPanel.class);
+
     private static final String CARD_PLACEHOLDER = "placeholder";
     private static final String CARD_CONTENT = "content";
 
@@ -71,6 +75,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     public void showItem(Object item, List<ParsedExcerpt> excerpts) {
+        logger.info("showItem: item={}, excerpts={}", item.getClass().getSimpleName(), excerpts.size());
+        for (int i = 0; i < excerpts.size(); i++) {
+            var pe = excerpts.get(i);
+            logger.debug("  excerpt[{}]: file='{}', line={}", i, pe.original().file(), pe.lineNumber());
+        }
+
         cardLayout.show(this, CARD_CONTENT);
         contentPanel.removeAll();
 
@@ -106,6 +116,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     private void addExcerptsTable(List<ParsedExcerpt> excerpts) {
+        logger.debug("addExcerptsTable: adding {} excerpt links", excerpts.size());
         JPanel tablePanel = new JPanel();
         tablePanel.setLayout(new BoxLayout(tablePanel, BoxLayout.Y_AXIS));
         tablePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -152,6 +163,11 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     private void notifyNavigate(ParsedExcerpt pe) {
+        logger.info(
+                "notifyNavigate: file='{}', line={}, listeners={}",
+                pe.original().file(),
+                pe.lineNumber(),
+                listeners.size());
         for (ReviewNavigationListener l : listeners) {
             l.onNavigate(pe);
         }

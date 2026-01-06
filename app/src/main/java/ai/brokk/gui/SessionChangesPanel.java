@@ -651,6 +651,37 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     diskCache.put(cacheKey, review.toJson());
                 }
 
+                logger.info(
+                        "Parsed GuidedReview: overview={} chars, designNotes={}, tacticalNotes={}, additionalTests={}",
+                        review.overview().length(),
+                        review.designNotes().size(),
+                        review.tacticalNotes().size(),
+                        review.additionalTests().size());
+
+                // Log each design note's excerpts
+                for (int i = 0; i < review.designNotes().size(); i++) {
+                    var design = review.designNotes().get(i);
+                    logger.info("  DesignNote[{}] '{}': {} excerpts", i, design.title(), design.excerpts().size());
+                    for (var excerpt : design.excerpts()) {
+                        logger.info(
+                                "    Excerpt file='{}', excerpt={} chars, commentary={} chars",
+                                excerpt.file(),
+                                excerpt.excerpt().length(),
+                                excerpt.commentary().length());
+                    }
+                }
+
+                // Log tactical notes
+                logger.info("Tactical notes count: {}", review.tacticalNotes().size());
+                for (int i = 0; i < review.tacticalNotes().size(); i++) {
+                    var tactical = review.tacticalNotes().get(i);
+                    logger.info(
+                            "  TacticalNote[{}] file='{}', excerpt={} chars",
+                            i,
+                            tactical.file(),
+                            tactical.excerpt().length());
+                }
+
                 // Pre-resolve excerpts
                 List<List<CodeReviewCommon.ParsedExcerpt>> designExcerpts = review.designNotes().stream()
                         .map(design -> design.excerpts().stream()
@@ -663,6 +694,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .map(this::resolveExcerpt)
                         .filter(java.util.Objects::nonNull)
                         .toList();
+
+                logger.info("Resolved designExcerpts: {} lists", designExcerpts.size());
+                for (int i = 0; i < designExcerpts.size(); i++) {
+                    logger.info("  DesignExcerpts[{}]: {} resolved", i, designExcerpts.get(i).size());
+                }
+                logger.info("Resolved tacticalExcerpts: {}", tacticalExcerpts.size());
 
                 SwingUtilities.invokeLater(() -> {
                     if (parent instanceof JSplitPane splitPane) {
@@ -691,6 +728,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private @Nullable CodeReviewCommon.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
+        logger.debug("resolveExcerpt: file='{}', excerpt={} chars", excerpt.file(), excerpt.excerpt().length());
         String relPath = excerpt.file();
         ai.brokk.difftool.ui.FileComparisonInfo targetInfo = fileComparisons.stream()
                 .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
@@ -700,9 +738,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 .orElse(null);
 
         if (targetInfo == null) {
-            logger.warn("Could not find file {} in current changes for excerpt resolution", relPath);
+            logger.warn("resolveExcerpt: Could not find file '{}' in {} fileComparisons", relPath, fileComparisons.size());
+            fileComparisons.forEach(info -> logger.debug(
+                    "  Available: file={}, left={}, right={}",
+                    info.file(),
+                    info.leftSource().filename(),
+                    info.rightSource().filename()));
             return null;
         }
+        logger.debug("resolveExcerpt: Found file match for '{}'", relPath);
 
         String[] targetLines = excerpt.excerpt().split("\\r?\\n", -1);
 
@@ -713,8 +757,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (found.isPresent()) {
             int lineNum =
                     newContent.substring(0, newContent.indexOf(found.get())).split("\n").length + 1;
+            logger.debug("resolveExcerpt: Found in NEW content at line {}", lineNum);
             return new CodeReviewCommon.ParsedExcerpt(excerpt, lineNum);
         }
+        logger.debug("resolveExcerpt: Not found in NEW content ({} lines)", newLines.length);
 
         // 2. Try OLD content
         String oldContent = targetInfo.leftSource().content();
@@ -723,8 +769,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (found.isPresent()) {
             // If found in old content, we navigate to the file but we can't reliably pinpoint the line in the "new"
             // view since it was deleted or changed. We return line -1 to indicate file-level navigation.
+            logger.debug("resolveExcerpt: Found in OLD content (returning line -1 for file-level nav)");
             return new CodeReviewCommon.ParsedExcerpt(excerpt, -1);
         }
+        logger.debug("resolveExcerpt: Not found in OLD content ({} lines)", oldLines.length);
 
         logger.warn("Could not resolve excerpt for {} in either old or new content", relPath);
         return null;
