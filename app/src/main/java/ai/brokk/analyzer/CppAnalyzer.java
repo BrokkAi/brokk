@@ -334,14 +334,25 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         final var tempSkeletons = resultSkeletons; // we need an "effectively final" variable for the callback
         resultSkeletons = withCodeUnitProperties(properties -> {
             var signaturesMap = new HashMap<CodeUnit, List<String>>();
-            properties.forEach((cu, props) -> signaturesMap.put(cu, props.signatures()));
+            var signatureCache = new HashMap<NamespaceProcessor.NodeRange, String>();
+            properties.forEach((cu, props) -> {
+                signaturesMap.put(cu, props.signatures());
+                if (cu.isFunction()) {
+                    String signature = props.signatures().stream().findFirst().orElse("");
+                    for (var range : props.ranges()) {
+                        var nodeRange = new NamespaceProcessor.NodeRange(range.startByte(), range.endByte());
+                        signatureCache.put(nodeRange, signature);
+                    }
+                }
+            });
             return namespaceProcessor.mergeNamespaceBlocks(
                     tempSkeletons,
                     signaturesMap,
                     file,
                     rootNode,
                     sourceContent,
-                    namespaceName -> createCodeUnit(file, CodeUnitType.MODULE, "", namespaceName));
+                    namespaceName -> createCodeUnit(file, CodeUnitType.MODULE, "", namespaceName),
+                    signatureCache);
         });
         if (isHeaderFile(file)) {
             resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);

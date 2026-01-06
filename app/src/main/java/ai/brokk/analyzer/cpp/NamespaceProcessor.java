@@ -29,6 +29,8 @@ public class NamespaceProcessor {
         this.bodyPlaceholderSupplier = bodyPlaceholderSupplier;
     }
 
+    public record NodeRange(int startByte, int endByte) {}
+
     public record NamespaceBlock(String name, TSNode node, int startByte, int endByte) {}
 
     public Map<CodeUnit, String> mergeNamespaceBlocks(
@@ -37,9 +39,10 @@ public class NamespaceProcessor {
             ProjectFile file,
             TSNode rootNode,
             String fileContent,
-            Function<String, CodeUnit> codeUnitFactory) {
+            Function<String, CodeUnit> codeUnitFactory,
+            Map<NodeRange, String> signatureCache) {
         return mergeNamespaceBlocks(
-                skeletons, signatures, file, rootNode, SourceContent.of(fileContent), codeUnitFactory);
+                skeletons, signatures, file, rootNode, SourceContent.of(fileContent), codeUnitFactory, signatureCache);
     }
 
     public Map<CodeUnit, String> mergeNamespaceBlocks(
@@ -48,7 +51,8 @@ public class NamespaceProcessor {
             ProjectFile file,
             TSNode rootNode,
             SourceContent sourceContent,
-            Function<String, CodeUnit> codeUnitFactory) {
+            Function<String, CodeUnit> codeUnitFactory,
+            Map<NodeRange, String> signatureCache) {
         var namespaceEntries = skeletons.entrySet().stream()
                 .filter(entry -> entry.getKey().isModule())
                 .toList();
@@ -65,8 +69,8 @@ public class NamespaceProcessor {
         // Only process the single file we have parsed content for
         if (filesWithNamespaces.contains(file)) {
             try {
-                var mergedNamespaces =
-                        reParseAndMergeNamespaces(file, signatures, rootNode, sourceContent, codeUnitFactory);
+                var mergedNamespaces = reParseAndMergeNamespaces(
+                        file, signatures, rootNode, sourceContent, codeUnitFactory, signatureCache);
 
                 result.entrySet()
                         .removeIf(entry -> entry.getKey().isModule()
@@ -86,7 +90,8 @@ public class NamespaceProcessor {
             Map<CodeUnit, List<String>> signatures,
             TSNode rootNode,
             SourceContent sourceContent,
-            Function<String, CodeUnit> codeUnitFactory) {
+            Function<String, CodeUnit> codeUnitFactory,
+            Map<NodeRange, String> signatureCache) {
 
         var namespaceBlocks = findAllNamespaceBlocks(rootNode, sourceContent);
         var groupedNamespaces = new HashMap<String, List<NamespaceBlock>>();
@@ -111,7 +116,7 @@ public class NamespaceProcessor {
             }
 
             var codeUnit = existingCodeUnit != null ? existingCodeUnit : codeUnitFactory.apply(namespaceName);
-            var mergedSkeleton = createMergedNamespaceSkeleton(namespaceName, blocks, sourceContent);
+            var mergedSkeleton = createMergedNamespaceSkeleton(namespaceName, blocks, sourceContent, signatureCache);
             result.put(codeUnit, mergedSkeleton);
         }
 
@@ -134,14 +139,17 @@ public class NamespaceProcessor {
     }
 
     private String createMergedNamespaceSkeleton(
-            String namespaceName, List<NamespaceBlock> blocks, SourceContent sourceContent) {
+            String namespaceName,
+            List<NamespaceBlock> blocks,
+            SourceContent sourceContent,
+            Map<NodeRange, String> signatureCache) {
         var mergedContent = new StringBuilder(512); // Pre-size for better performance
         mergedContent.append("namespace ").append(namespaceName).append(" {\n");
 
         for (var block : blocks) {
             var bodyNode = block.node.getChildByFieldName("body");
             if (bodyNode != null && !bodyNode.isNull()) {
-                var skeletonContent = extractNamespaceBodySkeletons(bodyNode, sourceContent);
+                var skeletonContent = extractNamespaceBodySkeletons(bodyNode, sourceContent, signatureCache);
                 for (String line : skeletonContent) {
                     mergedContent.append("  ").append(line).append("\n");
                 }
@@ -152,7 +160,8 @@ public class NamespaceProcessor {
         return mergedContent.toString();
     }
 
-    private List<String> extractNamespaceBodySkeletons(TSNode bodyNode, SourceContent sourceContent) {
+    private List<String> extractNamespaceBodySkeletons(
+            TSNode bodyNode, SourceContent sourceContent, Map<NodeRange, String> signatureCache) {
         var skeletons = new ArrayList<String>();
 
         for (int i = 0; i < bodyNode.getChildCount(); i++) {
@@ -162,8 +171,13 @@ public class NamespaceProcessor {
             String childType = child.getType();
 
             if (FUNCTION_DEFINITION.equals(childType)) {
-                var signature = extractFunctionSignature(child, sourceContent);
-                if (!signature.trim().isEmpty()) {
+                var range = new NodeRange(child.getStartByte(), child.getEndByte());
+                var signature = signatureCache.get(range);
+                if (signature == null) {
+                    signature = extractFunctionSignature(child, sourceContent);
+                }
+
+                if (signature != null && !signature.trim().isEmpty()) {
                     // Presentation-only marker: append a consistent placeholder for functions with bodies.
                     // NOTE: Duplicate handling uses the AST-derived hasBody flag, not this string.
                     skeletons.add(signature + "  " + bodyPlaceholderSupplier.get());
