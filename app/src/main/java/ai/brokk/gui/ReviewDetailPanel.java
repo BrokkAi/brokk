@@ -7,9 +7,11 @@ import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.FlowLayout;
+import java.awt.Font;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -19,24 +21,49 @@ import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
 import javax.swing.border.EmptyBorder;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
 public class ReviewDetailPanel extends JPanel implements ThemeAware {
+    private static final String CARD_PLACEHOLDER = "placeholder";
+    private static final String CARD_CONTENT = "content";
+
     private final JPanel contentPanel;
+    private final JTextArea placeholderArea;
+    private final CardLayout cardLayout;
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
 
     public ReviewDetailPanel() {
-        setLayout(new BorderLayout());
+        cardLayout = new CardLayout();
+        setLayout(cardLayout);
+
+        placeholderArea = new JTextArea("Click Guided Review to get started");
+        placeholderArea.setEditable(false);
+        placeholderArea.setFocusable(false);
+        placeholderArea.setOpaque(false);
+        placeholderArea.setLineWrap(true);
+        placeholderArea.setWrapStyleWord(true);
+        placeholderArea.setFont(placeholderArea.getFont().deriveFont(Font.ITALIC, 14f));
+        placeholderArea.setBorder(new EmptyBorder(40, 40, 40, 40));
+
         contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
         JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(null);
-        add(scrollPane, BorderLayout.CENTER);
+
+        add(placeholderArea, CARD_PLACEHOLDER);
+        add(scrollPane, CARD_CONTENT);
+        
+        showPlaceholder();
+    }
+
+    public void showPlaceholder() {
+        cardLayout.show(this, CARD_PLACEHOLDER);
     }
 
     public void addReviewNavigationListener(ReviewNavigationListener listener) {
@@ -44,6 +71,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     public void showItem(Object item, List<ParsedExcerpt> excerpts) {
+        cardLayout.show(this, CARD_CONTENT);
         contentPanel.removeAll();
 
         if (item instanceof String overview) {
@@ -131,5 +159,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             ? ai.brokk.gui.mop.ThemeColors.getPanelBackground() 
             : javax.swing.UIManager.getColor("Panel.background"));
         contentPanel.setBackground(getBackground());
+        placeholderArea.setForeground(javax.swing.UIManager.getColor("Label.disabledForeground"));
     }
 }
