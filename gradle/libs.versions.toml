@@ -2,8 +2,7 @@
 junit = "6.0.0"
 log4j = "2.20.0"
 jackson = "2.18.3"
-jgit = "7.4.0.202509020913-r"
-egit = "2.1.5"
+jgit = "7.5.0.202512021534-r"
 nullaway = "0.12.7"
 flatlaf = "3.6.2"
 flexmark = "0.64.8"
@@ -100,7 +99,7 @@ jgit-core = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit"
 jgit-gpg = { module = "org.eclipse.jgit:org.eclipse.jgit.gpg.bc", version.ref = "jgit" }
 jgit-ssh = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.ref = "jgit" }
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
-egit-core = { module = "org.eclipse.mylyn.github:org.eclipse.egit.github.core", version.ref = "egit" }
+egit-core = { module = "org.eclipse.egit:org.eclipse.egit.core", version.ref = "jgit" }
 
 # TreeSitter
 treesitter-core = { module = "io.github.bonede:tree-sitter", version.ref = "treesitter" }
