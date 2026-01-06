@@ -107,7 +107,7 @@ public class SearchAgent {
     protected Context context;
 
     // Session-local conversation for this agent
-    protected final List<ChatMessage> sessionMessages = new ArrayList<>();
+    protected final AgentConversation conversation;
 
     // State toggles
     protected boolean beastMode;
@@ -125,6 +125,8 @@ public class SearchAgent {
         this.scope = scope;
 
         this.io = io;
+        this.conversation = new AgentConversation(io);
+
         var llmOptions = new Llm.Options(model, "Search: " + goal).withEcho();
         this.llm = cm.getLlm(llmOptions);
         this.llm.setOutput(this.io);
@@ -200,8 +202,8 @@ public class SearchAgent {
         while (true) {
             wst.setContext(context);
 
-            var promptResult =
-                    SearchPrompts.instance.buildPrompt(context, model, goal, getObjective(), mcpTools, sessionMessages);
+            var promptResult = SearchPrompts.instance.buildPrompt(
+                    context, model, goal, getObjective(), mcpTools, conversation.getInternalMessages());
             var messages = promptResult.messages();
 
             if (!beastMode && promptResult.engageBeastMode()) {
@@ -247,8 +249,8 @@ public class SearchAgent {
                 continue;
             }
 
-            sessionMessages.add(new UserMessage("What tools do you want to use next?"));
-            sessionMessages.add(result.aiMessage());
+            conversation.appendInternal(new UserMessage("What tools do you want to use next?"));
+            conversation.append(result.aiMessage());
 
             if (!ai.hasToolExecutionRequests()) {
                 return errorResult(
@@ -289,7 +291,7 @@ public class SearchAgent {
                         finalResult = toolResult;
                     }
 
-                    sessionMessages.add(finalResult.toExecutionResultMessage());
+                    conversation.append(finalResult.toExecutionResultMessage());
                     if (categorizeTool(req.name()) == ToolCategory.RESEARCH) {
                         if (!isWorkspaceTool(req, tr)) {
                             executedResearch = true;
@@ -304,7 +306,7 @@ public class SearchAgent {
                 if (terminal.isPresent() && context.equals(contextAtTurnStart) && !executedResearch) {
                     var termReq = terminal.get();
                     var termExec = executeTool(termReq, tr, wst);
-                    sessionMessages.add(termExec.toExecutionResultMessage());
+                    conversation.append(termExec.toExecutionResultMessage());
 
                     if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                         return errorResult(
