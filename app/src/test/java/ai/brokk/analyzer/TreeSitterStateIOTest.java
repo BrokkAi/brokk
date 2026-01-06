@@ -13,15 +13,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.pcollections.HashTreePMap;
 
 public class TreeSitterStateIOTest {
 
@@ -153,6 +156,45 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void roundTripCodeUnitProperties(@TempDir Path tempDir) throws Exception {
+        var root = tempDir.resolve("root");
+        Files.createDirectories(root);
+        var projectFile = new ProjectFile(root, Path.of("Test.java"));
+        var cu = CodeUnit.cls(projectFile, "com.example", "Test");
+
+        var props = new TreeSitterAnalyzer.CodeUnitProperties(
+                List.of(),
+                List.of("public class Test"),
+                List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)),
+                List.of("Base"),
+                true);
+
+        var stateMap = Map.of(cu, props);
+        var originalState = new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.empty(),
+                HashTreePMap.from(stateMap),
+                HashTreePMap.empty(),
+                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
+                System.nanoTime());
+
+        Path out = tempDir.resolve("props_roundtrip.smile.gz");
+        TreeSitterStateIO.save(originalState, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent());
+        var loadedState = loadedOpt.get();
+
+        var loadedProps = loadedState.codeUnitState().get(cu);
+
+        assertNotNull(loadedProps);
+        assertEquals(props.rawSupertypes(), loadedProps.rawSupertypes());
+        assertEquals(props.ranges(), loadedProps.ranges());
+        assertEquals(props.signatures(), loadedProps.signatures());
+        assertEquals(props.children(), loadedProps.children());
+        assertEquals(props.hasBody(), loadedProps.hasBody());
+    }
+
+    @Test
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
         AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
         var original = TreeSitterStateIO.fromDto(dto);
@@ -272,5 +314,58 @@ public class TreeSitterStateIOTest {
         var loadedDto = TreeSitterStateIO.toDto(loadedOpt.get());
         assertEquals(originalDto, loadedDto, "Round-trip should preserve all fields including containsTests");
         assertTrue(loadedDto.fileState().getFirst().value().containsTests(), "containsTests=true should be preserved");
+    }
+
+    @Test
+    void deserializeLegacyStateWithComputedSupertypes(@TempDir Path tempDir) throws Exception {
+        // Construct DTO components manually to simulate legacy structure
+        var root = tempDir.toAbsolutePath().normalize();
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(root.toString(), "src/Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        // Legacy properties map with extra fields
+        Map<String, Object> legacyProps = new HashMap<>();
+        legacyProps.put("children", List.of());
+        legacyProps.put("signatures", List.of("sig"));
+        legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 10, 0, 1, 0)));
+        legacyProps.put("rawSupertypes", List.of("RawBase"));
+        legacyProps.put("hasBody", true);
+        legacyProps.put("supertypes", List.of(cuDto)); // Simulated legacy computed list
+        legacyProps.put("supertypesComputed", true); // Simulated legacy flag
+
+        // Entry as Map to bypass CodeUnitEntryDto's type check
+        Map<String, Object> entry = new HashMap<>();
+        entry.put("key", cuDto);
+        entry.put("value", legacyProps);
+
+        // AnalyzerStateDto as Map
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 12345L);
+
+        // Serialize to file using Smile
+        Path file = tempDir.resolve("legacy.smile.gz");
+        ObjectMapper mapper = new ObjectMapper(new SmileFactory());
+        try (var out = new GZIPOutputStream(Files.newOutputStream(file))) {
+            mapper.writeValue(out, stateDtoMap);
+        }
+
+        // Load using TreeSitterStateIO
+        var loadedOpt = TreeSitterStateIO.load(file);
+        assertTrue(loadedOpt.isPresent(), "Should load legacy state successfully");
+        var loadedState = loadedOpt.get();
+
+        // Verify loaded content
+        assertEquals(1, loadedState.codeUnitState().size());
+        var loadedCu = loadedState.codeUnitState().keySet().iterator().next();
+        var loadedProps = loadedState.codeUnitState().get(loadedCu);
+
+        assertEquals("Test", loadedCu.shortName());
+        assertEquals(List.of("RawBase"), loadedProps.rawSupertypes());
+        assertEquals(1, loadedProps.ranges().size());
+        // Implicitly verified that 'supertypes' field was ignored (no crash, no field in domain object)
     }
 }
