@@ -129,4 +129,40 @@ public class GoTestDetectionTest {
                 analyzer3.containsTests(new ProjectFile(project3.getRoot(), multiParamPath)),
                 "Should NOT detect test if function has multiple parameters, even if they share *testing.T type");
     }
+
+    @Test
+    void testExtraParametersDetection() throws IOException {
+        String content =
+                """
+                package foo
+                import "testing"
+                func TestExtra(t *testing.T, x int) {}
+                """;
+        String path = "pkg/extra_param.go";
+        IProject project = InlineTestProjectCreator.code(content, path).build();
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        analyzer = (GoAnalyzer) analyzer.update();
+
+        assertFalse(
+                analyzer.containsTests(new ProjectFile(project.getRoot(), path)),
+                "Should NOT detect test if function has extra parameters beyond *testing.T");
+    }
+
+    @Test
+    void testGenericTestDetection() throws IOException {
+        String content =
+                """
+                package foo
+                import "testing"
+                func TestGeneric[T any](t *testing.T) {}
+                """;
+        String path = "pkg/generic_test.go";
+        IProject project = InlineTestProjectCreator.code(content, path).build();
+        GoAnalyzer analyzer = new GoAnalyzer(project);
+        analyzer = (GoAnalyzer) analyzer.update();
+
+        assertFalse(
+                analyzer.containsTests(new ProjectFile(project.getRoot(), path)),
+                "Should NOT detect test if function is generic (has type parameters)");
+    }
 }
