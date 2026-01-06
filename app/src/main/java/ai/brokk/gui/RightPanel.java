@@ -57,7 +57,10 @@ public class RightPanel extends JPanel implements ThemeAware {
     private final ContextManager contextManager;
 
     enum UndockTarget {
-        REVIEW, PREVIEW, TERMINAL, NONE
+        REVIEW,
+        PREVIEW,
+        TERMINAL,
+        NONE
     }
 
     static UndockTarget getUndockTarget(
@@ -67,7 +70,8 @@ public class RightPanel extends JPanel implements ThemeAware {
             Component terminalPanel,
             Component buildSplitPane,
             @Nullable Component verticalActivityCombinedPanel) {
-        if (comp == buildSplitPane || (verticalActivityCombinedPanel != null && comp == verticalActivityCombinedPanel)) {
+        if (comp == buildSplitPane
+                || (verticalActivityCombinedPanel != null && comp == verticalActivityCombinedPanel)) {
             return UndockTarget.NONE;
         }
         if (comp == reviewTabComponent) return UndockTarget.REVIEW;
@@ -437,7 +441,13 @@ public class RightPanel extends JPanel implements ThemeAware {
                 if (tabIndex == -1) return;
 
                 Component comp = buildReviewTabs.getComponentAt(tabIndex);
-                UndockTarget target = getUndockTarget(comp, reviewTabComponent, previewTabbedPane, terminalPanel, buildSplitPane, verticalActivityCombinedPanel);
+                UndockTarget target = getUndockTarget(
+                        comp,
+                        reviewTabComponent,
+                        previewTabbedPane,
+                        terminalPanel,
+                        buildSplitPane,
+                        verticalActivityCombinedPanel);
                 JPopupMenu popup = new JPopupMenu();
 
                 switch (target) {
@@ -467,7 +477,6 @@ public class RightPanel extends JPanel implements ThemeAware {
         });
     }
 
-
     private void undockReview() {
         if (!GlobalUiSettings.isReviewDocked()) return;
 
@@ -477,7 +486,8 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        reviewFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Review", reviewTabComponent, Icons.FLOWSHEET, this::redockReview);
+        reviewFrame = new ai.brokk.gui.dialogs.DetachableTabFrame(
+                "Review", reviewTabComponent, Icons.FLOWSHEET, this::redockReview);
         reviewFrame.setVisible(true);
     }
 
@@ -536,7 +546,8 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        terminalFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Terminal", terminalPanel, Icons.TERMINAL, this::redockTerminal);
+        terminalFrame = new ai.brokk.gui.dialogs.DetachableTabFrame(
+                "Terminal", terminalPanel, Icons.TERMINAL, this::redockTerminal);
         terminalFrame.setVisible(true);
     }
 

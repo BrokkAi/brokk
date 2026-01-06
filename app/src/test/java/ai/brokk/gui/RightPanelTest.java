@@ -17,23 +17,37 @@ class RightPanelTest {
         JPanel terminal = new JPanel();
         JPanel unknown = new JPanel();
 
-        assertEquals(UndockTarget.NONE, RightPanel.getUndockTarget(build, review, preview, terminal, build, verticalBuild));
-        assertEquals(UndockTarget.NONE, RightPanel.getUndockTarget(verticalBuild, review, preview, terminal, build, verticalBuild));
-        
-        assertEquals(UndockTarget.REVIEW, RightPanel.getUndockTarget(review, review, preview, terminal, build, verticalBuild));
-        assertEquals(UndockTarget.PREVIEW, RightPanel.getUndockTarget(preview, review, preview, terminal, build, verticalBuild));
-        assertEquals(UndockTarget.TERMINAL, RightPanel.getUndockTarget(terminal, review, preview, terminal, build, verticalBuild));
-        
-        assertEquals(UndockTarget.NONE, RightPanel.getUndockTarget(unknown, review, preview, terminal, build, verticalBuild));
+        assertEquals(
+                UndockTarget.NONE, RightPanel.getUndockTarget(build, review, preview, terminal, build, verticalBuild));
+        assertEquals(
+                UndockTarget.NONE,
+                RightPanel.getUndockTarget(verticalBuild, review, preview, terminal, build, verticalBuild));
+
+        assertEquals(
+                UndockTarget.REVIEW,
+                RightPanel.getUndockTarget(review, review, preview, terminal, build, verticalBuild));
+        assertEquals(
+                UndockTarget.PREVIEW,
+                RightPanel.getUndockTarget(preview, review, preview, terminal, build, verticalBuild));
+        assertEquals(
+                UndockTarget.TERMINAL,
+                RightPanel.getUndockTarget(terminal, review, preview, terminal, build, verticalBuild));
+
+        assertEquals(
+                UndockTarget.NONE,
+                RightPanel.getUndockTarget(unknown, review, preview, terminal, build, verticalBuild));
     }
 
     @Test
     void testUndockTargetWithNullVerticalLayout() {
         JPanel build = new JPanel();
         JPanel review = new JPanel();
-        
+
         // Ensure it doesn't NPE if verticalActivityCombinedPanel is null
-        assertEquals(UndockTarget.NONE, RightPanel.getUndockTarget(build, review, new JPanel(), new JPanel(), build, null));
-        assertEquals(UndockTarget.REVIEW, RightPanel.getUndockTarget(review, review, new JPanel(), new JPanel(), build, null));
+        assertEquals(
+                UndockTarget.NONE, RightPanel.getUndockTarget(build, review, new JPanel(), new JPanel(), build, null));
+        assertEquals(
+                UndockTarget.REVIEW,
+                RightPanel.getUndockTarget(review, review, new JPanel(), new JPanel(), build, null));
     }
 }
