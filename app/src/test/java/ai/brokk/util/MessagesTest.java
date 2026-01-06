@@ -7,6 +7,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -62,5 +63,31 @@ class MessagesTest {
         var expected = expectedRendered.isBlank() ? "hi" : "hi\n" + expectedRendered;
 
         assertEquals(expected, Messages.getTextWithToolCalls(message, registry));
+    }
+
+    @Test
+    void getText_systemMessage_returnsText() {
+        var message = SystemMessage.from("system instruction");
+        assertEquals("system instruction", Messages.getText(message));
+    }
+
+    @Test
+    void getText_toolExecutionResultMessage_returnsFormattedText() {
+        var message = new dev.langchain4j.data.message.ToolExecutionResultMessage("id1", "searchFiles", "found 3 results");
+        assertEquals("searchFiles -> found 3 results", Messages.getText(message));
+    }
+
+    @Test
+    void getTextWithToolCalls_systemMessage_delegatesToGetText() {
+        var registry = ToolRegistry.empty();
+        var message = SystemMessage.from("system instruction");
+        assertEquals(Messages.getText(message), Messages.getTextWithToolCalls(message, registry));
+    }
+
+    @Test
+    void getTextWithToolCalls_toolExecutionResultMessage_delegatesToGetText() {
+        var registry = ToolRegistry.empty();
+        var message = new dev.langchain4j.data.message.ToolExecutionResultMessage("id1", "searchFiles", "found 3 results");
+        assertEquals(Messages.getText(message), Messages.getTextWithToolCalls(message, registry));
     }
 }
