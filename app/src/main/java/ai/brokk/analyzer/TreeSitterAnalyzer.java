@@ -39,6 +39,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
@@ -75,7 +76,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // Progress listeners for reporting parsing progress to UI
     private final ProgressListener progressListener;
 
-    // Cache for lazy supertype computation.
+    // Helper util for lazy supertype computation and recursion guarding.
     //
     // DESIGN NOTE: This cache is transient and specific to this analyzer instance.
     // It is NOT invalidated when files change because update() returns a fresh Analyzer instance
@@ -90,11 +91,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // NOTE: update() does NOT merge this cache into the new state. This is intentional:
     // when source files change, previous supertype relationships may be invalid.
     // Discarding the cache ensures we re-compute ancestors against the new state.
-    private final ConcurrentHashMap<CodeUnit, List<CodeUnit>> supertypesCache = new ConcurrentHashMap<>();
-
-    // Thread-local recursion guard to prevent infinite loops (and ConcurrentHashMap recursive update exceptions)
-    // when a type hierarchy contains cycles or when resolving supertypes triggers recursive resolution.
-    private final ThreadLocal<Set<CodeUnit>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
+    private final LazySupertypeCache lazySupertypes = new LazySupertypeCache();
 
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
@@ -160,6 +157,47 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         record Computed(List<CodeUnit> supertypes) implements SuperTypeInfo {}
 
         record Uncomputed() implements SuperTypeInfo {}
+    }
+
+    /**
+     * Helper class to encapsulate lazy supertype caching and recursion detection.
+     */
+    private static final class LazySupertypeCache {
+        private final ConcurrentHashMap<CodeUnit, List<CodeUnit>> cache = new ConcurrentHashMap<>();
+        private final ThreadLocal<Set<CodeUnit>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
+
+        boolean isComputing(CodeUnit cu) {
+            return recursionGuard.get().contains(cu);
+        }
+
+        @Nullable
+        List<CodeUnit> get(CodeUnit cu) {
+            return cache.get(cu);
+        }
+
+        List<CodeUnit> computeIfAbsent(CodeUnit cu, Function<CodeUnit, List<CodeUnit>> computer) {
+            return cache.computeIfAbsent(cu, k -> {
+                var visiting = recursionGuard.get();
+                visiting.add(k);
+                try {
+                    return computer.apply(k);
+                } finally {
+                    visiting.remove(k);
+                }
+            });
+        }
+
+        boolean isEmpty() {
+            return cache.isEmpty();
+        }
+
+        int size() {
+            return cache.size();
+        }
+
+        void forEach(BiConsumer<? super CodeUnit, ? super List<CodeUnit>> action) {
+            cache.forEach(action);
+        }
     }
 
     /**
@@ -656,15 +694,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (supertypesCache.isEmpty()) {
+        if (lazySupertypes.isEmpty()) {
             return this.state;
         }
 
         // Efficiently merge lazy-computed supertypes into the snapshot state using PMap structural sharing.
         // Instead of copying the entire map (O(N)), we collect only the updates (O(M)) and apply them (O(M log N)).
-        Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>(supertypesCache.size());
+        Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>(lazySupertypes.size());
 
-        supertypesCache.forEach((cu, supers) -> {
+        lazySupertypes.forEach((cu, supers) -> {
             CodeUnitProperties existing = this.state.codeUnitState().get(cu);
             if (existing != null) {
                 // Create new record with Computed supertypes
@@ -3125,14 +3163,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Guard against recursive computation on the same thread.
         // This prevents infinite recursion and avoids IllegalStateException from ConcurrentHashMap.computeIfAbsent.
-        Set<CodeUnit> visiting = recursionGuard.get();
-        if (visiting.contains(cu)) {
+        if (lazySupertypes.isComputing(cu)) {
             log.trace("Recursive getDirectAncestors detected for {}", cu.fqName());
             return List.of();
         }
 
         // 1. Check lazy cache
-        List<CodeUnit> cached = supertypesCache.get(cu);
+        List<CodeUnit> cached = lazySupertypes.get(cu);
         if (cached != null) {
             return cached;
         }
@@ -3144,14 +3181,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // 3. Compute lazily (atomic per key)
-        return supertypesCache.computeIfAbsent(cu, k -> {
-            visiting.add(k);
-            try {
-                return computeSupertypes(k);
-            } finally {
-                visiting.remove(k);
-            }
-        });
+        return lazySupertypes.computeIfAbsent(cu, this::computeSupertypes);
     }
 
     /* ---------- file filtering helpers ---------- */
