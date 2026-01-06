@@ -40,6 +40,7 @@ import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.TreeExpansionEvent;
@@ -608,36 +609,27 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             return CompletableFuture.completedFuture(null);
         }
 
-        // If already loaded, nothing to do.
-        if (treeNode.isChildrenLoaded()) {
+        if (!treeNode.isDirectory()) {
             return CompletableFuture.completedFuture(null);
         }
 
-        // If currently loading, return the existing future so caller can wait for it
-        if (treeNode.isLoading()) {
-            var existingFuture = treeNode.getLoadingFuture();
-            return existingFuture != null ? existingFuture : CompletableFuture.completedFuture(null);
+        // Atomically try to start loading - avoids all race conditions
+        var result = new CompletableFuture<Void>();
+        if (!treeNode.tryStartLoading(result)) {
+            // Someone else is loading or already loaded - return their future
+            var existing = treeNode.getLoadFuture();
+            return existing != null ? existing : CompletableFuture.completedFuture(null);
         }
-        treeNode.setLoading(true);
 
+        // We won the race - proceed with loading
         // Ensure there's a visible "Loading..." placeholder while background work runs.
         if (node.getChildCount() == 0) {
             node.add(new DefaultMutableTreeNode(LOADING_PLACEHOLDER));
             ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
         }
 
-        if (!treeNode.isDirectory()) {
-            treeNode.clearLoadingState();
-            return CompletableFuture.completedFuture(null);
-        }
-
         File directory = treeNode.getFile();
-
-        // Capture the directory reference to validate the node hasn't changed by the time the worker completes.
         final File expectedDirectory = directory;
-        var result = new CompletableFuture<Void>();
-        // Store the future so other callers can wait for this loading to complete
-        treeNode.setLoadingFuture(result);
 
         // Perform expensive filesystem operations off the EDT using dedicated I/O executor.
         CompletableFuture.supplyAsync(
@@ -677,12 +669,12 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                         try {
                             // Validate node still represents the same directory and is present in tree.
                             if (!(node.getUserObject() instanceof ProjectTreeNode currentTreeNode)) {
-                                treeNode.clearLoadingState();
+                                treeNode.resetLoadState(); // Allow retry
                                 result.complete(null);
                                 return;
                             }
                             if (!currentTreeNode.getFile().equals(expectedDirectory)) {
-                                treeNode.clearLoadingState();
+                                treeNode.resetLoadState(); // Allow retry
                                 result.complete(null);
                                 return;
                             }
@@ -701,16 +693,16 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                                 node.add(childNode);
                             }
 
-                            currentTreeNode.setChildrenLoaded(true);
-                            currentTreeNode.clearLoadingState();
                             ((DefaultTreeModel) getModel()).nodeStructureChanged(node);
 
                             // Attempt to auto-expand single-directory chains as before.
                             expandSingleDirectoryChildren(node);
+
+                            // Complete future - this atomically marks children as loaded
                             result.complete(null);
                         } catch (Exception ex) {
                             if (node.getUserObject() instanceof ProjectTreeNode ptn) {
-                                ptn.clearLoadingState();
+                                ptn.resetLoadState(); // Allow retry on error
                             }
                             logger.error("Error applying loaded children to tree node", ex);
                             SwingUtilities.invokeLater(
@@ -723,7 +715,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     logger.error("Error loading directory contents async for: " + expectedDirectory, ex);
                     SwingUtilities.invokeLater(() -> {
                         if (node.getUserObject() instanceof ProjectTreeNode ptn) {
-                            ptn.clearLoadingState();
+                            ptn.resetLoadState(); // Allow retry on error
                         }
                         chrome.toolError("Failed to read directory: " + ex.getMessage());
                     });
@@ -761,7 +753,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
     private void invalidateAllChildrenRecursively(DefaultMutableTreeNode node) {
         if (node.getUserObject() instanceof ProjectTreeNode ptn && ptn.isDirectory()) {
-            ptn.setChildrenLoaded(false); // Mark as not loaded
+            ptn.resetLoadState(); // Mark as not loaded
         }
         Enumeration<?> children = node.children();
         while (children.hasMoreElements()) {
@@ -884,7 +876,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
         // Invalidate all loaded children data
         if (root != null && root.getUserObject() instanceof ProjectTreeNode ptn) {
-            ptn.setChildrenLoaded(false);
+            ptn.resetLoadState();
         }
         if (root == null) {
             return;
@@ -1045,7 +1037,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                                 }
                                 currentNode.add(childNode);
                             }
-                            ptn.setChildrenLoaded(true);
+                            ptn.markLoaded();
                             ((DefaultTreeModel) getModel()).nodeStructureChanged(currentNode);
                         }
 
@@ -1478,14 +1470,17 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         worker.execute();
     }
 
-    /** Node wrapper for file information and loading state, with cached coloring state */
+    /**
+     * Node wrapper for file information and loading state, with cached coloring state.
+     * Uses AtomicReference for race-free loading state management:
+     * - null: never loaded, not loading
+     * - pending future: loading in progress
+     * - completed future: children loaded
+     */
     private class ProjectTreeNode {
         private final File file;
         private final boolean isDirectory; // Cached at construction to avoid repeated syscalls
-        private boolean childrenLoaded;
-        private volatile boolean isLoading = false;
-        // Track in-progress loading so callers can wait for it to complete
-        private volatile @Nullable CompletableFuture<Void> loadingFuture;
+        private final AtomicReference<@Nullable CompletableFuture<Void>> loadState = new AtomicReference<>();
         // Cached coloring state (computed lazily, but can be pre-warmed off EDT)
         // Volatile for cross-thread visibility between pre-warming (ForkJoinPool) and rendering (EDT)
         private volatile @Nullable Boolean cachedIsExcluded;
@@ -1495,7 +1490,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         public ProjectTreeNode(File file, boolean childrenLoaded) {
             this.file = file;
             this.isDirectory = file.isDirectory(); // Cache once at construction
-            this.childrenLoaded = childrenLoaded;
+            if (childrenLoaded) {
+                loadState.set(CompletableFuture.completedFuture(null));
+            }
         }
 
         public File getFile() {
@@ -1507,33 +1504,31 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         }
 
         public boolean isChildrenLoaded() {
-            return childrenLoaded;
+            var state = loadState.get();
+            return state != null && state.isDone();
         }
 
-        public void setChildrenLoaded(boolean childrenLoaded) {
-            this.childrenLoaded = childrenLoaded;
+        /**
+         * Atomically tries to start loading with the given future.
+         * @return true if this call won (caller must complete the future), false if already loading/loaded
+         */
+        public boolean tryStartLoading(CompletableFuture<Void> future) {
+            return loadState.compareAndSet(null, future);
         }
 
-        public boolean isLoading() {
-            return isLoading;
+        /** Gets the current load future, or null if never started. */
+        public @Nullable CompletableFuture<Void> getLoadFuture() {
+            return loadState.get();
         }
 
-        public void setLoading(boolean loading) {
-            this.isLoading = loading;
+        /** Resets load state to allow reloading (for refresh). */
+        public void resetLoadState() {
+            loadState.set(null);
         }
 
-        public @Nullable CompletableFuture<Void> getLoadingFuture() {
-            return loadingFuture;
-        }
-
-        public void setLoadingFuture(@Nullable CompletableFuture<Void> future) {
-            this.loadingFuture = future;
-        }
-
-        /** Clears both loading flag and future atomically to prevent inconsistent state. */
-        public void clearLoadingState() {
-            this.isLoading = false;
-            this.loadingFuture = null;
+        /** Marks as loaded without going through the loading process. */
+        public void markLoaded() {
+            loadState.compareAndSet(null, CompletableFuture.completedFuture(null));
         }
 
         /** Returns cached excluded state, computing and caching if needed */
