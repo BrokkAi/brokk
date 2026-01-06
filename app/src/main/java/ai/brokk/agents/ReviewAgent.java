@@ -101,6 +101,9 @@ public class ReviewAgent {
             Map<Integer, ICodeReview.CodeExcerpt> parsedExcerpts =
                     ReviewExcerptParser.instance.parseExcerpts(analysisText);
 
+            // --- Turn 1.5: Retry for missing files ---
+            parsedExcerpts = retryFileNotFound(reviewLlm, turn1Messages, turn1Result, parsedExcerpts);
+
             // --- Turn 2: Generate structured review via tool call ---
             var turn2Messages = new ArrayList<ChatMessage>(turn1Messages);
             turn2Messages.add(new AiMessage(turn1Result.text(),
@@ -126,6 +129,51 @@ public class ReviewAgent {
             var rawReview = ICodeReview.RawReview.fromJson(executionResult.resultText());
             return ICodeReview.GuidedReview.fromRaw(rawReview, parsedExcerpts);
         }
+    }
+
+    @Blocking
+    private Map<Integer, CodeExcerpt> retryFileNotFound(
+            Llm llm,
+            List<ChatMessage> turn1Messages,
+            Llm.StreamingResult turn1Result,
+            Map<Integer, CodeExcerpt> initialExcerpts) throws InterruptedException {
+        
+        Map<Integer, CodeExcerpt> currentExcerpts = new HashMap<>(initialExcerpts);
+        List<ChatMessage> history = new ArrayList<>(turn1Messages);
+        history.add(new AiMessage(turn1Result.text(), 
+                requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+
+        for (int i = 0; i < 2; i++) {
+            Map<Integer, String> errors = validateFileExists(currentExcerpts, cm);
+            if (errors.isEmpty()) {
+                break;
+            }
+
+            String errorList = errors.entrySet().stream()
+                    .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
+                    .collect(java.util.stream.Collectors.joining("\n"));
+
+            UserMessage retryMessage = new UserMessage("""
+                    The following excerpts referenced invalid file paths. Please provide corrected BRK_EXCERPT blocks 
+                    with the correct relative file paths from the context:
+                    
+                    %s
+                    """.formatted(errorList));
+
+            history.add(retryMessage);
+            var result = llm.sendRequest(history);
+            if (result.error() != null) {
+                break; // Stop retrying on error
+            }
+
+            history.add(new AiMessage(result.text(), 
+                    requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "")));
+            
+            Map<Integer, CodeExcerpt> newExcerpts = ReviewExcerptParser.instance.parseExcerpts(result.text());
+            currentExcerpts.putAll(newExcerpts);
+        }
+
+        return currentExcerpts;
     }
 
     public static Map<Integer, String> validateFileExists(Map<Integer, CodeExcerpt> excerpts, IContextManager cm) {
