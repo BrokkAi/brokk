@@ -111,4 +111,24 @@ final class SearchAgentConversationIntegrationTest {
         assertTrue(messages.stream().anyMatch(m -> m.type() == ChatMessageType.USER));
         assertTrue(messages.stream().anyMatch(m -> m.type() == ChatMessageType.AI));
     }
+
+    @Test
+    void clearUiMessages_preservesInternalMessages_andUiIsCleanForNextResult() {
+        var internalPrompt = new UserMessage("internal prompt");
+        var uiStatus = new AiMessage("ui status");
+        var uiToolResult = new ToolExecutionResultMessage("id-1", "searchSymbols", "Found matches");
+
+        conversation.appendInternal(internalPrompt);
+        conversation.append(uiStatus);
+        conversation.append(uiToolResult);
+
+        assertEquals(2, conversation.getUiMessages().size());
+        assertEquals(3, conversation.getInternalMessages().size());
+
+        conversation.clearUiMessages();
+
+        assertEquals(0, conversation.getUiMessages().size());
+        assertEquals(3, conversation.getInternalMessages().size());
+        assertEquals(internalPrompt, conversation.getInternalMessages().getFirst());
+    }
 }

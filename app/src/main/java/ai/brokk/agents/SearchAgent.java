@@ -322,7 +322,10 @@ public class SearchAgent {
                                         TaskResult.StopReason.LLM_ABORTED, "Aborted: " + termExec.resultText()),
                                 taskMeta());
                     } else {
-                        return createResult(termReq.name(), goal);
+                        var finalResult = createResult(termReq.name(), goal);
+                        var resultingContext = scope.append(finalResult);
+                        conversation.clearUiMessages();
+                        return finalResult.withContext(resultingContext);
                     }
                 }
 
@@ -550,10 +553,15 @@ public class SearchAgent {
         metrics.recordContextScan(filesAdded.size(), false, toRelativePaths(filesAdded), md);
 
         var contextAgentResult = createResult("Brokk Context Agent: " + goal, goal, meta);
-        context = scanConfig.appendToScope() ? scope.append(contextAgentResult) : contextAgentResult.context();
+        if (scanConfig.appendToScope()) {
+        context = scope.append(contextAgentResult);
+        conversation.clearUiMessages();
+        } else {
+        context = contextAgentResult.context();
+        }
 
         return context;
-    }
+        }
 
     protected StreamingChatModel getScanModel() {
         return scanConfig.scanModel() == null ? cm.getService().getScanModel() : scanConfig.scanModel();
@@ -660,7 +668,7 @@ public class SearchAgent {
     }
 
     protected TaskResult createResult(String action, String goal, TaskResult.TaskMeta meta) {
-        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
+        List<ChatMessage> finalMessages = new ArrayList<>(conversation.getUiMessages());
         var stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS);
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 
@@ -675,7 +683,7 @@ public class SearchAgent {
     }
 
     protected TaskResult errorResult(TaskResult.StopDetails details, @Nullable TaskResult.TaskMeta meta) {
-        List<ChatMessage> finalMessages = new ArrayList<>(io.getLlmRawMessages());
+        List<ChatMessage> finalMessages = new ArrayList<>(conversation.getUiMessages());
         String action = "Search: " + goal + " [" + details.reason().name() + "]";
         var fragment = new ContextFragments.TaskFragment(cm, finalMessages, goal);
 

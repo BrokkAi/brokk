@@ -125,6 +125,24 @@ final class AgentConversationTest {
   }
 
   @Test
+  void clearUiMessages_preservesInternalMessages() {
+    ChatMessage internal1 = UserMessage.from("internal-1");
+    ChatMessage internal2 = UserMessage.from("internal-2");
+    ChatMessage ui1 = UserMessage.from("ui-1");
+
+    conversation.appendInternal(internal1);
+    conversation.appendUi(ui1, false);
+    conversation.appendInternal(internal2);
+
+    conversation.clearUiMessages();
+
+    assertEquals(2, conversation.getInternalMessages().size());
+    assertEquals(internal1, conversation.getInternalMessages().get(0));
+    assertEquals(internal2, conversation.getInternalMessages().get(1));
+    assertTrue(conversation.getUiMessages().isEmpty());
+  }
+
+  @Test
   void testGettersReturnUnmodifiableLists() {
     conversation.appendInternal(UserMessage.from("internal"));
     conversation.appendUi(UserMessage.from("ui"), false);
