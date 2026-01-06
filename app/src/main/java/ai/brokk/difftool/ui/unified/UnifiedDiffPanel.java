@@ -51,6 +51,9 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     @Nullable
     private DiffGutterComponent customLineNumberList;
 
+    @Nullable
+    private Object excerptHighlightTag;
+
     private UnifiedDiffDocument.ContextMode contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
 
     /** Custom RSyntaxTextArea that preserves font sizes during theme changes */
@@ -579,6 +582,45 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         return navigator != null ? navigator.getNavigationInfo() : "No navigator";
     }
 
+    /**
+     * Painter that draws a rounded rectangle border around a range of text.
+     */
+    private static class ExcerptBorderPainter implements javax.swing.text.Highlighter.HighlightPainter {
+        private final java.awt.Color color;
+
+        public ExcerptBorderPainter(java.awt.Color color) {
+            this.color = color;
+        }
+
+        @Override
+        public void paint(java.awt.Graphics g, int p0, int p1, java.awt.Shape bounds, javax.swing.text.JTextComponent c) {
+            try {
+                java.awt.Rectangle r0 = c.modelToView2D(p0).getBounds();
+                java.awt.Rectangle r1 = c.modelToView2D(p1).getBounds();
+
+                java.awt.Graphics2D g2d = (java.awt.Graphics2D) g;
+                java.awt.Color oldColor = g2d.getColor();
+                java.awt.Stroke oldStroke = g2d.getStroke();
+
+                g2d.setColor(color);
+                g2d.setStroke(new java.awt.BasicStroke(2.0f));
+                g2d.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+
+                int x = 2;
+                int y = r0.y;
+                int width = c.getWidth() - 6;
+                int height = (r1.y + r1.height) - r0.y;
+
+                g2d.drawRoundRect(x, y, width, height, 8, 8);
+
+                g2d.setColor(oldColor);
+                g2d.setStroke(oldStroke);
+            } catch (BadLocationException e) {
+                // Ignore
+            }
+        }
+    }
+
     /** Get the JMHighlighter for external access (similar to FilePanel). */
     public JMHighlighter getHighlighter() {
         return jmHighlighter;
@@ -613,6 +655,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /** Remove all diff highlights from the highlighter. */
     private void removeHighlights() {
         UnifiedDiffHighlighter.removeHighlights(jmHighlighter);
+        clearExcerptHighlight();
     }
 
     /** Apply diff highlights to the current unified diff content. */
@@ -701,6 +744,40 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         scrollPane.revalidate();
+    }
+
+    /**
+     * Highlights a range of lines with a themed border.
+     *
+     * @param startLine 1-based start line
+     * @param endLine 1-based end line
+     */
+    public void highlightExcerptLines(int startLine, int endLine) {
+        clearExcerptHighlight();
+
+        try {
+            int startOffset = textArea.getLineStartOffset(Math.max(0, startLine - 1));
+            int endOffset = textArea.getLineEndOffset(Math.max(0, endLine - 1));
+
+            boolean isDark = getTheme().isDarkTheme();
+            // Using a color that stands out: green-ish for dark, blue-ish for light, or themed accent
+            java.awt.Color borderColor = isDark ? new java.awt.Color(0, 214, 27) : new java.awt.Color(0, 120, 215);
+
+            excerptHighlightTag = jmHighlighter.addHighlight(
+                    JMHighlighter.LAYER3, startOffset, endOffset, new ExcerptBorderPainter(borderColor));
+            textArea.repaint();
+        } catch (BadLocationException e) {
+            logger.warn("Failed to highlight excerpt lines {}-{}", startLine, endLine, e);
+        }
+    }
+
+    /** Removes the current excerpt border highlight. */
+    public void clearExcerptHighlight() {
+        if (excerptHighlightTag != null) {
+            jmHighlighter.removeHighlight(JMHighlighter.LAYER3, excerptHighlightTag);
+            excerptHighlightTag = null;
+            textArea.repaint();
+        }
     }
 
     /**
