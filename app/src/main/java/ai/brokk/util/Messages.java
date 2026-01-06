@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolRegistry;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
@@ -189,7 +190,7 @@ public class Messages {
 
         var text = getText(message);
         var rendered = aiMessage.toolExecutionRequests().stream()
-                .map(registry::getExplanationForToolRequest)
+                .map(ExplanationRenderer::renderToolRequest)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (rendered.isBlank()) {

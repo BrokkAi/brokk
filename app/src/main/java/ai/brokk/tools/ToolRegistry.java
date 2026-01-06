@@ -375,19 +375,9 @@ public class ToolRegistry {
         }
     }
 
-    /** Generates a user-friendly explanation for a tool request validated against THIS registry. */
+    /** Generates a user-friendly explanation for a tool request without requiring registry validation. */
     public String getExplanationForToolRequest(ToolExecutionRequest request) {
-        if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
-            return "";
-        }
-        try {
-            var vi = validateTool(request);
-            var headline = headlineFor(request.name());
-            return ExplanationRenderer.renderExplanation(headline, buildArgsMap(vi));
-        } catch (ToolValidationException e) {
-            logger.debug("Could not generate explanation for tool request '{}': {}", request.name(), e.getMessage());
-            return "Skip invalid tool request.";
-        }
+        return ExplanationRenderer.renderToolRequest(request);
     }
 
     /** Helper to build a map of parameter names to values from a ValidatedInvocation. */

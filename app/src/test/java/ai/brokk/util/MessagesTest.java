@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolRegistry;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -54,7 +55,7 @@ class MessagesTest {
         var message = AiMessage.from("hi", List.of(request1, request2));
 
         var expectedRendered = List.of(request1, request2).stream()
-                .map(registry::getExplanationForToolRequest)
+                .map(ExplanationRenderer::renderToolRequest)
                 .filter(s -> !s.isBlank())
                 .reduce((a, b) -> a + "\n" + b)
                 .orElse("");
