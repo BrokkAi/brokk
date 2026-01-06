@@ -59,6 +59,46 @@ public class ScalaTestDetectionTest {
     }
 
     @Test
+    void detectsFunSuiteStructureWithoutImports() throws IOException {
+        String code =
+                """
+            class ExampleSuite {
+              test("it works") {
+                assert(1 + 1 == 2)
+              }
+            }
+            """;
+
+        IProject project = InlineTestProjectCreator.code(code, "Example.scala").build();
+        ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
+        analyzer.update();
+
+        var file = new ProjectFile(project.getRoot(), "Example.scala");
+        assertTrue(analyzer.containsTests(file));
+        assertTrue(ContextManager.isTestFile(file, analyzer));
+    }
+
+    @Test
+    void detectsFlatSpecStructureWithoutImports() throws IOException {
+        String code =
+                """
+            class ExampleSpec {
+              "A Calculator" should "add two numbers" in {
+                assert(1 + 1 == 2)
+              }
+            }
+            """;
+
+        IProject project = InlineTestProjectCreator.code(code, "Example.scala").build();
+        ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
+        analyzer.update();
+
+        var file = new ProjectFile(project.getRoot(), "Example.scala");
+        assertTrue(analyzer.containsTests(file));
+        assertTrue(ContextManager.isTestFile(file, analyzer));
+    }
+
+    @Test
     void negativeCaseNoMarkersNoScalaTestImports() throws IOException {
         String code =
                 """
