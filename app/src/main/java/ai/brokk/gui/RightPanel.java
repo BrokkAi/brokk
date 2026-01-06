@@ -819,7 +819,9 @@ public class RightPanel extends JPanel implements ThemeAware {
             double dist = e.getPoint().distance(pressPoint);
             if (dist > DRAG_THRESHOLD) {
                 // Check if we've dragged outside the tabbed pane bounds
-                if (!buildReviewTabs.getBounds().contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), buildReviewTabs.getParent()))) {
+                Point localPoint = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), buildReviewTabs);
+                Rectangle localBounds = new Rectangle(0, 0, buildReviewTabs.getWidth(), buildReviewTabs.getHeight());
+                if (!localBounds.contains(localPoint)) {
                     buildReviewTabs.setCursor(Cursor.getDefaultCursor());
                     triggerUndock(dragTabIndex);
                     undocked = true;
