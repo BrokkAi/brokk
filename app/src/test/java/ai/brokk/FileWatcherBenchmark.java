@@ -293,7 +293,7 @@ public class FileWatcherBenchmark {
         if ("native".equalsIgnoreCase(implementation)) {
             return new NativeProjectWatchService(projectRoot, null, null, listeners);
         } else if ("legacy".equalsIgnoreCase(implementation)) {
-            return new LegacyProjectWatchService(projectRoot, null, null, listeners);
+            return new JavaProjectWatchService(projectRoot, null, null, listeners);
         } else {
             throw new IllegalArgumentException("Unknown implementation: " + implementation);
         }

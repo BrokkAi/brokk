@@ -453,6 +453,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    public boolean hasJdkOverride() {
+        var value = workspaceProps.getProperty(PROP_JDK_HOME);
+        return value != null && !value.isBlank();
+    }
+
+    @Override
     public void setJdk(@Nullable String jdkHome) {
         if (jdkHome == null || jdkHome.isBlank()) {
             workspaceProps.remove(PROP_JDK_HOME);
