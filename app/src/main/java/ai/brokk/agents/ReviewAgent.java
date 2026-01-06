@@ -28,9 +28,10 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 import static java.util.Objects.requireNonNull;
@@ -85,7 +86,7 @@ public class ReviewAgent {
 
             if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
                 throw new RuntimeException("Review context gathering failed: "
-                        + searchResult.stopDetails().explanation());
+                                                   + searchResult.stopDetails().explanation());
             }
 
             // Phase 2: Two-turn review process
@@ -105,19 +106,14 @@ public class ReviewAgent {
                         "Failed to analyze diff for review: " + turn1Result.error().getMessage());
             }
 
-            String analysisText = turn1Result.text();
-            Map<Integer, CodeExcerpt> parsedExcerpts = ReviewExcerptParser.instance.parseExcerpts(analysisText);
-
             // --- Turn 1.5: Retry for missing files and non-matching excerpts ---
-            Map<Integer, CodeExcerpt> validatedExcerpts = retryInStages(reviewLlm, turn1Messages, turn1Result, parsedExcerpts);
-
-            // Resolve line numbers and side (OLD vs NEW)
-            Map<Integer, CodeExcerpt> resolvedExcerpts = resolveExcerpts(validatedExcerpts);
+            // Returns fully resolved excerpts with line numbers and sides
+            Map<Integer, CodeExcerpt> resolvedExcerpts = retryInStages(reviewLlm, turn1Messages, turn1Result);
 
             // --- Turn 2: Generate structured review via tool call ---
             var turn2Messages = new ArrayList<ChatMessage>(turn1Messages);
             turn2Messages.add(new AiMessage(turn1Result.text(),
-                                       requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+                                            requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
             turn2Messages.add(buildReviewRequestMessage());
 
             var tr = cm.getToolRegistry().builder().register(this).build();
@@ -126,7 +122,7 @@ public class ReviewAgent {
 
             if (turn2Result.error() != null || turn2Result.toolRequests().isEmpty()) {
                 throw new RuntimeException("Failed to generate code review: "
-                        + (turn2Result.error() != null ? turn2Result.error().getMessage() : "No review generated"));
+                                                   + (turn2Result.error() != null ? turn2Result.error().getMessage() : "No review generated"));
             }
 
             var reviewCall = turn2Result.toolRequests().getFirst();
@@ -141,61 +137,44 @@ public class ReviewAgent {
         }
     }
 
-    @Blocking
-    Map<Integer, CodeExcerpt> resolveExcerpts(Map<Integer, CodeExcerpt> excerpts) {
-        Map<Integer, CodeExcerpt> resolved = new HashMap<>();
-        for (var entry : excerpts.entrySet()) {
-            CodeExcerpt ce = entry.getValue();
-            resolved.put(entry.getKey(), resolveSingleExcerpt(ce));
-        }
-        return resolved;
-    }
-
-    private CodeExcerpt resolveSingleExcerpt(CodeExcerpt excerpt) {
-        String relPath = excerpt.file();
-        FileComparisonInfo targetInfo = fileComparisons.stream()
+    private @Nullable FileComparisonInfo findFileComparison(String relPath) {
+        return fileComparisons.stream()
                 .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
                         || relPath.equals(info.rightSource().filename())
                         || relPath.equals(info.leftSource().filename()))
                 .findFirst()
                 .orElse(null);
+    }
 
-        if (targetInfo == null) {
-            return excerpt;
-        }
+    private record ExcerptMatch(int line, ICodeReview.DiffSide side, String matchedText) {}
 
+    private @Nullable ExcerptMatch matchExcerptInFile(CodeExcerpt excerpt, FileComparisonInfo fileInfo) {
         String[] excerptLines = excerpt.excerpt().split("\\R", -1);
 
-        // 1. Try NEW content
-        String newContent = targetInfo.rightSource().content();
+        // Try NEW content first
+        String newContent = fileInfo.rightSource().content();
         String[] newLines = newContent.split("\\R", -1);
         var newMatches = ai.brokk.util.WhitespaceMatch.findAll(newLines, excerptLines);
         if (!newMatches.isEmpty()) {
-            return new CodeExcerpt(
-                    excerpt.file(),
-                    findBestMatch(newMatches, excerpt.line()).startLine() + 1,
-                    ICodeReview.DiffSide.NEW,
-                    excerpt.excerpt());
+            var best = findBestMatch(newMatches, excerpt.line());
+            return new ExcerptMatch(best.startLine() + 1, ICodeReview.DiffSide.NEW, best.matchedText());
         }
 
-        // 2. Try OLD content
-        String oldContent = targetInfo.leftSource().content();
+        // Try OLD content
+        String oldContent = fileInfo.leftSource().content();
         String[] oldLines = oldContent.split("\\R", -1);
         var oldMatches = ai.brokk.util.WhitespaceMatch.findAll(oldLines, excerptLines);
         if (!oldMatches.isEmpty()) {
-            return new CodeExcerpt(
-                    excerpt.file(),
-                    findBestMatch(oldMatches, excerpt.line()).startLine() + 1,
-                    ICodeReview.DiffSide.OLD,
-                    excerpt.excerpt());
+            var best = findBestMatch(oldMatches, excerpt.line());
+            return new ExcerptMatch(best.startLine() + 1, ICodeReview.DiffSide.OLD, best.matchedText());
         }
 
-        return excerpt;
+        return null;
     }
 
     private ai.brokk.util.WhitespaceMatch findBestMatch(
             List<ai.brokk.util.WhitespaceMatch> matches, int targetLine) {
-        ai.brokk.util.WhitespaceMatch best = matches.getFirst();
+        var best = matches.getFirst();
         int minDelta = Math.abs(best.startLine() + 1 - targetLine);
         for (int i = 1; i < matches.size(); i++) {
             int delta = Math.abs(matches.get(i).startLine() + 1 - targetLine);
@@ -207,14 +186,17 @@ public class ReviewAgent {
         return best;
     }
 
-    private record ExcerptData(Map<Integer, String> files, Map<Integer, String> contents) {}
-
-    public static Map<Integer, String> validateFileExists(Map<Integer, CodeExcerpt> excerpts, IContextManager cm) {
+    public static Map<Integer, String> validateFiles(Map<Integer, CodeExcerpt> excerpts, IContextManager cm) {
         Map<Integer, String> errors = new HashMap<>();
         for (var entry : excerpts.entrySet()) {
-            if (cm.toFile(entry.getValue().file()) == null) {
-                errors.put(entry.getKey(), "File does not exist: " + entry.getValue().file());
+            try {
+                if (cm.toFile(entry.getValue().file()).exists()) {
+                    continue;
+                };
+            } catch (IllegalArgumentException e) {
+                // fall through to add error
             }
+            errors.put(entry.getKey(), "File does not exist: " + entry.getValue().file());
         }
         return errors;
     }
@@ -223,28 +205,21 @@ public class ReviewAgent {
     private Map<Integer, CodeExcerpt> retryInStages(
             Llm llm,
             List<ChatMessage> turn1Messages,
-            Llm.StreamingResult turn1Result,
-            Map<Integer, CodeExcerpt> initialExcerpts) throws InterruptedException {
-
-        Map<Integer, String> currentFiles = new HashMap<>();
-        Map<Integer, String> currentContents = new HashMap<>();
-        initialExcerpts.forEach((id, ce) -> {
-            currentFiles.put(id, ce.file());
-            currentContents.put(id, ce.excerpt());
-        });
+            Llm.StreamingResult turn1Result) throws InterruptedException {
 
         List<ChatMessage> history = new ArrayList<>(turn1Messages);
-        history.add(new AiMessage(turn1Result.text(),
-                requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+        AiMessage initialAiMessage = new AiMessage(turn1Result.text(),
+                                                   requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), ""));
+        history.add(initialAiMessage);
 
-        // Stage 1: File not found (Appends to history)
-        for (int i = 0; i < 2; i++) {
-            Map<Integer, String> errors = new HashMap<>();
-            for (var entry : currentFiles.entrySet()) {
-                if (cm.toFile(entry.getValue()) == null) {
-                    errors.put(entry.getKey(), "File does not exist: " + entry.getValue());
-                }
-            }
+        String latestResponseText = turn1Result.text();
+        Map<Integer, CodeExcerpt> resolvedExcerpts = new HashMap<>();
+
+        // Stage 1: Validate file paths exist
+        for (int fileRetries = 0; fileRetries < 2; fileRetries++) {
+            Map<Integer, CodeExcerpt> currentExcerpts = ReviewExcerptParser.instance.parseExcerpts(latestResponseText);
+            Map<Integer, String> errors = validateFiles(currentExcerpts, cm);
+
             if (errors.isEmpty()) break;
 
             String errorList = errors.entrySet().stream()
@@ -252,8 +227,8 @@ public class ReviewAgent {
                     .collect(java.util.stream.Collectors.joining("\n"));
 
             UserMessage retryMessage = new UserMessage("""
-                    The following excerpts referenced invalid file paths.
-                    Please provide corrected BRK_EXCERPT blocks with valid paths:
+                    The following excerpts referenced unknown file paths.
+                    Please provide corrected BRK_EXCERPT blocks with paths in the diff:
 
                     %s
                     """.formatted(errorList));
@@ -262,38 +237,57 @@ public class ReviewAgent {
             var result = llm.sendRequest(history);
             if (result.error() != null) break;
 
-            AiMessage aiResponse = new AiMessage(result.text(),
-                    requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), ""));
-            history.add(aiResponse);
-            currentFiles.putAll(ReviewExcerptParser.instance.parseExcerptFiles(result.text()));
-            currentContents.putAll(ReviewExcerptParser.instance.parseExcerptContents(result.text()));
+            latestResponseText = result.text();
+            history.add(new AiMessage(latestResponseText,
+                                      requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "")));
         }
 
-        // Stage 2: Excerpt not found in diff (Fresh context for reduced confusion)
-        for (int i = 0; i < 2; i++) {
+        // Stage 2: Validate excerpts match file content using whitespace-aware matching
+        for (int excerptRetries = 0; excerptRetries < 2; excerptRetries++) {
+            Map<Integer, CodeExcerpt> currentExcerpts = ReviewExcerptParser.instance.parseExcerpts(latestResponseText);
             Map<Integer, String> errors = new HashMap<>();
-            for (var entry : currentContents.entrySet()) {
-                if (!diff.contains(entry.getValue())) {
-                    errors.put(entry.getKey(), "Excerpt not found in diff");
+
+            for (var entry : currentExcerpts.entrySet()) {
+                int id = entry.getKey();
+                CodeExcerpt excerpt = entry.getValue();
+
+                FileComparisonInfo fileInfo = findFileComparison(excerpt.file());
+                if (fileInfo == null) {
+                    errors.put(id, "File not in diff: " + excerpt.file());
+                    continue;
+                }
+
+                ExcerptMatch match = matchExcerptInFile(excerpt, fileInfo);
+                if (match == null) {
+                    errors.put(id, "Excerpt text not found in file content");
+                } else {
+                    resolvedExcerpts.put(id, new CodeExcerpt(
+                            excerpt.file(),
+                            match.line(),
+                            match.side(),
+                            match.matchedText()));
                 }
             }
+
             if (errors.isEmpty()) break;
 
-            // Build fresh message list for this stage
+            // Build fresh message list for retry
             List<ChatMessage> stage2Messages = new ArrayList<>();
             stage2Messages.add(buildSystemMessage());
 
-            // Context: Only files referenced by failing excerpts
             var filesToInclude = errors.keySet().stream()
-                    .map(currentFiles::get)
+                    .map(currentExcerpts::get)
+                    .map(CodeExcerpt::file)
+                    .filter(f -> {
+                        try { return cm.toFile(f).exists(); }
+                        catch (IllegalArgumentException e) { return false; }
+                    })
                     .map(cm::toFile)
-                    .filter(java.util.Objects::nonNull)
                     .distinct()
                     .toList();
             Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
             stage2Messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
 
-            // Add previous conversation history
             stage2Messages.addAll(history);
 
             String errorList = errors.entrySet().stream()
@@ -301,8 +295,8 @@ public class ReviewAgent {
                     .collect(java.util.stream.Collectors.joining("\n"));
 
             stage2Messages.add(new UserMessage("""
-                    The following excerpts could not be found exactly in the diff.
-                    Please provide corrected BRK_EXCERPT blocks that match the diff content exactly:
+                    The following excerpts could not be matched in the file content.
+                    Please provide corrected BRK_EXCERPT blocks:
 
                     %s
                     """.formatted(errorList)));
@@ -310,18 +304,13 @@ public class ReviewAgent {
             var result = llm.sendRequest(stage2Messages);
             if (result.error() != null) break;
 
-            AiMessage aiResponse = new AiMessage(result.text(),
-                    requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), ""));
-            history.add(aiResponse); // Keep history updated for next iteration if needed
-            currentFiles.putAll(ReviewExcerptParser.instance.parseExcerptFiles(result.text()));
-            currentContents.putAll(ReviewExcerptParser.instance.parseExcerptContents(result.text()));
+            latestResponseText = result.text();
+            AiMessage aiResponse = new AiMessage(latestResponseText,
+                                                 requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), ""));
+            history.add(aiResponse);
         }
 
-        Map<Integer, CodeExcerpt> out = new HashMap<>();
-        currentFiles.forEach((id, f) -> {
-            out.put(id, new CodeExcerpt(f, currentContents.getOrDefault(id, "")));
-        });
-        return out;
+        return resolvedExcerpts;
     }
 
     private SystemMessage buildSystemMessage() {
@@ -388,16 +377,16 @@ public class ReviewAgent {
     @Tool("Create a structured code review of the current changes or proposal.")
     public String createReview(
             @P(
-                            "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
-                    String overview,
+                    "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible? Use Markdown formatting.")
+            String overview,
             @P(
-                            "Explain the trickiest parts of the design and how they can be improved. "
-                                    + "For each item, provide a 'title' which is a short 5-7 word label summarizing the feedback.")
-                    List<ICodeReview.RawDesignFeedback> designNotes,
+                    "Explain the trickiest parts of the design and how they can be improved. "
+                            + "For each item, provide a 'title' which is a short 5-7 word label summarizing the feedback.")
+            List<ICodeReview.RawDesignFeedback> designNotes,
             @P("A list of local bugs or problems.")
-                    List<ICodeReview.RawTacticalFeedback> tacticalNotes,
+            List<ICodeReview.RawTacticalFeedback> tacticalNotes,
             @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
-                    List<String> additionalTests) {
+            List<String> additionalTests) {
         var review = new ICodeReview.RawReview(overview, designNotes, tacticalNotes, additionalTests);
         return review.toJson();
     }

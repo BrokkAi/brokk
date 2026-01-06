@@ -157,28 +157,6 @@ public final class TestContextManager implements IContextManager {
         return null;
     }
 
-    public ProjectFile toFile(String relativePath) {
-        var trimmed = relativePath.trim();
-
-        // If an absolute-like path is provided (leading '/' or '\'), attempt to interpret it as a
-        // project-relative path by stripping the leading slash. If that file exists, return it.
-        if (trimmed.startsWith(File.separator)) {
-            var candidateRel = trimmed.substring(File.separator.length()).trim();
-            var candidate = new ProjectFile(project.getRoot(), candidateRel);
-            if (candidate.exists()) {
-                return candidate;
-            }
-            // The path looked absolute (or root-anchored) but does not exist relative to the project.
-            // Treat this as invalid to avoid resolving to a location outside the project root.
-            throw new IllegalArgumentException(
-                    "Filename '%s' is absolute-like and does not exist relative to the project root"
-                            .formatted(relativePath));
-        }
-
-        var file = new ProjectFile(project.getRoot(), trimmed);
-        return file.exists() ? file : null;
-    }
-
     @Override
     public Context createOrReplaceTaskList(Context context, List<String> tasks) {
         // Strip whitespace-only entries
