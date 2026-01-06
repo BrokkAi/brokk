@@ -52,6 +52,10 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         listPanel.setBusy(busy);
     }
 
+    public void clearSelection() {
+        listPanel.clearSelection();
+    }
+
     public void displayReview(
             GuidedReview review, List<List<ParsedExcerpt>> designExcerpts, List<ParsedExcerpt> tacticalExcerpts) {
         itemExcerpts.clear();

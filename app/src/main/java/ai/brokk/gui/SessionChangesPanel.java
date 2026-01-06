@@ -449,7 +449,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.fileTreePanel = new ai.brokk.difftool.ui.FileTreePanel(fileComparisons, root, projectName);
         this.fileTreePanel.setSelectionListener(new ai.brokk.difftool.ui.DiffNavigationTarget() {
-            @Override public void navigateToFile(int fileIndex) { diffCore.showFile(fileIndex); }
+            @Override public void navigateToFile(int fileIndex) {
+                if (codeReviewPanel != null) codeReviewPanel.clearSelection();
+                diffCore.showFile(fileIndex);
+            }
             @Override public void navigateToFile(ProjectFile file) { diffCore.showFile(file); }
             @Override public void navigateToLocation(int fileIndex, int lineNumber) {
                 var file = fileComparisons.get(fileIndex).file();
@@ -468,6 +471,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview);
         codeReviewPanel.addReviewNavigationListener(pe -> {
+            if (fileTreePanel != null) fileTreePanel.clearSelection();
             ProjectFile pf = contextManager.toFile(pe.original().file());
             if (pe.lineNumber() != -1) {
                 diffCore.showLocation(pf, pe.lineNumber());

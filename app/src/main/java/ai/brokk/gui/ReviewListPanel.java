@@ -57,6 +57,16 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         generateButton.setText(busy ? "Generating..." : "Guided Review");
     }
 
+    public void clearSelection() {
+        for (Component c : contentPanel.getComponents()) {
+            if (c instanceof JLabel label) {
+                label.setOpaque(false);
+                label.setBackground(null);
+            }
+        }
+        repaint();
+    }
+
     public void displayReview(GuidedReview review, List<List<ParsedExcerpt>> designExcerpts, List<ParsedExcerpt> tacticalExcerpts) {
         contentPanel.removeAll();
 
@@ -93,6 +103,9 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         item.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
+                clearSelection();
+                item.setOpaque(true);
+                item.setBackground(javax.swing.UIManager.getColor("List.selectionBackground"));
                 onItemSelected.accept(data);
             }
         });
