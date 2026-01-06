@@ -149,6 +149,9 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         // Restore persistent docking states
         SwingUtilities.invokeLater(() -> {
+            // Migration: Build is no longer undockable
+            GlobalUiSettings.saveBuildDocked(true);
+
             if (!GlobalUiSettings.isReviewDocked()) {
                 undockReview();
             }
@@ -411,7 +414,9 @@ public class RightPanel extends JPanel implements ThemeAware {
                 Component comp = buildReviewTabs.getComponentAt(tabIndex);
                 JPopupMenu popup = new JPopupMenu();
 
-                if (comp == reviewTabComponent) {
+                if (comp == buildSplitPane) {
+                    // Build undocking is no longer supported
+                } else if (comp == reviewTabComponent) {
                     JMenuItem undockItem = new JMenuItem("Undock Review", Icons.FLOWSHEET);
                     undockItem.addActionListener(ae -> undockReview());
                     popup.add(undockItem);
@@ -433,31 +438,6 @@ public class RightPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private void undockBuild() {
-        if (!GlobalUiSettings.isBuildDocked()) return;
-
-        GlobalUiSettings.saveBuildDocked(false);
-        int idx = buildReviewTabs.indexOfTab("Build");
-        if (idx != -1) {
-            buildReviewTabs.removeTabAt(idx);
-        }
-
-        buildFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Build", buildSplitPane, Icons.HANDYMAN, this::redockBuild);
-        buildFrame.setVisible(true);
-    }
-
-    public void redockBuild() {
-        if (GlobalUiSettings.isBuildDocked()) return;
-
-        GlobalUiSettings.saveBuildDocked(true);
-        buildReviewTabs.insertTab("Build", Icons.HANDYMAN, buildSplitPane, null, 0);
-        buildReviewTabs.setSelectedIndex(0);
-
-        if (buildFrame != null) {
-            buildFrame.dispose();
-            buildFrame = null;
-        }
-    }
 
     private void undockReview() {
         if (!GlobalUiSettings.isReviewDocked()) return;
