@@ -802,6 +802,13 @@ public class RightPanel extends JPanel implements ThemeAware {
             dragTabIndex = buildReviewTabs.indexAtLocation(e.getX(), e.getY());
             if (dragTabIndex != -1) {
                 pressPoint = e.getPoint();
+
+                // Show visual hint if the tab is detachable
+                Component comp = buildReviewTabs.getComponentAt(dragTabIndex);
+                UndockTarget target = getUndockTarget(comp, reviewTabComponent, previewTabbedPane, terminalPanel, buildSplitPane, verticalActivityCombinedPanel);
+                if (target != UndockTarget.NONE) {
+                    buildReviewTabs.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+                }
             }
         }
 
@@ -813,6 +820,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             if (dist > DRAG_THRESHOLD) {
                 // Check if we've dragged outside the tabbed pane bounds
                 if (!buildReviewTabs.getBounds().contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), buildReviewTabs.getParent()))) {
+                    buildReviewTabs.setCursor(Cursor.getDefaultCursor());
                     triggerUndock(dragTabIndex);
                     undocked = true;
                 }
@@ -821,6 +829,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         @Override
         public void mouseReleased(java.awt.event.MouseEvent e) {
+            buildReviewTabs.setCursor(Cursor.getDefaultCursor());
             dragTabIndex = -1;
             pressPoint = null;
             undocked = false;
