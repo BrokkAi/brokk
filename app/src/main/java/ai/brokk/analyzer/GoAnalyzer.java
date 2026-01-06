@@ -494,6 +494,19 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 continue;
             }
 
+            // Ensure the single parameter declaration only contains one identifier.
+            // In Go: "func(a, b *testing.T)" is one parameter_declaration with two identifiers.
+            // A valid test must have exactly one identifier: "func(t *testing.T)".
+            int identifierCount = 0;
+            for (int i = 0; i < singleParamDecl.getNamedChildCount(); i++) {
+                if ("identifier".equals(singleParamDecl.getNamedChild(i).getType())) {
+                    identifierCount++;
+                }
+            }
+            if (identifierCount != 1) {
+                continue;
+            }
+
             TSNode typeNode = singleParamDecl.getChildByFieldName(FIELD_TYPE);
             // Fallback for types without field name (depending on TS version/grammar)
             if (typeNode == null || typeNode.isNull()) {

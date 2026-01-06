@@ -111,5 +111,21 @@ public class GoTestDetectionTest {
         assertTrue(
                 ContextManager.isTestFile(valueFile, analyzer),
                 "ContextManager should identify value test file via analyzer");
+
+        // Negative case: Multiple parameters sharing a type (e.g., func TestMulti(a, b *testing.T))
+        // Go's spec for tests requires exactly one parameter.
+        String multiParamContent =
+                """
+                package foo
+                import "testing"
+                func TestMulti(a, b *testing.T) {}
+                """;
+        String multiParamPath = "pkg/multi_param.go";
+        IProject project3 = InlineTestProjectCreator.code(multiParamContent, multiParamPath).build();
+        GoAnalyzer analyzer3 = new GoAnalyzer(project3);
+        analyzer3 = (GoAnalyzer) analyzer3.update();
+        assertFalse(
+                analyzer3.containsTests(new ProjectFile(project3.getRoot(), multiParamPath)),
+                "Should NOT detect test if function has multiple parameters, even if they share *testing.T type");
     }
 }
