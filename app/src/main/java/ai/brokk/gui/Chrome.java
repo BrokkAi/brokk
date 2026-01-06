@@ -1052,7 +1052,8 @@ public class Chrome
             @Override
             public void onTaskListChanged(ai.brokk.tasks.TaskList.TaskListData data) {
                 // Count incomplete tasks and update the badge
-                int incomplete = (int) data.tasks().stream().filter(t -> !t.done()).count();
+                int incomplete =
+                        (int) data.tasks().stream().filter(t -> !t.done()).count();
                 SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
             }
         });

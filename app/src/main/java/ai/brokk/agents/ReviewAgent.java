@@ -6,9 +6,9 @@ import static java.util.Objects.requireNonNullElse;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
-import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.Llm;
 import ai.brokk.TaskResult;
+import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
@@ -154,10 +154,10 @@ public class ReviewAgent {
                                 .findFirst()
                                 .orElse(new ReviewParser.CodeExcerpt(
                                         fileObj,
-                                        null, 1, // Default to line 1 if unresolved
+                                        null,
+                                        1, // Default to line 1 if unresolved
                                         ReviewParser.DiffSide.NEW,
-                                        content
-                                ));
+                                        content));
                     });
         }
     }

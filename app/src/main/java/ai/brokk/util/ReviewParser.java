@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
@@ -186,8 +185,7 @@ public class ReviewParser {
 
     public record RawExcerpt(String file, int line, String excerpt) {}
 
-    public record CodeExcerpt(
-            ProjectFile file, @Nullable CodeUnit codeUnit, int line, DiffSide side, String excerpt) {}
+    public record CodeExcerpt(ProjectFile file, @Nullable CodeUnit codeUnit, int line, DiffSide side, String excerpt) {}
 
     public record RawDesignFeedback(
             String title, String description, List<Integer> excerptIds, String recommendation) {}

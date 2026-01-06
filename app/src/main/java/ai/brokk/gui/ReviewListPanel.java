@@ -159,7 +159,8 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
                 // We need the data associated with this label.
                 // Since addItem doesn't store data on the label, we trigger a click.
                 for (var ml : label.getMouseListeners()) {
-                    ml.mouseClicked(new MouseEvent(label, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 0, 0, 1, false));
+                    ml.mouseClicked(new MouseEvent(
+                            label, MouseEvent.MOUSE_CLICKED, System.currentTimeMillis(), 0, 0, 0, 1, false));
                 }
                 return;
             }
