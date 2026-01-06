@@ -97,4 +97,32 @@ public class PhpTestDetectionTest {
                 ContextManager.isTestFile(new ProjectFile(project.getRoot(), "Integration.php"), analyzer),
                 "ContextManager should recognize file as test file via analyzer");
     }
+
+    @Test
+    void testNonAdjacentDocblockDetection() throws IOException {
+        String code =
+                """
+            <?php
+            /**
+             * @test
+             * File header
+             */
+
+            class MyService {
+                /**
+                 * @test
+                 */
+
+                // Intermediate comment breaks adjacency
+                public function notATest() { }
+            }
+            """;
+        IProject project = InlineTestProjectCreator.code(code, "MyService.php").build();
+        PhpAnalyzer analyzer = new PhpAnalyzer(project);
+        analyzer.update();
+
+        assertFalse(
+                analyzer.containsTests(new ProjectFile(project.getRoot(), "MyService.php")),
+                "Should not detect tests when @test docblock is not immediately adjacent to a function");
+    }
 }
