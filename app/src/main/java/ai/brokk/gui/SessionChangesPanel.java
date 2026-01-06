@@ -76,6 +76,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private JPanel diffContainer;
 
+    @Nullable
+    private ICodeReview.ParsedExcerpt activeExcerpt = null;
+
     private List<FileComparisonInfo> fileComparisons = List.of();
 
     @FunctionalInterface
@@ -462,9 +465,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                                             : ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.RIGHT;
                                     bp.scrollToLine(targetLine, side);
                                 } else if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                                    up.clearExcerptHighlight();
                                     up.scrollToLine(targetLine);
+                                    if (activeExcerpt != null) {
+                                        String[] lines = activeExcerpt.original().excerpt().split("\\r?\\n", -1);
+                                        int endLine = targetLine + Math.max(0, lines.length - 1);
+                                        up.highlightExcerptLines(targetLine, endLine);
+                                    }
                                 }
                             } else {
+                                if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                                    up.clearExcerptHighlight();
+                                }
                                 panel.resetToFirstDifference();
                                 panel.diff(true);
                             }
@@ -483,18 +495,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Override
             public void navigateToFile(int fileIndex) {
                 if (codeReviewPanel != null) codeReviewPanel.clearSelection();
+                activeExcerpt = null;
                 diffCore.showFile(fileIndex);
             }
 
             @Override
             public void navigateToFile(ProjectFile file) {
                 if (codeReviewPanel != null) codeReviewPanel.clearSelection();
+                activeExcerpt = null;
                 diffCore.showFile(file);
             }
 
             @Override
             public void navigateToLocation(ProjectFile file, int lineNumber, ICodeReview.DiffSide side) {
                 if (codeReviewPanel != null) codeReviewPanel.clearSelection();
+                activeExcerpt = null;
                 diffCore.showLocation(file, lineNumber, side);
             }
         });
@@ -503,6 +518,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview);
         codeReviewPanel.addReviewNavigationListener(pe -> {
             if (fileTreePanel != null) fileTreePanel.clearSelection();
+            activeExcerpt = pe;
             ProjectFile pf = contextManager.toFile(pe.original().file());
             diffCore.showLocation(pf, pe.lineNumber(), pe.side());
         });
