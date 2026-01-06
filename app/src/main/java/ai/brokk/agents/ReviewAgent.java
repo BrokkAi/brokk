@@ -12,6 +12,7 @@ import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.util.ReviewParser;
+import ai.brokk.util.ReviewParser.RawExcerpt;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -160,7 +161,7 @@ public class ReviewAgent {
 
     record ExcerptMatch(int line, ReviewParser.DiffSide side, String matchedText) {}
 
-    static @Nullable ExcerptMatch matchExcerptInFile(ReviewParser.RawExcerpt excerpt, FileComparisonInfo fileInfo) {
+    static @Nullable ExcerptMatch matchExcerptInFile(RawExcerpt excerpt, FileComparisonInfo fileInfo) {
         String[] excerptLines = excerpt.excerpt().split("\\R", -1);
 
         // Try NEW content first
@@ -198,19 +199,12 @@ public class ReviewAgent {
         return best;
     }
 
-    public static Map<Integer, String> validateFiles(Map<Integer, ReviewParser.RawExcerpt> excerpts, IContextManager cm) {
-        Map<Integer, String> errors = new HashMap<>();
-        for (var entry : excerpts.entrySet()) {
-            try {
-                if (cm.toFile(entry.getValue().file()).exists()) {
-                    continue;
-                }
-            } catch (IllegalArgumentException e) {
-                // fall through to add error
-            }
-            errors.put(entry.getKey(), "File does not exist: " + entry.getValue().file());
+    boolean fileExists(String text) {
+        try {
+            return cm.toFile(text).exists();
+        } catch (IllegalArgumentException e) {
+            return false;
         }
-        return errors;
     }
 
     @Blocking
@@ -218,80 +212,69 @@ public class ReviewAgent {
             Llm llm,
             List<ChatMessage> turn1Messages,
             Llm.StreamingResult turn1Result) throws InterruptedException {
+        // we split up "validate filenames" and "validate text" into two stages so that
+        // we can tailor the Context to each
 
         List<ChatMessage> history = new ArrayList<>(turn1Messages);
-        Map<Integer, ReviewParser.RawExcerpt> validPathExcerpts = new HashMap<>();
-        Map<Integer, CodeExcerpt> resolvedExcerpts = new HashMap<>();
+        Map<Integer, RawExcerpt> validPathExcerpts = new HashMap<>();
 
         // Stage 1: Validate file paths exist
-        String currentText = turn1Result.text();
-        String currentReasoning = requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "");
-        int fileAttempts = 0;
+        Llm.StreamingResult currentResult = turn1Result;
+        int attempts = 0;
 
-        while (fileAttempts <= 2) {
-            history.add(new AiMessage(currentText, currentReasoning));
-            Map<Integer, ReviewParser.RawExcerpt> parsed = ReviewParser.instance.parseExcerpts(currentText);
+        while (true) {
+            String text = currentResult.text();
+            String reasoning = requireNonNullElse(requireNonNull(currentResult.chatResponse()).reasoningContent(), "");
+            history.add(new AiMessage(text, reasoning));
 
-            Map<Integer, String> errors = new HashMap<>();
+            Map<Integer, RawExcerpt> parsed = ReviewParser.instance.parseExcerpts(text);
+            Map<Integer, String> stage1Errors = new HashMap<>();
+
             for (var entry : parsed.entrySet()) {
-                int id = entry.getKey();
-                ReviewParser.RawExcerpt excerpt = entry.getValue();
-                try {
-                    if (cm.toFile(excerpt.file()).exists()) {
-                        validPathExcerpts.put(id, excerpt);
-                    } else {
-                        errors.put(id, "File does not exist: " + excerpt.file());
-                    }
-                } catch (IllegalArgumentException e) {
-                    errors.put(id, "Invalid file path: " + excerpt.file());
+                RawExcerpt excerpt = entry.getValue();
+                if (fileExists(excerpt.file())) {
+                    validPathExcerpts.put(entry.getKey(), excerpt);
+                } else {
+                    stage1Errors.put(entry.getKey(), "File does not exist: " + excerpt.file());
                 }
             }
 
-            if (errors.isEmpty() || fileAttempts == 2) break;
+            if (stage1Errors.isEmpty() || attempts++ == 2) break;
 
-            String errorList = errors.entrySet().stream()
+            String errorList = stage1Errors.entrySet().stream()
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
                     .collect(java.util.stream.Collectors.joining("\n"));
 
-            UserMessage retryMessage = new UserMessage("""
+            history.add(new UserMessage("""
                     The following excerpts referenced unknown file paths.
                     Please provide corrected BRK_EXCERPT blocks with paths in the diff:
 
                     %s
-                    """.formatted(errorList));
+                    """.formatted(errorList)));
 
-            history.add(retryMessage);
-            var result = llm.sendRequest(history);
-            if (result.error() != null) break;
-
-            currentText = result.text();
-            currentReasoning = requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "");
-            fileAttempts++;
+            currentResult = llm.sendRequest(history);
+            if (currentResult.error() != null) break;
         }
 
-        // Stage 2: Validate excerpts match file content using whitespace-aware matching
-        int excerptAttempts = 0;
-        while (excerptAttempts <= 2) {
-            if (excerptAttempts > 0) {
-                Map<Integer, ReviewParser.RawExcerpt> parsed = ReviewParser.instance.parseExcerpts(currentText);
-                validPathExcerpts.putAll(parsed);
-            }
-
-            Map<Integer, String> errors = new HashMap<>();
+        // Stage 2: Validate excerpts match file content
+        Map<Integer, CodeExcerpt> resolvedExcerpts = new HashMap<>();
+        attempts = 0;
+        while (true) {
+            Map<Integer, String> stage2Errors = new HashMap<>();
             for (var entry : validPathExcerpts.entrySet()) {
                 int id = entry.getKey();
                 if (resolvedExcerpts.containsKey(id)) continue;
 
-                ReviewParser.RawExcerpt excerpt = entry.getValue();
+                RawExcerpt excerpt = entry.getValue();
                 FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
                 if (fileInfo == null) {
-                    errors.put(id, "File not in diff: " + excerpt.file());
+                    stage2Errors.put(id, "File not in diff: " + excerpt.file());
                     continue;
                 }
 
                 ExcerptMatch match = matchExcerptInFile(excerpt, fileInfo);
                 if (match == null) {
-                    errors.put(id, "Excerpt text not found in file content");
+                    stage2Errors.put(id, "Excerpt text not found in file content");
                 } else {
                     resolvedExcerpts.put(id, new CodeExcerpt(
                             excerpt.file(),
@@ -301,30 +284,26 @@ public class ReviewAgent {
                 }
             }
 
-            if (errors.isEmpty() || excerptAttempts == 2) break;
+            if (stage2Errors.isEmpty() || attempts++ == 2) break;
 
-            // Build fresh message list for retry including file content
-            List<ChatMessage> stage2Messages = new ArrayList<>();
-            stage2Messages.add(buildSystemMessage());
-
-            var filesToInclude = errors.keySet().stream()
-                    .map(validPathExcerpts::get)
-                    .map(ReviewParser.RawExcerpt::file)
-                    .filter(f -> {
-                        try { return cm.toFile(f).exists(); }
-                        catch (IllegalArgumentException e) { return false; }
-                    })
-                    .map(cm::toFile)
-                    .distinct()
-                    .toList();
-            Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
-            stage2Messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
-            stage2Messages.addAll(history);
-
-            String errorList = errors.entrySet().stream()
+            String errorList = stage2Errors.entrySet().stream()
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
                     .collect(java.util.stream.Collectors.joining("\n"));
 
+            List<ChatMessage> stage2Messages = new ArrayList<>();
+            stage2Messages.add(buildSystemMessage());
+
+            var filesToInclude = stage2Errors.keySet().stream()
+                    .map(validPathExcerpts::get)
+                    .map(RawExcerpt::file)
+                    .filter(this::fileExists)
+                    .map(cm::toFile)
+                    .distinct()
+                    .toList();
+
+            Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
+            stage2Messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
+            stage2Messages.addAll(history);
             stage2Messages.add(new UserMessage("""
                     The following excerpts could not be matched in the file content.
                     Please provide corrected BRK_EXCERPT blocks:
@@ -332,13 +311,20 @@ public class ReviewAgent {
                     %s
                     """.formatted(errorList)));
 
-            var result = llm.sendRequest(stage2Messages);
-            if (result.error() != null) break;
+            currentResult = llm.sendRequest(stage2Messages);
+            if (currentResult.error() != null) break;
 
-            currentText = result.text();
-            currentReasoning = requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "");
-            history.add(new AiMessage(currentText, currentReasoning));
-            excerptAttempts++;
+            String text = currentResult.text();
+            String reasoning = requireNonNullElse(requireNonNull(currentResult.chatResponse()).reasoningContent(), "");
+            history.add(new AiMessage(text, reasoning));
+
+            // Accumulate newly parsed excerpts into validPathExcerpts only if they pass file check
+            Map<Integer, RawExcerpt> newlyParsed = ReviewParser.instance.parseExcerpts(text);
+            for (var entry : newlyParsed.entrySet()) {
+                if (fileExists(entry.getValue().file())) {
+                    validPathExcerpts.put(entry.getKey(), entry.getValue());
+                }
+            }
         }
 
         return resolvedExcerpts;

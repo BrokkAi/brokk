@@ -19,6 +19,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import ai.brokk.Llm;
+import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,25 +31,6 @@ class ReviewAgentTest {
 
     @TempDir
     Path tempDir;
-
-    @Test
-    void testValidateFiles() throws IOException {
-        Files.writeString(tempDir.resolve("exists.java"), "public class Exists {}");
-        
-        TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
-
-        Map<Integer, ReviewParser.RawExcerpt> excerpts = Map.of(
-            0, new ReviewParser.RawExcerpt("exists.java", 0, "code"),
-            1, new ReviewParser.RawExcerpt("missing.java", 0, "code")
-        );
-
-        Map<Integer, String> errors = ReviewAgent.validateFiles(excerpts, cm);
-
-        assertEquals(1, errors.size());
-        assertTrue(errors.containsKey(1));
-        assertTrue(errors.get(1).contains("File does not exist"));
-    }
 
     @Test
     void testFindFileComparison() {
@@ -312,5 +295,56 @@ class ReviewAgentTest {
         Map<Integer, CodeExcerpt> result2 = agent.retryInStages(stage2Llm, new ArrayList<>(), t1Result);
         assertEquals(1, result2.size());
         assertEquals(4, result2.get(10).line());
+    }
+
+    @Test
+    void testRetryInStages_Stage1AccumulatesExcerpts() throws InterruptedException, IOException {
+        Files.writeString(tempDir.resolve("good.java"), "public class Good {}");
+        Files.writeString(tempDir.resolve("fixed.java"), "public class Fixed {}");
+        TestProject project = new TestProject(tempDir);
+        IContextManager cm = new TestContextManager(project);
+
+        var info1 = new FileComparisonInfo(null,
+                new BufferSource.StringSource("public class Good {}", "NEW", "good.java"),
+                new BufferSource.StringSource("public class Good {}", "NEW", "good.java"));
+        var info2 = new FileComparisonInfo(null,
+                new BufferSource.StringSource("public class Fixed {}", "NEW", "fixed.java"),
+                new BufferSource.StringSource("public class Fixed {}", "NEW", "fixed.java"));
+
+        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info1, info2));
+
+        // Initial response: 0 is good, 1 has bad path
+        String resp1 = """
+            BRK_EXCERPT_0
+            good.java @1
+            ```java
+            public class Good {}
+            ```
+            
+            BRK_EXCERPT_1
+            bad.java @1
+            ```java
+            public class Fixed {}
+            ```
+            """;
+
+        // Retry response: Fixes 1, does NOT repeat 0
+        String resp2 = """
+            BRK_EXCERPT_1
+            fixed.java @1
+            ```java
+            public class Fixed {}
+            ```
+            """;
+
+        var stubModel = new TestScriptedLanguageModel(resp1, resp2);
+        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
+
+        Map<Integer, CodeExcerpt> result = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
+
+        assertEquals(2, result.size(), "Should have accumulated both excerpts");
+        assertEquals("good.java", result.get(0).file());
+        assertEquals("fixed.java", result.get(1).file());
     }
 }
