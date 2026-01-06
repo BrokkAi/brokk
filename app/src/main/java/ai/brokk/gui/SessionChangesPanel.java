@@ -633,14 +633,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 }
 
                 // Pre-resolve excerpts
-                List<List<CodeReviewPanel.ParsedExcerpt>> designExcerpts = review.designNotes().stream()
+                List<List<CodeReviewCommon.ParsedExcerpt>> designExcerpts = review.designNotes().stream()
                         .map(design -> design.excerpts().stream()
                                 .map(this::resolveExcerpt)
                                 .filter(java.util.Objects::nonNull)
                                 .toList())
                         .toList();
 
-                List<CodeReviewPanel.ParsedExcerpt> tacticalExcerpts = review.tacticalNotes().stream()
+                List<CodeReviewCommon.ParsedExcerpt> tacticalExcerpts = review.tacticalNotes().stream()
                         .map(this::resolveExcerpt)
                         .filter(java.util.Objects::nonNull)
                         .toList();
@@ -677,7 +677,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private @Nullable CodeReviewPanel.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
+    private @Nullable CodeReviewCommon.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
         String relPath = excerpt.file();
         ai.brokk.difftool.ui.FileComparisonInfo targetInfo = fileComparisons.stream()
                 .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
@@ -700,7 +700,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (found.isPresent()) {
             int lineNum =
                     newContent.substring(0, newContent.indexOf(found.get())).split("\n").length + 1;
-            return new CodeReviewPanel.ParsedExcerpt(excerpt, lineNum);
+            return new CodeReviewCommon.ParsedExcerpt(excerpt, lineNum);
         }
 
         // 2. Try OLD content
@@ -710,7 +710,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (found.isPresent()) {
             // If found in old content, we navigate to the file but we can't reliably pinpoint the line in the "new"
             // view since it was deleted or changed. We return line -1 to indicate file-level navigation.
-            return new CodeReviewPanel.ParsedExcerpt(excerpt, -1);
+            return new CodeReviewCommon.ParsedExcerpt(excerpt, -1);
         }
 
         logger.warn("Could not resolve excerpt for {} in either old or new content", relPath);

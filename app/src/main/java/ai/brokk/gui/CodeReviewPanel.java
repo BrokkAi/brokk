@@ -1,228 +1,75 @@
 package ai.brokk.gui;
 
-import ai.brokk.ICodeReview.CodeExcerpt;
-import ai.brokk.ICodeReview.DesignFeedback;
 import ai.brokk.ICodeReview.GuidedReview;
-import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.CodeReviewCommon.ParsedExcerpt;
+import ai.brokk.gui.CodeReviewCommon.ReviewNavigationListener;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import java.awt.BorderLayout;
-import java.awt.Component;
-import java.awt.Cursor;
-import java.awt.FlowLayout;
-import java.awt.Font;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
-import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import org.jetbrains.annotations.Nullable;
-import java.util.concurrent.atomic.AtomicInteger;
-import javax.swing.BoxLayout;
-import javax.swing.JLabel;
+import java.util.Map;
 import javax.swing.JPanel;
-import javax.swing.JScrollPane;
-import javax.swing.border.EmptyBorder;
+import javax.swing.JSplitPane;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
 public class CodeReviewPanel extends JPanel implements ThemeAware {
 
-    public record ParsedExcerpt(CodeExcerpt original, int lineNumber) {}
-
-    public interface ReviewNavigationListener {
-        void onNavigate(ParsedExcerpt excerpt);
-    }
-
-    private final MaterialButton generateButton;
-    private final JPanel contentPanel;
-    private final Runnable triggerCallback;
-    private final List<ReviewNavigationListener> listeners = new ArrayList<>();
-    private @Nullable ai.brokk.difftool.ui.DiffProjectFileNavigationTarget navigationTarget;
+    private final ReviewListPanel listPanel;
+    private final ReviewDetailPanel detailPanel;
+    private final Map<Object, List<ParsedExcerpt>> itemExcerpts = new HashMap<>();
 
     public CodeReviewPanel(Runnable triggerCallback) {
-        this.triggerCallback = triggerCallback;
         setLayout(new BorderLayout());
 
-        generateButton = new MaterialButton("Guided Review");
-        SwingUtil.applyPrimaryButtonStyle(generateButton);
-        generateButton.addActionListener(e -> triggerReviewGeneration());
+        listPanel = new ReviewListPanel(triggerCallback, this::handleItemSelected);
+        detailPanel = new ReviewDetailPanel();
 
-        JPanel topPanel = new JPanel(new BorderLayout());
-        topPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
-        topPanel.add(generateButton, BorderLayout.CENTER);
+        JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, listPanel, detailPanel);
+        splitPane.setDividerLocation(300);
+        add(splitPane, BorderLayout.CENTER);
+    }
 
-        contentPanel = new JPanel();
-        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        contentPanel.setBorder(new EmptyBorder(0, 10, 10, 10));
-
-        JScrollPane scrollPane = new JScrollPane(contentPanel);
-        scrollPane.setBorder(null);
-
-        add(topPanel, BorderLayout.NORTH);
-        add(scrollPane, BorderLayout.CENTER);
+    private void handleItemSelected(Object item) {
+        List<ParsedExcerpt> excerpts = itemExcerpts.getOrDefault(item, List.of());
+        detailPanel.showItem(item, excerpts);
     }
 
     public void addReviewNavigationListener(ReviewNavigationListener listener) {
-        listeners.add(listener);
+        detailPanel.addReviewNavigationListener(listener);
     }
 
     public void setNavigationTarget(ai.brokk.difftool.ui.DiffProjectFileNavigationTarget target) {
-        this.navigationTarget = target;
+        // detailPanel handles navigation through listeners now
     }
 
     public void setBusy(boolean busy) {
-        generateButton.setEnabled(!busy);
-        generateButton.setText(busy ? "Generating..." : "Guided Review");
-    }
-
-    private void triggerReviewGeneration() {
-        triggerCallback.run();
+        listPanel.setBusy(busy);
     }
 
     public void displayReview(
             GuidedReview review, List<List<ParsedExcerpt>> designExcerpts, List<ParsedExcerpt> tacticalExcerpts) {
-        contentPanel.removeAll();
-
-        addHeader("Overview");
-        addMarkdownText(review.overview());
-
-        addHeader("Design");
+        itemExcerpts.clear();
+        itemExcerpts.put(review.overview(), List.of());
+        
         for (int i = 0; i < review.designNotes().size(); i++) {
-            DesignFeedback design = review.designNotes().get(i);
-            List<ParsedExcerpt> parsed = designExcerpts.get(i);
-            addExpandableItem(design.title(), design.description(), design.recommendation(), parsed);
+            itemExcerpts.put(review.designNotes().get(i), designExcerpts.get(i));
+        }
+        
+        for (int i = 0; i < review.tacticalNotes().size(); i++) {
+            itemExcerpts.put(tacticalExcerpts.get(i), List.of(tacticalExcerpts.get(i)));
         }
 
-        addHeader("Tactical");
-        for (ParsedExcerpt tactical : tacticalExcerpts) {
-            addExpandableItem(tactical.original().excerpt(), null, null, List.of(tactical));
-        }
-
-        addHeader("Tests");
-        for (String test : review.additionalTests()) {
-            addMarkdownText("- " + test);
-        }
-
-        revalidate();
-        repaint();
-    }
-
-    private void addHeader(String title) {
-        JLabel header = new JLabel(title);
-        header.setFont(header.getFont().deriveFont(Font.BOLD, 14f));
-        header.setBorder(new EmptyBorder(15, 0, 5, 0));
-        header.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentPanel.add(header);
-    }
-
-    private void addMarkdownText(String text) {
-        JLabel label = new JLabel("<html>" + text.replace("\n", "<br>") + "</html>");
-        label.setBorder(new EmptyBorder(2, 5, 2, 5));
-        label.setAlignmentX(Component.LEFT_ALIGNMENT);
-        contentPanel.add(label);
-    }
-
-    private void addExpandableItem(
-            String title,
-            @Nullable String description,
-            @Nullable String recommendation,
-            List<ParsedExcerpt> excerpts) {
-        JPanel itemPanel = new JPanel();
-        itemPanel.setLayout(new BoxLayout(itemPanel, BoxLayout.Y_AXIS));
-        itemPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        itemPanel.setOpaque(false);
-
-        JLabel summaryLabel = new JLabel("• " + title);
-        summaryLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        summaryLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
-        summaryLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JPanel detailsPanel = new JPanel();
-        detailsPanel.setLayout(new BoxLayout(detailsPanel, BoxLayout.Y_AXIS));
-        detailsPanel.setBorder(new EmptyBorder(0, 20, 5, 0));
-        detailsPanel.setOpaque(false);
-        detailsPanel.setVisible(false);
-
-        summaryLabel.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                detailsPanel.setVisible(!detailsPanel.isVisible());
-                itemPanel.revalidate();
-                itemPanel.repaint();
-            }
-        });
-
-        if (description != null && !description.isBlank()) {
-            JLabel descLabel = new JLabel("<html>" + description.replace("\n", "<br>") + "</html>");
-            descLabel.setBorder(new EmptyBorder(2, 5, 5, 5));
-            descLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            detailsPanel.add(descLabel);
-        }
-
-        if (recommendation != null && !recommendation.isBlank()) {
-            JLabel recLabel =
-                    new JLabel("<html><b>Recommendation:</b> " + recommendation.replace("\n", "<br>") + "</html>");
-            recLabel.setBorder(new EmptyBorder(2, 5, 10, 5));
-            recLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            detailsPanel.add(recLabel);
-        }
-
-        if (excerpts.size() > 1) {
-            JPanel navPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-            navPanel.setOpaque(false);
-            MaterialButton prevBtn = new MaterialButton("Prev");
-            MaterialButton nextBtn = new MaterialButton("Next");
-
-            AtomicInteger currentIndex = new AtomicInteger(0);
-            java.lang.Runnable updateNav = () -> {
-                for (ReviewNavigationListener l : listeners) {
-                    l.onNavigate(excerpts.get(currentIndex.get()));
-                }
-            };
-
-            prevBtn.addActionListener(e -> {
-                currentIndex.set((currentIndex.get() - 1 + excerpts.size()) % excerpts.size());
-                updateNav.run();
-            });
-            nextBtn.addActionListener(e -> {
-                currentIndex.set((currentIndex.get() + 1) % excerpts.size());
-                updateNav.run();
-            });
-
-            navPanel.add(prevBtn);
-            navPanel.add(nextBtn);
-            detailsPanel.add(navPanel);
-        }
-
-        for (ParsedExcerpt pe : excerpts) {
-            String filePath = pe.original().file();
-            String fileName = filePath.contains("/") ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
-            String labelText = pe.lineNumber() != -1 ? String.format("%s:%d", fileName, pe.lineNumber()) : fileName;
-            JLabel excerptLabel = new JLabel("<html><a href='#'>" + labelText + "</a></html>");
-            excerptLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            excerptLabel.setBorder(new EmptyBorder(2, 5, 2, 5));
-            excerptLabel.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mouseClicked(MouseEvent e) {
-                    for (ReviewNavigationListener l : listeners) {
-                        l.onNavigate(pe);
-                    }
-                }
-            });
-            detailsPanel.add(excerptLabel);
-        }
-
-        itemPanel.add(summaryLabel);
-        itemPanel.add(detailsPanel);
-        contentPanel.add(itemPanel);
+        listPanel.displayReview(review, designExcerpts, tacticalExcerpts);
+        
+        // Auto-select overview
+        handleItemSelected(review.overview());
     }
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        setBackground(
-                guiTheme.isDarkTheme()
-                        ? ai.brokk.gui.mop.ThemeColors.getPanelBackground()
-                        : javax.swing.UIManager.getColor("Panel.background"));
-        contentPanel.setBackground(getBackground());
+        listPanel.applyTheme(guiTheme);
+        detailPanel.applyTheme(guiTheme);
     }
 }
