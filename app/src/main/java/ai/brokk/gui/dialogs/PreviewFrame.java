@@ -19,56 +19,20 @@ import java.awt.event.WindowEvent;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
-public class PreviewFrame extends JFrame implements ThemeAware {
+public class PreviewFrame extends DetachableTabFrame {
     private PreviewTabbedPane tabbedPane;
     private final Chrome chrome;
 
-    public void setTabbedPane(PreviewTabbedPane newPane) {
-        mainContent.remove(this.tabbedPane);
-        this.tabbedPane = newPane;
-        mainContent.add(tabbedPane, BorderLayout.CENTER);
-        mainContent.revalidate();
-        mainContent.repaint();
-    }
-
-    private final JPanel mainContent;
-
     public PreviewFrame(Chrome chrome, PreviewTabbedPane initialPane) {
-        super("Preview");
+        super("Preview", initialPane, Icons.VISIBILITY, () -> {
+            chrome.getRightPanel().redockPreview();
+            chrome.clearPreviewFrame();
+        });
         this.chrome = chrome;
         this.tabbedPane = initialPane;
 
-        // Apply icon, macOS full-window-content, and title bar
-        Chrome.applyIcon(this);
-        Chrome.maybeApplyMacFullWindowContent(this);
-        ThemeTitleBarManager.maybeApplyMacTitleBar(this, "Preview");
-
-        // Create toolbar with dock button
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 2));
-        MaterialButton dockButton = new MaterialButton("");
-        dockButton.setIcon(Icons.VISIBILITY);
-        dockButton.setToolTipText("Dock Preview");
-        dockButton.addActionListener(e -> handleRedock());
-        toolbar.add(dockButton);
-
-        mainContent = new JPanel(new BorderLayout());
-        mainContent.add(toolbar, BorderLayout.NORTH);
-        mainContent.add(tabbedPane, BorderLayout.CENTER);
-
-        add(mainContent, BorderLayout.CENTER);
-
-        // Set default close operation to DO_NOTHING so we can handle it
-        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-
-        // Add window listener to handle close events (X button closes entire frame)
-        addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosing(WindowEvent e) {
-                handleFrameClose();
-            }
-        });
-
         // Register close tab shortcut for PreviewFrame (defaults to platform accelerator + W)
+        // This overrides the DetachableTabFrame default behavior which redocks the whole frame
         KeyStroke closeTabKeyStroke = GlobalUiSettings.getKeybinding(
                 "global.closeTab", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
         var root = this.getRootPane();
@@ -79,6 +43,11 @@ public class PreviewFrame extends JFrame implements ThemeAware {
                 closeSelectedTab();
             }
         });
+    }
+
+    public void setTabbedPane(PreviewTabbedPane newPane) {
+        setContentComponent(newPane);
+        this.tabbedPane = newPane;
     }
 
     public void addOrSelectTab(
@@ -94,19 +63,6 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     }
 
     /**
-     * Handles window close button (X) - redocks the frame to the main window.
-     */
-    private void handleFrameClose() {
-        handleRedock();
-    }
-
-    private void handleRedock() {
-        chrome.getRightPanel().redockPreview();
-        chrome.clearPreviewFrame();
-        dispose();
-    }
-
-    /**
      * Finds and refreshes all tabs for the given file.
      */
     public void refreshTabsForFile(ProjectFile file) {
@@ -116,6 +72,6 @@ public class PreviewFrame extends JFrame implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         tabbedPane.applyTheme(guiTheme);
-        SwingUtilities.updateComponentTreeUI(this);
+        super.applyTheme(guiTheme);
     }
 }

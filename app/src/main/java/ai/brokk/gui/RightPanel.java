@@ -493,7 +493,6 @@ public class RightPanel extends JPanel implements ThemeAware {
         }
 
         chrome.getPreviewManager().showPreviewInTabbedFrame("Preview", previewTabbedPane, null);
-        // previewTabbedPane is now owned by PreviewFrame - don't create a replacement
     }
 
     public void redockPreview() {

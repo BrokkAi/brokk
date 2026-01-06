@@ -19,7 +19,16 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public class DetachableTabFrame extends JFrame implements ThemeAware {
     private final Runnable redockCallback;
-    private final JComponent content;
+    private JComponent content;
+    private final JPanel mainPanel;
+
+    public void setContentComponent(JComponent newContent) {
+        mainPanel.remove(this.content);
+        this.content = newContent;
+        mainPanel.add(content, BorderLayout.CENTER);
+        mainPanel.revalidate();
+        mainPanel.repaint();
+    }
 
     public DetachableTabFrame(String title, JComponent content, Icon icon, Runnable redockCallback) {
         super(title);
@@ -39,7 +48,7 @@ public class DetachableTabFrame extends JFrame implements ThemeAware {
         dockButton.addActionListener(e -> handleRedock());
         toolbar.add(dockButton);
 
-        JPanel mainPanel = new JPanel(new BorderLayout());
+        this.mainPanel = new JPanel(new BorderLayout());
         mainPanel.add(toolbar, BorderLayout.NORTH);
         mainPanel.add(content, BorderLayout.CENTER);
 
