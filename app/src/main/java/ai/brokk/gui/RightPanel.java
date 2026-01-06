@@ -43,7 +43,6 @@ public class RightPanel extends JPanel implements ThemeAware {
     private @Nullable JSplitPane verticalActivityCombinedPanel = null;
     private @Nullable JSplitPane verticalLayoutLeftSplit = null;
 
-    private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame buildFrame = null;
     private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame reviewFrame = null;
     private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame terminalFrame = null;
 
@@ -898,6 +897,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             }
         }
 
+        @SuppressWarnings("unused")
         private void handleMouseReleased(MouseEvent e) {
             if (buildReviewTabs.getCursor().getType() != Cursor.DEFAULT_CURSOR) {
                 buildReviewTabs.setCursor(Cursor.getDefaultCursor());

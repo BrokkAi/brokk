@@ -16,14 +16,12 @@ import org.jetbrains.annotations.Nullable;
 
 public class PreviewFrame extends DetachableTabFrame {
     private PreviewTabbedPane tabbedPane;
-    private final Chrome chrome;
 
     public PreviewFrame(Chrome chrome, PreviewTabbedPane initialPane) {
         super("Preview", initialPane, Icons.VISIBILITY, () -> {
             chrome.getRightPanel().redockPreview();
             chrome.clearPreviewFrame();
         });
-        this.chrome = chrome;
         this.tabbedPane = initialPane;
 
         // Register close tab shortcut for PreviewFrame (defaults to platform accelerator + W)
