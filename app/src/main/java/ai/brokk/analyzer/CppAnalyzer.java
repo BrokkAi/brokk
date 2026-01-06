@@ -11,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSParser;
 import org.treesitter.TSTree;
 import org.treesitter.TreeSitterCpp;
 
@@ -25,7 +24,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     private final SkeletonGenerator skeletonGenerator;
     private final NamespaceProcessor namespaceProcessor;
-    private final ThreadLocal<TSParser> parserCache;
 
     private static Map<String, SkeletonType> createCaptureConfiguration() {
         var config = new HashMap<String, SkeletonType>();
@@ -73,26 +71,15 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     public CppAnalyzer(IProject project, ProgressListener listener) {
         super(project, Languages.CPP_TREESITTER, listener);
 
-        this.parserCache = ThreadLocal.withInitial(() -> {
-            var parser = new TSParser();
-            parser.setLanguage(createTSLanguage());
-            return parser;
-        });
-
-        var templateParser = parserCache.get();
+        var templateParser = getTSParser();
         this.skeletonGenerator = new SkeletonGenerator(templateParser);
         this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
 
     private CppAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
         super(project, Languages.CPP_TREESITTER, state, listener);
-        this.parserCache = ThreadLocal.withInitial(() -> {
-            var parser = new TSParser();
-            parser.setLanguage(createTSLanguage());
-            return parser;
-        });
 
-        var templateParser = parserCache.get();
+        var templateParser = getTSParser();
         this.skeletonGenerator = new SkeletonGenerator(templateParser);
         this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
@@ -333,12 +320,11 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
         Map<CodeUnit, String> resultSkeletons = new HashMap<>(super.getSkeletons(file));
 
-        // Use cached tree to avoid redundant parsing - significant performance improvement
         String fileContent = file.read().orElse("");
         var sourceContent = SourceContent.of(fileContent);
         TSTree tree = treeOf(file);
         if (tree == null) {
-            var parser = getSharedParser();
+            var parser = getTSParser();
             tree = Objects.requireNonNull(parser.parseString(null, fileContent), "Failed to parse file: " + file);
         }
         var rootNode = tree.getRootNode();
@@ -423,10 +409,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return (cu.isFunction() || cu.isField())
                 && cu.packageName().isEmpty()
                 && !cu.fqName().contains(".");
-    }
-
-    private TSParser getSharedParser() {
-        return parserCache.get();
     }
 
     /**
