@@ -1847,22 +1847,30 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var panel = getFilePanel(side);
         if (panel == null) return;
 
-        var editor = panel.getEditor();
-        try {
-            // Convert 1-based to 0-based line number
-            int offset = editor.getLineStartOffset(Math.max(0, lineNumber - 1));
-            editor.setCaretPosition(offset);
+        // Wrap in invokeLater to ensure components are laid out and sized
+        SwingUtilities.invokeLater(() -> {
+            var editor = panel.getEditor();
+            try {
+                // Convert 1-based to 0-based line number
+                int offset = editor.getLineStartOffset(Math.max(0, lineNumber - 1));
+                editor.setCaretPosition(offset);
 
-            // Center the line in the viewport
-            var rect = editor.modelToView2D(offset);
-            if (rect != null) {
-                var viewport = panel.getScrollPane().getViewport();
-                int viewHeight = viewport.getHeight();
-                int y = (int) rect.getY() - viewHeight / 2;
-                viewport.setViewPosition(new Point(0, Math.max(0, y)));
+                // Center the line in the viewport
+                var rect = editor.modelToView2D(offset);
+                if (rect != null) {
+                    var viewport = panel.getScrollPane().getViewport();
+                    int viewHeight = viewport.getHeight();
+
+                    // If viewHeight is 0, we can't center properly, so we just scroll to top of line
+                    int y = (viewHeight > 0)
+                            ? (int) rect.getY() - viewHeight / 2
+                            : (int) rect.getY();
+
+                    viewport.setViewPosition(new Point(0, Math.max(0, y)));
+                }
+            } catch (javax.swing.text.BadLocationException e) {
+                logger.warn("Could not scroll to line {} on side {}", lineNumber, side, e);
             }
-        } catch (javax.swing.text.BadLocationException e) {
-            logger.warn("Could not scroll to line {} on side {}", lineNumber, side, e);
-        }
+        });
     }
 }

@@ -1024,9 +1024,9 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public void navigateToLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        // Note: Core calls back to navigateToLocation if we are switching files,
-        // but we ensure scrolling happens on the correct side here.
-        scrollToLineInCurrentPanel(lineNumber, side);
+        // Use invokeLater to ensure that if a file switch just happened, 
+        // the new panel is fully added and has a valid size/layout before scrolling.
+        SwingUtilities.invokeLater(() -> scrollToLineInCurrentPanel(lineNumber, side));
     }
 
     private void scrollToLineInCurrentPanel(int lineNumber, ReviewParser.DiffSide side) {
@@ -1036,9 +1036,7 @@ public class BrokkDiffPanel extends JPanel
                     : BufferDiffPanel.PanelSide.RIGHT;
             bp.scrollToLine(lineNumber, panelSide);
         } else if (currentDiffPanel instanceof UnifiedDiffPanel up) {
-            // UnifiedDiffPanel doesn't easily distinguish side-based scrolling yet,
-            // but we pass the line. Future implementation might use side to highlight.
-            up.scrollToLine(lineNumber);
+            up.scrollToLine(lineNumber, side);
         }
     }
 

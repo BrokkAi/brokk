@@ -853,22 +853,36 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
      * @param lineNumber 1-based line number in the unified view to scroll to
      */
     public void scrollToLine(int lineNumber) {
-        try {
-            // Convert 1-based to 0-based line number
-            int offset = textArea.getLineStartOffset(Math.max(0, lineNumber - 1));
-            textArea.setCaretPosition(offset);
+        // Ensure we execute on EDT and after any pending layout
+        SwingUtilities.invokeLater(() -> {
+            try {
+                // Convert 1-based to 0-based line number
+                int offset = textArea.getLineStartOffset(Math.max(0, lineNumber - 1));
+                textArea.setCaretPosition(offset);
 
-            // Scroll the line to the top with a 3-line buffer
-            var rect = textArea.modelToView2D(offset);
-            if (rect != null) {
-                var viewport = scrollPane.getViewport();
-                int lineHeight = textArea.getLineHeight();
-                int buffer = 3 * lineHeight;
-                int y = (int) rect.getY() - buffer;
-                viewport.setViewPosition(new Point(0, Math.max(0, y)));
+                // Scroll the line to the top with a 3-line buffer
+                var rect = textArea.modelToView2D(offset);
+                if (rect != null) {
+                    var viewport = scrollPane.getViewport();
+                    int viewportHeight = viewport.getHeight();
+
+                    // If viewport height isn't ready yet, it's hard to position correctly.
+                    // But we can at least scroll to a position relative to the text area.
+                    int lineHeight = textArea.getLineHeight();
+                    int buffer = 3 * lineHeight;
+                    int y = (int) rect.getY() - buffer;
+
+                    // Ensure we don't scroll past the bottom if viewport size is known
+                    if (viewportHeight > 0) {
+                        int maxY = Math.max(0, textArea.getHeight() - viewportHeight);
+                        y = Math.min(y, maxY);
+                    }
+
+                    viewport.setViewPosition(new Point(0, Math.max(0, y)));
+                }
+            } catch (javax.swing.text.BadLocationException e) {
+                logger.warn("Could not scroll to line {}", lineNumber, e);
             }
-        } catch (javax.swing.text.BadLocationException e) {
-            logger.warn("Could not scroll to line {}", lineNumber, e);
-        }
+        });
     }
 }
