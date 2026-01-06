@@ -98,13 +98,13 @@ public class ReviewAgent {
             }
 
             String analysisText = turn1Result.text();
-            Map<Integer, String> excerptFiles = ReviewExcerptParser.instance.parseExcerptFiles(analysisText);
-            Map<Integer, String> excerptContents = ReviewExcerptParser.instance.parseExcerptContents(analysisText);
+            Map<Integer, CodeExcerpt> parsedExcerpts = ReviewExcerptParser.instance.parseExcerpts(analysisText);
 
             // --- Turn 1.5: Retry for missing files and non-matching excerpts ---
-            var retried = retryInvalidExcerpts(reviewLlm, turn1Messages, turn1Result, excerptFiles, excerptContents);
-            excerptFiles = retried.files();
-            excerptContents = retried.contents();
+            Map<Integer, CodeExcerpt> validatedExcerpts = retryWithValidation(reviewLlm, turn1Messages, turn1Result, parsedExcerpts, true, true);
+
+            // Resolve line numbers and side (OLD vs NEW)
+            Map<Integer, CodeExcerpt> resolvedExcerpts = resolveExcerpts(validatedExcerpts);
 
             // --- Turn 2: Generate structured review via tool call ---
             var turn2Messages = new ArrayList<ChatMessage>(turn1Messages);
@@ -129,14 +129,55 @@ public class ReviewAgent {
             }
 
             var rawReview = ICodeReview.RawReview.fromJson(executionResult.resultText());
-            final Map<Integer, String> finalFiles = excerptFiles;
-            final Map<Integer, String> finalContents = excerptContents;
-            return ICodeReview.GuidedReview.fromRaw(
-                    rawReview,
-                    finalContents,
-                    finalFiles,
-                    (file, excerpt) -> new ICodeReview.CodeExcerpt(file, 0, ICodeReview.DiffSide.NEW, excerpt));
+            return ICodeReview.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
         }
+    }
+
+    @Blocking
+    private Map<Integer, CodeExcerpt> resolveExcerpts(Map<Integer, CodeExcerpt> excerpts) {
+        // We use the live context to find the files and their current contents.
+        // For a more robust implementation that handles the diff specifically,
+        // we would need DiffService which is not currently visible/available in this scope.
+        // We fall back to matching against the current file content on disk via ProjectFile.
+        Map<Integer, CodeExcerpt> resolved = new HashMap<>();
+        for (var entry : excerpts.entrySet()) {
+            CodeExcerpt ce = entry.getValue();
+            var projectFile = cm.toFile(ce.file());
+            if (projectFile == null || !projectFile.exists()) {
+                resolved.put(entry.getKey(), ce);
+                continue;
+            }
+
+            String content = projectFile.read().orElse("");
+            if (content.isEmpty()) {
+                resolved.put(entry.getKey(), ce);
+                continue;
+            }
+
+            String[] excerptLines = ce.excerpt().split("\\R");
+            String[] fileLines = content.split("\\R");
+
+            var matches = ai.brokk.util.WhitespaceMatch.findAll(fileLines, excerptLines);
+
+            if (matches.isEmpty()) {
+                resolved.put(entry.getKey(), ce);
+                continue;
+            }
+
+            ai.brokk.util.WhitespaceMatch best = matches.getFirst();
+            int minDelta = Math.abs(best.startLine() - ce.line());
+            for (int i = 1; i < matches.size(); i++) {
+                int delta = Math.abs(matches.get(i).startLine() - ce.line());
+                if (delta < minDelta) {
+                    minDelta = delta;
+                    best = matches.get(i);
+                }
+            }
+
+            // Since we are matching against the current file, we assume NEW side.
+            resolved.put(entry.getKey(), new CodeExcerpt(ce.file(), best.startLine(), ICodeReview.DiffSide.NEW, ce.excerpt()));
+        }
+        return resolved;
     }
 
     private record ExcerptData(Map<Integer, String> files, Map<Integer, String> contents) {}
@@ -155,7 +196,7 @@ public class ReviewAgent {
         Map<Integer, String> errors = new HashMap<>();
         for (var entry : excerpts.entrySet()) {
             if (!diff.contains(entry.getValue().excerpt())) {
-                errors.put(entry.getKey(), "Excerpt not found in diff for " + entry.getValue().file());
+                errors.put(entry.getKey(), "Excerpt not found in diff");
             }
         }
         return errors;
@@ -227,7 +268,7 @@ public class ReviewAgent {
                 if (checkFileExists && cm.toFile(entry.getValue()) == null) {
                     errors.put(entry.getKey(), "File does not exist: " + entry.getValue());
                 } else if (checkExcerptInDiff && currentContents.containsKey(entry.getKey()) && !diff.contains(currentContents.get(entry.getKey()))) {
-                    errors.put(entry.getKey(), "Excerpt not found in diff for " + entry.getValue());
+                    errors.put(entry.getKey(), "Excerpt not found in diff");
                 }
             }
 
@@ -296,16 +337,17 @@ public class ReviewAgent {
                 
                 ### Step 2: Code Excerpt Extraction
                 Extract the subtle, tricky, or potentially incorrect blocks of code that you will
-                reference in your review. Use this exact format, with sequentially numbered, 0-based IDs:
+                reference in your review. Use this exact format, with sequentially numbered, 0-based IDs.
+                IMPORTANT: Append @line_number to the filename to indicate where the excerpt starts.
                 
                 BRK_EXCERPT_0
-                path/to/filename.java
+                path/to/filename.java @42
                 ```java
                 // code here
                 ```
                 
                 BRK_EXCERPT_1
-                path/to/another_file.py
+                path/to/another_file.py @120
                 ```python
                 // code here
                 ```
