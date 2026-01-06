@@ -7,7 +7,6 @@ import ai.brokk.analyzer.cpp.SkeletonGenerator;
 import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
-
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
