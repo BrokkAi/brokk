@@ -481,7 +481,7 @@ public class SearchAgent {
         }
         var toolSpecs = tr.getTools(toolNames);
 
-        io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true, false);
+        conversation.appendUi("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, true);
         var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
@@ -513,7 +513,8 @@ public class SearchAgent {
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
         var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
-        io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true, false);
+        conversation.appendUi(
+                "\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, true);
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
@@ -534,12 +535,13 @@ public class SearchAgent {
                         SyntaxConstants.SYNTAX_STYLE_NONE)));
             } else {
                 addToWorkspace(recommendation);
-                io.llmOutput(
+                conversation.appendUi(
                         "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
-                        ChatMessageType.AI);
+                        ChatMessageType.AI,
+                        true);
             }
         } else {
-            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
+            conversation.appendUi("\n\nNo additional context insights found\n", ChatMessageType.AI, true);
         }
 
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
@@ -608,7 +610,7 @@ public class SearchAgent {
         }
 
         var explanation = ExplanationRenderer.renderExplanation("Adding context to workspace", details);
-        io.llmOutput(explanation, ChatMessageType.AI);
+        conversation.appendUi(explanation, ChatMessageType.AI, true);
     }
 
     @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
@@ -625,7 +627,7 @@ public class SearchAgent {
     @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")
     public String abortSearch(
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
-        io.llmOutput(explanation, ChatMessageType.AI);
+        conversation.appendUi(explanation, ChatMessageType.AI, true);
         return explanation;
     }
 

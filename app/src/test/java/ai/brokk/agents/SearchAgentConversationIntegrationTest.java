@@ -6,8 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.testutil.TestConsoleIO;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
+import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -16,6 +18,19 @@ import org.junit.jupiter.api.Test;
  * These tests verify the message routing contract without requiring full SearchAgent instantiation.
  */
 final class SearchAgentConversationIntegrationTest {
+
+    @Test
+    void appendUiText_echoTrue_addsCustomMessageToUiAndEchoesToIo() {
+        conversation.appendUi("status text", ChatMessageType.AI, true);
+
+        assertEquals(1, conversation.getUiMessages().size());
+        assertTrue(conversation.getUiMessages().getFirst() instanceof CustomMessage);
+        assertEquals(
+                CustomMessage.from(Map.of("text", "status text")),
+                conversation.getUiMessages().getFirst());
+
+        assertEquals(1, io.getLlmRawMessages().size());
+    }
 
     private TestConsoleIO io;
     private AgentConversation conversation;
