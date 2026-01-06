@@ -133,7 +133,7 @@ public class ReviewAgent {
     }
 
     @Blocking
-    private Map<Integer, CodeExcerpt> retryExcerptNotFound(
+    Map<Integer, CodeExcerpt> retryExcerptNotFound(
             Llm llm,
             List<ChatMessage> turn1Messages,
             Llm.StreamingResult turn1Result,
@@ -196,7 +196,7 @@ public class ReviewAgent {
     }
 
     @Blocking
-    private Map<Integer, CodeExcerpt> retryFileNotFound(
+    Map<Integer, CodeExcerpt> retryFileNotFound(
             Llm llm,
             List<ChatMessage> turn1Messages,
             Llm.StreamingResult turn1Result,

@@ -175,7 +175,8 @@ public final class TestContextManager implements IContextManager {
                             .formatted(relativePath));
         }
 
-        return new ProjectFile(project.getRoot(), trimmed);
+        var file = new ProjectFile(project.getRoot(), trimmed);
+        return file.exists() ? file : null;
     }
 
     @Override
