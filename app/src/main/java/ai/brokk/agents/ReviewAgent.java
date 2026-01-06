@@ -106,8 +106,8 @@ public class ReviewAgent {
                             "Explain the trickiest parts of the design and how they can be improved. "
                                     + "For each item, provide a 'title' which is a short 5-7 word label summarizing the feedback.")
                     List<ICodeReview.DesignFeedback> designNotes,
-            @P("A list of local bugs or problems. For each item, provide a 'commentary' explaining the issue.")
-                    List<ICodeReview.CodeExcerpt> tacticalNotes,
+            @P("A list of local bugs or problems.")
+                    List<ICodeReview.TacticalFeedback> tacticalNotes,
             @P("Describe additional tests with high benefit:cost, if any, formatted with Markdown.")
                     List<String> additionalTests) {
         var review = new ICodeReview.GuidedReview(overview, designNotes, tacticalNotes, additionalTests);

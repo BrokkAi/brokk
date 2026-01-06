@@ -708,10 +708,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             design.excerpts().size());
                     for (var excerpt : design.excerpts()) {
                         logger.info(
-                                "    Excerpt file='{}', excerpt={} chars, commentary={} chars",
+                                "    Excerpt file='{}', excerpt={} chars",
                                 excerpt.file(),
-                                excerpt.excerpt().length(),
-                                excerpt.commentary().length());
+                                excerpt.excerpt().length());
                     }
                 }
 
@@ -720,10 +719,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 for (int i = 0; i < review.tacticalNotes().size(); i++) {
                     var tactical = review.tacticalNotes().get(i);
                     logger.info(
-                            "  TacticalNote[{}] file='{}', excerpt={} chars",
+                            "  TacticalNote[{}] title='{}', file='{}', excerpt={} chars, recommendation={} chars",
                             i,
-                            tactical.file(),
-                            tactical.excerpt().length());
+                            tactical.title(),
+                            tactical.excerpt().file(),
+                            tactical.excerpt().excerpt().length(),
+                            tactical.recommendation().length());
                 }
 
                 // Pre-resolve excerpts
@@ -735,6 +736,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .toList();
 
                 List<ICodeReview.ParsedExcerpt> tacticalExcerpts = review.tacticalNotes().stream()
+                        .map(ICodeReview.TacticalFeedback::excerpt)
                         .map(this::resolveExcerpt)
                         .filter(java.util.Objects::nonNull)
                         .toList();

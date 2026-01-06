@@ -35,7 +35,7 @@ public class ReviewExcerptParser {
      * Parses the provided text for BRK_EXCERPT blocks.
      *
      * @param text The raw response text to parse.
-     * @return A map of ID to CodeExcerpt. The commentary in the returned CodeExcerpt is empty.
+     * @return A map of ID to CodeExcerpt.
      */
     public Map<String, ICodeReview.CodeExcerpt> parseExcerpts(String text) {
         Map<String, ICodeReview.CodeExcerpt> excerpts = new HashMap<>();
@@ -46,7 +46,7 @@ public class ReviewExcerptParser {
             String filename = matcher.group(2).trim();
             String content = stripSingleTrailingLineBreak(matcher.group(3));
 
-            excerpts.put(id, new ICodeReview.CodeExcerpt(filename, content, ""));
+            excerpts.put(id, new ICodeReview.CodeExcerpt(filename, content));
         }
 
         return Map.copyOf(excerpts);

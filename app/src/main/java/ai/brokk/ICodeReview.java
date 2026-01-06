@@ -14,14 +14,16 @@ public interface ICodeReview {
         void onNavigate(ParsedExcerpt excerpt);
     }
 
-    record CodeExcerpt(String file, String excerpt, String commentary) {}
+    record CodeExcerpt(String file, String excerpt) {}
 
     record DesignFeedback(String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
+
+    record TacticalFeedback(String title, CodeExcerpt excerpt, String recommendation) {}
 
     record GuidedReview(
             String overview,
             List<DesignFeedback> designNotes,
-            List<CodeExcerpt> tacticalNotes,
+            List<TacticalFeedback> tacticalNotes,
             List<String> additionalTests) {
 
         public String toJson() {
