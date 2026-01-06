@@ -3,7 +3,6 @@ package ai.brokk.gui;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.ICodeReview;
 import ai.brokk.IConsoleIO;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.analyzer.ProjectFile;
@@ -22,7 +21,8 @@ import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.util.WhitespaceMatch;
+import ai.brokk.util.ReviewParser;
+
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -77,7 +77,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private JPanel diffContainer;
 
     @Nullable
-    private ICodeReview.CodeExcerpt activeExcerpt = null;
+    private ReviewParser.CodeExcerpt activeExcerpt = null;
 
     private List<FileComparisonInfo> fileComparisons = List.of();
 
@@ -451,7 +451,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             int index,
                             ai.brokk.difftool.ui.AbstractDiffPanel panel,
                             int targetLine,
-                            ICodeReview.DiffSide targetSide) {
+                            ReviewParser.DiffSide targetSide) {
                         if (diffContainer != null) {
                             diffContainer.removeAll();
                             diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
@@ -460,7 +460,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                                 panel.resetAutoScrollFlag();
                                 panel.diff(false);
                                 if (panel instanceof ai.brokk.difftool.ui.BufferDiffPanel bp) {
-                                    var side = (targetSide == ICodeReview.DiffSide.OLD)
+                                    var side = (targetSide == ReviewParser.DiffSide.OLD)
                                             ? ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.LEFT
                                             : ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.RIGHT;
                                     bp.scrollToLine(targetLine, side);
@@ -507,7 +507,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
 
             @Override
-            public void navigateToLocation(ProjectFile file, int lineNumber, ICodeReview.DiffSide side) {
+            public void navigateToLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
                 if (codeReviewPanel != null) codeReviewPanel.clearSelection();
                 activeExcerpt = null;
                 diffCore.showLocation(file, lineNumber, side);
@@ -681,10 +681,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 String cacheKey = "review_" + HexFormat.of().formatHex(hash);
                 var diskCache = contextManager.getProject().getDiskCache();
 
-                ICodeReview.GuidedReview review;
+                ReviewParser.GuidedReview review;
                 var cachedJson = diskCache.get(cacheKey);
                 if (cachedJson.isPresent()) {
-                    review = ICodeReview.GuidedReview.fromJson(cachedJson.get());
+                    review = ReviewParser.GuidedReview.fromJson(cachedJson.get());
                 } else {
                     var agent = new ReviewAgent(formattedDiff, contextManager, tio, fileComparisons);
                     review = agent.execute();

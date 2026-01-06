@@ -1,7 +1,6 @@
 package ai.brokk.difftool.ui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.ICodeReview;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.performance.PerformanceConstants;
@@ -13,6 +12,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.swing.SwingUtilities;
+
+import ai.brokk.util.ReviewParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -59,7 +60,7 @@ public class DiffDisplayCore {
     public void showFile(int index) {
         if (index < 0 || index >= fileComparisons.size()) return;
         currentIndex = index;
-        updateCacheAndDisplay(-1, ICodeReview.DiffSide.NEW);
+        updateCacheAndDisplay(-1, ReviewParser.DiffSide.NEW);
     }
 
     public void showFile(ProjectFile file) {
@@ -70,10 +71,10 @@ public class DiffDisplayCore {
     }
 
     public void showLocation(ProjectFile file, int lineNumber) {
-        showLocation(file, lineNumber, ICodeReview.DiffSide.NEW);
+        showLocation(file, lineNumber, ReviewParser.DiffSide.NEW);
     }
 
-    public void showLocation(ProjectFile file, int lineNumber, ICodeReview.DiffSide side) {
+    public void showLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
         int index = findIndex(file);
         if (index != -1) {
             currentIndex = index;
@@ -106,7 +107,7 @@ public class DiffDisplayCore {
         }
     }
 
-    private void updateCacheAndDisplay(int targetLine, ICodeReview.DiffSide targetSide) {
+    private void updateCacheAndDisplay(int targetLine, ReviewParser.DiffSide targetSide) {
         // Simple cache of {prev, current, next}
         List<Integer> keep = List.of(currentIndex - 1, currentIndex, currentIndex + 1);
 
@@ -124,12 +125,12 @@ public class DiffDisplayCore {
         ensurePanel(currentIndex, targetLine, targetSide);
 
         // Background preload adjacent
-        if (currentIndex > 0) ensurePanel(currentIndex - 1, -1, ICodeReview.DiffSide.NEW);
+        if (currentIndex > 0) ensurePanel(currentIndex - 1, -1, ReviewParser.DiffSide.NEW);
         if (currentIndex < fileComparisons.size() - 1)
-            ensurePanel(currentIndex + 1, -1, ICodeReview.DiffSide.NEW);
+            ensurePanel(currentIndex + 1, -1, ReviewParser.DiffSide.NEW);
     }
 
-    private void ensurePanel(int index, int targetLine, ICodeReview.DiffSide targetSide) {
+    private void ensurePanel(int index, int targetLine, ReviewParser.DiffSide targetSide) {
         if (index < 0 || index >= fileComparisons.size()) return;
         if (panelCache.containsKey(index)) {
             if (index == currentIndex) {
@@ -149,7 +150,7 @@ public class DiffDisplayCore {
     }
 
     private void createSync(
-            int index, FileComparisonInfo info, int targetLine, ICodeReview.DiffSide targetSide) {
+            int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
         var diffNode = FileComparisonHelper.createDiffNode(
                 info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
 
@@ -161,7 +162,7 @@ public class DiffDisplayCore {
     }
 
     private void createAsync(
-            int index, FileComparisonInfo info, int targetLine, ICodeReview.DiffSide targetSide) {
+            int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
         contextManager.submitBackgroundTask("Computing diff: " + info.getDisplayName(), () -> {
             var diffNode = FileComparisonHelper.createDiffNode(
                     info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
@@ -179,7 +180,7 @@ public class DiffDisplayCore {
     }
 
     protected void displayPanel(
-            int index, AbstractDiffPanel panel, int targetLine, ICodeReview.DiffSide targetSide) {
+            int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
         mainPanel.displayAndRefreshPanel(index, panel, targetLine, targetSide);
     }
 

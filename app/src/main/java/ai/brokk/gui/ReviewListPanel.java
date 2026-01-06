@@ -1,8 +1,8 @@
 package ai.brokk.gui;
 
-import ai.brokk.ICodeReview.DesignFeedback;
-import ai.brokk.ICodeReview.GuidedReview;
-import ai.brokk.ICodeReview.TacticalFeedback;
+import ai.brokk.util.ReviewParser.DesignFeedback;
+import ai.brokk.util.ReviewParser.GuidedReview;
+import ai.brokk.util.ReviewParser.TacticalFeedback;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -12,7 +12,6 @@ import java.awt.Cursor;
 import java.awt.Font;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.List;
 import java.util.function.Consumer;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;

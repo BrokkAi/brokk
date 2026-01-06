@@ -1,7 +1,7 @@
 package ai.brokk.difftool.ui;
 
-import ai.brokk.ICodeReview;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.util.ReviewParser;
 import org.jspecify.annotations.NullMarked;
 
 /**
@@ -20,5 +20,5 @@ public interface DiffProjectFileNavigationTarget {
      */
     void navigateToFile(ProjectFile file);
 
-    void navigateToLocation(ProjectFile file, int lineNumber, ICodeReview.DiffSide side);
+    void navigateToLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side);
 }

@@ -1,8 +1,8 @@
 package ai.brokk.gui;
 
-import ai.brokk.ICodeReview.CodeExcerpt;
-import ai.brokk.ICodeReview.DesignFeedback;
-import ai.brokk.ICodeReview.TacticalFeedback;
+import ai.brokk.util.ReviewParser.CodeExcerpt;
+import ai.brokk.util.ReviewParser.DesignFeedback;
+import ai.brokk.util.ReviewParser.TacticalFeedback;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
@@ -23,6 +23,8 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.border.EmptyBorder;
+
+import ai.brokk.util.ReviewParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jspecify.annotations.NullMarked;
@@ -141,7 +143,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         for (CodeExcerpt ce : excerpts) {
             String filePath = ce.file();
             String fileName = filePath.contains("/") ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
-            String sideSuffix = (ce.side() == ai.brokk.ICodeReview.DiffSide.OLD) ? " (old)" : "";
+            String sideSuffix = (ce.side() == ReviewParser.DiffSide.OLD) ? " (old)" : "";
             String labelText = String.format("%s:%d%s", fileName, ce.line(), sideSuffix);
             JLabel label = new JLabel("<html><a href='#'>" + labelText + "</a></html>");
             label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));

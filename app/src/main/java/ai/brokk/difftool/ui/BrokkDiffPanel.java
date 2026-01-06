@@ -22,6 +22,7 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
+import ai.brokk.util.ReviewParser;
 import ai.brokk.util.SyntaxDetector;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
@@ -1024,16 +1025,16 @@ public class BrokkDiffPanel extends JPanel
     }
 
     @Override
-    public void navigateToLocation(ProjectFile file, int lineNumber, ICodeReview.DiffSide side) {
+    public void navigateToLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         // Note: Core calls back to navigateToLocation if we are switching files,
         // but we ensure scrolling happens on the correct side here.
         scrollToLineInCurrentPanel(lineNumber, side);
     }
 
-    private void scrollToLineInCurrentPanel(int lineNumber, ICodeReview.DiffSide side) {
+    private void scrollToLineInCurrentPanel(int lineNumber, ReviewParser.DiffSide side) {
         if (currentDiffPanel instanceof BufferDiffPanel bp) {
-            var panelSide = (side == ICodeReview.DiffSide.OLD)
+            var panelSide = (side == ReviewParser.DiffSide.OLD)
                     ? BufferDiffPanel.PanelSide.LEFT
                     : BufferDiffPanel.PanelSide.RIGHT;
             bp.scrollToLine(lineNumber, panelSide);
@@ -1486,14 +1487,14 @@ public class BrokkDiffPanel extends JPanel
      * Displays a cached panel and updates navigation buttons.
      */
     public void displayAndRefreshPanel(int fileIndex, AbstractDiffPanel panel) {
-        displayAndRefreshPanel(fileIndex, panel, -1, ICodeReview.DiffSide.NEW);
+        displayAndRefreshPanel(fileIndex, panel, -1, ReviewParser.DiffSide.NEW);
     }
 
     /**
      * Displays a cached panel and updates navigation buttons, optionally scrolling to a specific location.
      */
     public void displayAndRefreshPanel(
-            int fileIndex, AbstractDiffPanel panel, int targetLine, ICodeReview.DiffSide targetSide) {
+            int fileIndex, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         removeLoadingUi();

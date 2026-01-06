@@ -1,8 +1,7 @@
 package ai.brokk.gui;
 
-import ai.brokk.ICodeReview.CodeExcerpt;
-import ai.brokk.ICodeReview.GuidedReview;
-import ai.brokk.ICodeReview.TacticalFeedback;
+import ai.brokk.util.ReviewParser.CodeExcerpt;
+import ai.brokk.util.ReviewParser.GuidedReview;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;

@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import ai.brokk.ICodeReview;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -28,6 +29,11 @@ public class ReviewParser {
         EXPECTING_FILENAME,
         EXPECTING_FENCE,
         IN_CONTENT
+    }
+
+    public enum DiffSide {
+        OLD,
+        NEW
     }
 
     private record FileLine(String path, int line) {}
@@ -83,23 +89,17 @@ public class ReviewParser {
         return Map.copyOf(files);
     }
 
-    public Map<Integer, ICodeReview.CodeExcerpt> parseExcerpts(String text) {
+    public Map<Integer, RawExcerpt> parseExcerpts(String text) {
         Map<Integer, FileLine> files = parseExcerptFileLines(text);
         Map<Integer, String> contents = parseExcerptContents(text);
-        Map<Integer, ICodeReview.CodeExcerpt> result = new HashMap<>();
+        Map<Integer, RawExcerpt> result = new HashMap<>();
         for (Integer id : files.keySet()) {
             if (contents.containsKey(id)) {
                 FileLine fl = files.get(id);
-                result.put(id, new ICodeReview.CodeExcerpt(fl.path(), fl.line(), ICodeReview.DiffSide.NEW, contents.get(id)));
+                result.put(id, new RawExcerpt(fl.path(), fl.line(), contents.get(id)));
             }
         }
         return Map.copyOf(result);
-    }
-
-    public Map<Integer, String> parseExcerptFiles(String text) {
-        Map<Integer, String> files = new HashMap<>();
-        parseExcerptFileLines(text).forEach((id, fl) -> files.put(id, fl.path()));
-        return Map.copyOf(files);
     }
 
     public Map<Integer, String> parseExcerptContents(String text) {
@@ -156,5 +156,76 @@ public class ReviewParser {
             }
         }
         return Map.copyOf(contents);
+    }
+
+    public record RawExcerpt(String file, int line, String excerpt) {
+    }
+
+    public record CodeExcerpt(String file, int line, DiffSide side, String excerpt) {
+    }
+
+    public record RawDesignFeedback(String title, String description, List<Integer> excerptIds, String recommendation) {}
+
+    public record RawTacticalFeedback(String title, int excerptId, String recommendation) {}
+
+    public record RawReview(
+            String overview,
+            List<RawDesignFeedback> designNotes,
+            List<RawTacticalFeedback> tacticalNotes,
+            List<String> additionalTests) {
+        public String toJson() {
+            return Json.toJson(this);
+        }
+
+        public static RawReview fromJson(String json) {
+            return Json.fromJson(json, RawReview.class);
+        }
+    }
+
+    public record DesignFeedback(String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
+
+    public record TacticalFeedback(String title, CodeExcerpt excerpt, String recommendation) {}
+
+    public record GuidedReview(
+            String overview,
+            List<DesignFeedback> designNotes,
+            List<TacticalFeedback> tacticalNotes,
+            List<String> additionalTests) {
+
+        public String toJson() {
+            return Json.toJson(this);
+        }
+
+        public static GuidedReview fromJson(String json) {
+            return Json.fromJson(json, GuidedReview.class);
+        }
+
+        public static GuidedReview fromRaw(
+                RawReview rawReview,
+                Map<Integer, String> excerptContents,
+                Map<Integer, String> excerptFiles,
+                java.util.function.BiFunction<String, String, CodeExcerpt> resolver) {
+            List<DesignFeedback> designNotes = rawReview.designNotes().stream()
+                    .map(raw -> new DesignFeedback(
+                            raw.title(),
+                            raw.description(),
+                            raw.excerptIds().stream()
+                                    .filter(id -> id >= 0 && excerptContents.containsKey(id))
+                                    .map(id -> resolver.apply(excerptFiles.get(id), excerptContents.get(id)))
+                                    .toList(),
+                            raw.recommendation()))
+                    .toList();
+
+            List<TacticalFeedback> tacticalNotes = rawReview.tacticalNotes().stream()
+                    .map(raw -> {
+                        CodeExcerpt excerpt = (raw.excerptId() >= 0 && excerptContents.containsKey(raw.excerptId()))
+                                ? resolver.apply(excerptFiles.get(raw.excerptId()), excerptContents.get(raw.excerptId()))
+                                : new CodeExcerpt("unknown", 0, DiffSide.NEW, "");
+                        return new TacticalFeedback(raw.title(), excerpt, raw.recommendation());
+                    })
+                    .toList();
+
+            return new GuidedReview(rawReview.overview(), designNotes, tacticalNotes, rawReview.additionalTests());
+        }
     }
 }

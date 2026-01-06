@@ -1,6 +1,5 @@
 package ai.brokk.difftool.ui.unified;
 
-import ai.brokk.ICodeReview;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
@@ -25,6 +24,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DocumentFilter;
+
+import ai.brokk.util.ReviewParser;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -754,7 +755,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
      * @param endSourceLine 1-based end line in source file
      * @param side which side of the diff (OLD or NEW)
      */
-    public void highlightExcerptLines(int startSourceLine, int endSourceLine, ICodeReview.DiffSide side) {
+    public void highlightExcerptLines(int startSourceLine, int endSourceLine, ReviewParser.DiffSide side) {
         clearExcerptHighlight();
 
         if (unifiedDocument == null) {
@@ -762,7 +763,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
             return;
         }
 
-        boolean isRightSide = (side == ICodeReview.DiffSide.NEW);
+        boolean isRightSide = (side == ReviewParser.DiffSide.NEW);
         int startDocLine = unifiedDocument.findDocumentLineForSourceLine(startSourceLine, isRightSide);
         int endDocLine = unifiedDocument.findDocumentLineForSourceLine(endSourceLine, isRightSide);
 
@@ -825,13 +826,13 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
      * @param sourceLineNumber 1-based line number in the source file
      * @param side which side of the diff (OLD or NEW)
      */
-    public void scrollToLine(int sourceLineNumber, ICodeReview.DiffSide side) {
+    public void scrollToLine(int sourceLineNumber, ReviewParser.DiffSide side) {
         if (unifiedDocument == null) {
             logger.warn("Cannot scroll - no unified document");
             return;
         }
 
-        boolean isRightSide = (side == ICodeReview.DiffSide.NEW);
+        boolean isRightSide = (side == ReviewParser.DiffSide.NEW);
         int docLine = unifiedDocument.findDocumentLineForSourceLine(sourceLineNumber, isRightSide);
 
         if (docLine < 0) {

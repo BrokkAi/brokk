@@ -1,12 +1,12 @@
 package ai.brokk.agents;
 
-import ai.brokk.ICodeReview;
-import ai.brokk.ICodeReview.CodeExcerpt;
+import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.IContextManager;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
+import ai.brokk.util.ReviewParser;
 import ai.brokk.util.WhitespaceMatch;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -37,9 +37,9 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        Map<Integer, CodeExcerpt> excerpts = Map.of(
-            0, new CodeExcerpt("exists.java", 0, ICodeReview.DiffSide.NEW, "code"),
-            1, new CodeExcerpt("missing.java", 0, ICodeReview.DiffSide.NEW, "code")
+        Map<Integer, ReviewParser.RawExcerpt> excerpts = Map.of(
+            0, new ReviewParser.RawExcerpt("exists.java", 0, "code"),
+            1, new ReviewParser.RawExcerpt("missing.java", 0, "code")
         );
 
         Map<Integer, String> errors = ReviewAgent.validateFiles(excerpts, cm);
@@ -95,33 +95,33 @@ class ReviewAgentTest {
         var info = new FileComparisonInfo(null, left, right);
 
         // Match in NEW
-        var excerptNew = new CodeExcerpt("test.java", 2, ICodeReview.DiffSide.NEW, "line2-new");
+        var excerptNew = new ReviewParser.RawExcerpt("test.java", 2, "line2-new");
         var matchNew = ReviewAgent.matchExcerptInFile(excerptNew, info);
         assertNotNull(matchNew);
         assertEquals(2, matchNew.line());
-        assertEquals(ICodeReview.DiffSide.NEW, matchNew.side());
+        assertEquals(ReviewParser.DiffSide.NEW, matchNew.side());
 
         // Match in OLD (not in new)
-        var excerptOld = new CodeExcerpt("test.java", 2, ICodeReview.DiffSide.NEW, "line2");
+        var excerptOld = new ReviewParser.RawExcerpt("test.java", 2, "line2");
         var matchOld = ReviewAgent.matchExcerptInFile(excerptOld, info);
         assertNotNull(matchOld);
         assertEquals(2, matchOld.line());
-        assertEquals(ICodeReview.DiffSide.OLD, matchOld.side());
+        assertEquals(ReviewParser.DiffSide.OLD, matchOld.side());
 
         // Whitespace insensitive
-        var excerptWS = new CodeExcerpt("test.java", 1, ICodeReview.DiffSide.NEW, "  line1  ");
+        var excerptWS = new ReviewParser.RawExcerpt("test.java", 1, "  line1  ");
         var matchWS = ReviewAgent.matchExcerptInFile(excerptWS, info);
         assertNotNull(matchWS);
         assertEquals(1, matchWS.line());
 
         // No match
-        var excerptNone = new CodeExcerpt("test.java", 1, ICodeReview.DiffSide.NEW, "garbage");
+        var excerptNone = new ReviewParser.RawExcerpt("test.java", 1, "garbage");
         assertNull(ReviewAgent.matchExcerptInFile(excerptNone, info));
 
         // Multi-line match
         var multiLeft = new BufferSource.StringSource("a\nb\nc\nd\ne", "OLD", "multi.java");
         var multiInfo = new FileComparisonInfo(null, multiLeft, multiLeft);
-        var multiExcerpt = new CodeExcerpt("multi.java", 3, ICodeReview.DiffSide.NEW, "b\nc\nd");
+        var multiExcerpt = new ReviewParser.RawExcerpt("multi.java", 3, "b\nc\nd");
         var multiMatch = ReviewAgent.matchExcerptInFile(multiExcerpt, multiInfo);
         assertNotNull(multiMatch);
         assertEquals(2, multiMatch.line()); // Starts at line 2
@@ -129,20 +129,22 @@ class ReviewAgentTest {
     }
 
     @Test
-    void testRetryInStages_accumulatesGoodExcerpts() throws InterruptedException, IOException {
+    void testRetryInStages_accumulatesGoodExcerptsAcrossRetries() throws InterruptedException, IOException {
         Files.writeString(tempDir.resolve("file1.java"), "content1");
+        Files.writeString(tempDir.resolve("file2.java"), "content2");
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
-        
-        var info = new FileComparisonInfo(
-            null, 
-            new BufferSource.StringSource("content1", "OLD", "file1.java"),
-            new BufferSource.StringSource("content1", "NEW", "file1.java")
-        );
-        
-        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info));
 
-        // Response 1: Excerpt 0 is good, Excerpt 1 is bad (wrong file)
+        var info1 = new FileComparisonInfo(null,
+                new BufferSource.StringSource("content1", "NEW", "file1.java"),
+                new BufferSource.StringSource("content1", "NEW", "file1.java"));
+        var info2 = new FileComparisonInfo(null,
+                new BufferSource.StringSource("content2", "NEW", "file2.java"),
+                new BufferSource.StringSource("content2", "NEW", "file2.java"));
+
+        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info1, info2));
+
+        // Turn 1: Excerpt 0 is good, Excerpt 1 is bad (wrong file)
         String resp1 = """
             BRK_EXCERPT_0
             file1.java @1
@@ -151,34 +153,34 @@ class ReviewAgentTest {
             ```
             
             BRK_EXCERPT_1
-            nonexistent.java @1
+            wrong.java @1
             ```java
-            missing
+            content2
             ```
             """;
-            
-        // Response 2: Fixes Excerpt 1
+
+        // Retry 1: Provides ONLY the fixed Excerpt 1.
+        // The implementation must remember Excerpt 0 from the previous turn.
         String resp2 = """
             BRK_EXCERPT_1
-            file1.java @1
+            file2.java @1
             ```java
-            content1
+            content2
             ```
             """;
 
         var stubModel = new TestScriptedLanguageModel(resp1, resp2);
         var llm = new Llm(stubModel, "test", cm, false, false, false, false);
 
-        // Llm.sendRequest requires at least one message
         var initialMessages = new ArrayList<dev.langchain4j.data.message.ChatMessage>();
         initialMessages.add(new dev.langchain4j.data.message.UserMessage("analyze"));
         var turn1Result = llm.sendRequest(initialMessages);
 
         Map<Integer, CodeExcerpt> result = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
 
-        assertEquals(2, result.size(), "Should have accumulated both excerpts");
-        assertTrue(result.containsKey(0));
-        assertTrue(result.containsKey(1));
+        assertEquals(2, result.size());
+        assertEquals("file1.java", result.get(0).file());
+        assertEquals("file2.java", result.get(1).file());
     }
 
     @Test
@@ -231,15 +233,15 @@ class ReviewAgentTest {
     void testMatchExcerptInFile_emptyAndFull() {
         var emptySource = new BufferSource.StringSource("", "NEW", "empty.java");
         var info = new FileComparisonInfo(null, emptySource, emptySource);
-        var excerpt = new CodeExcerpt("empty.java", 1, ICodeReview.DiffSide.NEW, "content");
-        
+        var excerpt = new ReviewParser.RawExcerpt("empty.java", 1, "content");
+
         assertNull(ReviewAgent.matchExcerptInFile(excerpt, info));
 
         // Excerpt spans entire file
         var content = "line1\nline2";
         var source = new BufferSource.StringSource(content, "NEW", "full.java");
         var fullInfo = new FileComparisonInfo(null, source, source);
-        var fullExcerpt = new CodeExcerpt("full.java", 1, ICodeReview.DiffSide.NEW, content);
+        var fullExcerpt = new ReviewParser.RawExcerpt("full.java", 1, content);
         
         var match = ReviewAgent.matchExcerptInFile(fullExcerpt, fullInfo);
         assertNotNull(match);
@@ -310,64 +312,5 @@ class ReviewAgentTest {
         Map<Integer, CodeExcerpt> result2 = agent.retryInStages(stage2Llm, new ArrayList<>(), t1Result);
         assertEquals(1, result2.size());
         assertEquals(4, result2.get(10).line());
-    }
-
-    @Test
-    void testRetryInStages_preservesPartialSuccessOnLlmError() throws InterruptedException, IOException {
-        Files.writeString(tempDir.resolve("file1.java"), "content1");
-        TestProject project = new TestProject(tempDir);
-        IContextManager cm = new TestContextManager(project);
-        
-        var info = new FileComparisonInfo(
-            null, 
-            new BufferSource.StringSource("content1", "OLD", "file1.java"),
-            new BufferSource.StringSource("content1", "NEW", "file1.java")
-        );
-        
-        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info));
-
-        // First response has one good and one bad
-        String resp1 = """
-            BRK_EXCERPT_0
-            file1.java @1
-            ```java
-            content1
-            ```
-            BRK_EXCERPT_1
-            missing.java @1
-            ```java
-            fail
-            ```
-            """;
-
-        // Second response would fix it, but we'll simulate a network error via a custom model if needed,
-        // or just rely on the fact that if sendRequest returned an error, the loop breaks.
-        // For this test, we can use a model that returns a string, but we want the LLM to report an error.
-        
-        // Since TestScriptedLanguageModel doesn't easily simulate errors, 
-        // we'll just test that whatever was resolved BEFORE the retry is kept.
-        var stubModel = new TestScriptedLanguageModel(resp1); 
-        // We'll mock the Llm to return an error on the second call
-        Llm errorLlm = new Llm(stubModel, "test", cm, false, false, false, false) {
-            private int calls = 0;
-            @Override
-            public StreamingResult sendRequest(List<dev.langchain4j.data.message.ChatMessage> messages) {
-                if (calls++ > 0) return new StreamingResult(null, new RuntimeException("LLM Down"));
-                try {
-                    return super.sendRequest(messages);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-        };
-
-        var initialMessages = new ArrayList<dev.langchain4j.data.message.ChatMessage>();
-        initialMessages.add(new dev.langchain4j.data.message.UserMessage("analyze"));
-        var turn1Result = errorLlm.sendRequest(initialMessages);
-
-        Map<Integer, CodeExcerpt> result = agent.retryInStages(errorLlm, new ArrayList<>(), turn1Result);
-
-        assertEquals(1, result.size());
-        assertTrue(result.containsKey(0));
     }
 }

@@ -132,7 +132,20 @@ public class ReviewAgent {
             }
 
             var rawReview = ReviewParser.RawReview.fromJson(executionResult.resultText());
-            return ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
+            return ReviewParser.GuidedReview.fromRaw(
+                    rawReview,
+                    resolvedExcerpts.entrySet().stream()
+                            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().excerpt())),
+                    resolvedExcerpts.entrySet().stream()
+                            .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, e -> e.getValue().file())),
+                    (file, content) -> resolvedExcerpts.values().stream()
+                            .filter(e -> e.file().equals(file) && e.excerpt().equals(content))
+                            .findFirst()
+                            .orElse(new ReviewParser.CodeExcerpt(
+                                    requireNonNullElse(file, "unknown"),
+                                    1, // Default to line 1 if unresolved
+                                    ReviewParser.DiffSide.NEW,
+                                    requireNonNullElse(content, ""))));
         }
     }
 
@@ -147,7 +160,7 @@ public class ReviewAgent {
 
     record ExcerptMatch(int line, ReviewParser.DiffSide side, String matchedText) {}
 
-    static @Nullable ExcerptMatch matchExcerptInFile(CodeExcerpt excerpt, FileComparisonInfo fileInfo) {
+    static @Nullable ExcerptMatch matchExcerptInFile(ReviewParser.RawExcerpt excerpt, FileComparisonInfo fileInfo) {
         String[] excerptLines = excerpt.excerpt().split("\\R", -1);
 
         // Try NEW content first
@@ -185,13 +198,13 @@ public class ReviewAgent {
         return best;
     }
 
-    public static Map<Integer, String> validateFiles(Map<Integer, CodeExcerpt> excerpts, IContextManager cm) {
+    public static Map<Integer, String> validateFiles(Map<Integer, ReviewParser.RawExcerpt> excerpts, IContextManager cm) {
         Map<Integer, String> errors = new HashMap<>();
         for (var entry : excerpts.entrySet()) {
             try {
                 if (cm.toFile(entry.getValue().file()).exists()) {
                     continue;
-                };
+                }
             } catch (IllegalArgumentException e) {
                 // fall through to add error
             }
@@ -207,22 +220,34 @@ public class ReviewAgent {
             Llm.StreamingResult turn1Result) throws InterruptedException {
 
         List<ChatMessage> history = new ArrayList<>(turn1Messages);
-        AiMessage initialAiMessage = new AiMessage(turn1Result.text(),
-                                                   requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), ""));
-        history.add(initialAiMessage);
-
-        String latestResponseText = turn1Result.text();
+        Map<Integer, ReviewParser.RawExcerpt> validPathExcerpts = new HashMap<>();
         Map<Integer, CodeExcerpt> resolvedExcerpts = new HashMap<>();
 
         // Stage 1: Validate file paths exist
-        for (int fileRetries = 0; fileRetries < 2; fileRetries++) {
-            Map<Integer, CodeExcerpt> currentExcerpts = ReviewParser.instance.parseExcerpts(latestResponseText);
-            
-            // Any excerpt from a retry that isn't already known or just parsed
-            // will be validated. We keep the ones that pass.
-            Map<Integer, String> errors = validateFiles(currentExcerpts, cm);
+        String currentText = turn1Result.text();
+        String currentReasoning = requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "");
+        int fileAttempts = 0;
 
-            if (errors.isEmpty()) break;
+        while (fileAttempts <= 2) {
+            history.add(new AiMessage(currentText, currentReasoning));
+            Map<Integer, ReviewParser.RawExcerpt> parsed = ReviewParser.instance.parseExcerpts(currentText);
+
+            Map<Integer, String> errors = new HashMap<>();
+            for (var entry : parsed.entrySet()) {
+                int id = entry.getKey();
+                ReviewParser.RawExcerpt excerpt = entry.getValue();
+                try {
+                    if (cm.toFile(excerpt.file()).exists()) {
+                        validPathExcerpts.put(id, excerpt);
+                    } else {
+                        errors.put(id, "File does not exist: " + excerpt.file());
+                    }
+                } catch (IllegalArgumentException e) {
+                    errors.put(id, "Invalid file path: " + excerpt.file());
+                }
+            }
+
+            if (errors.isEmpty() || fileAttempts == 2) break;
 
             String errorList = errors.entrySet().stream()
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
@@ -239,27 +264,25 @@ public class ReviewAgent {
             var result = llm.sendRequest(history);
             if (result.error() != null) break;
 
-            latestResponseText = result.text();
-            history.add(new AiMessage(latestResponseText,
-                                      requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "")));
+            currentText = result.text();
+            currentReasoning = requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "");
+            fileAttempts++;
         }
 
         // Stage 2: Validate excerpts match file content using whitespace-aware matching
-        Map<Integer, CodeExcerpt> allParsedExcerpts = new HashMap<>();
-        // Seed with what we found in Stage 1
-        allParsedExcerpts.putAll(ReviewParser.instance.parseExcerpts(turn1Result.text()));
-
-        for (int excerptRetries = 0; excerptRetries < 2; excerptRetries++) {
-            Map<Integer, CodeExcerpt> currentExcerpts = ReviewParser.instance.parseExcerpts(latestResponseText);
-            allParsedExcerpts.putAll(currentExcerpts);
+        int excerptAttempts = 0;
+        while (excerptAttempts <= 2) {
+            if (excerptAttempts > 0) {
+                Map<Integer, ReviewParser.RawExcerpt> parsed = ReviewParser.instance.parseExcerpts(currentText);
+                validPathExcerpts.putAll(parsed);
+            }
 
             Map<Integer, String> errors = new HashMap<>();
-
-            for (var entry : allParsedExcerpts.entrySet()) {
+            for (var entry : validPathExcerpts.entrySet()) {
                 int id = entry.getKey();
                 if (resolvedExcerpts.containsKey(id)) continue;
 
-                CodeExcerpt excerpt = entry.getValue();
+                ReviewParser.RawExcerpt excerpt = entry.getValue();
                 FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
                 if (fileInfo == null) {
                     errors.put(id, "File not in diff: " + excerpt.file());
@@ -278,15 +301,15 @@ public class ReviewAgent {
                 }
             }
 
-            if (errors.isEmpty()) break;
+            if (errors.isEmpty() || excerptAttempts == 2) break;
 
-            // Build fresh message list for retry
+            // Build fresh message list for retry including file content
             List<ChatMessage> stage2Messages = new ArrayList<>();
             stage2Messages.add(buildSystemMessage());
 
             var filesToInclude = errors.keySet().stream()
-                    .map(allParsedExcerpts::get)
-                    .map(ReviewParser.CodeExcerpt::file)
+                    .map(validPathExcerpts::get)
+                    .map(ReviewParser.RawExcerpt::file)
                     .filter(f -> {
                         try { return cm.toFile(f).exists(); }
                         catch (IllegalArgumentException e) { return false; }
@@ -296,7 +319,6 @@ public class ReviewAgent {
                     .toList();
             Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
             stage2Messages.addAll(WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
-
             stage2Messages.addAll(history);
 
             String errorList = errors.entrySet().stream()
@@ -313,10 +335,10 @@ public class ReviewAgent {
             var result = llm.sendRequest(stage2Messages);
             if (result.error() != null) break;
 
-            latestResponseText = result.text();
-            AiMessage aiResponse = new AiMessage(latestResponseText,
-                                                 requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), ""));
-            history.add(aiResponse);
+            currentText = result.text();
+            currentReasoning = requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "");
+            history.add(new AiMessage(currentText, currentReasoning));
+            excerptAttempts++;
         }
 
         return resolvedExcerpts;
