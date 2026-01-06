@@ -6,11 +6,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.gui.util.KeyboardShortcutUtil;
-import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import javax.swing.*;
@@ -65,17 +61,9 @@ public class DetachableTabFrame extends JFrame implements ThemeAware {
             }
         });
 
-        // Register Cmd/Ctrl+Shift+W shortcut to redock
-        KeyStroke redockKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.redockWindow", KeyboardShortcutUtil.createPlatformShiftShortcut(KeyEvent.VK_W));
-        var root = this.getRootPane();
-        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(redockKeyStroke, "redockWindow");
-        root.getActionMap().put("redockWindow", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                handleRedock();
-            }
-        });
+        // Note: We intentionally removed the frame-level redock keybinding to avoid conflicts
+        // with child components' Cmd/Ctrl+W close behavior. Redock remains available
+        // via the toolbar Dock button and window close.
 
         setSize(900, 700);
         setLocationRelativeTo(null);
