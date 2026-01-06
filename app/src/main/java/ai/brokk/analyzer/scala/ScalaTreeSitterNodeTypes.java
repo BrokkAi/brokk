@@ -23,6 +23,9 @@ public class ScalaTreeSitterNodeTypes {
     public static final String IMPORT_DECLARATION = "import.declaration";
 
     // Test detection constants
+    public static final String CALL_EXPRESSION = "call_expression";
+    public static final String INFIX_EXPRESSION = "infix_expression";
+    public static final String OPERATOR_IDENTIFIER = "operator_identifier";
     public static final String TEST_MARKER = "test_marker";
     public static final String TYPE_IDENTIFIER = "type_identifier";
     public static final String IMPORT_DECLARATION_NODE = "import_declaration";
