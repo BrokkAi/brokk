@@ -1,12 +1,15 @@
 package ai.brokk;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
+import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -77,6 +80,9 @@ public class ExceptionReporter {
 
         // Mark this exception as reported
         reportedExceptions.put(signature, currentTime);
+
+        // Also write to local log file for debugging
+        writeLocalErrorReport(throwable, optionalFields);
 
         // Clean up old entries from the deduplication map (keep it bounded)
         if (reportedExceptions.size() > 1000) {
@@ -164,6 +170,39 @@ public class ExceptionReporter {
         }
 
         return signature.toString();
+    }
+
+    /**
+     * Writes the exception to .brokk/last-error.log in the active project directory.
+     */
+    private void writeLocalErrorReport(Throwable throwable, Map<String, String> optionalFields) {
+        Chrome activeWindow = SwingUtil.runOnEdt(Brokk::getActiveWindow, null);
+        if (activeWindow == null) {
+            return;
+        }
+
+        var project = activeWindow.getContextManager().getProject();
+        String stacktrace = formatStackTrace(throwable);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Timestamp: ").append(Instant.now()).append("\n");
+        sb.append("Exception: ").append(throwable.getClass().getName()).append("\n");
+        sb.append("Message:   ").append(throwable.getMessage()).append("\n");
+
+        if (!optionalFields.isEmpty()) {
+            sb.append("Context:\n");
+            optionalFields.forEach(
+                    (k, v) -> sb.append("  ").append(k).append(": ").append(v).append("\n"));
+        }
+
+        sb.append("\nStacktrace:\n").append(stacktrace).append("\n");
+
+        try {
+            ProjectFile errorLog = new ProjectFile(project.getRoot(), AbstractProject.BROKK_DIR + "/last-error.log");
+            errorLog.write(sb.toString());
+        } catch (Exception e) {
+            logger.warn("Failed to write local error report: {}", e.getMessage());
+        }
     }
 
     /**
