@@ -134,7 +134,7 @@ public class ReviewAgent {
     }
 
     @Blocking
-    private Map<Integer, CodeExcerpt> resolveExcerpts(Map<Integer, CodeExcerpt> excerpts) {
+    Map<Integer, CodeExcerpt> resolveExcerpts(Map<Integer, CodeExcerpt> excerpts) {
         // We use the live context to find the files and their current contents.
         // For a more robust implementation that handles the diff specifically,
         // we would need DiffService which is not currently visible/available in this scope.

@@ -1,5 +1,6 @@
 package ai.brokk.agents;
 
+import ai.brokk.ICodeReview;
 import ai.brokk.ICodeReview.CodeExcerpt;
 import ai.brokk.Llm;
 import ai.brokk.testutil.TestConsoleIO;
@@ -67,19 +68,19 @@ class ReviewAgentExcerptValidationTest {
     void testFileNotFoundRetryMergesCorrections() throws Exception {
         // Initial excerpts with one missing file
         Map<Integer, CodeExcerpt> initialExcerpts = new HashMap<>();
-        initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", "existing code"));
-        initialExcerpts.put(1, new CodeExcerpt("src/Missing.java", "missing code")); // This file doesn't exist
+        initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", 1, ICodeReview.DiffSide.NEW, "existing code"));
+        initialExcerpts.put(1, new CodeExcerpt("src/Missing.java", 0, ICodeReview.DiffSide.NEW, "missing code")); // This file doesn't exist
 
         // Track retry count
         AtomicInteger retryCount = new AtomicInteger(0);
-        
+
         // Mock LLM that returns corrected excerpt on first retry
         StreamingChatModel mockModel = createMockModel(messages -> {
             retryCount.incrementAndGet();
             // Return corrected excerpt pointing to existing file
             return """
                 BRK_EXCERPT_1
-                src/Another.java
+                src/Another.java @10
                 ```java
                 corrected code
                 ```
@@ -117,8 +118,8 @@ class ReviewAgentExcerptValidationTest {
 
         // Initial excerpts with one that doesn't match the diff
         Map<Integer, CodeExcerpt> initialExcerpts = new HashMap<>();
-        initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", "void newMethod() {}")); // Matches
-        initialExcerpts.put(1, new CodeExcerpt("src/Existing.java", "wrongContent")); // Doesn't match
+        initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", 1, ICodeReview.DiffSide.NEW, "void newMethod() {}")); // Matches
+        initialExcerpts.put(1, new CodeExcerpt("src/Existing.java", 0, ICodeReview.DiffSide.NEW, "wrongContent")); // Doesn't match
 
         AtomicInteger retryCount = new AtomicInteger(0);
 
@@ -127,7 +128,7 @@ class ReviewAgentExcerptValidationTest {
             retryCount.incrementAndGet();
             return """
                 BRK_EXCERPT_1
-                src/Existing.java
+                src/Existing.java @1
                 ```java
                 void newMethod() {}
                 ```
@@ -155,7 +156,7 @@ class ReviewAgentExcerptValidationTest {
     void testFileNotFoundRetryLimit() throws Exception {
         // Excerpt with permanently missing file
         Map<Integer, CodeExcerpt> initialExcerpts = new HashMap<>();
-        initialExcerpts.put(0, new CodeExcerpt("src/Missing.java", "code"));
+        initialExcerpts.put(0, new CodeExcerpt("src/Missing.java", 0, ICodeReview.DiffSide.NEW, "code"));
 
         AtomicInteger retryCount = new AtomicInteger(0);
 
@@ -164,7 +165,7 @@ class ReviewAgentExcerptValidationTest {
             retryCount.incrementAndGet();
             return """
                 BRK_EXCERPT_0
-                src/StillMissing.java
+                src/StillMissing.java @1
                 ```java
                 still missing
                 ```
@@ -194,7 +195,7 @@ class ReviewAgentExcerptValidationTest {
         agent = new ReviewAgent(diff, cm, consoleIO);
 
         Map<Integer, CodeExcerpt> initialExcerpts = new HashMap<>();
-        initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", "wrong content"));
+        initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", 0, ICodeReview.DiffSide.NEW, "wrong content"));
 
         AtomicInteger retryCount = new AtomicInteger(0);
 
@@ -203,7 +204,7 @@ class ReviewAgentExcerptValidationTest {
             retryCount.incrementAndGet();
             return """
                 BRK_EXCERPT_0
-                src/Existing.java
+                src/Existing.java @1
                 ```java
                 still wrong content
                 ```
@@ -228,8 +229,8 @@ class ReviewAgentExcerptValidationTest {
     @Test
     void testNoRetryWhenAllFilesExist() throws Exception {
         Map<Integer, CodeExcerpt> initialExcerpts = new HashMap<>();
-        initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", "code"));
-        initialExcerpts.put(1, new CodeExcerpt("src/Another.java", "more code"));
+        initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", 0, ICodeReview.DiffSide.NEW, "code"));
+        initialExcerpts.put(1, new CodeExcerpt("src/Another.java", 0, ICodeReview.DiffSide.NEW, "more code"));
 
         AtomicInteger retryCount = new AtomicInteger(0);
 
@@ -260,7 +261,7 @@ class ReviewAgentExcerptValidationTest {
         agent = new ReviewAgent(diff, cm, consoleIO);
 
         Map<Integer, CodeExcerpt> initialExcerpts = new HashMap<>();
-        initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", "matching content"));
+        initialExcerpts.put(0, new CodeExcerpt("src/Existing.java", 0, ICodeReview.DiffSide.NEW, "matching content"));
 
         AtomicInteger retryCount = new AtomicInteger(0);
 

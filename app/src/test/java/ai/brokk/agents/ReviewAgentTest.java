@@ -1,5 +1,6 @@
 package ai.brokk.agents;
 
+import ai.brokk.ICodeReview;
 import ai.brokk.ICodeReview.CodeExcerpt;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
@@ -28,8 +29,8 @@ class ReviewAgentTest {
         };
 
         Map<Integer, CodeExcerpt> excerpts = Map.of(
-            0, new CodeExcerpt("exists.java", "code"),
-            1, new CodeExcerpt("missing.java", "code")
+            0, new CodeExcerpt("exists.java", 0, ICodeReview.DiffSide.NEW, "code"),
+            1, new CodeExcerpt("missing.java", 0, ICodeReview.DiffSide.NEW, "code")
         );
 
         Map<Integer, String> errors = ReviewAgent.validateFileExists(excerpts, cm);
@@ -41,15 +42,54 @@ class ReviewAgentTest {
     @Test
     void testValidateExcerptInDiff() {
         String diff = "line 1\n+ new code\nline 2";
-        
+
         Map<Integer, CodeExcerpt> excerpts = Map.of(
-            0, new CodeExcerpt("file.java", "new code"),
-            1, new CodeExcerpt("file.java", "missing code")
+            0, new CodeExcerpt("file.java", 0, ICodeReview.DiffSide.NEW, "new code"),
+            1, new CodeExcerpt("file.java", 0, ICodeReview.DiffSide.NEW, "missing code")
         );
 
         Map<Integer, String> errors = ReviewAgent.validateExcerptInDiff(excerpts, diff);
 
         assertEquals(1, errors.size());
         assertEquals("Excerpt not found in diff", errors.get(1));
+    }
+
+    @Test
+    void testResolveExcerptsDisambiguation() {
+        String content = """
+            void method() {
+                System.out.println("first");
+            }
+            // ... middle ...
+            void method() {
+                System.out.println("second");
+            }
+            """;
+
+        IContextManager cm = new IContextManager() {
+            @Override
+            public ProjectFile toFile(String relName) {
+                return new ProjectFile(Path.of("/tmp"), "file.java") {
+                    @Override
+                    public boolean exists() { return true; }
+                    @Override
+                    public java.util.Optional<String> read() { return java.util.Optional.of(content); }
+                };
+            }
+        };
+
+        ReviewAgent agent = new ReviewAgent("", cm, new ai.brokk.testutil.TestConsoleIO());
+
+        // LLM suggests the second occurrence (near line 6)
+        Map<Integer, CodeExcerpt> excerpts = Map.of(
+            0, new CodeExcerpt("file.java", 6, ICodeReview.DiffSide.NEW, "void method() {")
+        );
+
+        Map<Integer, CodeExcerpt> resolved = agent.resolveExcerpts(excerpts);
+
+        assertEquals(1, resolved.size());
+        // Matches are at 0 and 4. LLM suggests 6.
+        // 4 is closer to 6 than 0 is.
+        assertEquals(4, resolved.get(0).line());
     }
 }
