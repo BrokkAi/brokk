@@ -804,6 +804,12 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     @Override
+    public void addNotify() {
+        super.addNotify();
+        tabDragUndockHandler.register();
+    }
+
+    @Override
     public void removeNotify() {
         tabDragUndockHandler.unregister();
         super.removeNotify();
@@ -814,18 +820,23 @@ public class RightPanel extends JPanel implements ThemeAware {
         private @Nullable Point pressPoint;
         private int dragTabIndex = -1;
         private boolean undocked;
+        private boolean registered = false;
 
         /**
          * Registers the AWT event listener to intercept mouse events globally within buildReviewTabs.
-         * TODO: Remove listener on RightPanel disposal if the application lifecycle requires it.
+         * Pairs with unregister() in removeNotify to handle panel re-parenting.
          */
         public void register() {
+            if (registered) return;
             Toolkit.getDefaultToolkit()
                     .addAWTEventListener(this, AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);
+            registered = true;
         }
 
         public void unregister() {
+            if (!registered) return;
             Toolkit.getDefaultToolkit().removeAWTEventListener(this);
+            registered = false;
         }
 
         @Override
