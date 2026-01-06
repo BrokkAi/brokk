@@ -2,7 +2,6 @@ package ai.brokk.gui;
 
 import ai.brokk.ICodeReview.DesignFeedback;
 import ai.brokk.ICodeReview.GuidedReview;
-import ai.brokk.ICodeReview.ParsedExcerpt;
 import ai.brokk.ICodeReview.TacticalFeedback;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
@@ -72,21 +71,15 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    public void displayReview(
-            GuidedReview review, List<List<ParsedExcerpt>> designExcerpts, List<ParsedExcerpt> tacticalExcerpts) {
-        logger.info(
-                "displayReview: overview present, designNotes={}, tacticalExcerpts={}",
-                review.designNotes().size(),
-                tacticalExcerpts.size());
+    public void displayReview(GuidedReview review) {
         contentPanel.removeAll();
 
         addHeader("Overview");
         addItem("Overview", review.overview(), review.overview());
 
         addHeader("Design");
-        for (int i = 0; i < review.designNotes().size(); i++) {
-            DesignFeedback design = review.designNotes().get(i);
-            addItem(design.title(), design, designExcerpts.get(i));
+        for (DesignFeedback design : review.designNotes()) {
+            addItem(design.title(), design, design);
         }
 
         addHeader("Tactical");

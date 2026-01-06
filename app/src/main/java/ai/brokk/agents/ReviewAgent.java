@@ -98,12 +98,13 @@ public class ReviewAgent {
             }
 
             String analysisText = turn1Result.text();
-            Map<Integer, ICodeReview.CodeExcerpt> parsedExcerpts =
-                    ReviewExcerptParser.instance.parseExcerpts(analysisText);
+            Map<Integer, String> excerptFiles = ReviewExcerptParser.instance.parseExcerptFiles(analysisText);
+            Map<Integer, String> excerptContents = ReviewExcerptParser.instance.parseExcerptContents(analysisText);
 
             // --- Turn 1.5: Retry for missing files and non-matching excerpts ---
-            parsedExcerpts = retryFileNotFound(reviewLlm, turn1Messages, turn1Result, parsedExcerpts);
-            parsedExcerpts = retryExcerptNotFound(reviewLlm, turn1Messages, turn1Result, parsedExcerpts);
+            var retried = retryInvalidExcerpts(reviewLlm, turn1Messages, turn1Result, excerptFiles, excerptContents);
+            excerptFiles = retried.files();
+            excerptContents = retried.contents();
 
             // --- Turn 2: Generate structured review via tool call ---
             var turn2Messages = new ArrayList<ChatMessage>(turn1Messages);
@@ -128,117 +129,17 @@ public class ReviewAgent {
             }
 
             var rawReview = ICodeReview.RawReview.fromJson(executionResult.resultText());
-            return ICodeReview.GuidedReview.fromRaw(rawReview, parsedExcerpts);
+            final Map<Integer, String> finalFiles = excerptFiles;
+            final Map<Integer, String> finalContents = excerptContents;
+            return ICodeReview.GuidedReview.fromRaw(
+                    rawReview,
+                    finalContents,
+                    finalFiles,
+                    (file, excerpt) -> new ICodeReview.CodeExcerpt(file, 0, ICodeReview.DiffSide.NEW, excerpt));
         }
     }
 
-    @Blocking
-    Map<Integer, CodeExcerpt> retryExcerptNotFound(
-            Llm llm,
-            List<ChatMessage> turn1Messages,
-            Llm.StreamingResult turn1Result,
-            Map<Integer, CodeExcerpt> initialExcerpts) throws InterruptedException {
-
-        Map<Integer, CodeExcerpt> currentExcerpts = new HashMap<>(initialExcerpts);
-        List<ChatMessage> history = new ArrayList<>(turn1Messages);
-        history.add(new AiMessage(turn1Result.text(),
-                requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
-
-        for (int i = 0; i < 2; i++) {
-            Map<Integer, String> errors = validateExcerptInDiff(currentExcerpts, diff);
-            if (errors.isEmpty()) {
-                break;
-            }
-
-            var failedFiles = errors.keySet().stream()
-                    .map(currentExcerpts::get)
-                    .map(ce -> cm.toFile(ce.file()))
-                    .filter(java.util.Objects::nonNull)
-                    .distinct()
-                    .toList();
-
-            var fragments = cm.toPathFragments(failedFiles);
-            Context narrowedContext = new Context(cm).addFragments(fragments);
-            String narrowedContextStr = WorkspacePrompts.getMessagesInAddedOrder(narrowedContext, EnumSet.noneOf(SpecialTextType.class))
-                    .stream()
-                    .map(ChatMessage::toString)
-                    .collect(java.util.stream.Collectors.joining("\n\n"));
-
-            String errorList = errors.entrySet().stream()
-                    .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
-                    .collect(java.util.stream.Collectors.joining("\n"));
-
-            UserMessage retryMessage = new UserMessage("""
-                    The following excerpts could not be found exactly as written in the provided diff. 
-                    Please provide corrected BRK_EXCERPT blocks that match the diff content exactly.
-                    
-                    Errors:
-                    %s
-                    
-                    Reference Context for failed files:
-                    %s
-                    """.formatted(errorList, narrowedContextStr));
-
-            history.add(retryMessage);
-            var result = llm.sendRequest(history);
-            if (result.error() != null) {
-                break;
-            }
-
-            history.add(new AiMessage(result.text(),
-                    requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "")));
-
-            Map<Integer, CodeExcerpt> newExcerpts = ReviewExcerptParser.instance.parseExcerpts(result.text());
-            currentExcerpts.putAll(newExcerpts);
-        }
-
-        return currentExcerpts;
-    }
-
-    @Blocking
-    Map<Integer, CodeExcerpt> retryFileNotFound(
-            Llm llm,
-            List<ChatMessage> turn1Messages,
-            Llm.StreamingResult turn1Result,
-            Map<Integer, CodeExcerpt> initialExcerpts) throws InterruptedException {
-
-        Map<Integer, CodeExcerpt> currentExcerpts = new HashMap<>(initialExcerpts);
-        List<ChatMessage> history = new ArrayList<>(turn1Messages);
-        history.add(new AiMessage(turn1Result.text(), 
-                requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
-
-        for (int i = 0; i < 2; i++) {
-            Map<Integer, String> errors = validateFileExists(currentExcerpts, cm);
-            if (errors.isEmpty()) {
-                break;
-            }
-
-            String errorList = errors.entrySet().stream()
-                    .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
-                    .collect(java.util.stream.Collectors.joining("\n"));
-
-            UserMessage retryMessage = new UserMessage("""
-                    The following excerpts referenced invalid file paths. Please provide corrected BRK_EXCERPT blocks 
-                    with the correct relative file paths from the context:
-                    
-                    %s
-                    """.formatted(errorList));
-
-            history.add(retryMessage);
-            var result = llm.sendRequest(history);
-            if (result.error() != null) {
-                break; // Stop retrying on error
-            }
-
-            history.add(new AiMessage(result.text(), 
-                    requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "")));
-            
-            Map<Integer, CodeExcerpt> newExcerpts = ReviewExcerptParser.instance.parseExcerpts(result.text());
-            currentExcerpts.putAll(newExcerpts);
-        }
-
-        return currentExcerpts;
-    }
+    private record ExcerptData(Map<Integer, String> files, Map<Integer, String> contents) {}
 
     public static Map<Integer, String> validateFileExists(Map<Integer, CodeExcerpt> excerpts, IContextManager cm) {
         Map<Integer, String> errors = new HashMap<>();
@@ -254,10 +155,118 @@ public class ReviewAgent {
         Map<Integer, String> errors = new HashMap<>();
         for (var entry : excerpts.entrySet()) {
             if (!diff.contains(entry.getValue().excerpt())) {
-                errors.put(entry.getKey(), "Excerpt not found in diff");
+                errors.put(entry.getKey(), "Excerpt not found in diff for " + entry.getValue().file());
             }
         }
         return errors;
+    }
+
+    @Blocking
+    public Map<Integer, CodeExcerpt> retryFileNotFound(
+            Llm llm,
+            List<ChatMessage> turn1Messages,
+            Llm.StreamingResult turn1Result,
+            Map<Integer, CodeExcerpt> initialExcerpts)
+            throws InterruptedException {
+        return retryWithValidation(llm, turn1Messages, turn1Result, initialExcerpts, true, false);
+    }
+
+    @Blocking
+    public Map<Integer, CodeExcerpt> retryExcerptNotFound(
+            Llm llm,
+            List<ChatMessage> turn1Messages,
+            Llm.StreamingResult turn1Result,
+            Map<Integer, CodeExcerpt> initialExcerpts)
+            throws InterruptedException {
+        return retryWithValidation(llm, turn1Messages, turn1Result, initialExcerpts, false, true);
+    }
+
+    @Blocking
+    private Map<Integer, CodeExcerpt> retryWithValidation(
+            Llm llm,
+            List<ChatMessage> turn1Messages,
+            Llm.StreamingResult turn1Result,
+            Map<Integer, CodeExcerpt> initialExcerpts,
+            boolean checkFileExists,
+            boolean checkExcerptInDiff)
+            throws InterruptedException {
+        Map<Integer, String> files = new HashMap<>();
+        Map<Integer, String> contents = new HashMap<>();
+        initialExcerpts.forEach((id, ce) -> {
+            files.put(id, ce.file());
+            contents.put(id, ce.excerpt());
+        });
+        ExcerptData res = retryInvalidExcerptsWithFlags(llm, turn1Messages, turn1Result, files, contents, checkFileExists, checkExcerptInDiff);
+        Map<Integer, CodeExcerpt> out = new HashMap<>();
+        res.files().forEach((id, f) -> {
+            out.put(id, new CodeExcerpt(f, res.contents().getOrDefault(id, "")));
+        });
+        return out;
+    }
+
+    @Blocking
+    private ExcerptData retryInvalidExcerptsWithFlags(
+            Llm llm,
+            List<ChatMessage> turn1Messages,
+            Llm.StreamingResult turn1Result,
+            Map<Integer, String> initialFiles,
+            Map<Integer, String> initialContents,
+            boolean checkFileExists,
+            boolean checkExcerptInDiff)
+            throws InterruptedException {
+
+        Map<Integer, String> currentFiles = new HashMap<>(initialFiles);
+        Map<Integer, String> currentContents = new HashMap<>(initialContents);
+        List<ChatMessage> history = new ArrayList<>(turn1Messages);
+        history.add(new AiMessage(turn1Result.text(),
+                requireNonNullElse(requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+
+        for (int i = 0; i < 2; i++) {
+            Map<Integer, String> errors = new HashMap<>();
+            for (var entry : currentFiles.entrySet()) {
+                if (checkFileExists && cm.toFile(entry.getValue()) == null) {
+                    errors.put(entry.getKey(), "File does not exist: " + entry.getValue());
+                } else if (checkExcerptInDiff && currentContents.containsKey(entry.getKey()) && !diff.contains(currentContents.get(entry.getKey()))) {
+                    errors.put(entry.getKey(), "Excerpt not found in diff for " + entry.getValue());
+                }
+            }
+
+            if (errors.isEmpty()) break;
+
+            String errorList = errors.entrySet().stream()
+                    .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
+                    .collect(java.util.stream.Collectors.joining("\n"));
+
+            UserMessage retryMessage = new UserMessage("""
+                    The following excerpts referenced invalid file paths or could not be found exactly in the diff.
+                    Please provide corrected BRK_EXCERPT blocks:
+                    
+                    %s
+                    """.formatted(errorList));
+
+            history.add(retryMessage);
+            var result = llm.sendRequest(history);
+            if (result.error() != null) break;
+
+            history.add(new AiMessage(result.text(),
+                    requireNonNullElse(requireNonNull(result.chatResponse()).reasoningContent(), "")));
+
+            currentFiles.putAll(ReviewExcerptParser.instance.parseExcerptFiles(result.text()));
+            currentContents.putAll(ReviewExcerptParser.instance.parseExcerptContents(result.text()));
+        }
+
+        return new ExcerptData(currentFiles, currentContents);
+    }
+
+    @Blocking
+    private ExcerptData retryInvalidExcerpts(
+            Llm llm,
+            List<ChatMessage> turn1Messages,
+            Llm.StreamingResult turn1Result,
+            Map<Integer, String> initialFiles,
+            Map<Integer, String> initialContents)
+            throws InterruptedException {
+        return retryInvalidExcerptsWithFlags(llm, turn1Messages, turn1Result, initialFiles, initialContents, true, true);
     }
 
     private SystemMessage buildSystemMessage() {

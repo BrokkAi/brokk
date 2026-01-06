@@ -1,7 +1,7 @@
 package ai.brokk.gui;
 
+import ai.brokk.ICodeReview.CodeExcerpt;
 import ai.brokk.ICodeReview.GuidedReview;
-import ai.brokk.ICodeReview.ParsedExcerpt;
 import ai.brokk.ICodeReview.TacticalFeedback;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.theme.GuiTheme;
@@ -22,7 +22,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
     private final ReviewListPanel listPanel;
     private final ReviewDetailPanel detailPanel;
-    private final Map<Object, List<ParsedExcerpt>> itemExcerpts = new HashMap<>();
+    private final Map<Object, List<CodeExcerpt>> itemExcerpts = new HashMap<>();
     private final List<ReviewNavigationListener> navigationListeners = new ArrayList<>();
 
     public CodeReviewPanel(Runnable triggerCallback) {
@@ -41,15 +41,11 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
     }
 
     private void handleItemSelected(Object item) {
-        List<ParsedExcerpt> excerpts = itemExcerpts.getOrDefault(item, List.of());
-        logger.debug(
-                "handleItemSelected: item={}, excerpts found={}",
-                item.getClass().getSimpleName(),
-                excerpts.size());
+        List<CodeExcerpt> excerpts = itemExcerpts.getOrDefault(item, List.of());
         detailPanel.showItem(item, excerpts);
 
         if (!excerpts.isEmpty()) {
-            ParsedExcerpt first = excerpts.getFirst();
+            CodeExcerpt first = excerpts.getFirst();
             for (ReviewNavigationListener listener : navigationListeners) {
                 listener.onNavigate(first);
             }
@@ -73,40 +69,19 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         listPanel.clearSelection();
     }
 
-    public void displayReview(
-            GuidedReview review, List<List<ParsedExcerpt>> designExcerpts, List<ParsedExcerpt> tacticalExcerpts) {
-        logger.info(
-                "displayReview: overview={} chars, designNotes={}, tacticalExcerpts={}",
-                review.overview().length(),
-                review.designNotes().size(),
-                tacticalExcerpts.size());
-
+    public void displayReview(GuidedReview review) {
         itemExcerpts.clear();
         itemExcerpts.put(review.overview(), List.of());
 
-        for (int i = 0; i < review.designNotes().size(); i++) {
-            itemExcerpts.put(review.designNotes().get(i), designExcerpts.get(i));
+        for (var design : review.designNotes()) {
+            itemExcerpts.put(design, design.excerpts());
         }
 
-        for (TacticalFeedback tactical : review.tacticalNotes()) {
-            List<ParsedExcerpt> matches = tacticalExcerpts.stream()
-                    .filter(pe -> pe.original().file().equals(tactical.excerpt().file())
-                            && pe.original().excerpt().equals(tactical.excerpt().excerpt()))
-                    .toList();
-            itemExcerpts.put(tactical, matches);
+        for (var tactical : review.tacticalNotes()) {
+            itemExcerpts.put(tactical, List.of(tactical.excerpt()));
         }
 
-        logger.info("displayReview: itemExcerpts map size after population: {}", itemExcerpts.size());
-        for (var entry : itemExcerpts.entrySet()) {
-            logger.debug(
-                    "  itemExcerpts key={}, excerpts={}",
-                    entry.getKey().getClass().getSimpleName(),
-                    entry.getValue().size());
-        }
-
-        listPanel.displayReview(review, designExcerpts, tacticalExcerpts);
-
-        // Auto-select overview
+        listPanel.displayReview(review);
         handleItemSelected(review.overview());
     }
 

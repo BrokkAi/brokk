@@ -77,7 +77,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private JPanel diffContainer;
 
     @Nullable
-    private ICodeReview.ParsedExcerpt activeExcerpt = null;
+    private ICodeReview.CodeExcerpt activeExcerpt = null;
 
     private List<FileComparisonInfo> fileComparisons = List.of();
 
@@ -468,7 +468,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                                     up.clearExcerptHighlight();
                                     up.scrollToLine(targetLine);
                                     if (activeExcerpt != null) {
-                                        String[] lines = activeExcerpt.original().excerpt().split("\\r?\\n", -1);
+                                        String[] lines = activeExcerpt.excerpt().split("\\r?\\n", -1);
                                         int endLine = targetLine + Math.max(0, lines.length - 1);
                                         up.highlightExcerptLines(targetLine, endLine);
                                     }
@@ -516,11 +516,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.fileTreePanel.initializeTree();
 
         codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview);
-        codeReviewPanel.addReviewNavigationListener(pe -> {
+        codeReviewPanel.addReviewNavigationListener(ce -> {
             if (fileTreePanel != null) fileTreePanel.clearSelection();
-            activeExcerpt = pe;
-            ProjectFile pf = contextManager.toFile(pe.original().file());
-            diffCore.showLocation(pf, pe.lineNumber(), pe.side());
+            activeExcerpt = ce;
+            ProjectFile pf = contextManager.toFile(ce.file());
+            diffCore.showLocation(pf, ce.line(), ce.side());
         });
 
         // Left column: Review List above File Tree
@@ -727,34 +727,36 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             tactical.recommendation().length());
                 }
 
-                // Pre-resolve excerpts
-                List<List<ICodeReview.ParsedExcerpt>> designExcerpts = review.designNotes().stream()
-                        .map(design -> design.excerpts().stream()
-                                .map(this::resolveExcerpt)
-                                .filter(java.util.Objects::nonNull)
-                                .toList())
+                // Resolve excerpts in place
+                List<ICodeReview.DesignFeedback> resolvedDesign = review.designNotes().stream()
+                        .map(design -> new ICodeReview.DesignFeedback(
+                                design.title(),
+                                design.description(),
+                                design.excerpts().stream()
+                                        .map(this::resolveExcerpt)
+                                        .toList(),
+                                design.recommendation()))
                         .toList();
 
-                List<ICodeReview.ParsedExcerpt> tacticalExcerpts = review.tacticalNotes().stream()
-                        .map(tactical -> this.resolveExcerpt(tactical.excerpt()))
-                        .filter(java.util.Objects::nonNull)
+                List<ICodeReview.TacticalFeedback> resolvedTactical = review.tacticalNotes().stream()
+                        .map(tactical -> new ICodeReview.TacticalFeedback(
+                                tactical.title(),
+                                resolveExcerpt(tactical.excerpt()),
+                                tactical.recommendation()))
                         .toList();
 
-                logger.info("Resolved designExcerpts: {} lists", designExcerpts.size());
-                for (int i = 0; i < designExcerpts.size(); i++) {
-                    logger.info(
-                            "  DesignExcerpts[{}]: {} resolved",
-                            i,
-                            designExcerpts.get(i).size());
-                }
-                logger.info("Resolved tacticalExcerpts: {}", tacticalExcerpts.size());
+                ICodeReview.GuidedReview resolvedReview = new ICodeReview.GuidedReview(
+                        review.overview(),
+                        resolvedDesign,
+                        resolvedTactical,
+                        review.additionalTests());
 
                 SwingUtilities.invokeLater(() -> {
                     if (parent instanceof JSplitPane splitPane) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
                     }
                     if (codeReviewPanel != null) {
-                        codeReviewPanel.displayReview(review, designExcerpts, tacticalExcerpts);
+                        codeReviewPanel.displayReview(resolvedReview);
                         codeReviewPanel.setBusy(false);
                     }
                     parent.revalidate();
@@ -775,58 +777,40 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private @Nullable ICodeReview.ParsedExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
-        logger.debug(
-                "resolveExcerpt: file='{}', excerpt={} chars",
-                excerpt.file(),
-                excerpt.excerpt().length());
+    private ICodeReview.CodeExcerpt resolveExcerpt(ICodeReview.CodeExcerpt excerpt) {
         String relPath = excerpt.file();
         FileComparisonInfo targetInfo = fileComparisons.stream()
-                .filter(info ->
-                        (info.file() != null && relPath.equals(info.file().toString()))
-                                || relPath.equals(info.rightSource().filename())
-                                || relPath.equals(info.leftSource().filename()))
+                .filter(info -> (info.file() != null && relPath.equals(info.file().toString()))
+                        || relPath.equals(info.rightSource().filename())
+                        || relPath.equals(info.leftSource().filename()))
                 .findFirst()
                 .orElse(null);
 
         if (targetInfo == null) {
-            logger.warn(
-                    "resolveExcerpt: Could not find file '{}' in {} fileComparisons", relPath, fileComparisons.size());
-            fileComparisons.forEach(info -> logger.debug(
-                    "  Available: file={}, left={}, right={}",
-                    info.file(),
-                    info.leftSource().filename(),
-                    info.rightSource().filename()));
-            return null;
+            return excerpt;
         }
-        logger.debug("resolveExcerpt: Found file match for '{}'", relPath);
 
         String[] targetLines = excerpt.excerpt().split("\\r?\\n", -1);
 
-        // 1. Try NEW content first
+        // 1. Try NEW content
         String newContent = targetInfo.rightSource().content();
         String[] newLines = newContent.split("\\r?\\n", -1);
         var matches = WhitespaceMatch.findAll(newLines, targetLines);
         if (!matches.isEmpty()) {
-            int lineNum = matches.getFirst().startLine() + 1;
-            logger.debug("resolveExcerpt: Found in NEW content at line {}", lineNum);
-            return new ICodeReview.ParsedExcerpt(excerpt, lineNum, ICodeReview.DiffSide.NEW);
+            return new ICodeReview.CodeExcerpt(
+                    excerpt.file(), matches.getFirst().startLine() + 1, ICodeReview.DiffSide.NEW, excerpt.excerpt());
         }
-        logger.debug("resolveExcerpt: Not found in NEW content ({} lines)", newLines.length);
 
         // 2. Try OLD content
         String oldContent = targetInfo.leftSource().content();
         String[] oldLines = oldContent.split("\\r?\\n", -1);
         var oldMatches = WhitespaceMatch.findAll(oldLines, targetLines);
         if (!oldMatches.isEmpty()) {
-            int lineNum = oldMatches.getFirst().startLine() + 1;
-            logger.debug("resolveExcerpt: Found in OLD content at line {}", lineNum);
-            return new ICodeReview.ParsedExcerpt(excerpt, lineNum, ICodeReview.DiffSide.OLD);
+            return new ICodeReview.CodeExcerpt(
+                    excerpt.file(), oldMatches.getFirst().startLine() + 1, ICodeReview.DiffSide.OLD, excerpt.excerpt());
         }
-        logger.debug("resolveExcerpt: Not found in OLD content ({} lines)", oldLines.length);
 
-        logger.warn("Could not resolve excerpt for {} in either old or new content", relPath);
-        return null;
+        return excerpt;
     }
 
     @Override

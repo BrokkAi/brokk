@@ -1,7 +1,7 @@
 package ai.brokk.gui;
 
+import ai.brokk.ICodeReview.CodeExcerpt;
 import ai.brokk.ICodeReview.DesignFeedback;
-import ai.brokk.ICodeReview.ParsedExcerpt;
 import ai.brokk.ICodeReview.TacticalFeedback;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.components.MaterialButton;
@@ -73,13 +73,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         listeners.add(listener);
     }
 
-    public void showItem(Object item, List<ParsedExcerpt> excerpts) {
-        logger.info("showItem: item={}, excerpts={}", item.getClass().getSimpleName(), excerpts.size());
-        for (int i = 0; i < excerpts.size(); i++) {
-            var pe = excerpts.get(i);
-            logger.debug("  excerpt[{}]: file='{}', line={}", i, pe.original().file(), pe.lineNumber());
-        }
-
+    public void showItem(Object item, List<CodeExcerpt> excerpts) {
         cardLayout.show(this, CARD_CONTENT);
         contentPanel.removeAll();
 
@@ -97,8 +91,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             if (!tactical.recommendation().isBlank()) {
                 addMarkdownText("<b>Recommendation:</b> " + tactical.recommendation());
             }
-        } else if (item instanceof ParsedExcerpt pe) {
-            addMarkdownText("<code>" + pe.original().excerpt().replace("\n", "<br>") + "</code>");
+        } else if (item instanceof CodeExcerpt ce) {
+            addMarkdownText("<code>" + ce.excerpt().replace("\n", "<br>") + "</code>");
         }
 
         if (!excerpts.isEmpty()) {
@@ -116,8 +110,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         contentPanel.add(label);
     }
 
-    private void addExcerptsTable(List<ParsedExcerpt> excerpts) {
-        logger.debug("addExcerptsTable: adding {} excerpt links", excerpts.size());
+    private void addExcerptsTable(List<CodeExcerpt> excerpts) {
         JPanel tablePanel = new JPanel();
         tablePanel.setLayout(new BoxLayout(tablePanel, BoxLayout.Y_AXIS));
         tablePanel.setAlignmentX(Component.LEFT_ALIGNMENT);
@@ -145,18 +138,18 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             tablePanel.add(navPanel);
         }
 
-        for (ParsedExcerpt pe : excerpts) {
-            String filePath = pe.original().file();
+        for (CodeExcerpt ce : excerpts) {
+            String filePath = ce.file();
             String fileName = filePath.contains("/") ? filePath.substring(filePath.lastIndexOf('/') + 1) : filePath;
-            String sideSuffix = (pe.side() == ai.brokk.ICodeReview.DiffSide.OLD) ? " (old)" : "";
-            String labelText = String.format("%s:%d%s", fileName, pe.lineNumber(), sideSuffix);
+            String sideSuffix = (ce.side() == ai.brokk.ICodeReview.DiffSide.OLD) ? " (old)" : "";
+            String labelText = String.format("%s:%d%s", fileName, ce.line(), sideSuffix);
             JLabel label = new JLabel("<html><a href='#'>" + labelText + "</a></html>");
             label.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             label.setBorder(new EmptyBorder(2, 5, 2, 5));
             label.addMouseListener(new MouseAdapter() {
                 @Override
                 public void mouseClicked(MouseEvent e) {
-                    notifyNavigate(pe);
+                    notifyNavigate(ce);
                 }
             });
             tablePanel.add(label);
@@ -164,14 +157,9 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         contentPanel.add(tablePanel);
     }
 
-    private void notifyNavigate(ParsedExcerpt pe) {
-        logger.debug(
-                "notifyNavigate: file='{}', line={}, listeners={}",
-                pe.original().file(),
-                pe.lineNumber(),
-                listeners.size());
+    private void notifyNavigate(CodeExcerpt ce) {
         for (ReviewNavigationListener l : listeners) {
-            l.onNavigate(pe);
+            l.onNavigate(ce);
         }
     }
 

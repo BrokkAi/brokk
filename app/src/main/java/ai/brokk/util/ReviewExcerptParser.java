@@ -30,93 +30,108 @@ public class ReviewExcerptParser {
         IN_CONTENT
     }
 
-    /**
-     * Parses the provided text for BRK_EXCERPT blocks.
-     *
-     * @param text The raw response text to parse.
-     * @return A map of integer ID to CodeExcerpt.
-     */
-    public Map<Integer, ICodeReview.CodeExcerpt> parseExcerpts(String text) {
-        Map<Integer, ICodeReview.CodeExcerpt> excerpts = new HashMap<>();
+    public Map<Integer, String> parseExcerptFiles(String text) {
+        Map<Integer, String> files = new HashMap<>();
         String[] lines = text.split("\\R", -1);
-
         State state = State.SEARCHING;
         Integer currentId = null;
-        String currentFile = null;
-        StringBuilder currentContent = new StringBuilder();
 
         for (String line : lines) {
             String trimmed = line.trim();
-
-            // Check for new BRK_EXCERPT marker in any state except SEARCHING
-            // This handles unclosed blocks by abandoning them when a new marker appears
             if (state != State.SEARCHING && trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
                 try {
-                    int newId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
-                    // Found a new excerpt marker - abandon current block and start fresh
-                    currentId = newId;
-                    currentFile = null;
-                    currentContent.setLength(0);
+                    currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
                     state = State.EXPECTING_FILENAME;
                     continue;
-                } catch (NumberFormatException ignored) {
-                    // Not a valid marker, fall through to normal processing
-                }
+                } catch (NumberFormatException ignored) {}
             }
-
             switch (state) {
                 case SEARCHING -> {
                     if (trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
                         try {
                             currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
                             state = State.EXPECTING_FILENAME;
-                        } catch (NumberFormatException ignored) {
-                            // Skip non-numeric IDs
-                        }
+                        } catch (NumberFormatException ignored) {}
                     }
                 }
                 case EXPECTING_FILENAME -> {
                     if (!trimmed.isEmpty()) {
-                        currentFile = trimmed;
+                        files.put(currentId, trimmed);
                         state = State.EXPECTING_FENCE;
                     }
                 }
                 case EXPECTING_FENCE -> {
                     if (trimmed.startsWith("```")) {
                         state = State.IN_CONTENT;
-                        currentContent.setLength(0);
-                    } else if (trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
-                        try {
-                            currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
-                            state = State.EXPECTING_FILENAME;
-                        } catch (NumberFormatException ignored) {
-                            state = State.SEARCHING;
-                        }
-                    } else if (!trimmed.isEmpty()) {
-                        // Unexpected text between filename and fence, reset
-                        state = State.SEARCHING;
                     }
                 }
                 case IN_CONTENT -> {
-                    // Closing fence must start at column 0 (no leading whitespace) and be exactly ```
                     if (line.equals("```") || line.startsWith("```") && line.substring(3).isBlank()) {
-                        if (currentId != null && currentFile != null) {
-                            excerpts.put(currentId, new ICodeReview.CodeExcerpt(currentFile, currentContent.toString()));
-                        }
                         state = State.SEARCHING;
-                        currentId = null;
-                        currentFile = null;
+                    }
+                }
+            }
+        }
+        return Map.copyOf(files);
+    }
+
+    public Map<Integer, ICodeReview.CodeExcerpt> parseExcerpts(String text) {
+        Map<Integer, String> files = parseExcerptFiles(text);
+        Map<Integer, String> contents = parseExcerptContents(text);
+        Map<Integer, ICodeReview.CodeExcerpt> result = new HashMap<>();
+        for (Integer id : files.keySet()) {
+            if (contents.containsKey(id)) {
+                result.put(id, new ICodeReview.CodeExcerpt(files.get(id), contents.get(id)));
+            }
+        }
+        return Map.copyOf(result);
+    }
+
+    public Map<Integer, String> parseExcerptContents(String text) {
+        Map<Integer, String> contents = new HashMap<>();
+        String[] lines = text.split("\\R", -1);
+        State state = State.SEARCHING;
+        Integer currentId = null;
+        StringBuilder currentContent = new StringBuilder();
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (state != State.SEARCHING && trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
+                try {
+                    currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
+                    state = State.EXPECTING_FILENAME;
+                    continue;
+                } catch (NumberFormatException ignored) {}
+            }
+            switch (state) {
+                case SEARCHING -> {
+                    if (trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
+                        try {
+                            currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
+                            state = State.EXPECTING_FILENAME;
+                        } catch (NumberFormatException ignored) {}
+                    }
+                }
+                case EXPECTING_FILENAME -> {
+                    if (!trimmed.isEmpty()) state = State.EXPECTING_FENCE;
+                }
+                case EXPECTING_FENCE -> {
+                    if (trimmed.startsWith("```")) {
+                        state = State.IN_CONTENT;
                         currentContent.setLength(0);
+                    }
+                }
+                case IN_CONTENT -> {
+                    if (line.equals("```") || line.startsWith("```") && line.substring(3).isBlank()) {
+                        if (currentId != null) contents.put(currentId, currentContent.toString());
+                        state = State.SEARCHING;
                     } else {
-                        if (!currentContent.isEmpty()) {
-                            currentContent.append("\n");
-                        }
+                        if (!currentContent.isEmpty()) currentContent.append("\n");
                         currentContent.append(line);
                     }
                 }
             }
         }
-
-        return Map.copyOf(excerpts);
+        return Map.copyOf(contents);
     }
 }
