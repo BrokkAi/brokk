@@ -5,10 +5,7 @@ import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 import ai.brokk.analyzer.cpp.NamespaceProcessor;
 import ai.brokk.analyzer.cpp.SkeletonGenerator;
 import ai.brokk.project.IProject;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +25,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     private final SkeletonGenerator skeletonGenerator;
     private final NamespaceProcessor namespaceProcessor;
-    private final Map<ProjectFile, String> fileContentCache = new ConcurrentHashMap<>();
     private final ThreadLocal<TSParser> parserCache;
 
     private static Map<String, SkeletonType> createCaptureConfiguration() {
@@ -338,7 +334,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         Map<CodeUnit, String> resultSkeletons = new HashMap<>(super.getSkeletons(file));
 
         // Use cached tree to avoid redundant parsing - significant performance improvement
-        String fileContent = getCachedFileContent(file);
+        String fileContent = file.read().orElse("");
         var sourceContent = SourceContent.of(fileContent);
         TSTree tree = treeOf(file);
         if (tree == null) {
@@ -427,17 +423,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         return (cu.isFunction() || cu.isField())
                 && cu.packageName().isEmpty()
                 && !cu.fqName().contains(".");
-    }
-
-    private String getCachedFileContent(ProjectFile file) {
-        return fileContentCache.computeIfAbsent(file, f -> {
-            try {
-                return Files.readString(f.absPath());
-            } catch (IOException e) {
-                log.error("Failed to read file content: {}", f, e);
-                throw new RuntimeException("Failed to read file: " + f, e);
-            }
-        });
     }
 
     private TSParser getSharedParser() {
@@ -1003,6 +988,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
         int parsedTreeCount = withFileProperties(fileProps -> (int) fileProps.values().stream()
                 .filter(fp -> fp.parsedTree() != null)
                 .count());
-        return String.format("FileContent: %d, ParsedTrees: %d", fileContentCache.size(), parsedTreeCount);
+        return String.format("ParsedTrees: %d", parsedTreeCount);
     }
 }
