@@ -857,8 +857,23 @@ public class RightPanel extends JPanel implements ThemeAware {
             double dist = currentPointInTabs.distance(pressPoint);
 
             if (dist > DRAG_THRESHOLD) {
-                Rectangle bounds = new Rectangle(0, 0, buildReviewTabs.getWidth(), buildReviewTabs.getHeight());
-                if (!bounds.contains(currentPointInTabs)) {
+                Rectangle headerRect = null;
+                try {
+                    headerRect = buildReviewTabs.getBoundsAt(dragTabIndex);
+                } catch (ArrayIndexOutOfBoundsException ex) {
+                    headerRect = null;
+                }
+
+                boolean outsideTriggerArea;
+                if (headerRect != null) {
+                    outsideTriggerArea = !headerRect.contains(currentPointInTabs);
+                } else {
+                    // Fallback: previous behavior using full tabbed pane bounds
+                    Rectangle fullBounds = new Rectangle(0, 0, buildReviewTabs.getWidth(), buildReviewTabs.getHeight());
+                    outsideTriggerArea = !fullBounds.contains(currentPointInTabs);
+                }
+
+                if (outsideTriggerArea) {
                     buildReviewTabs.setCursor(Cursor.getDefaultCursor());
                     triggerUndock(dragTabIndex);
                     undocked = true;
