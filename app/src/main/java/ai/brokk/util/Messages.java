@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.tools.ToolRegistry;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.openai.OpenAiTokenCountEstimator;
@@ -179,5 +180,21 @@ public class Messages {
         return message instanceof AiMessage aiMessage
                 && aiMessage.reasoningContent() != null
                 && !aiMessage.reasoningContent().isBlank();
+    }
+
+    public static String getTextWithToolCalls(ChatMessage message, ToolRegistry registry) {
+        if (!(message instanceof AiMessage aiMessage) || !aiMessage.hasToolExecutionRequests()) {
+            return getText(message);
+        }
+
+        var text = getText(message);
+        var rendered = aiMessage.toolExecutionRequests().stream()
+                .map(registry::getExplanationForToolRequest)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.joining("\n"));
+        if (rendered.isBlank()) {
+            return text;
+        }
+        return text + "\n" + rendered;
     }
 }
