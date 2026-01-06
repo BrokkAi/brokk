@@ -173,29 +173,11 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             JPanel headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
             headerPanel.setOpaque(false);
             headerPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-            
+
             JLabel countLabel = new JLabel(String.format("Locations (%d):", excerpts.size()));
             countLabel.setFont(countLabel.getFont().deriveFont(Font.BOLD));
             headerPanel.add(countLabel);
 
-            MaterialButton prevBtn = new MaterialButton("Prev");
-            MaterialButton nextBtn = new MaterialButton("Next");
-            
-            prevBtn.addActionListener(e -> {
-                int nextIdx = (currentIndex.get() - 1 + excerpts.size()) % excerpts.size();
-                currentIndex.set(nextIdx);
-                updateSelection.run();
-                notifyNavigate(excerpts.get(nextIdx));
-            });
-            nextBtn.addActionListener(e -> {
-                int nextIdx = (currentIndex.get() + 1) % excerpts.size();
-                currentIndex.set(nextIdx);
-                updateSelection.run();
-                notifyNavigate(excerpts.get(nextIdx));
-            });
-
-            headerPanel.add(prevBtn);
-            headerPanel.add(nextBtn);
             container.add(headerPanel);
         }
 
