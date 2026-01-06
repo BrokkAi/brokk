@@ -4,6 +4,7 @@ import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.gpg.ExternalGpgSigner;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.io.*;
@@ -27,7 +28,6 @@ import org.eclipse.jgit.diff.DiffEntry;
 import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.errors.IncorrectObjectTypeException;
 import org.eclipse.jgit.errors.MissingObjectException;
-import org.eclipse.jgit.gpg.bc.internal.BouncyCastleGpgSignerFactory;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.*;
@@ -54,6 +54,7 @@ public class GitRepo implements Closeable, IGitRepo {
     private final Git git;
     private final char @Nullable [] gpgPassPhrase; // if the user has enabled GPG signing by default
     private final Supplier<String> tokenSupplier; // Supplier for GitHub token
+    private final @Nullable MainProject mainProject;
     private @Nullable Set<ProjectFile> trackedFilesCache = null;
     private @Nullable Set<Path> trackedPathsCache = null;
 
@@ -134,12 +135,21 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     public GitRepo(Path projectRoot) {
-        this(projectRoot, MainProject::getGitHubToken);
+        this(projectRoot, MainProject::getGitHubToken, null);
     }
 
-    GitRepo(Path projectRoot, Supplier<String> tokenSupplier) {
+    public GitRepo(Path projectRoot, Supplier<String> tokenSupplier) {
+        this(projectRoot, tokenSupplier, null);
+    }
+
+    public GitRepo(Path projectRoot, MainProject mainProject) {
+        this(projectRoot, MainProject::getGitHubToken, mainProject);
+    }
+
+    GitRepo(Path projectRoot, Supplier<String> tokenSupplier, @Nullable MainProject mainProject) {
         this.projectRoot = projectRoot;
         this.tokenSupplier = tokenSupplier;
+        this.mainProject = mainProject;
 
         try {
             var builder = new FileRepositoryBuilder()
@@ -637,12 +647,14 @@ public class GitRepo implements Closeable, IGitRepo {
      * @return a properly configured Git commit command.
      */
     public CommitCommand commitCommand() {
-        if (!isGpgSigned()) {
-            return git.commit().setSign(false);
-        } else {
-            var signer = new BouncyCastleGpgSignerFactory().create();
-            return git.commit().setSigner(signer).setSign(true);
+        if (mainProject != null && mainProject.isGpgCommitSigningEnabled()) {
+            ExternalGpgSigner signer = new ExternalGpgSigner();
+            return git.commit()
+                    .setSigner(signer)
+                    .setSigningKey(mainProject.getGpgSigningKey())
+                    .setSign(true);
         }
+        return git.commit().setSign(false);
     }
 
     /**
