@@ -479,7 +479,16 @@ public final class GoAnalyzer extends TreeSitterAnalyzer {
                 continue;
             }
 
-            // 2. Inspect parameters: must have exactly one parameter of type testing.T or *testing.T
+            // 2. Go tests cannot be generic (no type parameters)
+            TSNode parent = nameNode.getParent();
+            if (parent != null && !parent.isNull()) {
+                TSNode typeParams = parent.getChildByFieldName(GO_SYNTAX_PROFILE.typeParametersFieldName());
+                if (typeParams != null && !typeParams.isNull()) {
+                    continue;
+                }
+            }
+
+            // 3. Inspect parameters: must have exactly one parameter of type testing.T or *testing.T
             // In Go: "func Test(t *testing.T)" has 1 parameter_declaration with 1 identifier.
             // "func Test(a, b *testing.T)" has 1 parameter_declaration with 2 identifiers.
             // "func Test(a T1, b T2)" has 2 parameter_declarations.
