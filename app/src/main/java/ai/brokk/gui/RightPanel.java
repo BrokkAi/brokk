@@ -793,6 +793,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     private class TabDragUndockHandler implements AWTEventListener {
         private static final int DRAG_THRESHOLD = 16;
+        private static final int DRAG_OUTSIDE_PADDING = 12;
         private @Nullable Point pressPoint;
         private int dragTabIndex = -1;
         private boolean undocked;
@@ -835,18 +836,6 @@ public class RightPanel extends JPanel implements ThemeAware {
 
             if (dragTabIndex != -1) {
                 pressPoint = pInTabs;
-                Component comp = buildReviewTabs.getComponentAt(dragTabIndex);
-                UndockTarget target = getUndockTarget(
-                        comp,
-                        reviewTabComponent,
-                        previewTabbedPane,
-                        terminalPanel,
-                        buildSplitPane,
-                        verticalActivityCombinedPanel);
-
-                if (target != UndockTarget.NONE) {
-                    buildReviewTabs.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
-                }
             }
         }
 
@@ -857,16 +846,29 @@ public class RightPanel extends JPanel implements ThemeAware {
             double dist = currentPointInTabs.distance(pressPoint);
 
             if (dist > DRAG_THRESHOLD) {
+                Component comp = buildReviewTabs.getComponentAt(dragTabIndex);
+                UndockTarget target = getUndockTarget(
+                        comp,
+                        reviewTabComponent,
+                        previewTabbedPane,
+                        terminalPanel,
+                        buildSplitPane,
+                        verticalActivityCombinedPanel);
+
+                if (target == UndockTarget.NONE) return;
+
                 Rectangle headerRect = null;
                 try {
                     headerRect = buildReviewTabs.getBoundsAt(dragTabIndex);
-                } catch (ArrayIndexOutOfBoundsException ex) {
+                } catch (IndexOutOfBoundsException ex) {
                     headerRect = null;
                 }
 
                 boolean outsideTriggerArea;
                 if (headerRect != null) {
-                    outsideTriggerArea = !headerRect.contains(currentPointInTabs);
+                    Rectangle triggerRect = new Rectangle(headerRect);
+                    triggerRect.grow(DRAG_OUTSIDE_PADDING, DRAG_OUTSIDE_PADDING);
+                    outsideTriggerArea = !triggerRect.contains(currentPointInTabs);
                 } else {
                     // Fallback: previous behavior using full tabbed pane bounds
                     Rectangle fullBounds = new Rectangle(0, 0, buildReviewTabs.getWidth(), buildReviewTabs.getHeight());
@@ -874,9 +876,11 @@ public class RightPanel extends JPanel implements ThemeAware {
                 }
 
                 if (outsideTriggerArea) {
-                    buildReviewTabs.setCursor(Cursor.getDefaultCursor());
+                    buildReviewTabs.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
                     triggerUndock(dragTabIndex);
                     undocked = true;
+                } else {
+                    buildReviewTabs.setCursor(Cursor.getDefaultCursor());
                 }
             }
         }
