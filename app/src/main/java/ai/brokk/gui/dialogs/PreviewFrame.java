@@ -18,7 +18,7 @@ public class PreviewFrame extends DetachableTabFrame {
     private PreviewTabbedPane tabbedPane;
 
     public PreviewFrame(Chrome chrome, PreviewTabbedPane initialPane) {
-        super("Preview", initialPane, Icons.VISIBILITY, () -> {
+        super("Preview", initialPane, () -> {
             chrome.getRightPanel().redockPreview();
             chrome.clearPreviewFrame();
         });

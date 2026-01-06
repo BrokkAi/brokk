@@ -26,7 +26,7 @@ public class DetachableTabFrame extends JFrame implements ThemeAware {
         mainPanel.repaint();
     }
 
-    public DetachableTabFrame(String title, JComponent content, Icon icon, Runnable redockCallback) {
+    public DetachableTabFrame(String title, JComponent content, Runnable redockCallback) {
         super(title);
         this.content = content;
         this.redockCallback = redockCallback;
