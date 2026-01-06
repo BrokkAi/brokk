@@ -414,7 +414,7 @@ public class ReviewAgent {
             @P(
                             """
                     Explain the trickiest parts of the design and how they can be improved.
-                    For each item, provide a `title` which is a short 5-7 word label summarizing the feedback,
+                    For each item, provide a `title` which is a short 4-5 word label summarizing the feedback,
                     a `description` explaining the problem in detail, and
                     a `recommendation` for remediation detailed enough to give to Code Agent.
                     Remember that you can give multiple excerpts per RawDesignNote!
