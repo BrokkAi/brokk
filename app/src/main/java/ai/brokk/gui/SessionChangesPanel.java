@@ -543,29 +543,29 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
 
                         if (targetLine > 0) {
-                                panel.resetAutoScrollFlag();
-                                panel.diff(false);
-                                if (panel instanceof ai.brokk.difftool.ui.BufferDiffPanel bp) {
-                                    var side = (targetSide == ReviewParser.DiffSide.OLD)
-                                            ? ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.LEFT
-                                            : ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.RIGHT;
-                                    bp.scrollToLine(targetLine, side);
-                                } else if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
-                                    up.clearExcerptHighlight();
-                                    up.scrollToLine(targetLine, targetSide);
-                                    if (activeExcerpt != null) {
-                                        String[] lines = activeExcerpt.excerpt().split("\\r?\\n", -1);
-                                        int endLine = targetLine + Math.max(0, lines.length - 1);
-                                        up.highlightExcerptLines(targetLine, endLine, targetSide);
-                                    }
+                            panel.resetAutoScrollFlag();
+                            panel.diff(false);
+                            if (panel instanceof ai.brokk.difftool.ui.BufferDiffPanel bp) {
+                                var side = (targetSide == ReviewParser.DiffSide.OLD)
+                                        ? ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.LEFT
+                                        : ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.RIGHT;
+                                bp.scrollToLine(targetLine, side);
+                            } else if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                                up.clearExcerptHighlight();
+                                up.scrollToLine(targetLine, targetSide);
+                                if (activeExcerpt != null) {
+                                    String[] lines = activeExcerpt.excerpt().split("\\r?\\n", -1);
+                                    int endLine = targetLine + Math.max(0, lines.length - 1);
+                                    up.highlightExcerptLines(targetLine, endLine, targetSide);
                                 }
-                            } else {
-                                if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
-                                    up.clearExcerptHighlight();
-                                }
-                                panel.resetToFirstDifference();
-                                panel.diff(true);
                             }
+                        } else {
+                            if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                                up.clearExcerptHighlight();
+                            }
+                            panel.resetToFirstDifference();
+                            panel.diff(true);
+                        }
 
                         diffContainer.revalidate();
                         diffContainer.repaint();
