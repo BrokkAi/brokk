@@ -137,7 +137,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param topLevelCodeUnits the top-level code units.
      * @param parsedTree        the corresponding parse tree (transient; null after load from storage).
      * @param importStatements  imports found on this file.
-     * @param resolvedImports   resolved CodeUnits from import statements.
      */
     public record FileProperties(
             List<CodeUnit> topLevelCodeUnits,

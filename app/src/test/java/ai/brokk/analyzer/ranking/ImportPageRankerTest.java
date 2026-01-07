@@ -350,9 +350,9 @@ public class ImportPageRankerTest {
             // Seed with Imported (the file being imported)
             Map<ProjectFile, Double> seeds = Map.of(imported, 1.0);
 
-            // reversed=false means we are looking for related files using the standard graph (which is now bidirectional)
+            // reversed=true means we are looking for files that import our seeds
             List<IAnalyzer.FileRelevance> results =
-                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, false);
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, true);
 
             List<ProjectFile> resultFiles =
                     results.stream().map(IAnalyzer.FileRelevance::file).toList();
