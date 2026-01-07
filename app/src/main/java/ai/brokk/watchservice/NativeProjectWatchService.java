@@ -11,15 +11,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -32,25 +29,8 @@ import org.jetbrains.annotations.Nullable;
  * This is the recommended implementation for most platforms, especially macOS,
  * as it drastically reduces file descriptor usage compared to LegacyProjectWatchService.
  */
-public class NativeProjectWatchService implements AbstractWatchService {
-    private static final Logger logger = LogManager.getLogger(NativeProjectWatchService.class);
+public class NativeProjectWatchService extends AbstractWatchService {
     private static final long DEBOUNCE_DELAY_MS = 500;
-
-    private final Path root;
-
-    @Nullable
-    private final Path gitRepoRoot;
-
-    @Nullable
-    private final Path gitMetaDir;
-
-    @Nullable
-    private final Path globalGitignorePath;
-
-    @Nullable
-    private final Path globalGitignoreRealPath;
-
-    private final List<Listener> listeners;
 
     @Nullable
     private volatile DirectoryWatcher watcher;
@@ -75,11 +55,7 @@ public class NativeProjectWatchService implements AbstractWatchService {
      */
     public NativeProjectWatchService(
             Path root, @Nullable Path gitRepoRoot, @Nullable Path globalGitignorePath, List<Listener> listeners) {
-        this.root = root;
-        this.gitRepoRoot = gitRepoRoot;
-        this.globalGitignorePath = globalGitignorePath;
-        this.listeners = new CopyOnWriteArrayList<>(listeners);
-        this.gitMetaDir = AbstractWatchService.resolveGitMetaDir(gitRepoRoot);
+        super(root, gitRepoRoot, globalGitignorePath, listeners);
 
         // Initialize debounce executor
         this.debounceExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -88,21 +64,6 @@ public class NativeProjectWatchService implements AbstractWatchService {
             t.setDaemon(true);
             return t;
         });
-
-        // Precompute real path for robust comparison (handles symlinks, case-insensitive filesystems)
-        if (globalGitignorePath != null) {
-            Path realPath;
-            try {
-                realPath = globalGitignorePath.toRealPath();
-            } catch (IOException e) {
-                // If file doesn't exist or can't be resolved, use original path as fallback
-                realPath = globalGitignorePath;
-                logger.debug("Could not resolve global gitignore to real path: {}", e.getMessage());
-            }
-            this.globalGitignoreRealPath = realPath;
-        } else {
-            this.globalGitignoreRealPath = null;
-        }
     }
 
     @Override
@@ -163,50 +124,6 @@ public class NativeProjectWatchService implements AbstractWatchService {
         } catch (IOException e) {
             logger.error("Error setting up native directory watcher", e);
         }
-    }
-
-    /**
-     * Checks if a gitignore-related file change should trigger cache invalidation.
-     */
-    private boolean shouldInvalidateForGitignoreChange(Path eventPath) {
-        var fileName = eventPath.getFileName().toString();
-
-        // .git/info/exclude is never tracked by git
-        if (fileName.equals("exclude")) {
-            var parent = eventPath.getParent();
-            if (parent != null && parent.getFileName().toString().equals("info")) {
-                var grandParent = parent.getParent();
-                if (grandParent != null && grandParent.getFileName().toString().equals(".git")) {
-                    logger.debug("Git info exclude file changed: {}", eventPath);
-                    return true;
-                }
-            }
-        }
-
-        // For .gitignore files
-        if (fileName.equals(".gitignore")) {
-            logger.debug("Gitignore file changed: {}", eventPath);
-            return true;
-        }
-
-        // Check if this is the global gitignore file
-        if (globalGitignoreRealPath != null) {
-            try {
-                Path eventRealPath = eventPath.toRealPath();
-                if (eventRealPath.equals(globalGitignoreRealPath)) {
-                    logger.debug("Global gitignore file changed: {}", eventPath);
-                    return true;
-                }
-            } catch (IOException e) {
-                // If toRealPath() fails (file deleted during event), fall back to simple comparison
-                if (eventPath.equals(globalGitignorePath)) {
-                    logger.debug("Global gitignore file changed: {} (fallback comparison)", eventPath);
-                    return true;
-                }
-            }
-        }
-
-        return false;
     }
 
     private void handleEvent(DirectoryChangeEvent event) {
@@ -298,12 +215,6 @@ public class NativeProjectWatchService implements AbstractWatchService {
         }
     }
 
-    private void notifyFilesChanged(EventBatch batch) {
-        for (Listener listener : listeners) {
-            listener.onFilesChanged(batch);
-        }
-    }
-
     @Override
     public void pause() {
         logger.debug("Pausing native directory watcher");
@@ -362,18 +273,6 @@ public class NativeProjectWatchService implements AbstractWatchService {
         } finally {
             lock.unlock();
         }
-    }
-
-    @Override
-    public void addListener(Listener listener) {
-        listeners.add(listener);
-        logger.debug("Added listener: {}", listener.getClass().getSimpleName());
-    }
-
-    @Override
-    public void removeListener(Listener listener) {
-        listeners.remove(listener);
-        logger.debug("Removed listener: {}", listener.getClass().getSimpleName());
     }
 
     @Override
