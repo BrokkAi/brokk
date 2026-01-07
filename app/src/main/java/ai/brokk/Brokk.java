@@ -970,85 +970,78 @@ public class Brokk {
         Path projectPath = builder.path;
         MainProject parent = builder.parent;
 
-        try {
-            MainProject.updateRecentProject(projectPath);
-            var project = AbstractProject.createProject(projectPath, parent);
+        // Run all blocking initialization off the calling thread (which may be EDT)
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                MainProject.updateRecentProject(projectPath);
+                var project = AbstractProject.createProject(projectPath, parent);
 
-            if (project.getRepo().isWorktree() && parent == null) {
-                logger.warn(
-                        "User attempted to open a worktree ({}) directly as a project without specific internal trigger. Denying.",
-                        projectPath);
-                final Path finalProjectPath = projectPath;
-                SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
-                        null,
-                        "The selected path (" + finalProjectPath.getFileName() + ") is a Git worktree.\n"
-                                + "Worktrees should be managed via the 'Worktrees' tab in the main repository window, or created by Architect.",
-                        "Cannot Open Worktree Directly",
-                        JOptionPane.WARNING_MESSAGE));
-                return CompletableFuture.completedFuture(Optional.empty());
-            }
-
-            if (!project.hasGit()) {
-                int response = castNonNull(SwingUtil.runOnEdt(
-                        () -> JOptionPane.showConfirmDialog(
-                                null,
-                                """
-                        This project is not under Git version control. Would you like to initialize a new Git repository here?
-
-                        Without Git, the project will be read-only, and some features may be limited.""",
-                                "Initialize Git Repository?",
-                                JOptionPane.YES_NO_OPTION,
-                                JOptionPane.QUESTION_MESSAGE),
-                        JOptionPane.NO_OPTION));
-
-                if (response == JOptionPane.YES_OPTION) {
-                    try {
-                        logger.info("Initializing Git repository at {}...", project.getRoot());
-                        GitRepoFactory.initRepo(project.getRoot());
-                        project = AbstractProject.createProject(projectPath, parent); // Re-create project
-                        logger.info("Git repository initialized successfully at {}.", project.getRoot());
-                    } catch (Exception e) {
-                        logger.error(
-                                "Failed to initialize Git repository at {}: {}", project.getRoot(), e.getMessage(), e);
-                        final String errorMsg = e.getMessage();
-                        SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
-                                null,
-                                "Failed to initialize Git repository: " + errorMsg
-                                        + "\nThe project will be opened as read-only.",
-                                "Git Initialization Error",
-                                JOptionPane.ERROR_MESSAGE));
-                    }
-                } else {
-                    logger.info(
-                            "User declined Git initialization for project {}. Proceeding as read-only.",
-                            project.getRoot());
+                if (project.getRepo().isWorktree() && parent == null) {
+                    logger.warn("User attempted to open a worktree ({}) directly as a project without specific internal trigger. Denying.",
+                                projectPath);
+                    final Path finalProjectPath = projectPath;
+                    SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(null,
+                            "The selected path (" + finalProjectPath.getFileName() + ") is a Git worktree.\n"
+                                    + "Worktrees should be managed via the 'Worktrees' tab in the main repository window, or created by Architect.",
+                            "Cannot Open Worktree Directly",
+                            JOptionPane.WARNING_MESSAGE));
+                    return Optional.<ContextManager>empty();
                 }
-            }
 
-            if (project instanceof MainProject mp) {
-                mp.reserveSessionsForKnownWorktrees();
-            }
+                if (!project.hasGit()) {
+                    int response = castNonNull(SwingUtil.runOnEdt(
+                            () -> JOptionPane.showConfirmDialog(null,
+                                    """
+                            This project is not under Git version control. Would you like to initialize a new Git repository here?
 
-            // TODO nothing is actually async here
-            var contextManager = new ContextManager(project); // Project must be final or effectively final for lambda
-            if (builder.sourceContextForSession != null) {
-                // Asynchronously create session from workspace, then complete the future
-                String newSessionName =
-                        "Architect Session (" + project.getRoot().getFileName() + ")"; // Or generate based on branch
-                contextManager.createSessionWithoutGui(builder.sourceContextForSession, newSessionName);
+                            Without Git, the project will be read-only, and some features may be limited.""",
+                                    "Initialize Git Repository?",
+                                    JOptionPane.YES_NO_OPTION,
+                                    JOptionPane.QUESTION_MESSAGE),
+                            JOptionPane.NO_OPTION));
+
+                    if (response == JOptionPane.YES_OPTION) {
+                        try {
+                            logger.info("Initializing Git repository at {}...", project.getRoot());
+                            GitRepoFactory.initRepo(project.getRoot());
+                            project = AbstractProject.createProject(projectPath, parent);
+                            logger.info("Git repository initialized successfully at {}.", project.getRoot());
+                        } catch (Exception e) {
+                            logger.error("Failed to initialize Git repository at {}: {}", project.getRoot(), e.getMessage(), e);
+                            final String errorMsg = e.getMessage();
+                            SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(null,
+                                    "Failed to initialize Git repository: " + errorMsg
+                                            + "\nThe project will be opened as read-only.",
+                                    "Git Initialization Error",
+                                    JOptionPane.ERROR_MESSAGE));
+                        }
+                    } else {
+                        logger.info("User declined Git initialization for project {}. Proceeding as read-only.",
+                                    project.getRoot());
+                    }
+                }
+
+                if (project instanceof MainProject mp) {
+                    mp.reserveSessionsForKnownWorktrees();
+                }
+
+                var contextManager = new ContextManager(project);
+                if (builder.sourceContextForSession != null) {
+                    String newSessionName = "Architect Session (" + project.getRoot().getFileName() + ")";
+                    contextManager.createSessionWithoutGui(builder.sourceContextForSession, newSessionName);
+                }
+                return Optional.of(contextManager);
+            } catch (Exception e) {
+                logger.error("Failed to initialize project for path {}: {}", projectPath, e.getMessage(), e);
+                final String errorMsg = e.getMessage();
+                SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(null,
+                        "Could not open project " + projectPath.getFileName() + ":\n" + errorMsg
+                                + "\nPlease check the logs for more details.",
+                        "Project Initialization Failed",
+                        JOptionPane.ERROR_MESSAGE));
+                return Optional.empty();
             }
-            return CompletableFuture.completedFuture(Optional.of(contextManager));
-        } catch (Exception e) {
-            logger.error("Failed to initialize project for path {}: {}", projectPath, e.getMessage(), e);
-            final String errorMsg = e.getMessage();
-            SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
-                    null,
-                    "Could not open project " + projectPath.getFileName() + ":\n" + errorMsg
-                            + "\nPlease check the logs for more details.",
-                    "Project Initialization Failed",
-                    JOptionPane.ERROR_MESSAGE));
-            return CompletableFuture.completedFuture(Optional.empty());
-        }
+        });
     }
 
     /**
