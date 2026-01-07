@@ -141,7 +141,7 @@ public class SimpleHtmlPanel extends JEditorPane {
     @Override
     public void setSize(Dimension d) {
         super.setSize(d);
-        setSize(d.width, getPreferredSize().height);
+        super.setSize(d.width, super.getPreferredSize().height);
     }
 
     @Override
@@ -150,13 +150,22 @@ public class SimpleHtmlPanel extends JEditorPane {
     }
 
     @Override
-    public Dimension getPreferredSize() {
-        var pref = super.getPreferredSize();
+    public Dimension getMaximumSize() {
         var parent = getParent();
         if (parent != null && parent.getWidth() > 0) {
-            // Return a size with the parent width to force word wrap calculation
+            return new Dimension(parent.getWidth(), Integer.MAX_VALUE);
+        }
+        return super.getMaximumSize();
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+        var parent = getParent();
+        if (parent != null && parent.getWidth() > 0) {
+            super.setSize(parent.getWidth(), Short.MAX_VALUE);
+            var pref = super.getPreferredSize();
             return new Dimension(parent.getWidth(), pref.height);
         }
-        return pref;
+        return super.getPreferredSize();
     }
 }
