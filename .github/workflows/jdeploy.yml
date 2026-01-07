@@ -5,7 +5,7 @@ name: jDeploy CI with Gradle
 
 on:
   push:
-    branches: [ 'master-snapshot', 'jdeploy-test' ]
+    branches: [ 'master-snapshot', 'jdeploy-test', 'enh/task-font' ]
   workflow_dispatch:
 
 concurrency:
