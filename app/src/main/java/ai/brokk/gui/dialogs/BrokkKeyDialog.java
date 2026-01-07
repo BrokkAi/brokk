@@ -11,6 +11,8 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import javax.net.ssl.SSLHandshakeException;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -141,8 +143,12 @@ public class BrokkKeyDialog extends BaseThemedDialog {
                         validatedKey = key;
                         dispose();
                     } else {
+                        logger.debug("Validation error", error);
                         var cause = error;
-                        while (cause.getCause() != null) {
+                        while ((cause instanceof CompletionException
+                                        || cause instanceof ExecutionException
+                                        || (cause instanceof RuntimeException && cause.getMessage() == null))
+                                && cause.getCause() != null) {
                             cause = cause.getCause();
                         }
                         handleValidationError(cause);
@@ -183,8 +189,9 @@ public class BrokkKeyDialog extends BaseThemedDialog {
                     JOptionPane.ERROR_MESSAGE);
         } else {
             logger.error("Unexpected error validating Brokk Key", ex);
-            JOptionPane.showMessageDialog(
-                    this, "Unexpected error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+            var msg = ex.getMessage();
+            var detail = (msg == null || msg.isBlank()) ? ex.toString() : msg;
+            JOptionPane.showMessageDialog(this, "Unexpected error: " + detail, "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 

@@ -271,7 +271,8 @@ public class Brokk {
     }
 
     /**
-     * Validates the key in a background thread to avoid blocking the EDT/main thread.
+     * Validates the key in a background thread to keep the EDT responsive.
+     * Blocks the calling thread until validation completes.
      * Returns true if key is valid or on network error (allows offline use).
      */
     private static boolean validateKeyInBackground(String key) {
@@ -285,6 +286,9 @@ public class Brokk {
             } catch (IllegalArgumentException e) {
                 logger.warn("Existing Brokk key is invalid: {}", e.getMessage());
                 return ValidationOutcome.INVALID;
+            } catch (Throwable t) {
+                logger.error("Unexpected error validating Brokk key; assuming valid for now.", t);
+                return ValidationOutcome.NETWORK_ERROR;
             }
         });
 
