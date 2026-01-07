@@ -1451,6 +1451,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Notify listeners and UI on the EDT
         SwingUtilities.invokeLater(() -> {
             notifyContextListeners(liveContext());
+
+            // Notify about task list changes
+            var taskList = liveContext().getTaskListDataOrEmpty();
+            for (var callback : analyzerCallbacks) {
+                callback.onTaskListChanged(taskList);
+            }
+
             io.updateContextHistoryTable(liveContext());
             if (io instanceof Chrome) {
                 io.enableActionButtons();
