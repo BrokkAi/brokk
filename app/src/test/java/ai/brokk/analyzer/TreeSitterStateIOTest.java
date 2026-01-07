@@ -272,14 +272,15 @@ public class TreeSitterStateIOTest {
         var fileB = new ProjectFile(root, Path.of("B.java"));
         var cuB = CodeUnit.cls(fileB, "com.example", "B");
 
-        var imports = HashTreePMap.singleton(fileA, Set.of(cuB));
-        var reverseImports = HashTreePMap.singleton(fileB, Set.of(fileA));
+        var importGraph = ImportGraph.from(
+                Map.of(fileA, Set.of(cuB)),
+                Map.of(fileB, Set.of(fileA)));
 
         var state = new TreeSitterAnalyzer.AnalyzerState(
                 HashTreePMap.empty(),
                 HashTreePMap.empty(),
                 HashTreePMap.empty(),
-                ImportGraph.from(imports, reverseImports),
+                importGraph,
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
