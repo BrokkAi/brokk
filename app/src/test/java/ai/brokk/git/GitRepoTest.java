@@ -296,6 +296,30 @@ public class GitRepoTest {
     }
 
     @Test
+    void testCountCommitsSince_NormalCase() throws Exception {
+        String startCommit = repo.getCurrentCommitId();
+        createCommit("file1.txt", "content1", "Commit 1");
+        createCommit("file2.txt", "content2", "Commit 2");
+        createCommit("file3.txt", "content3", "Commit 3");
+
+        int count = repo.countCommitsSince(startCommit);
+        assertEquals(3, count, "Should count exactly 3 commits since startCommit");
+    }
+
+    @Test
+    void testCountCommitsSince_SameCommit() throws Exception {
+        String currentCommit = repo.getCurrentCommitId();
+        int count = repo.countCommitsSince(currentCommit);
+        assertEquals(0, count, "Should return 0 when comparing HEAD to itself");
+    }
+
+    @Test
+    void testCountCommitsSince_InvalidHash() {
+        int count = repo.countCommitsSince("invalid-hash-or-missing-commit");
+        assertEquals(0, count, "Should return 0 for invalid or non-existent commit hash");
+    }
+
+    @Test
     void testGetCommitMessagesBetween_sameBranch() throws Exception {
         List<String> messages = repo.getCommitMessagesBetween(repo.getCurrentBranch(), repo.getCurrentBranch());
         assertTrue(messages.isEmpty(), "Should be no messages between a branch and itself.");

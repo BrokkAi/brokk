@@ -555,6 +555,31 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Counts the number of commits between the given commit hash and current HEAD.
+     * Returns 0 if they are the same or if any error occurs.
+     */
+    public int countCommitsSince(String fromCommitHash) {
+        try {
+            ObjectId fromId = resolveToCommit(fromCommitHash);
+            ObjectId headId = resolveToCommit("HEAD");
+
+            if (fromId.equals(headId)) {
+                return 0;
+            }
+
+            int count = 0;
+            var commits = git.log().addRange(fromId, headId).call();
+            for (var ignored : commits) {
+                count++;
+            }
+            return count;
+        } catch (Exception e) {
+            logger.warn("Failed to count commits since {}: {}", fromCommitHash, e.getMessage());
+            return 0;
+        }
+    }
+
+    /**
      * Returns an abbreviated (short) hash for the given revision. Attempts to abbreviate via JGit to a unique short id;
      * falls back to the first 7 chars on error.
      */
