@@ -99,7 +99,7 @@ jgit-core = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit"
 jgit-gpg = { module = "org.eclipse.jgit:org.eclipse.jgit.gpg.bc", version.ref = "jgit" }
 jgit-ssh = { module = "org.eclipse.jgit:org.eclipse.jgit.ssh.apache", version.ref = "jgit" }
 bouncycastle = "org.bouncycastle:bcprov-jdk18on:1.80"
-egit-core = { module = "org.eclipse.egit:org.eclipse.egit.core", version.ref = "jgit" }
+jgit-signing = { module = "org.eclipse.jgit:org.eclipse.jgit.gpg.bc.signing", version="7.6.0-SNAPSHOT"}
 
 # TreeSitter
 treesitter-core = { module = "io.github.bonede:tree-sitter", version.ref = "treesitter" }
@@ -139,7 +139,7 @@ junit = ["junit-jupiter-api", "junit-jupiter-engine", "junit-jupiter-params"]
 junit-runtime = ["junit-platform-engine", "junit-platform-launcher", "junit-platform-commons"]
 ui = ["flatlaf", "flatlaf-extras", "rsyntaxtextarea", "autocomplete", "jgoodies-forms"]
 markdown = ["flexmark-core", "flexmark-html2md", "mustache"]
-git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle", "egit-core"]
+git = ["jgit-core", "jgit-gpg", "jgit-ssh", "bouncycastle", "jgit-signing"]
 treesitter = ["treesitter-core", "treesitter-java", "treesitter-cpp", "treesitter-csharp", "treesitter-go", "treesitter-javascript", "treesitter-php", "treesitter-python", "treesitter-rust", "treesitter-typescript", "treesitter-scala"]
 maven-resolver = ["maven-embedder", "maven-resolver-api", "maven-resolver-spi", "maven-resolver-util", "maven-resolver-impl", "maven-resolver-connector-basic", "maven-resolver-transport-http"]
 apache = ["apache-compress", "apache-commons-text"]
