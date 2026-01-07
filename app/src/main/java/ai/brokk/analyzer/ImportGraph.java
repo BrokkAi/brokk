@@ -2,7 +2,6 @@ package ai.brokk.analyzer;
 
 import java.util.Map;
 import java.util.Set;
-import org.jspecify.annotations.NullMarked;
 import org.pcollections.HashTreePMap;
 import org.pcollections.PMap;
 
@@ -12,7 +11,6 @@ import org.pcollections.PMap;
  * <p>The forward map (imports) tracks which CodeUnits are imported by a given ProjectFile.
  * The reverse map (reverseImports) tracks which ProjectFiles import a given ProjectFile.
  */
-@NullMarked
 public record ImportGraph(
         PMap<ProjectFile, Set<CodeUnit>> imports, PMap<ProjectFile, Set<ProjectFile>> reverseImports) {
 
