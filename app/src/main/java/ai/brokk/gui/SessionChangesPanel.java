@@ -321,6 +321,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
+        // Check for staleness if we have a review displayed
+        StalenessInfo staleness = computeStaleness();
+        if (staleness != null && codeReviewPanel != null) {
+            if (staleness.commitsBehind() > 0 || staleness.uncommittedChanges() > 0) {
+                String msg = String.format("Review may be stale: %d commits, %d uncommitted changes",
+                        staleness.commitsBehind(), staleness.uncommittedChanges());
+                codeReviewPanel.getListPanel().setStalenessNotice(msg);
+            } else {
+                codeReviewPanel.getListPanel().setStalenessNotice(null);
+            }
+        }
+
         if (diffCore != null) {
             diffCore.clearCache();
         }
@@ -780,6 +792,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         lastReviewState = new ReviewState(currentHash, now);
                         codeReviewPanel.displayReview(review);
                         codeReviewPanel.setBusy(false);
+                        
+                        // Clear staleness on fresh generation
+                        codeReviewPanel.getListPanel().setStalenessNotice(null);
                     }
                     parent.revalidate();
                     parent.repaint();

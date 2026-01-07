@@ -8,6 +8,7 @@ import ai.brokk.util.ReviewParser.GuidedReview;
 import ai.brokk.util.ReviewParser.ReviewFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
 import java.awt.Font;
@@ -15,6 +16,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.function.Consumer;
 import javax.swing.BoxLayout;
+import org.jetbrains.annotations.Nullable;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
@@ -29,6 +31,8 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton generateButton;
     private final JPanel contentPanel;
+    private final JPanel stalenessPanel;
+    private final JLabel stalenessLabel;
     private final Consumer<Object> onItemSelected;
 
     public ReviewListPanel(Runnable triggerCallback, Consumer<Object> onItemSelected) {
@@ -47,11 +51,37 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setBorder(new EmptyBorder(0, 0, 10, 0));
 
+        stalenessPanel = new JPanel(new BorderLayout(8, 0));
+        stalenessPanel.setBorder(new EmptyBorder(8, 12, 8, 12));
+        stalenessPanel.setVisible(false);
+
+        var warningIcon = new com.formdev.flatlaf.extras.FlatSVGIcon("ai/brokk/gui/icons/warning.svg", 16, 16);
+        stalenessLabel = new JLabel();
+        stalenessLabel.setIcon(warningIcon);
+        stalenessLabel.setFont(stalenessLabel.getFont().deriveFont(Font.BOLD, 11f));
+        stalenessPanel.add(stalenessLabel, BorderLayout.CENTER);
+
+        JPanel topContainer = new JPanel();
+        topContainer.setLayout(new BoxLayout(topContainer, BoxLayout.Y_AXIS));
+        topContainer.add(topPanel);
+        topContainer.add(stalenessPanel);
+
         JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(null);
 
-        add(topPanel, BorderLayout.NORTH);
+        add(topContainer, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
+    }
+
+    public void setStalenessNotice(@Nullable String message) {
+        if (message == null || message.isBlank()) {
+            stalenessPanel.setVisible(false);
+        } else {
+            stalenessLabel.setText(message);
+            stalenessPanel.setVisible(true);
+        }
+        revalidate();
+        repaint();
     }
 
     public void setBusy(boolean busy) {
@@ -174,5 +204,9 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
                         ? ai.brokk.gui.mop.ThemeColors.getPanelBackground()
                         : javax.swing.UIManager.getColor("Panel.background"));
         contentPanel.setBackground(getBackground());
+
+        // Use a warning/staleness color scheme
+        stalenessPanel.setBackground(new Color(0xFFD700)); // Yellow/Gold
+        stalenessLabel.setForeground(Color.BLACK);
     }
 }
