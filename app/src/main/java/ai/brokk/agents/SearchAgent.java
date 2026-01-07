@@ -308,7 +308,13 @@ public class SearchAgent {
                 if (terminal.isPresent() && context.equals(contextAtTurnStart) && !executedResearch) {
                     var termReq = terminal.get();
                     var termExec = executeTool(termReq, tr, wst);
-                    conversation.append(termExec.toExecutionResultMessage());
+                    var toolExecResult = termExec.toExecutionResultMessage();
+                    conversation.append(toolExecResult);
+
+                    // show explanation in md for the user
+                    if (termReq.name().equals("createOrReplaceTaskList")) {
+                        conversation.appendUi(termExec.resultText(), true);
+                    }
 
                     if (termExec.status() != ToolExecutionResult.Status.SUCCESS) {
                         return errorResult(

@@ -453,18 +453,13 @@ public class WorkspaceTools {
         // Delegate to ContextManager to ensure title summarization + centralized refresh via setTaskList
         context = cm.createOrReplaceTaskList(context, tasks);
 
-        var lines = IntStream.range(0, tasks.size())
-                .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
-                .collect(java.util.stream.Collectors.joining("\n"));
-        var formattedTaskList = "# Task List\n" + lines + "\n";
-
         int count = tasks.size();
         String suffix = (count == 1) ? "" : "s";
         String statusMessage =
                 "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
                         .formatted(count, suffix);
 
-        return "# Explanation\n\n" + explanation + "\n\n" + formattedTaskList + "\n" + statusMessage;
+        return "# Explanation\n\n" + explanation + "\n\n" + statusMessage;
     }
 
     // --- Helper Methods ---

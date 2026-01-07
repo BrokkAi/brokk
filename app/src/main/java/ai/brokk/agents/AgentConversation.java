@@ -1,6 +1,7 @@
 package ai.brokk.agents;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.CustomMessage;
@@ -30,7 +31,7 @@ public final class AgentConversation {
   public void appendUi(ChatMessage message, boolean echo) {
     uiMessages.add(message);
     if (echo) {
-      io.llmOutput(message.toString(), message.type(), true, false);
+      io.llmOutput(Messages.getText(message), message.type(), true, false);
     }
   }
 
