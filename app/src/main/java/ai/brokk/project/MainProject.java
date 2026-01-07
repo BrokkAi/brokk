@@ -56,6 +56,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -360,7 +361,7 @@ public final class MainProject extends AbstractProject {
                     }
                 }
 
-                // Normalize environment variables for known path-like keys (e.g., JAVA_HOME)
+                // Normalize environment variables and migrate JAVA_HOME to workspace properties
                 Map<String, String> envIn = details.environmentVariables();
                 Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
 
@@ -371,7 +372,12 @@ public final class MainProject extends AbstractProject {
                         continue;
                     }
                     if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                        canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
+                        // Migration: Move JAVA_HOME from project.properties to workspace.properties
+                        String canonicalPath = PathNormalizer.canonicalizeEnvPathValue(v);
+                        if (!canonicalPath.isBlank()) {
+                            setJdk(canonicalPath);
+                            logger.info("Migrated JAVA_HOME from project build details to workspace JDK settings.");
+                        }
                     } else {
                         canonicalEnv.put(k, v);
                     }
@@ -413,20 +419,17 @@ public final class MainProject extends AbstractProject {
             }
         }
 
-        // 2) Normalize environment variables for known path-like keys (at least JAVA_HOME)
+        // 2) Normalize environment variables.
+        // Omit JAVA_HOME from project-scoped storage as it is persisted in workspace properties.
         Map<String, String> envIn = details.environmentVariables();
         Map<String, String> canonicalEnv = new LinkedHashMap<>(envIn.size());
         for (Map.Entry<String, String> e : envIn.entrySet()) {
             String k = e.getKey();
             String v = e.getValue();
-            if (v == null) {
-                continue; // NullAway should avoid this, but be defensive
+            if (v == null || "JAVA_HOME".equalsIgnoreCase(k)) {
+                continue;
             }
-            if ("JAVA_HOME".equalsIgnoreCase(k)) {
-                canonicalEnv.put(k, PathNormalizer.canonicalizeEnvPathValue(v));
-            } else {
-                canonicalEnv.put(k, v);
-            }
+            canonicalEnv.put(k, v);
         }
 
         var canonicalDetails = new BuildAgent.BuildDetails(
@@ -1184,10 +1187,11 @@ public final class MainProject extends AbstractProject {
      * Performs the actual style.md to AGENTS.md migration.
      * Delegates to StyleGuideMigrator for the core migration logic.
      *
-     * @param chrome the Chrome instance for showing notifications
+     * @param io the IConsoleIO instance for showing notifications
      * @return true if migration succeeded, false otherwise
      */
-    public boolean performStyleMdToAgentsMdMigration(Chrome chrome) {
+    @Blocking
+    public boolean performStyleMdToAgentsMdMigration(IConsoleIO io) {
         try {
             var gitTopLevel = getMasterRootPathForConfig();
             var legacyStyle = new ai.brokk.analyzer.ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
@@ -1203,11 +1207,11 @@ public final class MainProject extends AbstractProject {
             if (result.performed()) {
                 logger.info("Migration successful: {}", result.message());
                 setMigrationDeclined(false);
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, result.message());
+                io.showNotification(IConsoleIO.NotificationRole.INFO, result.message());
                 return true;
             } else {
                 logger.info("Migration not performed: {}", result.message());
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Migration skipped: " + result.message());
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Migration skipped: " + result.message());
                 return false;
             }
         } catch (Exception e) {
@@ -1216,7 +1220,7 @@ public final class MainProject extends AbstractProject {
                     getRoot().getFileName(),
                     e.getMessage(),
                     e);
-            chrome.toolError("Migration failed: " + e.getMessage(), "Migration Error");
+            io.toolError("Migration failed: " + e.getMessage(), "Migration Error");
             return false;
         }
     }

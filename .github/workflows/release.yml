@@ -87,4 +87,5 @@ jobs:
       - name: Build App Installer Bundles
         uses: shannah/jdeploy@master
         with:
-          github_token: ${{ github.token }}
+          github_token: ${{ secrets.BROKK_RELEASES_TOKEN }}
+          target_repository: 'BrokkAi/brokk-releases'

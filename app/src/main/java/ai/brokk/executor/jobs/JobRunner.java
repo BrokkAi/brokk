@@ -449,7 +449,9 @@ public final class JobRunner {
                                                 // Use helper that builds a workspace-only prompt and calls the
                                                 // planner model.
                                                 TaskResult askResult = askUsingPlannerModel(
-                                                        Objects.requireNonNull(askPlannerModel), spec.taskInput());
+                                                        context,
+                                                        Objects.requireNonNull(askPlannerModel),
+                                                        spec.taskInput());
                                                 scope.append(askResult);
                                             } catch (Throwable t) {
                                                 // Do not allow a planner-model failure to abort the entire job.
@@ -729,12 +731,11 @@ public final class JobRunner {
      * @param question the user's question / task text
      * @return a TaskResult suitable for appending to a TaskScope
      */
-    private TaskResult askUsingPlannerModel(StreamingChatModel model, String question) {
+    private TaskResult askUsingPlannerModel(Context ctx, StreamingChatModel model, String question) {
         var svc = cm.getService();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
         List<ChatMessage> messages;
-        Context ctx = cm.liveContext();
         messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
         // Create an LLM instance for the planner model and route output to the ContextManager IO
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
@@ -755,12 +756,11 @@ public final class JobRunner {
 
         // construct TaskResult
         Objects.requireNonNull(stop);
-        var resultingCtx = cm.liveContext();
         return new TaskResult(
                 cm,
                 "Ask: " + question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
-                resultingCtx, // Ask never changes files; use current live context
+                ctx, // Ask never changes files; use current live context
                 stop,
                 meta);
     }

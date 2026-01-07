@@ -1104,6 +1104,19 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 cm.checkBalanceAndNotify();
             }
 
+            boolean shouldRefreshUi = false;
+
+            if (result.stopDetails().reason() == TaskResult.StopReason.SUCCESS && Objects.equals(runningIndex, idx)) {
+                var items = new ArrayList<TaskList.TaskItem>(cm.getTaskList().tasks());
+                if (idx >= 0 && idx < items.size()) {
+                    var it = items.get(idx);
+                    items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
+                    cm.setTaskListAsync(new TaskList.TaskListData(items));
+                    shouldRefreshUi = true;
+                }
+            }
+
+            boolean finalShouldRefreshUi = shouldRefreshUi;
             SwingUtilities.invokeLater(() -> {
                 try {
                     if (result.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
@@ -1111,15 +1124,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                         return;
                     }
 
-                    if (Objects.equals(runningIndex, idx)) {
-                        var items = new ArrayList<TaskList.TaskItem>(
-                                cm.getTaskList().tasks());
-                        if (idx >= 0 && idx < items.size()) {
-                            var it = items.get(idx);
-                            items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
-                            cm.setTaskListAsync(new TaskList.TaskListData(items));
-                            refreshUi(false);
-                        }
+                    if (finalShouldRefreshUi) {
+                        refreshUi(false);
                     }
                 } finally {
                     runningIndex = null;
@@ -2187,11 +2193,13 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             SwingUtilities.invokeLater(() -> {
                 refreshUi(true);
                 // Switch to Tasks tab when task list changes
-                JTabbedPane tabs = findParentTabbedPane();
-                if (tabs != null) {
-                    int idx = tabIndexOfSelf(tabs);
-                    if (idx >= 0) {
-                        tabs.setSelectedIndex(idx);
+                if (currentFragmentId != null) {
+                    JTabbedPane tabs = findParentTabbedPane();
+                    if (tabs != null) {
+                        int idx = tabIndexOfSelf(tabs);
+                        if (idx >= 0) {
+                            tabs.setSelectedIndex(idx);
+                        }
                     }
                 }
             });
