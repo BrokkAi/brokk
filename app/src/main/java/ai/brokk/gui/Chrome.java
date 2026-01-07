@@ -1824,7 +1824,7 @@ public class Chrome
                         logger.info("[{}] User accepted style regeneration, triggering regeneration", result.stepId());
                         showNotification(IConsoleIO.NotificationRole.INFO, "Regenerating style guide...");
 
-                        var regenerationFuture = contextManager.ensureStyleGuide();
+                        var regenerationFuture = contextManager.regenerateStyleGuideAsync();
                         regenerationFuture
                                 .thenAcceptAsync(styleContent -> {
                                     SwingUtilities.invokeLater(() -> {
