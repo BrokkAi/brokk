@@ -441,7 +441,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         ProjectFile pf = null;
         try {
             pf = contextManager.toFile(entry.getKey());
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            logger.debug("Failed to resolve ProjectFile for {}", entry.getKey(), e);
         }
         return new FileComparisonInfo(
                 pf,
