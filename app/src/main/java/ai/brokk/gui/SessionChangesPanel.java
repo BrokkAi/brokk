@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.agents.ReviewAgent;
+import ai.brokk.agents.ReviewGenerationException;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BufferSource;
@@ -809,8 +810,26 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     parent.revalidate();
                     parent.repaint();
                 });
+            } catch (ReviewGenerationException ex) {
+                logger.warn("Review generation failed: {}", ex.getMessage());
+                SwingUtilities.invokeLater(() -> {
+                    if (parent instanceof JSplitPane splitPane && codeReviewPanel != null) {
+                        splitPane.setTopComponent(codeReviewPanel.getListPanel());
+                        if (savedDividerLocation > 0) {
+                            splitPane.setDividerLocation(savedDividerLocation);
+                        }
+                    }
+                    if (codeReviewPanel != null) codeReviewPanel.setBusy(false);
+
+                    String userMessage = ex.getStopDetails() != null
+                            ? "Review generation failed: " + ex.getStopDetails().explanation()
+                            : "Review generation failed: " + ex.getMessage();
+                    chrome.toolError(userMessage, "Review Error");
+                    parent.revalidate();
+                    parent.repaint();
+                });
             } catch (Exception ex) {
-                logger.error("Failed to generate guided review", ex);
+                logger.error("Unexpected error during review generation", ex);
                 SwingUtilities.invokeLater(() -> {
                     if (parent instanceof JSplitPane splitPane && codeReviewPanel != null) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
