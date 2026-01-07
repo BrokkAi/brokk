@@ -455,11 +455,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         buttonPanel.add(commitBtn);
 
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
-        for (var al : guidedReviewBtn.getActionListeners()) guidedReviewBtn.removeActionListener(al);
-        guidedReviewBtn.addActionListener(e -> generateGuidedReview());
         guidedReviewBtn.setVisible(true);
         setGuidedReviewBusy(guidedReviewBusy);
-        buttonPanel.add(guidedReviewBtn);
 
         var pushPull = res.pushPullState();
         pullBtn.setEnabled(!hasUncommittedChanges);
@@ -482,6 +479,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
         prBtn.setVisible(showPR);
         buttonPanel.add(prBtn);
+
+        buttonPanel.add(guidedReviewBtn);
 
         headerPanel.add(buttonPanel, BorderLayout.EAST);
 
@@ -711,9 +710,20 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void setGuidedReviewBusy(boolean busy) {
         SwingUtil.runOnEdt(() -> {
             guidedReviewBusy = busy;
-            guidedReviewBtn.setEnabled(!busy);
-            guidedReviewBtn.setText(busy ? "Generating..." : "Guided Review");
-            guidedReviewBtn.setIcon(busy ? SpinnerIconUtil.getSpinner(chrome, true) : null);
+
+            for (var al : guidedReviewBtn.getActionListeners()) {
+                guidedReviewBtn.removeActionListener(al);
+            }
+
+            if (busy) {
+                guidedReviewBtn.setText("Cancel");
+                guidedReviewBtn.setIcon(SpinnerIconUtil.getSpinner(chrome, true));
+                guidedReviewBtn.addActionListener(e -> contextManager.interruptLlmAction());
+            } else {
+                guidedReviewBtn.setText("Guided Review");
+                guidedReviewBtn.setIcon(null);
+                guidedReviewBtn.addActionListener(e -> generateGuidedReview());
+            }
         });
     }
 
