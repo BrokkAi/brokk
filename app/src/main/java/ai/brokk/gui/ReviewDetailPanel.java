@@ -33,7 +33,6 @@ import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextPane;
-import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
@@ -194,7 +193,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         String combined = String.join("\n", htmlChunks);
         String sanitized = SimpleHtmlPanel.sanitizeForSwing(combined);
 
-        String fullHtml = """
+        String fullHtml =
+                """
                 <html>
                   <head>
                     <style>%s</style>
@@ -202,8 +202,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                   <body>%s</body>
                 </html>
                 """
-                .stripIndent()
-                .formatted(css, sanitized);
+                        .stripIndent()
+                        .formatted(css, sanitized);
 
         contentPane.setText(fullHtml);
         contentPane.setCaretPosition(0);
