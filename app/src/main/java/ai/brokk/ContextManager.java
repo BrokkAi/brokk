@@ -1434,8 +1434,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    public Context setTaskList(TaskList.TaskListData data) {
-        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+    public void setTaskListAsync(TaskList.TaskListData data) {
+        CompletableFuture.supplyAsync(() -> {
+            pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+        });
     }
 
     public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data) {

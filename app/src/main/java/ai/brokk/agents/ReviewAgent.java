@@ -442,6 +442,12 @@ public class ReviewAgent {
                 """
                 Now call createReview to produce the final structured review.
 
+                For each item [except Overview], provide a `title` which is a short 4-5 word label summarizing the feedback,
+                a `description` explaining the problem in detail, and
+                a `recommendation` for remediation detailed enough to give to Code Agent.
+                DesignFeedback may have multiple CodeExcerpts associated with it, while
+                TacticalFeedback should each have a single CodeExcerpt.
+
                 Reference the excerpts you extracted by their numeric ID (0, 1, 2, ...) in your
                 designNotes and tacticalNotes fields.
 
@@ -454,6 +460,8 @@ public class ReviewAgent {
                 - additionalTests: High-value tests that should be added
 
                 Be opinionated in your recommendations: pick the best solution instead of giving multiple options.
+                Your recommendations should include enough context that they can be added as standalone
+                tasks for the Code Agent to execute.
                 """);
     }
 
@@ -465,11 +473,7 @@ public class ReviewAgent {
             @P(
                             """
                     Explain the trickiest parts of the design and how they can be improved.
-                    For each item, provide a `title` which is a short 4-5 word label summarizing the feedback,
-                    a `description` explaining the problem in detail, and
-                    a `recommendation` for remediation detailed enough to give to Code Agent.
                     Remember that you can give multiple excerpts per RawDesignNote!
-                    Use Markdown for formatting both description and recommendation.
                     """)
                     List<ReviewParser.RawDesignFeedback> designNotes,
             @P(

@@ -743,20 +743,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 var diskCache = contextManager.getProject().getDiskCache();
 
                 ReviewParser.GuidedReview review;
-                var cachedJson = diskCache.get(cacheKey);
-                if (cachedJson.isPresent()) {
-                    review = ReviewParser.GuidedReview.fromJson(cachedJson.get());
-                } else {
-                    var agent = new ReviewAgent(formattedDiff, contextManager, chrome, fileComparisons);
-                    agent.setProgressUpdater(p -> SwingUtilities.invokeLater(() -> {
-                        progressBar.setValue(p);
-                        if (p < 10) progressBar.setString("Gathering context...");
-                        else if (p < 80) progressBar.setString("Analyzing changes...");
-                        else progressBar.setString("Generating review...");
-                    }));
-                    review = agent.execute();
-                    diskCache.put(cacheKey, review.toJson());
-                }
+                var agent = new ReviewAgent(formattedDiff, contextManager, chrome, fileComparisons);
+                agent.setProgressUpdater(p -> SwingUtilities.invokeLater(() -> {
+                    progressBar.setValue(p);
+                    if (p < 10) progressBar.setString("Gathering context...");
+                    else if (p < 80) progressBar.setString("Analyzing changes...");
+                    else progressBar.setString("Generating review...");
+                }));
+                review = agent.execute();
 
                 logger.info(
                         "Parsed GuidedReview: overview={} chars, designNotes={}, tacticalNotes={}, additionalTests={}",
