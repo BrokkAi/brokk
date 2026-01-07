@@ -727,32 +727,35 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private void updateReviewPanelVisibility(boolean visible) {
         SwingUtil.runOnEdt(() -> {
-            leftSplitPane.setVisible(visible);
+            var listPanel = codeReviewPanel.getListPanel();
+            listPanel.setVisible(visible);
+
+            leftSplitPane.setDividerSize(visible ? defaultSplitPaneDividerSize() : 0);
+            if (!visible) {
+                leftSplitPane.setDividerLocation(0);
+            } else {
+                leftSplitPane.setResizeWeight(0.5);
+                leftSplitPane.setDividerLocation(0.5);
+            }
 
             if (detailScrollPane != null) {
                 detailScrollPane.setVisible(visible);
             }
 
             if (rightVerticalSplitPane != null) {
-                rightVerticalSplitPane.setEnabled(visible);
                 rightVerticalSplitPane.setDividerSize(visible ? defaultSplitPaneDividerSize() : 0);
-                rightVerticalSplitPane.setResizeWeight(visible ? 0.5 : 0.0);
                 if (!visible) {
                     rightVerticalSplitPane.setDividerLocation(0);
                 } else {
+                    rightVerticalSplitPane.setResizeWeight(0.5);
                     rightVerticalSplitPane.setDividerLocation(0.5);
                 }
             }
 
             if (mainSplitPane != null) {
-                mainSplitPane.setEnabled(visible);
-                mainSplitPane.setDividerSize(visible ? defaultSplitPaneDividerSize() : 0);
+                mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
                 mainSplitPane.setResizeWeight(0.0);
-                if (!visible) {
-                    mainSplitPane.setDividerLocation(0);
-                } else {
-                    mainSplitPane.setDividerLocation(300);
-                }
+                mainSplitPane.setDividerLocation(visible ? 300 : 200);
             }
 
             revalidate();
