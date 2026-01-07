@@ -166,32 +166,9 @@ public class ReviewAgent {
             Map<Integer, CodeExcerpt> resolvedExcerpts = retryResult.resolvedExcerpts();
 
             // --- Turn 2: Convert Markdown review into structured tool call (fresh context) ---
-            String mergedReviewText;
+            String mergedReviewText = retryResult.mergedResponseText();
             String mergedReasoning = requireNonNullElse(
                     requireNonNull(turn1Result.chatResponse()).reasoningContent(), "");
-
-            if (retryResult.retryCount() > 0) {
-                // Collapse Turn 1 and its retries into a single clean turn
-                String baseText = ReviewParser.instance.stripExcerpts(turn1Result.text());
-                String serializedExcerpts = resolvedExcerpts.entrySet().stream()
-                        .sorted(Map.Entry.comparingByKey())
-                        .map(e ->
-                                """
-                                BRK_EXCERPT_%d
-                                %s @%d
-                                ```
-                                %s
-                                ```"""
-                                        .formatted(
-                                                e.getKey(),
-                                                e.getValue().file().toString(),
-                                                e.getValue().line(),
-                                                e.getValue().excerpt()))
-                        .collect(java.util.stream.Collectors.joining("\n\n"));
-                mergedReviewText = baseText + "\n\n" + serializedExcerpts;
-            } else {
-                mergedReviewText = turn1Result.text();
-            }
 
             Context turn2Context = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
 
@@ -304,7 +281,7 @@ public class ReviewAgent {
         }
     }
 
-    record RetryResult(Map<Integer, CodeExcerpt> resolvedExcerpts, int retryCount) {}
+    record RetryResult(Map<Integer, CodeExcerpt> resolvedExcerpts, int retryCount, String mergedResponseText) {}
 
     @Blocking
     RetryResult retryInStages(Llm llm, List<ChatMessage> turn1Messages, Llm.StreamingResult turn1Result)
@@ -312,7 +289,7 @@ public class ReviewAgent {
         // we split up "validate filenames" and "validate text" into two stages so that
         // we can tailor the Context to each
 
-        List<ChatMessage> history = new ArrayList<>(turn1Messages);
+        List<ChatMessage> stage1Messages = new ArrayList<>(turn1Messages);
         Map<Integer, RawExcerpt> validPathExcerpts = new HashMap<>();
         int totalRetries = 0;
 
@@ -324,7 +301,7 @@ public class ReviewAgent {
             String text = currentResult.text();
             String reasoning = requireNonNullElse(
                     requireNonNull(currentResult.chatResponse()).reasoningContent(), "");
-            history.add(new AiMessage(text, reasoning));
+            stage1Messages.add(new AiMessage(text, reasoning));
 
             Map<Integer, RawExcerpt> parsed = ReviewParser.instance.parseExcerpts(text);
             Map<Integer, String> stage1Errors = new HashMap<>();
@@ -349,7 +326,7 @@ public class ReviewAgent {
                     ? " for ONLY these excerpts.\nAll other excerpts have been recorded successfully and do not need to be repeated."
                     : ":";
 
-            history.add(new UserMessage(
+            stage1Messages.add(new UserMessage(
                     """
                     The following excerpts referenced unknown file paths.
                     Please provide corrected BRK_EXCERPT blocks%s
@@ -358,13 +335,17 @@ public class ReviewAgent {
                     """
                             .formatted(successNote, errorList)));
 
-            currentResult = llm.sendRequest(history);
+            currentResult = llm.sendRequest(stage1Messages);
             totalRetries++;
             if (currentResult.error() != null) break;
         }
 
+        // Build merged stage 1 text by replacing excerpts in original with corrected versions
+        String mergedResponseText = buildMergedResponseText(turn1Result.text(), validPathExcerpts);
+
         // Stage 2: Validate excerpts match file content
         Map<Integer, CodeExcerpt> resolvedExcerpts = new HashMap<>();
+        List<ChatMessage> stage2Messages = new ArrayList<>();
         attempts = 0;
         while (true) {
             Map<Integer, String> stage2Errors = new HashMap<>();
@@ -400,9 +381,6 @@ public class ReviewAgent {
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
                     .collect(java.util.stream.Collectors.joining("\n"));
 
-            List<ChatMessage> stage2Messages = new ArrayList<>();
-            stage2Messages.add(buildSystemMessage());
-
             var filesToInclude = stage2Errors.keySet().stream()
                     .map(validPathExcerpts::get)
                     .map(RawExcerpt::file)
@@ -412,9 +390,14 @@ public class ReviewAgent {
                     .toList();
 
             Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
+
+            // Build stage 2 messages: system, turn1 prompt, merged result as AiMessage, workspace, stage2 prompt
+            stage2Messages.clear();
+            stage2Messages.add(buildSystemMessage());
+            stage2Messages.add(buildAnalysisRequestMessage());
+            stage2Messages.add(new AiMessage(mergedResponseText));
             stage2Messages.addAll(
                     WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
-            stage2Messages.addAll(history);
 
             boolean someResolved = !resolvedExcerpts.isEmpty();
             String successNote = someResolved
@@ -435,9 +418,6 @@ public class ReviewAgent {
             if (currentResult.error() != null) break;
 
             String text = currentResult.text();
-            String reasoning = requireNonNullElse(
-                    requireNonNull(currentResult.chatResponse()).reasoningContent(), "");
-            history.add(new AiMessage(text, reasoning));
 
             // Accumulate newly parsed excerpts into validPathExcerpts only if they pass file check
             Map<Integer, RawExcerpt> newlyParsed = ReviewParser.instance.parseExcerpts(text);
@@ -446,9 +426,33 @@ public class ReviewAgent {
                     validPathExcerpts.put(entry.getKey(), entry.getValue());
                 }
             }
+
+            // Update merged text with newly fixed excerpts
+            mergedResponseText = buildMergedResponseText(turn1Result.text(), validPathExcerpts);
         }
 
-        return new RetryResult(resolvedExcerpts, totalRetries);
+        return new RetryResult(resolvedExcerpts, totalRetries, mergedResponseText);
+    }
+
+    private String buildMergedResponseText(String originalText, Map<Integer, RawExcerpt> correctedExcerpts) {
+        List<ReviewParser.Segment> segments = ReviewParser.instance.parseToSegments(originalText);
+        List<ReviewParser.Segment> mergedSegments = new ArrayList<>();
+
+        for (var segment : segments) {
+            if (segment instanceof ReviewParser.ExcerptSegment excerptSeg) {
+                RawExcerpt corrected = correctedExcerpts.get(excerptSeg.id());
+                if (corrected != null) {
+                    mergedSegments.add(new ReviewParser.ExcerptSegment(
+                            excerptSeg.id(), corrected.file(), corrected.line(), corrected.excerpt()));
+                } else {
+                    mergedSegments.add(segment);
+                }
+            } else {
+                mergedSegments.add(segment);
+            }
+        }
+
+        return ReviewParser.instance.serializeSegments(mergedSegments);
     }
 
     private SystemMessage buildSystemMessage() {
