@@ -314,4 +314,129 @@ class ReviewAgentTest {
         assertEquals("good.java", result.get(0).file().toString());
         assertEquals("fixed.java", result.get(1).file().toString());
     }
+
+    @Test
+    void testRetryInStages_PreservesInterleavedStructure() throws InterruptedException, IOException {
+        Files.writeString(tempDir.resolve("file1.java"), "content1");
+        Files.writeString(tempDir.resolve("file2.java"), "content2");
+        TestProject project = new TestProject(tempDir);
+        IContextManager cm = new TestContextManager(project);
+
+        var info1 = new FileComparisonInfo(
+                null,
+                new BufferSource.StringSource("content1", "NEW", "file1.java"),
+                new BufferSource.StringSource("content1", "NEW", "file1.java"));
+        var info2 = new FileComparisonInfo(
+                null,
+                new BufferSource.StringSource("content2", "NEW", "file2.java"),
+                new BufferSource.StringSource("content2", "NEW", "file2.java"));
+
+        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info1, info2));
+
+        // Scenario: Text, Excerpt 0 (Good), Text, Excerpt 1 (Bad Path), Text
+        String resp1 =
+                """
+                Before 0.
+                BRK_EXCERPT_0
+                file1.java @1
+                ```java
+                content1
+                ```
+                Between 0 and 1.
+                BRK_EXCERPT_1
+                missing.java @1
+                ```java
+                content2
+                ```
+                After 1.""";
+
+        // Fix for Excerpt 1
+        String resp2 =
+                """
+                BRK_EXCERPT_1
+                file2.java @1
+                ```java
+                content2
+                ```""";
+
+        var stubModel = new TestScriptedLanguageModel(resp1, resp2);
+        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
+
+        ReviewAgent.RetryResult retryResult = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
+        Map<Integer, CodeExcerpt> resolved = retryResult.resolvedExcerpts();
+
+        assertEquals(2, resolved.size());
+
+        // Verify structure preservation (mirroring the logic in ReviewAgent.execute for mergedReviewText)
+        List<ReviewParser.Segment> segments = ReviewParser.instance.parseToSegments(resp1);
+        assertEquals(5, segments.size());
+        assertTrue(segments.get(0) instanceof ReviewParser.TextSegment);
+        assertEquals("Before 0.\n", ((ReviewParser.TextSegment) segments.get(0)).text());
+        assertTrue(segments.get(2) instanceof ReviewParser.TextSegment);
+        assertEquals("\nBetween 0 and 1.\n", ((ReviewParser.TextSegment) segments.get(2)).text());
+        assertTrue(segments.get(4) instanceof ReviewParser.TextSegment);
+        assertEquals("\nAfter 1.", ((ReviewParser.TextSegment) segments.get(4)).text());
+    }
+
+    @Test
+    void testRetryInStages_ProgressiveFixesInPlace() throws InterruptedException, IOException {
+        Files.writeString(tempDir.resolve("file.java"), "line1\nline2\nline3");
+        TestProject project = new TestProject(tempDir);
+        IContextManager cm = new TestContextManager(project);
+
+        var info = new FileComparisonInfo(
+                null,
+                new BufferSource.StringSource("line1\nline2\nline3", "NEW", "file.java"),
+                new BufferSource.StringSource("line1\nline2\nline3", "NEW", "file.java"));
+        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info));
+
+        // Turn 1: Excerpt 0 bad path, Excerpt 1 bad content
+        String resp1 =
+                """
+                Intro.
+                BRK_EXCERPT_0
+                badpath.java @1
+                ```java
+                line1
+                ```
+                Mid.
+                BRK_EXCERPT_1
+                file.java @2
+                ```java
+                wrongcontent
+                ```
+                Outro.""";
+
+        // Turn 2: Fix 0's path
+        String resp2 =
+                """
+                BRK_EXCERPT_0
+                file.java @1
+                ```java
+                line1
+                ```""";
+
+        // Turn 3: Fix 1's content
+        String resp3 =
+                """
+                BRK_EXCERPT_1
+                file.java @2
+                ```java
+                line2
+                ```""";
+
+        var stubModel = new TestScriptedLanguageModel(resp1, resp2, resp3);
+        var llm = new Llm(stubModel, "test", cm, false, false, false, false);
+        var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
+
+        ReviewAgent.RetryResult retryResult = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
+        Map<Integer, CodeExcerpt> resolved = retryResult.resolvedExcerpts();
+
+        assertEquals(2, resolved.size());
+        assertEquals(1, resolved.get(0).line());
+        assertEquals("line1", resolved.get(0).excerpt());
+        assertEquals(2, resolved.get(1).line());
+        assertEquals("line2", resolved.get(1).excerpt());
+    }
 }
