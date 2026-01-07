@@ -57,6 +57,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private DiffService.CumulativeChanges lastCumulativeChanges = null;
 
+    public record ReviewState(String commitHash, long generatedAtMillis) {}
+
+    @Nullable
+    private ReviewState lastReviewState = null;
+
     @Nullable
     private String lastBaselineLabel = null;
 
@@ -742,6 +747,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             tactical.recommendation().length());
                 }
 
+                String currentHash = repo.getCurrentCommitId();
+                long now = System.currentTimeMillis();
+
                 SwingUtilities.invokeLater(() -> {
                     if (parent instanceof JSplitPane splitPane && codeReviewPanel != null) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
@@ -750,6 +758,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         }
                     }
                     if (codeReviewPanel != null) {
+                        lastReviewState = new ReviewState(currentHash, now);
                         codeReviewPanel.displayReview(review);
                         codeReviewPanel.setBusy(false);
                     }
