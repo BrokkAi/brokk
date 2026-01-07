@@ -573,9 +573,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 }
 
                 // 3) Handle all file changes for file change listeners
-                if (!batch.files.isEmpty()) {
-                    logger.trace("File changes detected by ContextManager ({} files)", batch.files.size());
-                    handleFileChange(batch.files);
+                if (!batch.getFiles().isEmpty()) {
+                    logger.trace(
+                            "File changes detected by ContextManager ({} files)",
+                            batch.getFiles().size());
+                    handleFileChange(batch.getFiles());
                 }
             }
 

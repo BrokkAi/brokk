@@ -227,7 +227,7 @@ class NativeProjectWatchServiceManualTest {
 
         boolean hasFileEvent(String filename) {
             return events.stream()
-                    .flatMap(batch -> batch.files.stream())
+                    .flatMap(batch -> batch.getFiles().stream())
                     .anyMatch(file -> file.getRelPath().getFileName().toString().equals(filename));
         }
     }

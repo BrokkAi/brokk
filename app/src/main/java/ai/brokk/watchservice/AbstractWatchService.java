@@ -66,7 +66,7 @@ public abstract class AbstractWatchService implements AutoCloseable {
      * @param gitRepoRoot The git repository root (may be null)
      * @return The resolved git metadata directory path, or gitRepoRoot/.git for regular repos
      */
-    private static @Nullable Path resolveGitMetaDir(@Nullable Path gitRepoRoot) {
+    static @Nullable Path resolveGitMetaDir(@Nullable Path gitRepoRoot) {
         if (gitRepoRoot == null) {
             return null;
         }
@@ -202,21 +202,27 @@ public abstract class AbstractWatchService implements AutoCloseable {
     public interface Listener {
         void onFilesChanged(EventBatch batch);
 
-        void onNoFilesChangedDuringPollInterval() {
+        default void onNoFilesChangedDuringPollInterval() {
             // Default no-op
         }
     }
 
-    /** mutable since we will collect events until they stop arriving */
-    class EventBatch {
-        public boolean isOverflowed;
-        public boolean untrackedGitignoreChanged;
-        public Set<ProjectFile> files = new HashSet<>();
+    /** fields are mutable since we will collect events until they stop arriving */
+    public static class EventBatch {
+        boolean isOverflowed;
+        boolean untrackedGitignoreChanged;
+        final Set<ProjectFile> files = new HashSet<>();
 
-        @Override
-        public String toString() {
-            return "EventBatch{" + "isOverflowed=" + isOverflowed + ", untrackedGitignoreChanged="
-                    + untrackedGitignoreChanged + ", files=" + files + '}';
+        public boolean isOverflowed() {
+            return isOverflowed;
+        }
+
+        public boolean isUntrackedGitignoreChanged() {
+            return untrackedGitignoreChanged;
+        }
+
+        public Set<ProjectFile> getFiles() {
+            return files;
         }
     }
 }

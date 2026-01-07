@@ -42,12 +42,12 @@ public class JavaProjectWatchService extends AbstractWatchService {
     @Override
     public void start(CompletableFuture<?> delayNotificationsUntilCompleted) {
         Thread watcherThread = new Thread(
-                () -> beginWatching(delayNotificationsUntilCompleted),
+                () -> watch(delayNotificationsUntilCompleted),
                 "DirectoryWatcher@" + Long.toHexString(Thread.currentThread().threadId()));
         watcherThread.start();
     }
 
-    private void beginWatching(CompletableFuture<?> delayNotificationsUntilCompleted) {
+    private void watch(CompletableFuture<?> delayNotificationsUntilCompleted) {
         logger.debug("Setting up WatchService for {}", root);
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
             registerWatchTargets(watchService);
@@ -194,7 +194,7 @@ public class JavaProjectWatchService extends AbstractWatchService {
                     continue;
                 }
             }
-            batch.files.add(new ProjectFile(baseForFile, relativized));
+            batch.getFiles().add(new ProjectFile(baseForFile, relativized));
 
             // If it's a directory creation, register it so we can watch its children
             if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(eventPath)) {

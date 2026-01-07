@@ -247,7 +247,7 @@ class ContextManagerFileWatchingTest {
 
         // Create an event batch with git metadata changes
         EventBatch gitBatch = new EventBatch();
-        gitBatch.files.add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
+        gitBatch.getFiles().add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
 
         // Trigger the listener
         listener.onFilesChanged(gitBatch);
@@ -275,7 +275,7 @@ class ContextManagerFileWatchingTest {
 
         // Create an event batch with tracked file changes
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
 
         // Trigger the listener
         listener.onFilesChanged(batch);
@@ -300,8 +300,8 @@ class ContextManagerFileWatchingTest {
 
         // Create an event batch with both types of changes
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
 
         // Trigger the listener
         listener.onFilesChanged(batch);

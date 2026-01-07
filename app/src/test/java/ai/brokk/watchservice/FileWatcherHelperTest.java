@@ -29,7 +29,7 @@ class FileWatcherHelperTest {
     @Test
     void testIsGitMetadataChanged_WithGitFiles() {
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
 
         assertTrue(helper.isGitMetadataChanged(batch), "Should detect .git directory changes");
     }
@@ -37,7 +37,7 @@ class FileWatcherHelperTest {
     @Test
     void testIsGitMetadataChanged_WithoutGitFiles() {
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
 
         assertFalse(helper.isGitMetadataChanged(batch), "Should not detect non-git changes as git metadata");
     }
@@ -46,7 +46,7 @@ class FileWatcherHelperTest {
     void testIsGitMetadataChanged_NoGitRepo() {
         FileWatcherHelper helperNoGit = new FileWatcherHelper(null);
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
 
         assertFalse(helperNoGit.isGitMetadataChanged(batch), "Should return false when no git repo configured");
     }
@@ -58,9 +58,9 @@ class FileWatcherHelperTest {
         ProjectFile file2 = new ProjectFile(projectRoot, Path.of("src/Test.java"));
         ProjectFile file3 = new ProjectFile(projectRoot, Path.of("build/output.class"));
 
-        batch.files.add(file1);
-        batch.files.add(file2);
-        batch.files.add(file3);
+        batch.getFiles().add(file1);
+        batch.getFiles().add(file2);
+        batch.getFiles().add(file3);
 
         Set<ProjectFile> trackedFiles = Set.of(file1, file2); // file3 not tracked
 
@@ -75,10 +75,10 @@ class FileWatcherHelperTest {
     @Test
     void testGetFilesWithExtensions() {
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/Test.java")));
-        batch.files.add(new ProjectFile(projectRoot, Path.of("README.md")));
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/utils.ts")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/Test.java")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("README.md")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/utils.ts")));
 
         Set<ProjectFile> javaFiles = helper.getFilesWithExtensions(batch, Set.of("java"));
         assertEquals(2, javaFiles.size(), "Should return only .java files");
@@ -90,9 +90,9 @@ class FileWatcherHelperTest {
     @Test
     void testGetFilesInDirectory() {
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/main/Main.java")));
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/test/Test.java")));
-        batch.files.add(new ProjectFile(projectRoot, Path.of("docs/README.md")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/main/Main.java")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/test/Test.java")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("docs/README.md")));
 
         Set<ProjectFile> srcFiles = helper.getFilesInDirectory(batch, Path.of("src"));
         assertEquals(2, srcFiles.size(), "Should return files in src/ directory");
@@ -108,8 +108,8 @@ class FileWatcherHelperTest {
         ProjectFile file2 = new ProjectFile(projectRoot, Path.of("src/Test.java"));
         ProjectFile file3 = new ProjectFile(projectRoot, Path.of("src/Other.java"));
 
-        batch.files.add(file1);
-        batch.files.add(file2);
+        batch.getFiles().add(file1);
+        batch.getFiles().add(file2);
 
         assertTrue(helper.containsAnyFile(batch, Set.of(file1)), "Should find file1");
         assertTrue(helper.containsAnyFile(batch, Set.of(file1, file2)), "Should find either file");
@@ -119,7 +119,7 @@ class FileWatcherHelperTest {
     @Test
     void testIsSignificantChange_WithFiles() {
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
 
         assertTrue(helper.isSignificantChange(batch), "Batch with files is significant");
     }
@@ -145,8 +145,8 @@ class FileWatcherHelperTest {
         ProjectFile gitFile = new ProjectFile(projectRoot, Path.of(".git/HEAD"));
         ProjectFile trackedFile = new ProjectFile(projectRoot, Path.of("src/Main.java"));
 
-        batch.files.add(gitFile);
-        batch.files.add(trackedFile);
+        batch.getFiles().add(gitFile);
+        batch.getFiles().add(trackedFile);
 
         Set<ProjectFile> trackedFiles = Set.of(trackedFile);
 
@@ -161,7 +161,7 @@ class FileWatcherHelperTest {
     @Test
     void testClassifyChanges_OnlyGit() {
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of(".git/refs/heads/main")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of(".git/refs/heads/main")));
 
         var classification = helper.classifyChanges(batch, Set.of());
 
@@ -174,7 +174,7 @@ class FileWatcherHelperTest {
     void testClassifyChanges_OnlyTracked() {
         EventBatch batch = new EventBatch();
         ProjectFile file = new ProjectFile(projectRoot, Path.of("src/Main.java"));
-        batch.files.add(file);
+        batch.getFiles().add(file);
 
         Set<ProjectFile> trackedFiles = Set.of(file);
         var classification = helper.classifyChanges(batch, trackedFiles);
@@ -198,7 +198,7 @@ class FileWatcherHelperTest {
         // Git events from worktrees will have gitRepoRoot as base with .git prefix
         // This simulates what NativeProjectWatchService produces after the fix
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(mainRepoRoot, Path.of(".git/HEAD")));
+        batch.getFiles().add(new ProjectFile(mainRepoRoot, Path.of(".git/HEAD")));
 
         assertTrue(
                 worktreeHelper.isGitMetadataChanged(batch),
@@ -212,7 +212,7 @@ class FileWatcherHelperTest {
     void testIsGitMetadataChanged_NotGitignore() {
         EventBatch batch = new EventBatch();
         // .gitignore is NOT a git metadata file (it's a regular tracked file)
-        batch.files.add(new ProjectFile(projectRoot, Path.of(".gitignore")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of(".gitignore")));
 
         assertFalse(helper.isGitMetadataChanged(batch), "Should not detect .gitignore as git metadata");
     }
@@ -238,36 +238,36 @@ class FileWatcherHelperTest {
 
         // Test 1: Git event with worktreeRoot as base but .git prefix in relPath
         EventBatch batch1 = new EventBatch();
-        batch1.files.add(new ProjectFile(worktreeRoot, Path.of(".git/HEAD")));
+        batch1.getFiles().add(new ProjectFile(worktreeRoot, Path.of(".git/HEAD")));
         assertTrue(
                 worktreeHelper.isGitMetadataChanged(batch1),
                 "Should detect .git prefix regardless of base being worktreeRoot");
 
         // Test 2: Git event with mainRepoRoot as base
         EventBatch batch2 = new EventBatch();
-        batch2.files.add(new ProjectFile(mainRepoRoot, Path.of(".git/refs/heads/main")));
+        batch2.getFiles().add(new ProjectFile(mainRepoRoot, Path.of(".git/refs/heads/main")));
         assertTrue(worktreeHelper.isGitMetadataChanged(batch2), "Should detect .git prefix with mainRepoRoot base");
 
         // Test 3: Git event with arbitrary external base
         EventBatch batch3 = new EventBatch();
-        batch3.files.add(new ProjectFile(externalGitDir, Path.of(".git/objects/pack/pack-123.idx")));
+        batch3.getFiles().add(new ProjectFile(externalGitDir, Path.of(".git/objects/pack/pack-123.idx")));
         assertTrue(worktreeHelper.isGitMetadataChanged(batch3), "Should detect .git prefix with any base path");
 
         // Test 4: Mixed batch - one git, one regular file with different bases
         EventBatch batch4 = new EventBatch();
-        batch4.files.add(new ProjectFile(mainRepoRoot, Path.of(".git/index")));
-        batch4.files.add(new ProjectFile(worktreeRoot, Path.of("src/Main.java")));
+        batch4.getFiles().add(new ProjectFile(mainRepoRoot, Path.of(".git/index")));
+        batch4.getFiles().add(new ProjectFile(worktreeRoot, Path.of("src/Main.java")));
         assertTrue(worktreeHelper.isGitMetadataChanged(batch4), "Should detect git metadata in mixed batch");
 
         // Test 5: Non-git files only, different bases
         EventBatch batch5 = new EventBatch();
-        batch5.files.add(new ProjectFile(worktreeRoot, Path.of("src/Main.java")));
-        batch5.files.add(new ProjectFile(mainRepoRoot, Path.of("build.gradle")));
+        batch5.getFiles().add(new ProjectFile(worktreeRoot, Path.of("src/Main.java")));
+        batch5.getFiles().add(new ProjectFile(mainRepoRoot, Path.of("build.gradle")));
         assertFalse(worktreeHelper.isGitMetadataChanged(batch5), "Should not detect git metadata when none present");
 
         // Test 6: File in a directory named .github (not .git)
         EventBatch batch6 = new EventBatch();
-        batch6.files.add(new ProjectFile(worktreeRoot, Path.of(".github/workflows/ci.yml")));
+        batch6.getFiles().add(new ProjectFile(worktreeRoot, Path.of(".github/workflows/ci.yml")));
         assertFalse(worktreeHelper.isGitMetadataChanged(batch6), "Should not confuse .github with .git");
     }
 }

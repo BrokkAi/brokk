@@ -159,12 +159,12 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
         logger.trace(
                 "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}, gitMetaDir={}",
-                batch.files.size(),
-                batch.isOverflowed,
-                batch.untrackedGitignoreChanged);
+                batch.getFiles().size(),
+                batch.isOverflowed(),
+                batch.isUntrackedGitignoreChanged());
 
         // 1) Handle untracked gitignore file changes by invalidating project cache
-        if (batch.untrackedGitignoreChanged) {
+        if (batch.isUntrackedGitignoreChanged()) {
             logger.debug("Untracked gitignore files changed, invalidating project file cache");
             project.invalidateAllFiles();
         }
@@ -173,8 +173,8 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         if (gitRepoRoot != null) {
             Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
             boolean gitMetaTouched =
-                    batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
-            if (batch.isOverflowed || gitMetaTouched) {
+                    batch.getFiles().stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
+            if (batch.isOverflowed() || gitMetaTouched) {
                 logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
                 listener.onRepoChange();
                 listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
@@ -182,7 +182,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         }
 
         // 1) Handle overflow - trigger full analyzer rebuild
-        if (batch.isOverflowed) {
+        if (batch.isOverflowed()) {
             logger.debug("Event batch overflowed, triggering full analyzer rebuild");
             refresh(prev -> {
                 long startTime = System.currentTimeMillis();
@@ -199,7 +199,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         var projectLanguages = requireNonNull(currentAnalyzer).languages();
 
         // Only consider tracked files that match our analyzer's language extensions
-        var relevantFiles = batch.files.stream()
+        var relevantFiles = batch.getFiles().stream()
                 .filter(trackedFiles::contains) // Must be tracked by git
                 .filter(pf -> projectLanguages.stream()
                         .anyMatch(L -> L.getExtensions().contains(pf.extension())))
@@ -219,7 +219,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         } else {
             logger.trace(
                     "No analyzer-relevant files changed (batch contained {} files); skipping analyzer rebuild",
-                    batch.files.size());
+                    batch.getFiles().size());
         }
     }
 

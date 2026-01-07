@@ -68,13 +68,13 @@ public class NativeProjectWatchService extends AbstractWatchService {
 
     @Override
     public void start(CompletableFuture<?> delayNotificationsUntilCompleted) {
-        watcherThread = new Thread(() -> beginWatching(delayNotificationsUntilCompleted));
+        watcherThread = new Thread(() -> watch(delayNotificationsUntilCompleted));
         watcherThread.setName("NativeDirectoryWatcher@" + Long.toHexString(watcherThread.threadId()));
         watcherThread.setDaemon(true);
         watcherThread.start();
     }
 
-    private void beginWatching(CompletableFuture<?> delayNotificationsUntilCompleted) {
+    private void watch(CompletableFuture<?> delayNotificationsUntilCompleted) {
         logger.debug("Setting up native directory watcher for {}", root);
         final List<Path> paths = new ArrayList<Path>();
         paths.add(root);
@@ -164,7 +164,7 @@ public class NativeProjectWatchService extends AbstractWatchService {
                     return;
                 }
             }
-            accumulatedBatch.files.add(new ProjectFile(baseForFile, relativePath));
+            accumulatedBatch.getFiles().add(new ProjectFile(baseForFile, relativePath));
 
             // Conditionally schedule flush only if not paused
             if (pauseCount == 0) {
@@ -197,7 +197,7 @@ public class NativeProjectWatchService extends AbstractWatchService {
             }
 
             // If there's nothing to notify, return early
-            if (accumulatedBatch.files.isEmpty() && !accumulatedBatch.untrackedGitignoreChanged) {
+            if (accumulatedBatch.getFiles().isEmpty() && !accumulatedBatch.isUntrackedGitignoreChanged()) {
                 pendingFlush = null;
                 return;
             }
@@ -208,7 +208,9 @@ public class NativeProjectWatchService extends AbstractWatchService {
             pendingFlush = null;
 
             // Notify listeners while holding the lock to guarantee pause() semantics
-            logger.debug("Flushing {} accumulated file events", batchToNotify.files.size());
+            logger.debug(
+                    "Flushing {} accumulated file events",
+                    batchToNotify.getFiles().size());
             notifyFilesChanged(batchToNotify);
         } finally {
             lock.unlock();

@@ -328,8 +328,8 @@ public class FileWatcherBenchmark {
                     latencies.add(latency);
                     logger.info(
                             "Detected bulk change: {} files, overflow={}, latency={}ms",
-                            batch.files.size(),
-                            batch.isOverflowed,
+                            batch.getFiles().size(),
+                            batch.isOverflowed(),
                             latency / 1_000_000.0);
                     latch.countDown();
                 }
