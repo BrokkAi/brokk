@@ -22,12 +22,11 @@ class UnifiedDiffDocumentTest {
         // Doc Line 4:  Another         (CONTEXT)  Old: 3, New: 3
 
         List<DiffLine> lines = List.of(
-            new DiffLine(LineType.HEADER, "@@ -1,3 +1,3 @@", -1, -1, false),
-            new DiffLine(LineType.CONTEXT, " Unchanged", 1, 1, false),
-            new DiffLine(LineType.DELETION, "-Removed", 2, -1, true),
-            new DiffLine(LineType.ADDITION, "+Added", -1, 2, true),
-            new DiffLine(LineType.CONTEXT, " Another", 3, 3, false)
-        );
+                new DiffLine(LineType.HEADER, "@@ -1,3 +1,3 @@", -1, -1, false),
+                new DiffLine(LineType.CONTEXT, " Unchanged", 1, 1, false),
+                new DiffLine(LineType.DELETION, "-Removed", 2, -1, true),
+                new DiffLine(LineType.ADDITION, "+Added", -1, 2, true),
+                new DiffLine(LineType.CONTEXT, " Another", 3, 3, false));
 
         var doc = new UnifiedDiffDocument(lines, ContextMode.FULL_CONTEXT);
 

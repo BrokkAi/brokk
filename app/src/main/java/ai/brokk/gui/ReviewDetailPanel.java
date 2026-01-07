@@ -26,7 +26,6 @@ import javax.swing.JLabel;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
-import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -167,8 +166,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             var currentTasks = ctx.getTaskListDataOrEmpty().tasks();
 
             // Idempotency: skip if an identical task already exists in the list
-            boolean alreadyExists = currentTasks.stream()
-                    .anyMatch(t -> text.equals(t.text()));
+            boolean alreadyExists = currentTasks.stream().anyMatch(t -> text.equals(t.text()));
 
             if (alreadyExists) {
                 return ctx;

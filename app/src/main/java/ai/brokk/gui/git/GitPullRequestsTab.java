@@ -4,8 +4,6 @@ import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
-import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.git.GitRepo;
@@ -56,8 +54,6 @@ import org.eclipse.jgit.api.errors.TransportException;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.URIish;
 import org.jetbrains.annotations.Nullable;
-import org.kohsuke.github.GHIssue;
-import org.kohsuke.github.GHIssueComment;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHPullRequest;
@@ -1549,7 +1545,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         }
         return displayOptionWithCount; // For simple string options like "Open", "Closed", or names without counts
     }
-
 
     private void viewFullPrDiff() {
         int selectedRow = prTable.getSelectedRow();

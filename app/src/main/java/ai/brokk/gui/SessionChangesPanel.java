@@ -25,11 +25,8 @@ import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -398,9 +395,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable BaselineMode baselineMode) {
 
         if (headerLabel != null) {
-            headerLabel.setText((baselineLabel != null && !baselineLabel.isEmpty())
-                    ? "Comparing vs " + baselineLabel
-                    : "Branch-based changes");
+            headerLabel.setText(
+                    (baselineLabel != null && !baselineLabel.isEmpty())
+                            ? "Comparing vs " + baselineLabel
+                            : "Branch-based changes");
         }
 
         boolean hasUncommittedChanges = false;
@@ -429,9 +427,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             prBtn.setEnabled(!hasUncommittedChanges);
         }
 
-        var newComparisons = prepared.stream()
-                .map(this::toFileComparisonInfo)
-                .toList();
+        var newComparisons = prepared.stream().map(this::toFileComparisonInfo).toList();
 
         this.fileComparisons = newComparisons;
 
@@ -527,9 +523,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         var root = contextManager.getProject().getRoot();
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
-        this.fileComparisons = prepared.stream()
-                .map(this::toFileComparisonInfo)
-                .toList();
+        this.fileComparisons = prepared.stream().map(this::toFileComparisonInfo).toList();
 
         diffContainer = new JPanel(new BorderLayout());
         diffContainer.setOpaque(false);

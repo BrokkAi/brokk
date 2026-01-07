@@ -1024,7 +1024,7 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public void navigateToLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
-        // Use invokeLater to ensure that if a file switch just happened, 
+        // Use invokeLater to ensure that if a file switch just happened,
         // the new panel is fully added and has a valid size/layout before scrolling.
         SwingUtilities.invokeLater(() -> scrollToLineInCurrentPanel(lineNumber, side));
     }

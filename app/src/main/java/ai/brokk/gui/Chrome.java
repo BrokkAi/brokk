@@ -1048,7 +1048,6 @@ public class Chrome
             public void onAnalyzerReady() {
                 getProject().getMainProject().getDependencyUpdateScheduler().onAnalyzerReady();
             }
-
         });
 
         // 4. Focus and Action State Management

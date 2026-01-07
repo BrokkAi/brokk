@@ -1862,9 +1862,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
                     int viewHeight = viewport.getHeight();
 
                     // If viewHeight is 0, we can't center properly, so we just scroll to top of line
-                    int y = (viewHeight > 0)
-                            ? (int) rect.getY() - viewHeight / 2
-                            : (int) rect.getY();
+                    int y = (viewHeight > 0) ? (int) rect.getY() - viewHeight / 2 : (int) rect.getY();
 
                     viewport.setViewPosition(new Point(0, Math.max(0, y)));
                 }

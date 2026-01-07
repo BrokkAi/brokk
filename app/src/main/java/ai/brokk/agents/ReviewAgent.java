@@ -44,6 +44,7 @@ import org.jspecify.annotations.NullMarked;
 public class ReviewAgent {
 
     int progressOf100 = 0;
+
     @FunctionalInterface
     public interface ProgressUpdater {
         /**
@@ -97,7 +98,8 @@ public class ReviewAgent {
                     "addFileSummariesToWorkspace",
                     "addFilesToWorkspace");
             SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, io, scanConfig, searchTools);
-            java.util.concurrent.atomic.AtomicInteger searchTurnCount = new java.util.concurrent.atomic.AtomicInteger(0);
+            java.util.concurrent.atomic.AtomicInteger searchTurnCount =
+                    new java.util.concurrent.atomic.AtomicInteger(0);
             agent.setTurnListener(() -> {
                 int turns = searchTurnCount.incrementAndGet();
                 updateProgress(Math.min(10, turns * 2));
@@ -126,10 +128,15 @@ public class ReviewAgent {
             java.util.concurrent.atomic.AtomicInteger linesSeen = new java.util.concurrent.atomic.AtomicInteger(0);
             ai.brokk.cli.MemoryConsole progressConsole = new ai.brokk.cli.MemoryConsole() {
                 @Override
-                public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
+                public void llmOutput(
+                        String token,
+                        dev.langchain4j.data.message.ChatMessageType type,
+                        boolean explicitNewMessage,
+                        boolean isReasoning) {
                     super.llmOutput(token, type, explicitNewMessage, isReasoning);
                     if (token.contains("\n") && progressUpdater != null) {
-                        int lines = linesSeen.addAndGet((int) token.chars().filter(ch -> ch == '\n').count());
+                        int lines = linesSeen.addAndGet(
+                                (int) token.chars().filter(ch -> ch == '\n').count());
                         int p = turn1Floor + (lines / 10);
                         progressUpdater.updateProgress(Math.min(75, p));
                     }

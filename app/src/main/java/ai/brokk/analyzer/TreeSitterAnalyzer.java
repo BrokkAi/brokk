@@ -503,7 +503,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         // Stage 1: Parsing (completed during construction)
         // Stage 2: Resolving imports
         // Stage 3: Computing hierarchies
-        int totalStages = filesToProcess.size() + filesToProcess.size() + initialState.codeUnitState().size();
+        int totalStages = filesToProcess.size()
+                + filesToProcess.size()
+                + initialState.codeUnitState().size();
         var postProcessed = runPostProcessing(initialState, filesToProcess.size(), totalStages);
         this.state = postProcessed;
 
@@ -3536,7 +3538,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
         int totalFiles = baseState.fileState().size();
-        int totalClasses = (int) baseState.codeUnitState().keySet().stream().filter(CodeUnit::isClass).count();
+        int totalClasses = (int) baseState.codeUnitState().keySet().stream()
+                .filter(CodeUnit::isClass)
+                .count();
         // Since we are running post-processing on an already parsed state (incremental or snapshot),
         // we set the total to (Files + Classes).
         return runPostProcessing(baseState, 0, totalFiles + totalClasses);
@@ -3605,7 +3609,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Performs type analysis (direct supertypes) as a standalone step. Produces a new AnalyzerState with updated codeUnitState.supertypes.
      */
     protected AnalyzerState runTypeAnalysis(AnalyzerState baseState) {
-        int totalClasses = (int) baseState.codeUnitState().keySet().stream().filter(CodeUnit::isClass).count();
+        int totalClasses = (int) baseState.codeUnitState().keySet().stream()
+                .filter(CodeUnit::isClass)
+                .count();
         return runTypeAnalysis(baseState, 0, totalClasses);
     }
 
