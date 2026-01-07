@@ -281,5 +281,9 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                         : javax.swing.UIManager.getColor("Panel.background"));
         contentPanel.setBackground(getBackground());
         placeholderArea.setForeground(javax.swing.UIManager.getColor("Label.disabledForeground"));
+
+        for (SimpleHtmlPanel panel : htmlPanels) {
+            panel.applyThemeStyles();
+        }
     }
 }

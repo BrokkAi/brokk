@@ -2,6 +2,7 @@ package ai.brokk.gui.components;
 
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.util.GlobalUiSettings;
 import com.vladsch.flexmark.html.HtmlRenderer;
 import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.data.MutableDataSet;
@@ -69,6 +70,9 @@ public class SimpleHtmlPanel extends JEditorPane {
         var bgColor = ThemeColors.getColor(isDarkTheme, ThemeColors.MESSAGE_BACKGROUND);
         setBackground(bgColor);
 
+        float editorFontSize = GlobalUiSettings.getEditorFontSize();
+        float bodyFontSize = Math.max(14f, editorFontSize + 2f);
+
         var kit = (HTMLEditorKit) getEditorKit();
         var ss = kit.getStyleSheet();
 
@@ -79,8 +83,9 @@ public class SimpleHtmlPanel extends JEditorPane {
         var borderColor = ThemeColors.getColorHex(isDarkTheme, ThemeColors.BORDER_COLOR_HEX);
 
         // Base typography
-        ss.addRule("body { font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.5; " + "background-color: "
-                + bgColorHex + "; color: " + textColorHex + "; "
+        ss.addRule("body { font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.5; "
+                + "font-size: " + bodyFontSize + "pt; width: 100%; "
+                + "background-color: " + bgColorHex + "; color: " + textColorHex + "; "
                 + "margin: 0; padding-left: 8px; padding-right: 8px; }");
 
         // Headings
