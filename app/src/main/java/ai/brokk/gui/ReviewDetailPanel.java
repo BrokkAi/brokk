@@ -168,6 +168,15 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private void enqueueTask(String text) {
         contextManager.pushContext(ctx -> {
             var currentTasks = ctx.getTaskListDataOrEmpty().tasks();
+
+            // Idempotency: skip if an identical task already exists in the list
+            boolean alreadyExists = currentTasks.stream()
+                    .anyMatch(t -> text.equals(t.text()));
+
+            if (alreadyExists) {
+                return ctx;
+            }
+
             var newList = new ArrayList<>(currentTasks);
             newList.add(new TaskList.TaskItem(null, text, false));
             return ctx.withTaskList(new TaskList.TaskListData(List.copyOf(newList)));
