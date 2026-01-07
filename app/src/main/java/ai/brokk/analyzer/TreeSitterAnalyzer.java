@@ -265,8 +265,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             PMap<String, Set<CodeUnit>> symbolIndex,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
-            PMap<ProjectFile, Set<CodeUnit>> imports,
-            PMap<ProjectFile, Set<ProjectFile>> reverseImports,
+            ImportGraph importGraph,
             SymbolKeyIndex symbolKeyIndex,
             long snapshotEpochNanos) {}
 
@@ -519,8 +518,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 HashTreePMap.from(immutableSymbolIndex),
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
-                HashTreePMap.empty(),
-                HashTreePMap.empty(),
+                ImportGraph.empty(),
                 symbolKeyIndex,
                 snapshotNanos);
 
@@ -727,8 +725,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 this.state.symbolIndex(),
                 nextCodeUnitState,
                 this.state.fileState(),
-                this.state.imports(),
-                this.state.reverseImports(),
+                this.state.importGraph(),
                 this.state.symbolKeyIndex(),
                 this.state.snapshotEpochNanos());
     }
@@ -750,14 +747,14 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @return an unmodifiable set of resolved CodeUnits from import statements
      */
     public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return this.state.imports().getOrDefault(file, Set.of());
+        return this.state.importGraph().importedCodeUnitsOf(file);
     }
 
     /**
      * Returns the set of files that import the given file.
      */
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return this.state.reverseImports().getOrDefault(file, Set.of());
+        return this.state.importGraph().referencingFilesOf(file);
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
@@ -3547,8 +3544,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 HashTreePMap.from(immutableNextSymbolIndex),
                 HashTreePMap.from(newCodeUnitState),
                 HashTreePMap.from(newFileState),
-                HashTreePMap.empty(), // reset imports for re-resolution
-                HashTreePMap.empty(),
+                ImportGraph.empty(),
                 nextSymbolKeyIndex,
                 snapshotNanos);
 
@@ -3740,8 +3736,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 baseState.symbolIndex(),
                 baseState.codeUnitState(),
                 baseState.fileState(),
-                HashTreePMap.from(immutableForward),
-                HashTreePMap.from(immutableReverse),
+                ImportGraph.from(immutableForward, immutableReverse),
                 baseState.symbolKeyIndex(),
                 baseState.snapshotEpochNanos());
     }
@@ -3795,8 +3790,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 baseState.symbolIndex(),
                 HashTreePMap.from(updatedCodeUnitState),
                 baseState.fileState(),
-                baseState.imports(),
-                baseState.reverseImports(),
+                baseState.importGraph(),
                 baseState.symbolKeyIndex(),
                 baseState.snapshotEpochNanos());
     }

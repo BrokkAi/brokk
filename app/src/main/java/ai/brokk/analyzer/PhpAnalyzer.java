@@ -66,18 +66,18 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
-    private PhpAnalyzer(IProject project, Language language, AnalyzerState state, ProgressListener listener) {
-        super(project, language, state, listener);
+    private PhpAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.PHP, state, listener);
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
     public static PhpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new PhpAnalyzer(project, Languages.PHP, state, listener);
+        return new PhpAnalyzer(project, state, listener);
     }
 
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new PhpAnalyzer(getProject(), Languages.PHP, state, listener);
+        return new PhpAnalyzer(getProject(), state, listener);
     }
 
     @Override

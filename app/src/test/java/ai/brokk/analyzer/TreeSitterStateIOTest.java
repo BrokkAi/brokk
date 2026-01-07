@@ -171,8 +171,7 @@ public class TreeSitterStateIOTest {
                 HashTreePMap.empty(),
                 HashTreePMap.from(stateMap),
                 HashTreePMap.empty(),
-                HashTreePMap.empty(),
-                HashTreePMap.empty(),
+                ImportGraph.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
@@ -223,7 +222,8 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), List.of(), List.of("A"), 1L);
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), List.of(), List.of("A"), 1L);
         var state = TreeSitterStateIO.fromDto(dto);
         TreeSitterStateIO.save(state, out);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
@@ -279,8 +279,7 @@ public class TreeSitterStateIOTest {
                 HashTreePMap.empty(),
                 HashTreePMap.empty(),
                 HashTreePMap.empty(),
-                imports,
-                reverseImports,
+                ImportGraph.from(imports, reverseImports),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
@@ -291,8 +290,14 @@ public class TreeSitterStateIOTest {
         assertTrue(loadedOpt.isPresent());
         var loaded = loadedOpt.get();
 
-        assertEquals(state.imports(), loaded.imports(), "Forward imports should match after round-trip");
-        assertEquals(state.reverseImports(), loaded.reverseImports(), "Reverse imports should match after round-trip");
+        assertEquals(
+                state.importGraph().imports(),
+                loaded.importGraph().imports(),
+                "Forward imports should match after round-trip");
+        assertEquals(
+                state.importGraph().reverseImports(),
+                loaded.importGraph().reverseImports(),
+                "Reverse imports should match after round-trip");
     }
 
     @Test
