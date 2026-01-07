@@ -136,11 +136,11 @@ public class ReviewAgent {
                         boolean explicitNewMessage,
                         boolean isReasoning) {
                     super.llmOutput(token, type, explicitNewMessage, isReasoning);
-                    if (token.contains("\n") && progressUpdater != null) {
+                    if (token.contains("\n")) {
                         int lines = linesSeen.addAndGet(
                                 (int) token.chars().filter(ch -> ch == '\n').count());
                         int p = turn1Floor + (lines / 10);
-                        progressUpdater.updateProgress(Math.min(75, p));
+                        updateProgress(Math.min(75, p));
                     }
                 }
             };
@@ -170,10 +170,8 @@ public class ReviewAgent {
             javax.swing.Timer turn2Timer = new javax.swing.Timer(1000, null);
             AtomicInteger turn2Seconds = new AtomicInteger(0);
             turn2Timer.addActionListener(e -> {
-                if (progressUpdater != null) {
-                    int p = turn2Floor + turn2Seconds.incrementAndGet();
-                    progressUpdater.updateProgress(Math.min(99, p));
-                }
+                int p = turn2Floor + turn2Seconds.incrementAndGet();
+                updateProgress(Math.min(99, p));
             });
             turn2Timer.start();
 
