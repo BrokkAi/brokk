@@ -239,15 +239,23 @@ public class UnifiedDiffDocument extends RSyntaxDocument {
     public int findDocumentLineForSourceLine(int sourceLine, boolean isRightSide) {
         for (int i = 0; i < filteredLines.size(); i++) {
             var line = filteredLines.get(i);
+
+            // Special case: Omitted lines indicators do not have line numbers but are searchable via -1
+            if (line.getType() == LineType.OMITTED_LINES && sourceLine == -1) {
+                return i;
+            }
+
             if (isRightSide) {
                 // For right/NEW side: match ADDITION and CONTEXT lines
-                if ((line.getType() == LineType.ADDITION || line.getType() == LineType.CONTEXT)
+                if (line.getRightLineNumber() != -1
+                        && (line.getType() == LineType.ADDITION || line.getType() == LineType.CONTEXT)
                         && line.getRightLineNumber() == sourceLine) {
                     return i;
                 }
             } else {
                 // For left/OLD side: match DELETION and CONTEXT lines
-                if ((line.getType() == LineType.DELETION || line.getType() == LineType.CONTEXT)
+                if (line.getLeftLineNumber() != -1
+                        && (line.getType() == LineType.DELETION || line.getType() == LineType.CONTEXT)
                         && line.getLeftLineNumber() == sourceLine) {
                     return i;
                 }

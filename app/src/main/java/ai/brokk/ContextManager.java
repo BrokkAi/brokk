@@ -2267,9 +2267,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public void publish(Context context) {}
 
         @Override
-        public void close() throws InterruptedException {
-        }
+        public void close() throws InterruptedException {}
     }
+
+    @Override
     public AnonymousScope anonymousScope() {
         return new AnonymousScope();
     }
