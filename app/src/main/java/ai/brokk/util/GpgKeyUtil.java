@@ -11,6 +11,7 @@ import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.gpg.signing.GpgBinary;
 import org.eclipse.jgit.util.SystemReader;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -24,6 +25,15 @@ public class GpgKeyUtil {
      */
     @Blocking
     public static List<GpgKey> listSecretKeys() {
+        return listSecretKeys(null);
+    }
+
+    /**
+     * Lists secret keys available in the GPG keyring using --with-colons for stable parsing.
+     * @param gpgHome optional path to GNUPGHOME
+     */
+    @Blocking
+    public static List<GpgKey> listSecretKeys(@Nullable Path gpgHome) {
         Path gpgPath;
         try {
             gpgPath = new GpgBinary(null).getPath();
@@ -33,6 +43,9 @@ public class GpgKeyUtil {
         }
 
         ProcessBuilder pb = new ProcessBuilder(gpgPath.toString(), "--list-secret-keys", "--with-colons");
+        if (gpgHome != null) {
+            pb.environment().put("GNUPGHOME", gpgHome.toAbsolutePath().toString());
+        }
         List<GpgKey> keys = new ArrayList<>();
 
         try {

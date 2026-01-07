@@ -38,11 +38,16 @@ class GitRepoSigningTest {
 
     @Test
     void testCommitCommand_SigningEnabled() throws Exception {
-        List<GpgKeyUtil.GpgKey> keys = GpgKeyUtil.listSecretKeys();
-        Assumptions.assumeFalse(keys.isEmpty(), "No GPG keys found, skipping signing test");
+        // JGit's GpgProcessRunner spawns gpg as a child process which inherits the JVM's
+        // environment, not our custom SystemReader. We cannot inject GNUPGHOME from Java.
+        // Fall back to using keys from the user's real keyring if available.
+        List<GpgKeyUtil.GpgKey> systemKeys = GpgKeyUtil.listSecretKeys();
+        Assumptions.assumeFalse(systemKeys.isEmpty(),
+                "No GPG secret keys available in system keyring - skipping signing test");
 
+        String keyId = systemKeys.getFirst().id();
         project.setGpgCommitSigningEnabled(true);
-        project.setGpgSigningKey(keys.getFirst().id());
+        project.setGpgSigningKey(keyId);
 
         Path file = projectDir.resolve("signed.txt");
         Files.writeString(file, "content");
