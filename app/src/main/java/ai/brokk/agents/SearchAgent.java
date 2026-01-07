@@ -252,7 +252,9 @@ public class SearchAgent {
             }
 
             conversation.appendInternal(new UserMessage("What tools do you want to use next?"));
-            conversation.append(result.aiMessage());
+            boolean echoToolCalls = ai.hasToolExecutionRequests()
+                    && Boolean.parseBoolean(System.getProperty("brokk.showtoolresult", "false"));
+            conversation.append(result.aiMessage(), echoToolCalls);
 
             if (!ai.hasToolExecutionRequests()) {
                 return errorResult(

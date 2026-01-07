@@ -24,6 +24,14 @@ public final class AgentConversation {
     uiMessages.add(message);
   }
 
+  public void append(ChatMessage message, boolean echo) {
+    internalMessages.add(message);
+    uiMessages.add(message);
+    if (echo) {
+      io.llmOutput(Messages.getText(message), message.type(), true, false);
+    }
+  }
+
   public void appendInternal(ChatMessage message) {
     internalMessages.add(message);
   }

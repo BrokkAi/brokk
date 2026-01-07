@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.testutil.TestConsoleIO;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.CustomMessage;
@@ -48,6 +49,32 @@ final class AgentConversationTest {
   }
 
   @Test
+  void testAppendWithEchoTrue() {
+    ChatMessage message = AiMessage.from("echo-both");
+
+    conversation.append(message, true);
+
+    assertEquals(1, conversation.getInternalMessages().size());
+    assertEquals(1, conversation.getUiMessages().size());
+    assertEquals(message, conversation.getInternalMessages().getFirst());
+    assertEquals(message, conversation.getUiMessages().getFirst());
+    assertEquals(1, io.getLlmRawMessages().size());
+  }
+
+  @Test
+  void testAppendWithEchoFalse() {
+    ChatMessage message = UserMessage.from("no-echo-both");
+
+    conversation.append(message, false);
+
+    assertEquals(1, conversation.getInternalMessages().size());
+    assertEquals(1, conversation.getUiMessages().size());
+    assertEquals(message, conversation.getInternalMessages().getFirst());
+    assertEquals(message, conversation.getUiMessages().getFirst());
+    assertEquals(0, io.getLlmRawMessages().size());
+  }
+
+  @Test
   void testAppendUiMessageAddsToUiOnly() {
     ChatMessage message = UserMessage.from("ui");
 
@@ -60,7 +87,7 @@ final class AgentConversationTest {
 
   @Test
   void testAppendUiMessageEchoTrue() {
-    ChatMessage message = UserMessage.from("echo-me");
+    ChatMessage message = AiMessage.from("echo-me");
 
     conversation.appendUi(message, true);
 
