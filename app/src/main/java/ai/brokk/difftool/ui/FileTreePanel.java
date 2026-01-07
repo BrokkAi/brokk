@@ -413,6 +413,21 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         }
     }
 
+    /** Selects and scrolls to a file in the tree without triggering navigation events. */
+    public void selectFileQuietly(ProjectFile file) {
+        int index = -1;
+        for (int i = 0; i < fileComparisons.size(); i++) {
+            if (file.equals(fileComparisons.get(i).file())) {
+                index = i;
+                break;
+            }
+        }
+
+        if (index != -1) {
+            selectFile(index);
+        }
+    }
+
     /** Update the set of file indices that are dirty (have unsaved changes). Must be called on the EDT. */
     public void setDirtyFiles(Set<Integer> indices) {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
