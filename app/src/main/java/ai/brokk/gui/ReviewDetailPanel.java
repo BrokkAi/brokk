@@ -16,6 +16,7 @@ import ai.brokk.util.ReviewParser.ReviewFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
 import java.awt.CardLayout;
 import java.awt.Component;
+import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.util.ArrayList;
@@ -41,6 +42,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final ai.brokk.IContextManager contextManager;
     private final Runnable onNext;
     private final JPanel contentPanel;
+    private final javax.swing.JScrollPane scrollPane;
     private final JTextArea placeholderArea;
     private final CardLayout cardLayout;
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
@@ -65,8 +67,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
+        scrollPane = new javax.swing.JScrollPane(contentPanel);
+        scrollPane.setBorder(null);
+        scrollPane.setHorizontalScrollBarPolicy(javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+
         add(placeholderArea, CARD_PLACEHOLDER);
-        add(contentPanel, CARD_CONTENT);
+        add(scrollPane, CARD_CONTENT);
 
         showPlaceholder();
     }
@@ -257,6 +263,17 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         for (ReviewNavigationListener l : listeners) {
             l.onNavigate(ce);
         }
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+        Dimension pref = super.getPreferredSize();
+        Component parent = getParent();
+        if (parent instanceof javax.swing.JSplitPane split) {
+            // Set height to 40% of the split pane's height
+            return new Dimension(pref.width, (int) (split.getHeight() * 0.4));
+        }
+        return pref;
     }
 
     @Override

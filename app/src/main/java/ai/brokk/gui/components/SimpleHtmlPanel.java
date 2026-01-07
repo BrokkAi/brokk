@@ -141,8 +141,8 @@ public class SimpleHtmlPanel extends JEditorPane {
     public Dimension getPreferredSize() {
         var pref = super.getPreferredSize();
         var parent = getParent();
-        if (parent != null) {
-            // Constrain preferred width to parent width to encourage wrapping
+        if (parent != null && parent.getWidth() > 0) {
+            // Return a size with the parent width to force word wrap calculation
             return new Dimension(parent.getWidth(), pref.height);
         }
         return pref;
