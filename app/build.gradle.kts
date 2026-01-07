@@ -446,6 +446,9 @@ tasks.withType<JavaExec>().configureEach {
     // Baseline JVM args provided lazily; composes with applicationDefaultJvmArgs and other plugins
     jvmArgumentProviders.add(baselineJvmArgsProvider)
     jvmArgumentProviders.add(jdwpDebugArgsProvider)
+    // enable it in gradle.properties
+    val showToolResult = providers.gradleProperty("brokk.showtoolresult").orElse("false")
+    systemProperty("brokk.showtoolresult", showToolResult.get())
 }
 
 // Static analysis task without tests (fast, for git hooks)
