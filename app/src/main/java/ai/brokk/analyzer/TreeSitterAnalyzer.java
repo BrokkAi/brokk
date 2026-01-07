@@ -3569,7 +3569,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         Map<ProjectFile, FileProperties> updatedFileState = new ConcurrentHashMap<>(baseState.fileState());
 
-        int totalFiles = baseState.fileState().size();
         var progressReporter = new DebouncedProgressReporter(totalGlobal, "Resolving imports", 100);
         for (int i = 0; i < initialCompleted; i++) progressReporter.increment();
 
@@ -3621,10 +3620,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new ConcurrentHashMap<>(baseState.codeUnitState());
 
-        // Count total classes to process
-        int totalClasses = (int) baseState.codeUnitState().keySet().stream()
-                .filter(CodeUnit::isClass)
-                .count();
         var progressReporter = new DebouncedProgressReporter(totalGlobal, "Computing type hierarchies", 100);
         for (int i = 0; i < initialCompleted; i++) progressReporter.increment();
 

@@ -38,11 +38,9 @@ class UnifiedDiffDocumentTest {
 
         // 2. Verify DELETION line (Old side only)
         assertEquals(2, doc.findDocumentLineForSourceLine(2, false), "Old line 2 should be doc line 2");
-        assertEquals(-1, doc.findDocumentLineForSourceLine(2, true), "Old line 2 should not exist on New side");
 
         // 3. Verify ADDITION line (New side only)
         assertEquals(3, doc.findDocumentLineForSourceLine(2, true), "New line 2 should be doc line 3");
-        assertEquals(-1, doc.findDocumentLineForSourceLine(2, false), "New line 2 should not exist on Old side");
 
         // 4. Verify non-existent lines
         assertEquals(-1, doc.findDocumentLineForSourceLine(99, true));

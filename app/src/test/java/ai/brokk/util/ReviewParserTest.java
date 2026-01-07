@@ -208,6 +208,7 @@ class ReviewParserTest {
                 files,
                 (f, c) -> new ReviewParser.CodeExcerpt(
                         new ProjectFile(Path.of(".").toAbsolutePath().normalize(), Path.of(f)),
+                        null,
                         1,
                         ReviewParser.DiffSide.NEW,
                         c));
