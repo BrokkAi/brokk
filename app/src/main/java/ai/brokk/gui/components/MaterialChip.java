@@ -161,16 +161,14 @@ public class MaterialChip extends JPanel {
     }
 
     public void addChipClickListener(Runnable onClick) {
-        MouseAdapter ma = new MouseAdapter() {
+        this.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (e.getButton() == MouseEvent.BUTTON1) {
                     onClick.run();
                 }
             }
-        };
-        this.addMouseListener(ma);
-        label.addMouseListener(ma);
+        });
     }
 
     /**
