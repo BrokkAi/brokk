@@ -133,9 +133,18 @@ public class SimpleHtmlPanel extends JEditorPane {
     }
 
     @Override
+    public boolean getScrollableTracksViewportWidth() {
+        return true;
+    }
+
+    @Override
     public Dimension getPreferredSize() {
         var pref = super.getPreferredSize();
-        // Allow horizontal growth but constrain to parent width
-        return new Dimension(Math.min(pref.width, Integer.MAX_VALUE), pref.height);
+        var parent = getParent();
+        if (parent != null) {
+            // Constrain preferred width to parent width to encourage wrapping
+            return new Dimension(parent.getWidth(), pref.height);
+        }
+        return pref;
     }
 }

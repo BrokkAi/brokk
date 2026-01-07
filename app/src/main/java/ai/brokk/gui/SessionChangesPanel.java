@@ -741,7 +741,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                 byte[] hash = MessageDigest.getInstance("SHA-1").digest(formattedDiff.getBytes(StandardCharsets.UTF_8));
                 String cacheKey = "review_" + HexFormat.of().formatHex(hash);
-                var diskCache = contextManager.getProject().getDiskCache();
 
                 ReviewParser.GuidedReview review;
                 var agent = new ReviewAgent(formattedDiff, contextManager, chrome, fileComparisons);
