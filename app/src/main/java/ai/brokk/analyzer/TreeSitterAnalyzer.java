@@ -3691,10 +3691,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Performs import resolution as a standalone step. Produces a new AnalyzerState with updated fileState.resolvedImports.
+     * Performs import resolution as a standalone step. Produces a new AnalyzerState with updated forward
+     * and reverse import maps.
      */
     protected AnalyzerState runImportResolution(AnalyzerState baseState) {
-        // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
+        // Create a delegate snapshot to use for resolution (provides access to symbol indexes, etc.)
         TreeSitterAnalyzer delegateForImports = (TreeSitterAnalyzer) newSnapshot(baseState);
 
         Map<ProjectFile, Set<CodeUnit>> resolvedImportsMap = new ConcurrentHashMap<>();
@@ -3710,8 +3711,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             FileProperties fileProps = entry.getValue();
                             Set<CodeUnit> resolved =
                                     delegateForImports.resolveImports(file, fileProps.importStatements());
-                            if (!resolved.isEmpty()) {
-                                resolvedImportsMap.put(file, Collections.unmodifiableSet(resolved));
+                            if (resolved != null && !resolved.isEmpty()) {
+                                resolvedImportsMap.put(file, Collections.unmodifiableSet(new HashSet<>(resolved)));
                             }
                             progressReporter.increment();
                         });
@@ -3722,13 +3723,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             progressReporter.reportFinal();
         }
 
-        // Compute reverse imports
+        // Compute reverse imports (files -> set of files that import them)
         Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
         resolvedImportsMap.forEach((importer, importedCUs) -> {
             for (CodeUnit cu : importedCUs) {
                 reverseImportsMap.computeIfAbsent(cu.source(), k -> new HashSet<>()).add(importer);
             }
         });
+
+        // Convert to immutable maps
+        Map<ProjectFile, Set<CodeUnit>> immutableForward = new HashMap<>(resolvedImportsMap);
         Map<ProjectFile, Set<ProjectFile>> immutableReverse = new HashMap<>();
         reverseImportsMap.forEach((k, v) -> immutableReverse.put(k, Collections.unmodifiableSet(v)));
 
@@ -3736,7 +3740,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 baseState.symbolIndex(),
                 baseState.codeUnitState(),
                 baseState.fileState(),
-                HashTreePMap.from(resolvedImportsMap),
+                HashTreePMap.from(immutableForward),
                 HashTreePMap.from(immutableReverse),
                 baseState.symbolKeyIndex(),
                 baseState.snapshotEpochNanos());
