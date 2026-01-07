@@ -688,6 +688,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
                 var field = new JTextField(formatKeyStroke(cur));
                 field.setEditable(false);
+                field.setFocusable(false);
                 var gbcField = new GridBagConstraints();
                 gbcField.insets = new Insets(4, 6, 4, 6);
                 gbcField.fill = GridBagConstraints.HORIZONTAL;
@@ -697,6 +698,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 panel.add(field, gbcField);
 
                 var setBtn = new MaterialButton("Set");
+                setBtn.setFocusable(false);
                 var gbcSet = new GridBagConstraints();
                 gbcSet.insets = new Insets(4, 6, 4, 6);
                 gbcSet.gridx = 2;
@@ -705,6 +707,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 panel.add(setBtn, gbcSet);
 
                 var clearBtn = new MaterialButton("Clear");
+                clearBtn.setFocusable(false);
                 var gbcClear = new GridBagConstraints();
                 gbcClear.insets = new Insets(4, 6, 4, 6);
                 gbcClear.gridx = 3;
