@@ -29,7 +29,7 @@ public class BrokkKeyDialog extends BaseThemedDialog {
     private @Nullable MaterialButton okBtn;
     private @Nullable MaterialButton cancelBtn;
 
-    private BrokkKeyDialog(@Nullable Frame owner, @Nullable String initialKey) {
+    private BrokkKeyDialog(@Nullable Frame owner, @Nullable String initialKey, @Nullable String errorMessage) {
         super(owner, "Enter Brokk Key");
         Chrome.applyIcon(this);
 
@@ -37,7 +37,7 @@ public class BrokkKeyDialog extends BaseThemedDialog {
             keyField.setText(initialKey);
         }
 
-        initComponents();
+        initComponents(errorMessage);
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         addWindowListener(new WindowAdapter() {
             @Override
@@ -50,7 +50,7 @@ public class BrokkKeyDialog extends BaseThemedDialog {
         setResizable(false);
     }
 
-    private void initComponents() {
+    private void initComponents(@Nullable String errorMessage) {
         JPanel root = getContentRoot();
         root.setLayout(new BorderLayout(10, 10));
         root.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -81,6 +81,10 @@ public class BrokkKeyDialog extends BaseThemedDialog {
         center.add(Box.createVerticalStrut(4));
         statusLabel = new JLabel(" ");
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+        if (errorMessage != null && !errorMessage.isBlank()) {
+            statusLabel.setText(errorMessage);
+            statusLabel.setForeground(Color.RED);
+        }
         center.add(statusLabel);
 
         root.add(center, BorderLayout.CENTER);
@@ -202,7 +206,16 @@ public class BrokkKeyDialog extends BaseThemedDialog {
 
     /** Shows the dialog and returns the validated Brokk key, or {@code null} if the user cancelled. */
     public static @Nullable String showDialog(@Nullable Frame owner, @Nullable String initialKey) {
-        var dlg = new BrokkKeyDialog(owner, initialKey);
+        return showDialog(owner, initialKey, null);
+    }
+
+    /**
+     * Shows the dialog with an optional error message and returns the validated Brokk key,
+     * or {@code null} if the user cancelled.
+     */
+    public static @Nullable String showDialog(
+            @Nullable Frame owner, @Nullable String initialKey, @Nullable String errorMessage) {
+        var dlg = new BrokkKeyDialog(owner, initialKey, errorMessage);
         dlg.setVisible(true); // modal; blocks
         return dlg.validatedKey;
     }
