@@ -43,6 +43,7 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public class ReviewAgent {
 
+    int progressOf100 = 0;
     @FunctionalInterface
     public interface ProgressUpdater {
         /**
@@ -99,9 +100,7 @@ public class ReviewAgent {
             java.util.concurrent.atomic.AtomicInteger searchTurnCount = new java.util.concurrent.atomic.AtomicInteger(0);
             agent.setTurnListener(() -> {
                 int turns = searchTurnCount.incrementAndGet();
-                if (progressUpdater != null) {
-                    progressUpdater.updateProgress(Math.min(10, turns * 2));
-                }
+                updateProgress(Math.min(10, turns * 2));
             });
 
             // Phase 1: Establish context using SearchAgent
@@ -123,6 +122,7 @@ public class ReviewAgent {
                     WorkspacePrompts.getMessagesInAddedOrder(finalContext, EnumSet.noneOf(SpecialTextType.class)));
             turn1Messages.add(buildAnalysisRequestMessage());
 
+            int turn1Floor = progressOf100;
             java.util.concurrent.atomic.AtomicInteger linesSeen = new java.util.concurrent.atomic.AtomicInteger(0);
             ai.brokk.cli.MemoryConsole progressConsole = new ai.brokk.cli.MemoryConsole() {
                 @Override
@@ -130,8 +130,8 @@ public class ReviewAgent {
                     super.llmOutput(token, type, explicitNewMessage, isReasoning);
                     if (token.contains("\n") && progressUpdater != null) {
                         int lines = linesSeen.addAndGet((int) token.chars().filter(ch -> ch == '\n').count());
-                        int p = 10 + (lines / 10);
-                        progressUpdater.updateProgress(Math.min(80, p));
+                        int p = turn1Floor + (lines / 10);
+                        progressUpdater.updateProgress(Math.min(75, p));
                     }
                 }
             };
@@ -157,12 +157,13 @@ public class ReviewAgent {
             var tr = cm.getToolRegistry().builder().register(this).build();
             var toolSpecs = tr.getTools(List.of("createReview"));
 
+            int turn2Floor = progressOf100;
             javax.swing.Timer turn2Timer = new javax.swing.Timer(1000, null);
             java.util.concurrent.atomic.AtomicInteger turn2Seconds = new java.util.concurrent.atomic.AtomicInteger(0);
             turn2Timer.addActionListener(e -> {
                 if (progressUpdater != null) {
-                    int p = 80 + turn2Seconds.incrementAndGet();
-                    progressUpdater.updateProgress(Math.min(100, p));
+                    int p = turn2Floor + turn2Seconds.incrementAndGet();
+                    progressUpdater.updateProgress(Math.min(99, p));
                 }
             });
             turn2Timer.start();
@@ -210,6 +211,13 @@ public class ReviewAgent {
                                         ReviewParser.DiffSide.NEW,
                                         content));
                     });
+        }
+    }
+
+    private void updateProgress(int min) {
+        progressOf100 = min;
+        if (progressUpdater != null) {
+            progressUpdater.updateProgress(min);
         }
     }
 
