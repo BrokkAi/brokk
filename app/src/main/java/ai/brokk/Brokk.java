@@ -569,11 +569,13 @@ public class Brokk {
         var contextFuture = contextManager.createGui();
         var io = (Chrome) contextManager.getIo();
 
-        // Log the current data retention policy.
+        // Log the current data retention policy (skip for worktrees - they inherit from parent).
         // This is called after any necessary dialog has been shown and policy confirmed.
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Data Retention Policy set to: " + contextManager.getProject().getDataRetentionPolicy());
+        if (contextManager.getProject() instanceof MainProject) {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Data Retention Policy set to: " + contextManager.getProject().getDataRetentionPolicy());
+        }
 
         openProjectWindows.put(projectPath, io);
 
