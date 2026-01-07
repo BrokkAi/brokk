@@ -62,6 +62,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
     public void setBusy(boolean busy) {
         listPanel.setBusy(busy);
+        detailPanel.setBusy(busy);
     }
 
     public void clearSelection() {

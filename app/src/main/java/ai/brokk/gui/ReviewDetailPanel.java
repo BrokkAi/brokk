@@ -75,6 +75,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         cardLayout.show(this, CARD_PLACEHOLDER);
     }
 
+    public void setBusy(boolean busy) {
+        if (busy) {
+            placeholderArea.setText("Generating review...");
+        }
+    }
+
     public void addReviewNavigationListener(ReviewNavigationListener listener) {
         listeners.add(listener);
     }
