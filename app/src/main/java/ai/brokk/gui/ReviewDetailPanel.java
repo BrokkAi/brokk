@@ -155,10 +155,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         listeners.add(listener);
     }
 
-    public void setReviewContext(@Nullable Context context) {
-        this.reviewContext = context;
-    }
-
     public void showItem(Object item, List<CodeExcerpt> excerpts) {
         cardLayout.show(this, CARD_CONTENT);
         clearContent();

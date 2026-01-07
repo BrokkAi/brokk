@@ -15,6 +15,7 @@ import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.git.GitCommitTab;
@@ -87,6 +88,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton prBtn;
 
+    private final MaterialButton guidedReviewBtn;
+
+    private boolean guidedReviewBusy = false;
+
+    private boolean hasGeneratedReview = false;
+
+    @Nullable
+    private JScrollPane detailScrollPane = null;
+
+    @Nullable
+    private JSplitPane rightVerticalSplitPane = null;
+
+    @Nullable
+    private JSplitPane mainSplitPane = null;
+
     @Nullable
     private ReviewParser.CodeExcerpt activeExcerpt = null;
 
@@ -117,6 +133,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.pullBtn = new MaterialButton("Pull");
         this.pushBtn = new MaterialButton("Push");
         this.prBtn = new MaterialButton("Create PR");
+        this.guidedReviewBtn = new MaterialButton("Guided Review");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -448,6 +465,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         commitBtn.setVisible(hasUncommittedChanges);
         buttonPanel.add(commitBtn);
 
+        SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
+        guidedReviewBtn.setVisible(true);
+        setGuidedReviewBusy(guidedReviewBusy);
+
         var pushPull = res.pushPullState();
         pullBtn.setEnabled(!hasUncommittedChanges);
         for (var al : pullBtn.getActionListeners()) pullBtn.removeActionListener(al);
@@ -469,6 +490,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
         prBtn.setVisible(showPR);
         buttonPanel.add(prBtn);
+
+        buttonPanel.add(guidedReviewBtn);
 
         headerPanel.add(buttonPanel, BorderLayout.EAST);
 
@@ -584,16 +607,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             diffCore.showLocation(ce.file(), ce.line(), ce.side());
         });
 
-        JScrollPane detailScrollPane = new JScrollPane(codeReviewPanel.getDetailPanel());
+        detailScrollPane = new JScrollPane(codeReviewPanel.getDetailPanel());
         detailScrollPane.setBorder(null);
 
-        JSplitPane rightVerticalSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detailScrollPane, diffContainer);
-        rightVerticalSplit.setResizeWeight(0.5);
+        rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detailScrollPane, diffContainer);
+        rightVerticalSplitPane.setResizeWeight(0.5);
 
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplit);
-        mainSplit.setDividerLocation(300);
+        mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplitPane);
+        mainSplitPane.setDividerLocation(300);
 
-        topContainer.add(mainSplit, BorderLayout.CENTER);
+        updateReviewPanelVisibility(hasGeneratedReview);
+
+        topContainer.add(mainSplitPane, BorderLayout.CENTER);
 
         setBorder(new CompoundBorder(
                 new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
@@ -695,115 +720,131 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         return new StalenessInfo(commitsBehind, uncommittedChanges);
     }
 
+    private static int defaultSplitPaneDividerSize() {
+        int size = UIManager.getInt("SplitPane.dividerSize");
+        return size > 0 ? size : 8;
+    }
+
+    private void updateReviewPanelVisibility(boolean visible) {
+        SwingUtil.runOnEdt(() -> {
+            var listPanel = codeReviewPanel.getListPanel();
+            listPanel.setVisible(visible);
+
+            leftSplitPane.setDividerSize(visible ? defaultSplitPaneDividerSize() : 0);
+            if (!visible) {
+                leftSplitPane.setDividerLocation(0);
+            } else {
+                leftSplitPane.setResizeWeight(0.5);
+                leftSplitPane.setDividerLocation(0.5);
+            }
+
+            if (detailScrollPane != null) {
+                detailScrollPane.setVisible(visible);
+            }
+
+            if (rightVerticalSplitPane != null) {
+                rightVerticalSplitPane.setDividerSize(visible ? defaultSplitPaneDividerSize() : 0);
+                if (!visible) {
+                    rightVerticalSplitPane.setDividerLocation(0);
+                } else {
+                    rightVerticalSplitPane.setResizeWeight(0.5);
+                    rightVerticalSplitPane.setDividerLocation(0.5);
+                }
+            }
+
+            if (mainSplitPane != null) {
+                mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
+                mainSplitPane.setResizeWeight(0.0);
+                mainSplitPane.setDividerLocation(visible ? 300 : 200);
+            }
+
+            revalidate();
+            repaint();
+        });
+    }
+
+    private void setGuidedReviewBusy(boolean busy) {
+        SwingUtil.runOnEdt(() -> {
+            guidedReviewBusy = busy;
+
+            for (var al : guidedReviewBtn.getActionListeners()) {
+                guidedReviewBtn.removeActionListener(al);
+            }
+
+            if (busy) {
+                guidedReviewBtn.setText("Cancel");
+                guidedReviewBtn.setIcon(SpinnerIconUtil.getSpinner(chrome, true));
+                guidedReviewBtn.addActionListener(e -> contextManager.interruptLlmAction());
+            } else {
+                guidedReviewBtn.setText("Guided Review");
+                guidedReviewBtn.setIcon(null);
+                guidedReviewBtn.addActionListener(e -> generateGuidedReview());
+            }
+        });
+    }
+
     private void generateGuidedReview() {
         if (lastCumulativeChanges == null) return;
 
+        setGuidedReviewBusy(true);
         codeReviewPanel.setBusy(true);
-
-        var listPanel = codeReviewPanel.getListPanel();
-        var parent = listPanel.getParent();
-        if (parent == null) return;
-
-        JProgressBar progressBar = new JProgressBar(0, 100);
-        progressBar.setStringPainted(true);
-        progressBar.setString("Starting guided review...");
-
-        JPanel progressPanel = new JPanel(new GridBagLayout());
-        progressPanel.setBackground(ThemeColors.getPanelBackground());
-        progressPanel.setMinimumSize(new Dimension(200, 200));
-        progressPanel.setPreferredSize(listPanel.getPreferredSize());
-
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.insets = new java.awt.Insets(20, 20, 20, 20);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1.0;
-
-        JLabel statusLabel = new JLabel("Brokk is analyzing your changes...", SwingConstants.CENTER);
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD, 14f));
-        progressPanel.add(statusLabel, gbc);
-
-        gbc.gridy = 1;
-        progressPanel.add(progressBar, gbc);
-
-        final int savedDividerLocation = (parent instanceof JSplitPane sp) ? sp.getDividerLocation() : -1;
-
-        SwingUtilities.invokeLater(() -> {
-            if (parent instanceof JSplitPane splitPane) {
-                splitPane.setTopComponent(progressPanel);
-            }
-            parent.revalidate();
-            parent.repaint();
-        });
 
         contextManager.submitLlmAction(() -> {
             try {
                 var changes = lastCumulativeChanges;
-                if (changes == null) return;
+                if (changes == null) {
+                    SwingUtilities.invokeLater(() -> {
+                        codeReviewPanel.setBusy(false);
+                        setGuidedReviewBusy(false);
+                        revalidate();
+                        repaint();
+                    });
+                    return;
+                }
 
                 String formattedDiff = changes.perFileChanges().stream()
                         .map(de -> "File: " + de.title() + "\n" + de.diff())
                         .collect(java.util.stream.Collectors.joining("\n\n"));
 
                 var agent = new ReviewAgent(formattedDiff, contextManager, chrome, fileComparisons);
-                agent.setProgressUpdater(p -> SwingUtilities.invokeLater(() -> {
-                    progressBar.setValue(p);
-                    if (p < 10) progressBar.setString("Gathering context...");
-                    else if (p < 80) progressBar.setString("Analyzing changes...");
-                    else progressBar.setString("Generating review...");
-                }));
+
                 var result = agent.execute();
 
                 String currentHash = repo.getCurrentCommitId();
                 long now = System.currentTimeMillis();
 
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane) {
-                        splitPane.setTopComponent(codeReviewPanel.getListPanel());
-                        if (savedDividerLocation > 0) {
-                            splitPane.setDividerLocation(savedDividerLocation);
-                        }
-                    }
                     lastReviewState = new ReviewState(currentHash, now);
+                    hasGeneratedReview = true;
+                    updateReviewPanelVisibility(true);
                     codeReviewPanel.displayReview(result.review(), result.context());
-                    codeReviewPanel.getDetailPanel().setReviewContext(result.context());
                     codeReviewPanel.setBusy(false);
+                    setGuidedReviewBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
-                    parent.revalidate();
-                    parent.repaint();
+                    revalidate();
+                    repaint();
                 });
             } catch (ReviewGenerationException ex) {
                 logger.warn("Review generation failed: {}", ex.getMessage());
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane) {
-                        splitPane.setTopComponent(codeReviewPanel.getListPanel());
-                        if (savedDividerLocation > 0) {
-                            splitPane.setDividerLocation(savedDividerLocation);
-                        }
-                    }
                     codeReviewPanel.setBusy(false);
+                    setGuidedReviewBusy(false);
 
                     String userMessage = ex.getStopDetails() != null
                             ? "Review generation failed: " + ex.getStopDetails().explanation()
                             : "Review generation failed: " + ex.getMessage();
                     chrome.toolError(userMessage, "Review Error");
-                    parent.revalidate();
-                    parent.repaint();
+                    revalidate();
+                    repaint();
                 });
             } catch (Exception ex) {
                 logger.error("Unexpected error during review generation", ex);
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane) {
-                        splitPane.setTopComponent(codeReviewPanel.getListPanel());
-                        if (savedDividerLocation > 0) {
-                            splitPane.setDividerLocation(savedDividerLocation);
-                        }
-                    }
                     codeReviewPanel.setBusy(false);
+                    setGuidedReviewBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());
-                    parent.revalidate();
-                    parent.repaint();
+                    revalidate();
+                    repaint();
                 });
             }
         });
@@ -815,6 +856,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         fileTreePanel.applyTheme(guiTheme);
         for (var panel : diffCore.getCachedPanels()) {
             panel.applyTheme(guiTheme);
+        }
+        if (guidedReviewBusy) {
+            setGuidedReviewBusy(true);
         }
     }
 

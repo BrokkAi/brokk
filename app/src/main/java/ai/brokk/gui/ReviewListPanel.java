@@ -1,6 +1,5 @@
 package ai.brokk.gui;
 
-import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser.DesignFeedback;
@@ -28,7 +27,6 @@ import org.jspecify.annotations.NullMarked;
 public class ReviewListPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(ReviewListPanel.class);
 
-    private final MaterialButton generateButton;
     private final JPanel contentPanel;
     private final JPanel stalenessPanel;
     private final JLabel stalenessLabel;
@@ -37,14 +35,6 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
     public ReviewListPanel(Runnable triggerCallback, Consumer<Object> onItemSelected) {
         this.onItemSelected = onItemSelected;
         setLayout(new BorderLayout());
-
-        generateButton = new MaterialButton("Guided Review");
-        SwingUtil.applyPrimaryButtonStyle(generateButton);
-        generateButton.addActionListener(e -> triggerCallback.run());
-
-        JPanel topPanel = new JPanel(new BorderLayout());
-        topPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
-        topPanel.add(generateButton, BorderLayout.CENTER);
 
         contentPanel = new JPanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
@@ -60,15 +50,10 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         stalenessLabel.setFont(stalenessLabel.getFont().deriveFont(Font.BOLD, 11f));
         stalenessPanel.add(stalenessLabel, BorderLayout.CENTER);
 
-        JPanel topContainer = new JPanel();
-        topContainer.setLayout(new BoxLayout(topContainer, BoxLayout.Y_AXIS));
-        topContainer.add(topPanel);
-        topContainer.add(stalenessPanel);
-
         JScrollPane scrollPane = new JScrollPane(contentPanel);
         scrollPane.setBorder(null);
 
-        add(topContainer, BorderLayout.NORTH);
+        add(stalenessPanel, BorderLayout.NORTH);
         add(scrollPane, BorderLayout.CENTER);
     }
 
@@ -83,10 +68,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    public void setBusy(boolean busy) {
-        generateButton.setEnabled(!busy);
-        generateButton.setText(busy ? "Generating..." : "Guided Review");
-    }
+    public void setBusy(boolean busy) {}
 
     public void clearSelection() {
         for (Component c : contentPanel.getComponents()) {
