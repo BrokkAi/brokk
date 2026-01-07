@@ -14,26 +14,29 @@ import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.ReviewFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
+import com.vladsch.flexmark.html.HtmlRenderer;
+import com.vladsch.flexmark.parser.Parser;
+import com.vladsch.flexmark.util.data.MutableDataSet;
+import java.awt.BorderLayout;
 import java.awt.CardLayout;
-import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
-import javax.swing.BoxLayout;
+import javax.swing.Box;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
-import javax.swing.Scrollable;
-import javax.swing.SwingConstants;
+import javax.swing.JTextPane;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
+import javax.swing.text.DefaultCaret;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -41,45 +44,34 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private static final String CARD_PLACEHOLDER = "placeholder";
     private static final String CARD_CONTENT = "content";
 
-    private static final class ScrollablePanel extends JPanel implements Scrollable {
-        @Override
-        public Dimension getPreferredScrollableViewportSize() {
-            return getPreferredSize();
-        }
+    private static final Parser PARSER;
+    private static final HtmlRenderer RENDERER;
 
-        @Override
-        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return 16;
-        }
-
-        @Override
-        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
-            return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width;
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportWidth() {
-            return true;
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportHeight() {
-            return false;
-        }
+    static {
+        var options = new MutableDataSet();
+        PARSER = Parser.builder(options).build();
+        RENDERER = HtmlRenderer.builder(options).build();
     }
 
     private final ContextManager contextManager;
     private final Runnable onNext;
-    private final ScrollablePanel contentPanel;
-    private final javax.swing.JScrollPane scrollPane;
+
+    private final JTextPane contentPane;
+    private final JScrollPane scrollPane;
+
+    private final JPanel excerptsPanel;
+    private final JPanel buttonPanel;
+
     private final JTextArea placeholderArea;
     private final CardLayout cardLayout;
+
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
-    private final List<SimpleHtmlPanel> htmlPanels = new ArrayList<>();
+    private final List<String> htmlChunks = new ArrayList<>();
 
     public ReviewDetailPanel(ContextManager contextManager, Runnable onNext) {
         this.contextManager = contextManager;
         this.onNext = onNext;
+
         cardLayout = new CardLayout();
         setLayout(cardLayout);
 
@@ -92,16 +84,37 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         placeholderArea.setFont(placeholderArea.getFont().deriveFont(Font.ITALIC, 14f));
         placeholderArea.setBorder(new EmptyBorder(40, 40, 40, 40));
 
-        contentPanel = new ScrollablePanel();
-        contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
-        contentPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
+        contentPane = new JTextPane();
+        contentPane.setEditorKit(new AutoScalingHtmlPane.ScalingHTMLEditorKit());
+        contentPane.setEditable(false);
+        contentPane.setContentType("text/html");
+        contentPane.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-        scrollPane = new javax.swing.JScrollPane(contentPanel);
+        var caret = (DefaultCaret) contentPane.getCaret();
+        caret.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
+
+        scrollPane = new JScrollPane(contentPane);
         scrollPane.setBorder(null);
-        scrollPane.setHorizontalScrollBarPolicy(javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+
+        excerptsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
+        excerptsPanel.setOpaque(false);
+        excerptsPanel.setBorder(new EmptyBorder(10, 10, 0, 10));
+        excerptsPanel.setVisible(false);
+
+        buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 5));
+        buttonPanel.setOpaque(false);
+        buttonPanel.setBorder(new EmptyBorder(0, 18, 10, 10));
+        buttonPanel.setVisible(false);
+
+        var contentCard = new JPanel(new BorderLayout());
+        contentCard.setOpaque(true);
+        contentCard.add(excerptsPanel, BorderLayout.NORTH);
+        contentCard.add(scrollPane, BorderLayout.CENTER);
+        contentCard.add(buttonPanel, BorderLayout.SOUTH);
 
         add(placeholderArea, CARD_PLACEHOLDER);
-        add(scrollPane, CARD_CONTENT);
+        add(contentCard, CARD_CONTENT);
 
         showPlaceholder();
     }
@@ -154,25 +167,56 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             throw new IllegalArgumentException("Unknown item type: " + item.getClass());
         }
 
+        flushContent();
+
         revalidate();
         repaint();
     }
 
+    private void clearContent() {
+        htmlChunks.clear();
+        excerptsPanel.removeAll();
+        excerptsPanel.setVisible(false);
+        buttonPanel.removeAll();
+        buttonPanel.setVisible(false);
+        contentPane.setText("<html><body></body></html>");
+    }
+
     private void addMarkdownPanel(String markdown) {
-        var panel = new SimpleHtmlPanel();
-        panel.setMarkdown(markdown);
-        panel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        htmlPanels.add(panel);
-        contentPanel.add(panel);
+        var document = PARSER.parse(markdown);
+        var html = RENDERER.render(document);
+        htmlChunks.add(html);
+    }
+
+    private void flushContent() {
+        String css = buildCss();
+        String combined = String.join("\n", htmlChunks);
+        String sanitized = SimpleHtmlPanel.sanitizeForSwing(combined);
+
+        String fullHtml = """
+                <html>
+                  <head>
+                    <style>%s</style>
+                  </head>
+                  <body>%s</body>
+                </html>
+                """
+                .stripIndent()
+                .formatted(css, sanitized);
+
+        contentPane.setText(fullHtml);
+        contentPane.setCaretPosition(0);
+    }
+
+    private String buildCss() {
+        return SimpleHtmlPanel.buildThemeCss(UIManager.getBoolean("laf.dark"));
     }
 
     private void addRecommendationSection(String recommendation) {
         addMarkdownPanel("**Recommendation:**\n" + recommendation);
 
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 5));
-        btnPanel.setOpaque(false);
-        btnPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        btnPanel.setBorder(new EmptyBorder(0, 8, 0, 0));
+        buttonPanel.removeAll();
+        buttonPanel.setVisible(true);
 
         SplitButton splitBtn = new SplitButton("Enqueue Task");
         splitBtn.addActionListener(e -> {
@@ -199,14 +243,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             return menu;
         });
 
-        btnPanel.add(splitBtn);
+        buttonPanel.add(splitBtn);
 
         var nextBtn = new ai.brokk.gui.components.MaterialButton("Skip");
         nextBtn.addActionListener(e -> onNext.run());
-        btnPanel.add(javax.swing.Box.createHorizontalStrut(10));
-        btnPanel.add(nextBtn);
-
-        contentPanel.add(btnPanel);
+        buttonPanel.add(Box.createHorizontalStrut(10));
+        buttonPanel.add(nextBtn);
     }
 
     private void enqueueTask(String text) {
@@ -214,7 +256,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         var currentTasks = currentData.tasks();
 
         if (currentTasks.stream().anyMatch(t -> text.equals(t.text()))) {
-            return; // Already exists
+            return;
         }
 
         var newTasks = Stream.concat(currentTasks.stream(), Stream.of(new TaskList.TaskItem(null, text, false)))
@@ -222,21 +264,9 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         contextManager.setTaskListAsync(new TaskList.TaskListData(newTasks));
     }
 
-    private void clearContent() {
-        contentPanel.removeAll();
-        htmlPanels.clear();
-    }
-
     private void addExcerptsTable(List<CodeExcerpt> excerpts) {
-        JPanel container = new JPanel();
-        container.setLayout(new BoxLayout(container, BoxLayout.Y_AXIS));
-        container.setAlignmentX(Component.LEFT_ALIGNMENT);
-        container.setOpaque(false);
-        container.setBorder(new EmptyBorder(10, 0, 0, 0));
-
-        JPanel chipPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
-        chipPanel.setOpaque(false);
-        chipPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        excerptsPanel.removeAll();
+        excerptsPanel.setVisible(true);
 
         List<MaterialChip> chips = new ArrayList<>();
         AtomicInteger currentIndex = new AtomicInteger(0);
@@ -248,13 +278,14 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             }
         };
 
+        boolean isDark = UIManager.getBoolean("laf.dark");
+
         for (int i = 0; i < excerpts.size(); i++) {
             CodeExcerpt ce = excerpts.get(i);
             int idx = i;
 
             String labelText;
             if (ce.codeUnit() == null) {
-                // Fallback to filename:line format
                 String fileName = ce.file().getRelPath().getFileName().toString();
                 labelText = String.format("%s:%d", fileName, ce.line());
             } else {
@@ -264,7 +295,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             labelText = labelText + sideSuffix;
 
             MaterialChip chip = new MaterialChip(labelText);
-            boolean isDark = UIManager.getBoolean("laf.dark");
             chip.setChipColors(
                     ChipColorUtils.getBackgroundColor(ChipColorUtils.ChipKind.OTHER, isDark),
                     ChipColorUtils.getForegroundColor(ChipColorUtils.ChipKind.OTHER, isDark),
@@ -277,13 +307,10 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             });
 
             chips.add(chip);
-            chipPanel.add(chip);
+            excerptsPanel.add(chip);
         }
 
         updateSelection.run();
-
-        container.add(chipPanel);
-        contentPanel.add(container);
     }
 
     private void notifyNavigate(CodeExcerpt ce) {
@@ -295,9 +322,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     @Override
     public Dimension getPreferredSize() {
         Dimension pref = super.getPreferredSize();
-        Component parent = getParent();
+        var parent = getParent();
         if (parent instanceof javax.swing.JSplitPane split) {
-            // Set height to 40% of the split pane's height
             return new Dimension(pref.width, (int) (split.getHeight() * 0.4));
         }
         return pref;
@@ -309,11 +335,25 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 guiTheme.isDarkTheme()
                         ? ai.brokk.gui.mop.ThemeColors.getPanelBackground()
                         : javax.swing.UIManager.getColor("Panel.background"));
-        contentPanel.setBackground(getBackground());
+
+        var isDark = UIManager.getBoolean("laf.dark");
+        var messageBg = ai.brokk.gui.mop.ThemeColors.getColor(isDark, ai.brokk.gui.mop.ThemeColors.MESSAGE_BACKGROUND);
+
+        contentPane.setBackground(messageBg);
+        scrollPane.getViewport().setBackground(messageBg);
         placeholderArea.setForeground(javax.swing.UIManager.getColor("Label.disabledForeground"));
 
-        for (SimpleHtmlPanel panel : htmlPanels) {
-            panel.applyThemeStyles();
+        for (var c : excerptsPanel.getComponents()) {
+            if (c instanceof MaterialChip chip) {
+                chip.setChipColors(
+                        ChipColorUtils.getBackgroundColor(ChipColorUtils.ChipKind.OTHER, isDark),
+                        ChipColorUtils.getForegroundColor(ChipColorUtils.ChipKind.OTHER, isDark),
+                        ChipColorUtils.getBorderColor(ChipColorUtils.ChipKind.OTHER, isDark));
+            }
+        }
+
+        if (!htmlChunks.isEmpty()) {
+            flushContent();
         }
     }
 }

@@ -12,6 +12,7 @@ import javax.swing.JEditorPane;
 import javax.swing.UIManager;
 import javax.swing.text.DefaultCaret;
 import javax.swing.text.html.HTMLEditorKit;
+import javax.swing.text.html.StyleSheet;
 
 /**
  * A lightweight panel for rendering markdown as HTML.
@@ -34,7 +35,6 @@ public class SimpleHtmlPanel extends JEditorPane {
         setEditable(false);
         setOpaque(true);
 
-        // Prevent auto-scrolling on content updates
         var caret = (DefaultCaret) getCaret();
         caret.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
 
@@ -44,97 +44,99 @@ public class SimpleHtmlPanel extends JEditorPane {
         applyThemeStyles();
     }
 
-    /**
-     * Sets the content from markdown text, converting to HTML.
-     */
     public void setMarkdown(String markdown) {
         var document = PARSER.parse(markdown);
         var html = RENDERER.render(document);
         setHtmlContent(html);
     }
 
-    /**
-     * Sets the content directly from HTML.
-     */
     public void setHtmlContent(String html) {
         var sanitized = sanitizeForSwing(html);
         setText("<html><body>" + sanitized + "</body></html>");
     }
 
-    /**
-     * Reapply theme styles - call after theme changes.
-     */
     public void applyThemeStyles() {
         boolean isDarkTheme = UIManager.getBoolean("laf.dark");
 
         var bgColor = ThemeColors.getColor(isDarkTheme, ThemeColors.MESSAGE_BACKGROUND);
         setBackground(bgColor);
 
+        var kit = (HTMLEditorKit) getEditorKit();
+        var ss = new StyleSheet();
+        ss.addRule(buildThemeCss(isDarkTheme));
+        kit.setStyleSheet(ss);
+    }
+
+    public static String buildThemeCss(boolean isDarkTheme) {
+        var bgColor = ThemeColors.getColor(isDarkTheme, ThemeColors.MESSAGE_BACKGROUND);
+
         float editorFontSize = GlobalUiSettings.getEditorFontSize();
         float bodyFontSize = Math.max(14f, editorFontSize + 2f);
-
-        var kit = (HTMLEditorKit) getEditorKit();
-        var ss = kit.getStyleSheet();
 
         var bgColorHex = ColorUtil.toHex(bgColor);
         var textColor = ThemeColors.getColor(isDarkTheme, ThemeColors.CHAT_TEXT);
         var textColorHex = ColorUtil.toHex(textColor);
         var linkColor = ThemeColors.getColorHex(isDarkTheme, ThemeColors.LINK_COLOR_HEX);
         var borderColor = ThemeColors.getColorHex(isDarkTheme, ThemeColors.BORDER_COLOR_HEX);
-
-        // Base typography
-        ss.addRule("body { font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.5; "
-                + "font-size: " + bodyFontSize + "pt; width: 100%; word-wrap: break-word; "
-                + "background-color: " + bgColorHex + "; color: " + textColorHex + "; "
-                + "margin: 0; padding-left: 8px; padding-right: 8px; }");
-
-        // Headings
-        ss.addRule("h1, h2, h3, h4, h5, h6 { margin-top: 18px; margin-bottom: 12px; "
-                + "font-weight: 600; line-height: 1.25; color: " + textColorHex + "; }");
-        ss.addRule("h1 { font-size: 1.5em; border-bottom: 1px solid " + borderColor + "; padding-bottom: 0.2em; }");
-        ss.addRule("h2 { font-size: 1.3em; border-bottom: 1px solid " + borderColor + "; padding-bottom: 0.2em; }");
-        ss.addRule("h3 { font-size: 1.1em; }");
-        ss.addRule("h4 { font-size: 1em; }");
-
-        // Links
-        ss.addRule("a { color: " + linkColor + "; text-decoration: none; }");
-        ss.addRule("a:hover { text-decoration: underline; }");
-
-        // Paragraphs and lists
-        ss.addRule("p, ul, ol { margin-top: 0; margin-bottom: 12px; }");
-        ss.addRule("ul, ol { padding-left: 2em; }");
-        ss.addRule("li { margin: 0.25em 0; }");
-        ss.addRule("li > p { margin-top: 12px; }");
-
-        // Code styling
-        ss.addRule("code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; "
-                + "padding: 0.2em 0.4em; margin: 0; font-size: 85%; border-radius: 3px; "
-                + "word-wrap: break-word; color: "
-                + linkColor + "; }");
-
-        // Pre blocks (for fenced code)
         var codeBlockBg = ThemeColors.getColorHex(isDarkTheme, ThemeColors.CODE_BLOCK_BACKGROUND);
-        ss.addRule("pre { background-color: " + codeBlockBg + "; padding: 12px; "
-                + "border-radius: 6px; overflow-wrap: break-word; white-space: pre-wrap; word-wrap: break-word; "
-                + "margin: 12px 0; }");
-        ss.addRule("pre code { padding: 0; background: none; color: " + textColorHex + "; }");
 
-        // Table styling
-        ss.addRule("table { border-collapse: collapse; margin: 15px 0; width: 100%; }");
-        ss.addRule("table, th, td { border: 1px solid " + borderColor + "; }");
-        ss.addRule(
-                "th { background-color: " + codeBlockBg + "; " + "padding: 8px; text-align: left; font-weight: 600; }");
-        ss.addRule("td { padding: 8px; }");
+        return """
+                body { font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.5;
+                  font-size: %spt; width: 100%%; word-wrap: break-word;
+                  background-color: %s; color: %s;
+                  margin: 0; padding-left: 8px; padding-right: 8px; }
 
-        // Blockquotes
-        ss.addRule("blockquote { margin: 12px 0; padding-left: 16px; " + "border-left: 4px solid " + borderColor
-                + "; color: " + textColorHex + "; }");
+                h1, h2, h3, h4, h5, h6 { margin-top: 18px; margin-bottom: 12px;
+                  font-weight: 600; line-height: 1.25; color: %s; }
+                h1 { font-size: 1.5em; border-bottom: 1px solid %s; padding-bottom: 0.2em; }
+                h2 { font-size: 1.3em; border-bottom: 1px solid %s; padding-bottom: 0.2em; }
+                h3 { font-size: 1.1em; }
+                h4 { font-size: 1em; }
+
+                a { color: %s; text-decoration: none; }
+                a:hover { text-decoration: underline; }
+
+                p, ul, ol { margin-top: 0; margin-bottom: 12px; }
+                ul, ol { padding-left: 2em; }
+                li { margin: 0.25em 0; }
+                li > p { margin-top: 12px; }
+
+                code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+                  padding: 0.2em 0.4em; margin: 0; font-size: 85%%; border-radius: 3px;
+                  word-wrap: break-word; color: %s; }
+
+                pre { background-color: %s; padding: 12px;
+                  border-radius: 6px; overflow-wrap: break-word; white-space: pre-wrap; word-wrap: break-word;
+                  margin: 12px 0; }
+                pre code { padding: 0; background: none; color: %s; }
+
+                table { border-collapse: collapse; margin: 15px 0; width: 100%%; }
+                table, th, td { border: 1px solid %s; }
+                th { background-color: %s; padding: 8px; text-align: left; font-weight: 600; }
+                td { padding: 8px; }
+
+                blockquote { margin: 12px 0; padding-left: 16px;
+                  border-left: 4px solid %s; color: %s; }
+                """
+                .stripIndent()
+                .formatted(
+                        bodyFontSize,
+                        bgColorHex,
+                        textColorHex,
+                        textColorHex,
+                        borderColor,
+                        borderColor,
+                        linkColor,
+                        linkColor,
+                        codeBlockBg,
+                        textColorHex,
+                        borderColor,
+                        codeBlockBg,
+                        borderColor,
+                        textColorHex);
     }
 
-    /**
-     * Sanitizes HTML for Swing's limited HTML renderer.
-     */
-    private static String sanitizeForSwing(String html) {
+    public static String sanitizeForSwing(String html) {
         return html.replace("&amp;apos;", "&#39;").replace("&amp;#39;", "&#39;").replace("&apos;", "&#39;");
     }
 
