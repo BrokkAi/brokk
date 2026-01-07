@@ -889,8 +889,9 @@ public class Brokk {
             List<Chrome> worktrees = mainToWorktreeChromes.remove(project);
             if (worktrees != null) {
                 for (Chrome wt : worktrees) {
-                    logger.debug("Closing worktree window: {}",
-                                 wt.getContextManager().getProject().getRoot().getFileName());
+                    logger.debug(
+                            "Closing worktree window: {}",
+                            wt.getContextManager().getProject().getRoot().getFileName());
                     SwingUtilities.invokeLater(() -> {
                         JFrame frame = wt.getFrame();
                         frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
@@ -903,13 +904,16 @@ public class Brokk {
             List<Chrome> list = mainToWorktreeChromes.get(parent);
             if (list != null) {
                 if (list.remove(chrome)) {
-                    logger.debug("Removed worktree {} from main project {}'s tracking list.",
-                                 projectPath.getFileName(), parent.getRoot().getFileName());
+                    logger.debug(
+                            "Removed worktree {} from main project {}'s tracking list.",
+                            projectPath.getFileName(),
+                            parent.getRoot().getFileName());
                 }
                 if (list.isEmpty()) {
                     mainToWorktreeChromes.remove(parent);
-                    logger.debug("Removed main project {} from worktree tracking map (list empty).",
-                                 parent.getRoot().getFileName());
+                    logger.debug(
+                            "Removed main project {} from worktree tracking map (list empty).",
+                            parent.getRoot().getFileName());
                 }
             }
         }
@@ -924,15 +928,17 @@ public class Brokk {
 
         new OpenProjectBuilder(projectPath)
                 .open()
-                .whenCompleteAsync((@Nullable Boolean success, @Nullable Throwable ex) -> {
-                    reOpeningProjects.remove(projectPath);
-                    if (ex != null) {
-                        logger.error("Exception reopening project: {}", projectPath, ex);
-                    } else if (success == null || !success) {
-                        logger.warn("Failed to reopen project: {}", projectPath);
-                    }
-                    checkAppExitAfterClose();
-                }, SwingUtilities::invokeLater);
+                .whenCompleteAsync(
+                        (@Nullable Boolean success, @Nullable Throwable ex) -> {
+                            reOpeningProjects.remove(projectPath);
+                            if (ex != null) {
+                                logger.error("Exception reopening project: {}", projectPath, ex);
+                            } else if (success == null || !success) {
+                                logger.warn("Failed to reopen project: {}", projectPath);
+                            }
+                            checkAppExitAfterClose();
+                        },
+                        SwingUtilities::invokeLater);
     }
 
     private static void handleNormalCloseCompletion(Path projectPath, @Nullable Chrome chrome) {
@@ -943,7 +949,8 @@ public class Brokk {
             if (shouldAppExit()) {
                 performAppExit(projectPath);
             } else {
-                CompletableFuture.runAsync(() -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
+                CompletableFuture.runAsync(
+                                () -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
                         .exceptionally(ex -> {
                             logger.error("Error removing project from list: {}", projectPath, ex);
                             return null;
