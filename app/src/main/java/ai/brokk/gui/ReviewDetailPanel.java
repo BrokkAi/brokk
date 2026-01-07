@@ -140,7 +140,10 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         btnPanel.setBorder(new EmptyBorder(0, 8, 0, 0));
 
         SplitButton splitBtn = new SplitButton("Enqueue Task");
-        splitBtn.addActionListener(e -> enqueueTask(recommendation));
+        splitBtn.addActionListener(e -> {
+            enqueueTask(recommendation);
+            onNext.run();
+        });
 
         splitBtn.setMenuSupplier(() -> {
             JPopupMenu menu = new JPopupMenu();
@@ -150,7 +153,10 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                     String edited = AskHumanDialog.showEditDialog(
                             (Chrome) contextManager.getIo(), "Edit Recommendation", recommendation);
                     if (edited != null && !edited.isBlank()) {
-                        SwingUtilities.invokeLater(() -> enqueueTask(edited));
+                        SwingUtilities.invokeLater(() -> {
+                            enqueueTask(edited);
+                            onNext.run();
+                        });
                     }
                 });
             });
@@ -160,7 +166,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
         btnPanel.add(splitBtn);
 
-        var nextBtn = new ai.brokk.gui.components.MaterialButton("Next");
+        var nextBtn = new ai.brokk.gui.components.MaterialButton("Skip");
         nextBtn.addActionListener(e -> onNext.run());
         btnPanel.add(javax.swing.Box.createHorizontalStrut(10));
         btnPanel.add(nextBtn);
