@@ -6,6 +6,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.GuidedReview;
 import java.awt.BorderLayout;
+import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -34,6 +35,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
     public ReviewDetailPanel getDetailPanel() {
         return detailPanel;
     }
+
 
     public void selectNext() {
         listPanel.selectNext();

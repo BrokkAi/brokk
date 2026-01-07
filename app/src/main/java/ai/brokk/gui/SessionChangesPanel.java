@@ -17,7 +17,6 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
-import ai.brokk.gui.dialogs.TextAreaConsoleIO;
 import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -87,6 +86,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private JPanel diffContainer;
 
     @Nullable
+    private JLabel headerLabel;
+
+    @Nullable
+    private MaterialButton commitBtn;
+
+    @Nullable
+    private MaterialButton pullBtn;
+
+    @Nullable
+    private MaterialButton pushBtn;
+
+    @Nullable
+    private MaterialButton prBtn;
+
+    @Nullable
     private ReviewParser.CodeExcerpt activeExcerpt = null;
 
     private List<FileComparisonInfo> fileComparisons = List.of();
@@ -104,7 +118,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         var maybeRepo = contextManager.getProject().getRepo();
         if (!(maybeRepo instanceof GitRepo gr)) {
-            // parent should show a placeholder instead
             throw new IllegalStateException("SessionChangesPanel requires a GitRepo");
         }
         this.repo = gr;
@@ -113,17 +126,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
     }
 
-    /**
-     * Requests a full refresh of the diff content. This is deferred if the panel is not showing.
-     */
     public void requestUpdate() {
         deferredUpdateHelper.requestUpdate();
     }
 
-    /**
-     * Refreshes just the tab title and tooltip based on current Git state.
-     * This runs asynchronously to avoid blocking the EDT with Git operations.
-     */
     public void refreshTitleAsync() {
         SwingUtilities.invokeLater(() -> {
             tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
@@ -183,7 +189,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         lastBaselineLabel = state.baselineLabel();
         lastBaselineMode = state.baselineMode();
 
-        // Set loading state
         tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
 
         refreshCumulativeChangesAsync(state.baselineLabel(), state.baselineMode())
@@ -348,7 +353,111 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        // Staleness check is now performed after cumulative changes are refreshed
+        boolean hadChanges = !fileComparisons.isEmpty();
+        boolean hasChanges = res.filesChanged() > 0;
+
+        if (hadChanges != hasChanges || (hasChanges && diffCore == null)) {
+            rebuildUI(res, prepared, baselineLabel, baselineMode);
+            return;
+        }
+
+        if (!hasChanges) {
+            updateEmptyState();
+            return;
+        }
+
+        updateInPlace(res, prepared, baselineLabel, baselineMode);
+    }
+
+    private void updateEmptyState() {
+        removeAll();
+        String message;
+        if (BaselineMode.DETACHED == lastBaselineMode) {
+            message = "Detached HEAD \u2014 no changes to review";
+        } else if (BaselineMode.NO_BASELINE == lastBaselineMode) {
+            message = "No baseline to compare";
+        } else if ("HEAD".equals(lastBaselineLabel)) {
+            message = "Working tree is clean (no uncommitted changes).";
+        } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
+            message = "No changes vs " + lastBaselineLabel + ".";
+        } else {
+            message = "No changes to review.";
+        }
+        var none = new JLabel(message, SwingConstants.CENTER);
+        none.setBorder(new EmptyBorder(20, 0, 20, 0));
+        setLayout(new BorderLayout());
+        add(none, BorderLayout.CENTER);
+        revalidate();
+        repaint();
+    }
+
+    private void updateInPlace(
+            DiffService.CumulativeChanges res,
+            List<Map.Entry<String, DiffService.DiffEntry>> prepared,
+            @Nullable String baselineLabel,
+            @Nullable BaselineMode baselineMode) {
+
+        if (headerLabel != null) {
+            headerLabel.setText((baselineLabel != null && !baselineLabel.isEmpty())
+                    ? "Comparing vs " + baselineLabel
+                    : "Branch-based changes");
+        }
+
+        boolean hasUncommittedChanges = false;
+        try {
+            hasUncommittedChanges = !repo.getModifiedFiles().isEmpty();
+        } catch (GitAPIException e) {
+            logger.debug("Unable to determine uncommitted changes state", e);
+        }
+
+        if (commitBtn != null) commitBtn.setVisible(hasUncommittedChanges);
+
+        var pushPull = res.pushPullState();
+        if (pullBtn != null) {
+            pullBtn.setVisible(pushPull != null && pushPull.canPull());
+            pullBtn.setEnabled(!hasUncommittedChanges);
+        }
+        if (pushBtn != null) {
+            pushBtn.setVisible(pushPull != null && pushPull.canPush());
+            pushBtn.setEnabled(!hasUncommittedChanges);
+        }
+
+        boolean showPR = baselineMode == BaselineMode.NON_DEFAULT_BRANCH
+                || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
+        if (prBtn != null) {
+            prBtn.setVisible(showPR);
+            prBtn.setEnabled(!hasUncommittedChanges);
+        }
+
+        var newComparisons = prepared.stream()
+                .map(this::toFileComparisonInfo)
+                .toList();
+
+        this.fileComparisons = newComparisons;
+
+        if (diffCore != null) {
+            diffCore.clearCache();
+            diffCore.showFile(diffCore.getCurrentIndex());
+        }
+    }
+
+    private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, DiffService.DiffEntry> entry) {
+        ProjectFile pf = null;
+        try {
+            pf = contextManager.toFile(entry.getKey());
+        } catch (Exception ignored) {
+        }
+        return new FileComparisonInfo(
+                pf,
+                new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
+                new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null));
+    }
+
+    private void rebuildUI(
+            DiffService.CumulativeChanges res,
+            List<Map.Entry<String, DiffService.DiffEntry>> prepared,
+            @Nullable String baselineLabel,
+            @Nullable BaselineMode baselineMode) {
 
         if (diffCore != null) {
             diffCore.clearCache();
@@ -356,24 +465,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         removeAll();
 
         if (res.filesChanged() == 0) {
-            String message;
-            if (BaselineMode.DETACHED == lastBaselineMode) {
-                message = "Detached HEAD \u2014 no changes to review";
-            } else if (BaselineMode.NO_BASELINE == lastBaselineMode) {
-                message = "No baseline to compare";
-            } else if ("HEAD".equals(lastBaselineLabel)) {
-                message = "Working tree is clean (no uncommitted changes).";
-            } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
-                message = "No changes vs " + lastBaselineLabel + ".";
-            } else {
-                message = "No changes to review.";
-            }
-            var none = new JLabel(message, SwingConstants.CENTER);
-            none.setBorder(new EmptyBorder(20, 0, 20, 0));
-            setLayout(new BorderLayout());
-            add(none, BorderLayout.CENTER);
-            revalidate();
-            repaint();
+            updateEmptyState();
             return;
         }
 
@@ -383,9 +475,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         String labelText = (baselineLabel != null && !baselineLabel.isEmpty())
                 ? "Comparing vs " + baselineLabel
                 : "Branch-based changes";
-        var label = new JLabel(labelText);
-        label.setFont(label.getFont().deriveFont(Font.BOLD));
-        headerPanel.add(label, BorderLayout.WEST);
+        headerLabel = new JLabel(labelText);
+        headerLabel.setFont(headerLabel.getFont().deriveFont(Font.BOLD));
+        headerPanel.add(headerLabel, BorderLayout.WEST);
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         buttonPanel.setOpaque(false);
@@ -397,37 +489,33 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             logger.debug("Unable to determine uncommitted changes state", e);
         }
 
-        if (hasUncommittedChanges) {
-            var commitBtn = new MaterialButton("Changes to Commit");
-            SwingUtil.applyPrimaryButtonStyle(commitBtn);
-            commitBtn.addActionListener(e -> showCommitDialog());
-            buttonPanel.add(commitBtn);
-        }
+        commitBtn = new MaterialButton("Changes to Commit");
+        SwingUtil.applyPrimaryButtonStyle(commitBtn);
+        commitBtn.addActionListener(e -> showCommitDialog());
+        commitBtn.setVisible(hasUncommittedChanges);
+        buttonPanel.add(commitBtn);
 
         var pushPull = res.pushPullState();
-        if (pushPull != null && pushPull.canPull()) {
-            var pullBtn = new MaterialButton("Pull");
-            pullBtn.setEnabled(!hasUncommittedChanges);
-            pullBtn.addActionListener(e -> performPull());
-            buttonPanel.add(pullBtn);
-        }
+        pullBtn = new MaterialButton("Pull");
+        pullBtn.setEnabled(!hasUncommittedChanges);
+        pullBtn.addActionListener(e -> performPull());
+        pullBtn.setVisible(pushPull != null && pushPull.canPull());
+        buttonPanel.add(pullBtn);
 
-        if (pushPull != null && pushPull.canPush()) {
-            var pushBtn = new MaterialButton("Push");
-            pushBtn.setEnabled(!hasUncommittedChanges);
-            pushBtn.addActionListener(e -> performPush());
-            buttonPanel.add(pushBtn);
-        }
+        pushBtn = new MaterialButton("Push");
+        pushBtn.setEnabled(!hasUncommittedChanges);
+        pushBtn.addActionListener(e -> performPush());
+        pushBtn.setVisible(pushPull != null && pushPull.canPush());
+        buttonPanel.add(pushBtn);
 
         boolean showPR = baselineMode == BaselineMode.NON_DEFAULT_BRANCH
                 || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
 
-        if (showPR) {
-            var prBtn = new MaterialButton("Create PR");
-            prBtn.setEnabled(!hasUncommittedChanges);
-            prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
-            buttonPanel.add(prBtn);
-        }
+        prBtn = new MaterialButton("Create PR");
+        prBtn.setEnabled(!hasUncommittedChanges);
+        prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
+        prBtn.setVisible(showPR);
+        buttonPanel.add(prBtn);
 
         headerPanel.add(buttonPanel, BorderLayout.EAST);
 
@@ -440,27 +528,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
         this.fileComparisons = prepared.stream()
-                .map(entry -> {
-                    ProjectFile pf = null;
-                    try {
-                        pf = contextManager.toFile(entry.getKey());
-                    } catch (Exception ignored) {
-                        // Expected when file cannot be resolved to a ProjectFile
-                    }
-
-                    return new FileComparisonInfo(
-                            pf,
-                            new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
-                            new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null));
-                })
+                .map(this::toFileComparisonInfo)
                 .toList();
 
         diffContainer = new JPanel(new BorderLayout());
         diffContainer.setOpaque(false);
 
-        // We use a dummy panel to satisfy DiffDisplayCore's constructor requirement for now,
-        // though ideally DiffDisplayCore should be decoupled from BrokkDiffPanel.
-        // For this refactor, we focus on the composition in SessionChangesPanel.
         var dummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
                 new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
 
@@ -526,8 +599,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     }
                 };
 
-        // Inject the display logic to update our local diffContainer instead of the dummy panel's tabs
-        dummyPanel.setBufferDiffPanel(null); // Clear any default behavior
+        dummyPanel.setBufferDiffPanel(null);
 
         this.fileTreePanel = new ai.brokk.difftool.ui.FileTreePanel(fileComparisons, root, projectName);
         this.fileTreePanel.setSelectionListener(new DiffProjectFileNavigationTarget() {
@@ -571,18 +643,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
         });
 
-        // Left column: Review List above File Tree
         this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
-        leftSplitPane.setResizeWeight(0.5); // 50% split
+        leftSplitPane.setResizeWeight(0.5);
 
-        // Right side: Review Detail (in scroll pane) above Diff view in a vertical split
         JScrollPane detailScrollPane = new JScrollPane(codeReviewPanel.getDetailPanel());
         detailScrollPane.setBorder(null);
 
         JSplitPane rightVerticalSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detailScrollPane, diffContainer);
-        rightVerticalSplit.setResizeWeight(0.5); // Default to 50% split
+        rightVerticalSplit.setResizeWeight(0.5);
 
-        // Main horizontal split: [Review List / File Tree] | [Review Detail / Diff]
         JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplit);
         mainSplit.setDividerLocation(300);
 
@@ -739,9 +808,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .map(de -> "File: " + de.title() + "\n" + de.diff())
                         .collect(java.util.stream.Collectors.joining("\n\n"));
 
-                byte[] hash = MessageDigest.getInstance("SHA-1").digest(formattedDiff.getBytes(StandardCharsets.UTF_8));
-                String cacheKey = "review_" + HexFormat.of().formatHex(hash);
-
                 ReviewParser.GuidedReview review;
                 var agent = new ReviewAgent(formattedDiff, contextManager, chrome, fileComparisons);
                 agent.setProgressUpdater(p -> SwingUtilities.invokeLater(() -> {
@@ -751,42 +817,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     else progressBar.setString("Generating review...");
                 }));
                 review = agent.execute();
-
-                logger.info(
-                        "Parsed GuidedReview: overview={} chars, designNotes={}, tacticalNotes={}, additionalTests={}",
-                        review.overview().length(),
-                        review.designNotes().size(),
-                        review.tacticalNotes().size(),
-                        review.additionalTests().size());
-
-                // Log each design note's excerpts
-                for (int i = 0; i < review.designNotes().size(); i++) {
-                    var design = review.designNotes().get(i);
-                    logger.info(
-                            "  DesignNote[{}] '{}': {} excerpts",
-                            i,
-                            design.title(),
-                            design.excerpts().size());
-                    for (var excerpt : design.excerpts()) {
-                        logger.info(
-                                "    Excerpt file='{}', excerpt={} chars",
-                                excerpt.file().toString(),
-                                excerpt.excerpt().length());
-                    }
-                }
-
-                // Log tactical notes
-                logger.info("Tactical notes count: {}", review.tacticalNotes().size());
-                for (int i = 0; i < review.tacticalNotes().size(); i++) {
-                    var tactical = review.tacticalNotes().get(i);
-                    logger.info(
-                            "  TacticalNote[{}] title='{}', file='{}', excerpt={} chars, recommendation={} chars",
-                            i,
-                            tactical.title(),
-                            tactical.excerpt().file().toString(),
-                            tactical.excerpt().excerpt().length(),
-                            tactical.recommendation().length());
-                }
 
                 String currentHash = repo.getCurrentCommitId();
                 long now = System.currentTimeMillis();
@@ -802,8 +832,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         lastReviewState = new ReviewState(currentHash, now);
                         codeReviewPanel.displayReview(review);
                         codeReviewPanel.setBusy(false);
-                        
-                        // Clear staleness on fresh generation
                         codeReviewPanel.getListPanel().setStalenessNotice(null);
                     }
                     parent.revalidate();
