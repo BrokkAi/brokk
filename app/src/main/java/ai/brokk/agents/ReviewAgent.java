@@ -485,54 +485,46 @@ public class ReviewAgent {
     private UserMessage buildAnalysisRequestMessage() {
         return new UserMessage(
                 """
-                Write a complete code review in Markdown based on the proposed diff and the gathered workspace context.
+                <instructions>
+                Write a complete code review in Markdown of the proposed diff, informed by the gathered workspace context.
 
-                Your output MUST follow this exact section structure:
+                Your goal is to call attention to tricky, subtle, or simply incorrect choices in the diff.
+                
+                Tactical notes are simple issues localized to a single method.
+                
+                Design notes should focus on a specific higher level area of concern, such as architectural issues,
+                coupling, abstraction problems),
 
+                Design notes may have multiple excerpts highlighting the most important parts of the issue; tactical notes should have exactly one.
+                </instructions>
+                <excerpt_format>
+                When referencing code, use BRK_EXCERPT blocks with a unique numeric ID:
+
+                BRK_EXCERPT_$N
+                path/to/file.java @$line
+                ```
+                $code
+                ```
+                </excerpt_format>
+                <review_format>
                 ## Overview
-                Explain your understanding of what this PR is intended to do.
+                [What the changes accomplish and big-picture analysis]
 
                 ## Design Notes
-                Focus on answering the question: does this accomplish its goals in the simplest way possible?
+                ### [Title]
+                [Description with multiple inline BRK_EXCERPT blocks]
 
-                For each design-level concern (architectural issues, coupling, abstraction problems), use this template,
-                with placholders using $. Use Markdown for the overview, description, and recommendation sections.
-
-                ### $title
-                #### Description:
-                $description
-
-                [Include all of the most relevant code excerpts pertaining to this design note with the following format:]
-                BRK_EXCERPT_$N
-                path/to/file.java @$linenumber
-                ```
-                $excerpt
-                ```
-
-                #### Recommendation:
-                $recommendation
+                **Recommendation:** [What to change, if anything]
 
                 ## Tactical Notes
-                For each local issue (local bugs, edge cases, error handling gaps), use this template:
+                ### [Title]
+                [Description with a single inline BRK_EXCERPT block]
 
-                ### $title
-                #### Description
-                $description
-
-                [Include the single most relevant code excerpt pertaining to this design note with the following format:]
-                BRK_EXCERPT_$N
-                path/to/file.java @$linenumber
-                ```
-                $excerpt
-                ```
-
-                #### Recommendation:
-                $ recommendation
+                **Recommendation:** [What to fix]
 
                 ## Additional Tests
-                
-                For each test, include the description as a list bullet:
-                - $description
+                - [Test descriptions in a bulleted list]
+                </review_format>
                 """);
     }
 
