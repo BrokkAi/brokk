@@ -499,7 +499,7 @@ public class SearchAgent {
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
         var aiMsg = result.aiMessage();
-        var enhAiMsg = AiMessage.from(label +"\n\n" + aiMsg.text(), aiMsg.reasoningContent(), aiMsg.toolExecutionRequests());
+        var enhAiMsg = AiMessage.from(label +"\n\n", aiMsg.reasoningContent(), aiMsg.toolExecutionRequests());
 
         conversation.append(enhAiMsg);
         if (result.error() != null || result.isEmpty()) {

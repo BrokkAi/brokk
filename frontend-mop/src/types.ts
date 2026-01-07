@@ -6,7 +6,7 @@ export type BrokkEvent =
       text: string;
       isNew: boolean;
       streaming: boolean;
-      msgType: 'USER' | 'AI' | 'SYSTEM';
+      msgType: 'USER' | 'AI' | 'SYSTEM' | 'TOOL_EXECUTION_RESULT';
       reasoning: boolean;
       epoch: number;
     }
@@ -24,7 +24,7 @@ export type BrokkEvent =
       taskSequence: number;
       compressed: boolean;
       summary?: string;
-      messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM'; reasoning?: boolean }[];
+      messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM' | 'TOOL_EXECUTION_RESULT'; reasoning?: boolean }[];
     }
   | {
       type: 'live-summary';
@@ -35,7 +35,7 @@ export type BrokkEvent =
 
 export type Bubble = {
   seq: number;
-  type: 'USER' | 'AI' | 'SYSTEM';
+  type: 'USER' | 'AI' | 'SYSTEM' | 'TOOL_EXECUTION_RESULT';
   markdown: string;
   title?: string;
   iconId?: string;
