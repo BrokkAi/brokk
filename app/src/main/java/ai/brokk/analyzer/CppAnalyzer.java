@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
+import com.google.common.base.Splitter;
 import java.util.*;
 import java.util.regex.Pattern;
 import org.jetbrains.annotations.Nullable;
@@ -10,7 +11,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
-import org.treesitter.TSTree;
 import org.treesitter.TreeSitterCpp;
 
 public class CppAnalyzer extends TreeSitterAnalyzer {
@@ -186,9 +186,9 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                         // Handle C++17 nested namespace syntax: namespace A::B { ... }
                         // Split by "::" and add segments in reverse order (inner to outer)
                         // because they are reversed again at the end of the method.
-                        String[] parts = name.split("::");
-                        for (int i = parts.length - 1; i >= 0; i--) {
-                            String part = parts[i].strip();
+                        List<String> parts = Splitter.on("::").splitToList(name);
+                        for (int i = parts.size() - 1; i >= 0; i--) {
+                            String part = parts.get(i).strip();
                             if (!part.isEmpty()) {
                                 namespaceParts.add(part);
                             }
