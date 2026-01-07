@@ -10,6 +10,7 @@ import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 import javax.net.ssl.SSLHandshakeException;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -22,6 +23,9 @@ public class BrokkKeyDialog extends BaseThemedDialog {
 
     private final JTextField keyField = new JTextField(30);
     private @Nullable String validatedKey = null;
+    private @Nullable JLabel statusLabel;
+    private @Nullable MaterialButton okBtn;
+    private @Nullable MaterialButton cancelBtn;
 
     private BrokkKeyDialog(@Nullable Frame owner, @Nullable String initialKey) {
         super(owner, "Enter Brokk Key");
@@ -72,11 +76,16 @@ public class BrokkKeyDialog extends BaseThemedDialog {
         keyPanel.add(keyField, BorderLayout.CENTER);
         center.add(keyPanel);
 
+        center.add(Box.createVerticalStrut(4));
+        statusLabel = new JLabel(" ");
+        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+        center.add(statusLabel);
+
         root.add(center, BorderLayout.CENTER);
 
         // Buttons
-        var okBtn = new MaterialButton("OK");
-        var cancelBtn = new MaterialButton("Cancel");
+        okBtn = new MaterialButton("OK");
+        cancelBtn = new MaterialButton("Cancel");
 
         okBtn.addActionListener(e -> submit());
         cancelBtn.addActionListener(e -> cancel());
@@ -110,34 +119,72 @@ public class BrokkKeyDialog extends BaseThemedDialog {
             return;
         }
 
-        try {
-            Service.validateKey(key);
-            MainProject.setBrokkKey(key);
-            validatedKey = key;
-            dispose();
-        } catch (IllegalArgumentException ex) {
+        setInputEnabled(false);
+        if (statusLabel != null) {
+            statusLabel.setText("Validating...");
+        }
+
+        CompletableFuture.supplyAsync(() -> {
+                    try {
+                        Service.validateKey(key);
+                        return null;
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .whenComplete((result, error) -> SwingUtilities.invokeLater(() -> {
+                    if (statusLabel != null) {
+                        statusLabel.setText(" ");
+                    }
+                    if (error == null) {
+                        MainProject.setBrokkKey(key);
+                        validatedKey = key;
+                        dispose();
+                    } else {
+                        var cause = error;
+                        while (cause.getCause() != null) {
+                            cause = cause.getCause();
+                        }
+                        handleValidationError(cause);
+                        setInputEnabled(true);
+                    }
+                }));
+    }
+
+    private void setInputEnabled(boolean enabled) {
+        keyField.setEnabled(enabled);
+        if (okBtn != null) okBtn.setEnabled(enabled);
+        if (cancelBtn != null) cancelBtn.setEnabled(enabled);
+    }
+
+    private void handleValidationError(Throwable ex) {
+        if (ex instanceof IllegalArgumentException) {
             logger.warn("Invalid Brokk Key: {}", ex.getMessage());
             JOptionPane.showMessageDialog(
                     this, "Invalid Brokk Key: " + ex.getMessage(), "Invalid Key", JOptionPane.ERROR_MESSAGE);
             keyField.requestFocusInWindow();
             keyField.selectAll();
-        } catch (SSLHandshakeException ex) {
+        } else if (ex instanceof SSLHandshakeException) {
             logger.warn("SSL error validating Brokk Key: {}", ex.getMessage());
             JOptionPane.showMessageDialog(
                     this,
                     """
-                                                 Unable to connect to Brokk services. This often happens behind a corporate proxy/firewall that intercepts TLS.
-                                                 Ensure your OS trust-store trusts any required corporate certificates.
-                                                 """,
+                                          Unable to connect to Brokk services. This often happens behind a corporate proxy/firewall that intercepts TLS.
+                                          Ensure your OS trust-store trusts any required corporate certificates.
+                                          """,
                     "Connection Issue",
                     JOptionPane.ERROR_MESSAGE);
-        } catch (IOException ex) {
+        } else if (ex instanceof IOException) {
             logger.warn("Network error validating Brokk Key: {}", ex.getMessage());
             JOptionPane.showMessageDialog(
                     this,
                     "Network error validating key: " + ex.getMessage(),
                     "Network Error",
                     JOptionPane.ERROR_MESSAGE);
+        } else {
+            logger.error("Unexpected error validating Brokk Key", ex);
+            JOptionPane.showMessageDialog(
+                    this, "Unexpected error: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 

@@ -249,20 +249,7 @@ public class Brokk {
         if (!noKeyFlag) {
             var existingKey = MainProject.getBrokkKey();
             if (!existingKey.isEmpty()) {
-                try {
-                    Service.validateKey(existingKey);
-                    keyIsValid = true;
-                } catch (IOException e) {
-                    logger.warn("Network error validating existing Brokk key; assuming valid for now.", e);
-                    keyIsValid = true; // allow offline use
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                            null,
-                            "Network error validating Brokk key. AI services may be unavailable.",
-                            "Network Validation Warning",
-                            JOptionPane.WARNING_MESSAGE));
-                } catch (IllegalArgumentException e) {
-                    logger.warn("Existing Brokk key is invalid: {}", e.getMessage());
-                }
+                keyIsValid = validateKeyInBackground(existingKey);
             }
         }
 
@@ -281,6 +268,43 @@ public class Brokk {
         }
 
         return new KeyValidationResult(true, null);
+    }
+
+    /**
+     * Validates the key in a background thread to avoid blocking the EDT/main thread.
+     * Returns true if key is valid or on network error (allows offline use).
+     */
+    private static boolean validateKeyInBackground(String key) {
+        var future = CompletableFuture.supplyAsync(() -> {
+            try {
+                Service.validateKey(key);
+                return ValidationOutcome.VALID;
+            } catch (IOException e) {
+                logger.warn("Network error validating existing Brokk key; assuming valid for now.", e);
+                return ValidationOutcome.NETWORK_ERROR;
+            } catch (IllegalArgumentException e) {
+                logger.warn("Existing Brokk key is invalid: {}", e.getMessage());
+                return ValidationOutcome.INVALID;
+            }
+        });
+
+        var outcome = future.join();
+
+        if (outcome == ValidationOutcome.NETWORK_ERROR) {
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
+                    null,
+                    "Network error validating Brokk key. AI services may be unavailable.",
+                    "Network Validation Warning",
+                    JOptionPane.WARNING_MESSAGE));
+        }
+
+        return outcome != ValidationOutcome.INVALID;
+    }
+
+    private enum ValidationOutcome {
+        VALID,
+        INVALID,
+        NETWORK_ERROR
     }
 
     private static List<Path> determineInitialProjectsToOpen(
