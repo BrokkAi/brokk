@@ -283,4 +283,62 @@ class ReviewParserTest {
         // Target line after all matches
         assertEquals(20, ReviewParser.findBestMatch(matches, 30).startLine());
     }
+
+    @Test
+    void testParseToSegmentsInterleaved() {
+        String input =
+                """
+                Prefix text.
+                BRK_EXCERPT_1
+                File.java @10
+                ```
+                code1
+                ```
+                Middle text.
+                BRK_EXCERPT_2
+                Other.java @20
+                ```
+                code2
+                ```
+                Suffix text.""";
+
+        List<ReviewParser.Segment> segments = ReviewParser.instance.parseToSegments(input);
+        assertEquals(5, segments.size());
+
+        assertTrue(segments.get(0) instanceof ReviewParser.TextSegment);
+        assertEquals("Prefix text.\n", ((ReviewParser.TextSegment) segments.get(0)).text());
+
+        assertTrue(segments.get(1) instanceof ReviewParser.ExcerptSegment);
+        assertEquals(1, ((ReviewParser.ExcerptSegment) segments.get(1)).id());
+        assertEquals("code1", ((ReviewParser.ExcerptSegment) segments.get(1)).content());
+
+        assertTrue(segments.get(2) instanceof ReviewParser.TextSegment);
+        assertEquals("\nMiddle text.\n", ((ReviewParser.TextSegment) segments.get(2)).text());
+
+        assertTrue(segments.get(3) instanceof ReviewParser.ExcerptSegment);
+        assertEquals(2, ((ReviewParser.ExcerptSegment) segments.get(3)).id());
+
+        assertTrue(segments.get(4) instanceof ReviewParser.TextSegment);
+        assertEquals("\nSuffix text.", ((ReviewParser.TextSegment) segments.get(4)).text());
+    }
+
+    @Test
+    void testSerializationRoundTrip() {
+        String input =
+                """
+                Text before.
+                BRK_EXCERPT_1
+                File.java @10
+                ```
+                content
+                ```
+                Text after.""";
+
+        List<ReviewParser.Segment> segments = ReviewParser.instance.parseToSegments(input);
+        String serialized = ReviewParser.instance.serializeSegments(segments);
+
+        // We compare normalized/trimmed because the serializer might vary slightly in trailing newlines
+        // depending on how the input was formatted.
+        assertEquals(input.trim(), serialized.trim());
+    }
 }

@@ -489,9 +489,9 @@ public class ReviewAgent {
                 Write a complete code review in Markdown of the proposed diff, informed by the gathered workspace context.
 
                 Your goal is to call attention to tricky, subtle, or simply incorrect choices in the diff.
-                
+
                 Tactical notes are simple issues localized to a single method.
-                
+
                 Design notes should focus on a specific higher level area of concern, such as architectural issues,
                 coupling, abstraction problems),
 

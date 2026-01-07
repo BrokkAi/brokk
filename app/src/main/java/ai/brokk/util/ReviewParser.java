@@ -2,11 +2,13 @@ package ai.brokk.util;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
@@ -25,6 +27,12 @@ public class ReviewParser {
     public static final ReviewParser instance = new ReviewParser();
 
     private ReviewParser() {}
+
+    public sealed interface Segment permits TextSegment, ExcerptSegment {}
+
+    public record TextSegment(String text) implements Segment {}
+
+    public record ExcerptSegment(int id, String file, int line, String content) implements Segment {}
 
     public static WhitespaceMatch findBestMatch(List<WhitespaceMatch> matches, int targetLine) {
         var best = matches.getFirst();
@@ -52,114 +60,140 @@ public class ReviewParser {
     }
 
     public String stripExcerpts(String text) {
-        StringBuilder sb = new StringBuilder();
-        String[] lines = text.split("\\R", -1);
-        State state = State.SEARCHING;
-
-        for (String line : lines) {
-            String trimmed = line.trim();
-            switch (state) {
-                case SEARCHING -> {
-                    if (trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
-                        try {
-                            Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
-                            state = State.EXPECTING_FILENAME;
-                        } catch (NumberFormatException ignored) {
-                            sb.append(line).append("\n");
-                        }
-                    } else {
-                        sb.append(line).append("\n");
-                    }
-                }
-                case EXPECTING_FILENAME -> {
-                    if (!trimmed.isEmpty()) {
-                        state = State.EXPECTING_FENCE;
-                    }
-                }
-                case EXPECTING_FENCE -> {
-                    if (trimmed.startsWith("```")) {
-                        state = State.IN_CONTENT;
-                    }
-                }
-                case IN_CONTENT -> {
-                    if (line.equals("```")
-                            || (line.startsWith("```") && line.substring(3).isBlank())) {
-                        state = State.SEARCHING;
-                    }
-                }
-            }
-        }
-        return sb.toString().trim();
+        return parseToSegments(text).stream()
+                .filter(s -> s instanceof TextSegment)
+                .map(s -> ((TextSegment) s).text())
+                .collect(Collectors.joining())
+                .trim();
     }
 
     public Map<Integer, RawExcerpt> parseExcerpts(String text) {
         Map<Integer, RawExcerpt> results = new HashMap<>();
-        String[] lines = text.split("\\R", -1);
-        State state = State.SEARCHING;
-        Integer currentId = null;
-        String currentFile = null;
-        int currentLineNum = -1;
-        StringBuilder currentContent = new StringBuilder();
-        Pattern fileLinePattern = Pattern.compile("^(.*)\\s+@(\\d+)$");
-
-        for (String line : lines) {
-            String trimmed = line.trim();
-            if (state != State.SEARCHING && trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
-                try {
-                    currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
-                    state = State.EXPECTING_FILENAME;
-                    continue;
-                } catch (NumberFormatException ignored) {
-                    // expected when ID is not a valid number
-                }
-            }
-            switch (state) {
-                case SEARCHING -> {
-                    if (trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
-                        try {
-                            currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
-                            state = State.EXPECTING_FILENAME;
-                        } catch (NumberFormatException ignored) {
-                            // expected when ID is not a valid number
-                        }
-                    }
-                }
-                case EXPECTING_FILENAME -> {
-                    if (!trimmed.isEmpty()) {
-                        Matcher m = fileLinePattern.matcher(trimmed);
-                        if (m.matches()) {
-                            currentFile = m.group(1).trim();
-                            currentLineNum = Integer.parseInt(m.group(2));
-                            state = State.EXPECTING_FENCE;
-                        } else {
-                            state = State.SEARCHING;
-                        }
-                    }
-                }
-                case EXPECTING_FENCE -> {
-                    if (trimmed.startsWith("```")) {
-                        state = State.IN_CONTENT;
-                        currentContent.setLength(0);
-                    }
-                }
-                case IN_CONTENT -> {
-                    if (line.equals("```")
-                            || (line.startsWith("```") && line.substring(3).isBlank())) {
-                        if (currentId != null && currentFile != null) {
-                            results.put(
-                                    currentId, new RawExcerpt(currentFile, currentLineNum, currentContent.toString()));
-                        }
-                        state = State.SEARCHING;
-                    } else {
-                        if (!currentContent.isEmpty()) {
-                            currentContent.append("\n");
-                        }
-                        currentContent.append(line);
-                    }
-                }
+        for (Segment segment : parseToSegments(text)) {
+            if (segment instanceof ExcerptSegment es) {
+                results.put(es.id(), new RawExcerpt(es.file(), es.line(), es.content()));
             }
         }
         return Map.copyOf(results);
+    }
+
+    public List<Segment> parseToSegments(String text) {
+        List<Segment> segments = new ArrayList<>();
+        String[] lines = text.split("\\R", -1);
+        State state = State.SEARCHING;
+
+        StringBuilder textAccumulator = new StringBuilder();
+        StringBuilder excerptAccumulator = new StringBuilder();
+
+        Integer currentId = null;
+        String currentFile = null;
+        int currentLineNum = -1;
+        Pattern fileLinePattern = Pattern.compile("^(.*)\\s+@(\\d+)$");
+
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            String trimmed = line.trim();
+
+            if (state == State.SEARCHING) {
+                if (trimmed.startsWith("BRK_EXCERPT_")
+                        && !trimmed.contains(" ")
+                        && trimmed.length() > "BRK_EXCERPT_".length()
+                        && trimmed.substring("BRK_EXCERPT_".length()).chars().allMatch(Character::isDigit)) {
+                    int id = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
+                    // Look ahead for file, fence, and closing fence
+                    if (i + 2 < lines.length) {
+                        Matcher m = fileLinePattern.matcher(lines[i + 1].trim());
+                        if (m.matches() && lines[i + 2].trim().startsWith("```")) {
+                            // Find the closing fence before accepting this excerpt
+                            if (findClosingFence(lines, i + 3) != -1) {
+                                if (!textAccumulator.isEmpty()) {
+                                    segments.add(new TextSegment(textAccumulator.toString()));
+                                    textAccumulator.setLength(0);
+                                }
+                                currentId = id;
+                                currentFile = m.group(1).trim();
+                                currentLineNum = Integer.parseInt(m.group(2));
+                                excerptAccumulator.setLength(0);
+                                state = State.IN_CONTENT;
+                                i += 2; // skip filename and fence
+                                continue;
+                            }
+                        }
+                    }
+                }
+                textAccumulator.append(line);
+                if (i < lines.length - 1) {
+                    textAccumulator.append("\n");
+                }
+            } else {
+                // IN_CONTENT
+                if (line.equals("```")
+                        || (line.startsWith("```") && line.substring(3).isBlank())) {
+                    segments.add(new ExcerptSegment(
+                            java.util.Objects.requireNonNull(currentId),
+                            java.util.Objects.requireNonNull(currentFile),
+                            currentLineNum,
+                            excerptAccumulator.toString()));
+
+                    // If there is another line, append the newline following the fence to textAccumulator
+                    if (i < lines.length - 1) {
+                        textAccumulator.setLength(0);
+                        textAccumulator.append("\n");
+                    }
+                    state = State.SEARCHING;
+                } else {
+                    if (!excerptAccumulator.isEmpty()) {
+                        excerptAccumulator.append("\n");
+                    }
+                    excerptAccumulator.append(line);
+                }
+            }
+        }
+
+        if (!textAccumulator.isEmpty()) {
+            segments.add(new TextSegment(textAccumulator.toString()));
+        }
+
+        return List.copyOf(segments);
+    }
+
+    /**
+     * Finds the index of a closing fence (``` at start of line) starting from the given index.
+     * Returns -1 if no closing fence is found or if another BRK_EXCERPT_ marker is encountered first.
+     */
+    private int findClosingFence(String[] lines, int startIndex) {
+        for (int j = startIndex; j < lines.length; j++) {
+            String l = lines[j];
+            String trimmed = l.trim();
+            // If we encounter another excerpt marker before finding a closing fence,
+            // the current block is unclosed
+            if (trimmed.startsWith("BRK_EXCERPT_")
+                    && !trimmed.contains(" ")
+                    && trimmed.length() > "BRK_EXCERPT_".length()
+                    && trimmed.substring("BRK_EXCERPT_".length()).chars().allMatch(Character::isDigit)) {
+                return -1;
+            }
+            if (l.equals("```") || (l.startsWith("```") && l.substring(3).isBlank())) {
+                return j;
+            }
+        }
+        return -1;
+    }
+
+    public String serializeSegments(List<Segment> segments) {
+        StringBuilder sb = new StringBuilder();
+        for (Segment segment : segments) {
+            if (segment instanceof TextSegment ts) {
+                sb.append(ts.text());
+            } else if (segment instanceof ExcerptSegment es) {
+                sb.append("BRK_EXCERPT_").append(es.id()).append("\n");
+                sb.append(es.file()).append(" @").append(es.line()).append("\n");
+                sb.append("```\n");
+                sb.append(es.content()).append("\n");
+                sb.append("```");
+            }
+        }
+        return sb.toString();
     }
 
     public record RawExcerpt(String file, int line, String excerpt) {}
