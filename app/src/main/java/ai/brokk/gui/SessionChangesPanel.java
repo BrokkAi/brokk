@@ -746,7 +746,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .map(de -> "File: " + de.title() + "\n" + de.diff())
                         .collect(java.util.stream.Collectors.joining("\n\n"));
 
-                ReviewParser.GuidedReview review;
                 var agent = new ReviewAgent(formattedDiff, contextManager, chrome, fileComparisons);
                 agent.setProgressUpdater(p -> SwingUtilities.invokeLater(() -> {
                     progressBar.setValue(p);
@@ -754,7 +753,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     else if (p < 80) progressBar.setString("Analyzing changes...");
                     else progressBar.setString("Generating review...");
                 }));
-                review = agent.execute();
+                var result = agent.execute();
 
                 String currentHash = repo.getCurrentCommitId();
                 long now = System.currentTimeMillis();
@@ -767,7 +766,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         }
                     }
                     lastReviewState = new ReviewState(currentHash, now);
-                    codeReviewPanel.displayReview(review);
+                    codeReviewPanel.displayReview(result.review(), result.context());
+                    codeReviewPanel.getDetailPanel().setReviewContext(result.context());
                     codeReviewPanel.setBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
                     parent.revalidate();

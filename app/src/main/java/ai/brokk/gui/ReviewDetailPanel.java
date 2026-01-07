@@ -2,6 +2,7 @@ package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
+import ai.brokk.context.Context;
 import ai.brokk.gui.components.MaterialChip;
 import ai.brokk.gui.components.SimpleHtmlPanel;
 import ai.brokk.gui.components.SplitButton;
@@ -39,6 +40,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 import javax.swing.text.DefaultCaret;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -69,6 +71,9 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
     private final List<String> htmlChunks = new ArrayList<>();
+
+    @Nullable
+    private Context reviewContext = null;
 
     public ReviewDetailPanel(ContextManager contextManager, Runnable onNext) {
         this.contextManager = contextManager;
@@ -150,12 +155,34 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         listeners.add(listener);
     }
 
+    public void setReviewContext(@Nullable Context context) {
+        this.reviewContext = context;
+    }
+
     public void showItem(Object item, List<CodeExcerpt> excerpts) {
         cardLayout.show(this, CARD_CONTENT);
         clearContent();
 
         if (item instanceof String overview) {
             addMarkdownPanel(overview);
+            // Add capture button for overview
+            buttonPanel.removeAll();
+            buttonPanel.setVisible(true);
+
+            var captureBtn = new ai.brokk.gui.components.MaterialButton("Capture to new Session");
+            captureBtn.addActionListener(e -> {
+                if (reviewContext != null) {
+                    contextManager
+                            .createSessionFromContextAsync(reviewContext, "Code Review")
+                            .exceptionally(ex -> {
+                                contextManager
+                                        .getIo()
+                                        .toolError("Failed to create session: " + ex.getMessage(), "Session Error");
+                                return null;
+                            });
+                }
+            });
+            buttonPanel.add(captureBtn);
         } else if (item instanceof DesignFeedback design) {
             addMarkdownPanel("### " + design.title());
             addMarkdownPanel(design.description());
