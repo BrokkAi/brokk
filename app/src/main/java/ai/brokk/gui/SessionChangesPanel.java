@@ -67,7 +67,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private BaselineMode lastBaselineMode = null;
 
-    @Nullable
     private ai.brokk.difftool.ui.DiffDisplayCore diffCore;
 
     private final ai.brokk.difftool.ui.FileTreePanel fileTreePanel;
@@ -129,6 +128,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.leftSplitPane.setResizeWeight(0.5);
 
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
+
+        // Initialize diffCore with empty comparisons - will be replaced on first rebuildUI
+        var initialDummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
+                new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
+        this.diffCore = new ai.brokk.difftool.ui.DiffDisplayCore(
+                initialDummyPanel, contextManager, chrome.getTheme(), List.of(), false, 0);
     }
 
     public void requestUpdate() {
@@ -409,9 +414,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        if (diffCore != null) {
-            diffCore.clearCache();
-        }
+        diffCore.clearCache();
         removeAll();
 
         if (res.filesChanged() == 0) {
