@@ -22,6 +22,9 @@ import org.jetbrains.annotations.Nullable;
 /** Modal dialog that prompts the user for a Brokk Key and validates it before closing. */
 public class BrokkKeyDialog extends BaseThemedDialog {
     private static final Logger logger = LogManager.getLogger(BrokkKeyDialog.class);
+    private static final String ERROR_INVALID_KEY = "Invalid Brokk Key";
+    private static final String ERROR_NETWORK = "Network error - please check your connection";
+    private static final String ERROR_SSL = "SSL/TLS connection error - check proxy/firewall settings";
 
     private final JTextField keyField = new JTextField(30);
     private @Nullable String validatedKey = null;
@@ -66,21 +69,26 @@ public class BrokkKeyDialog extends BaseThemedDialog {
         // Center panel with instructions and key field
         var center = new JPanel();
         center.setLayout(new BoxLayout(center, BoxLayout.PAGE_AXIS));
-        center.add(new JLabel("Please enter your Brokk Key."));
+        var instructionLabel = new JLabel("Please enter your Brokk Key.");
+        instructionLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        center.add(instructionLabel);
         var linkRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         linkRow.add(new JLabel("You can sign up for free at "));
         linkRow.add(new BrowserLabel("https://brokk.ai", "brokk.ai"));
+        linkRow.setAlignmentX(Component.LEFT_ALIGNMENT);
         center.add(linkRow);
         center.add(Box.createVerticalStrut(8));
 
         var keyPanel = new JPanel(new BorderLayout(5, 0));
         keyPanel.add(new JLabel("Brokk Key:"), BorderLayout.WEST);
         keyPanel.add(keyField, BorderLayout.CENTER);
+        keyPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
         center.add(keyPanel);
 
         center.add(Box.createVerticalStrut(4));
         statusLabel = new JLabel(" ");
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.ITALIC, 11f));
+        statusLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
         if (errorMessage != null && !errorMessage.isBlank()) {
             statusLabel.setText(errorMessage);
             statusLabel.setForeground(Color.RED);
@@ -134,7 +142,7 @@ public class BrokkKeyDialog extends BaseThemedDialog {
                     try {
                         Service.validateKey(key);
                         return null;
-                    } catch (Exception e) {
+                    } catch (IOException e) {
                         throw new RuntimeException(e);
                     }
                 })
@@ -149,9 +157,7 @@ public class BrokkKeyDialog extends BaseThemedDialog {
                     } else {
                         logger.debug("Validation error", error);
                         var cause = error;
-                        while ((cause instanceof CompletionException
-                                        || cause instanceof ExecutionException
-                                        || (cause instanceof RuntimeException && cause.getMessage() == null))
+                        while ((cause instanceof CompletionException || cause instanceof ExecutionException)
                                 && cause.getCause() != null) {
                             cause = cause.getCause();
                         }
@@ -168,34 +174,34 @@ public class BrokkKeyDialog extends BaseThemedDialog {
     }
 
     private void handleValidationError(Throwable ex) {
-        if (ex instanceof IllegalArgumentException) {
-            logger.warn("Invalid Brokk Key: {}", ex.getMessage());
-            JOptionPane.showMessageDialog(
-                    this, "Invalid Brokk Key: " + ex.getMessage(), "Invalid Key", JOptionPane.ERROR_MESSAGE);
+        var root = ex;
+        while (root.getCause() != null && root instanceof RuntimeException) {
+            root = root.getCause();
+        }
+
+        String errorMessage;
+        if (root instanceof IllegalArgumentException) {
+            logger.warn("Invalid Brokk Key: {}", root.getMessage());
+            errorMessage = ERROR_INVALID_KEY;
             keyField.requestFocusInWindow();
             keyField.selectAll();
-        } else if (ex instanceof SSLHandshakeException) {
-            logger.warn("SSL error validating Brokk Key: {}", ex.getMessage());
-            JOptionPane.showMessageDialog(
-                    this,
-                    """
-                                          Unable to connect to Brokk services. This often happens behind a corporate proxy/firewall that intercepts TLS.
-                                          Ensure your OS trust-store trusts any required corporate certificates.
-                                          """,
-                    "Connection Issue",
-                    JOptionPane.ERROR_MESSAGE);
-        } else if (ex instanceof IOException) {
-            logger.warn("Network error validating Brokk Key: {}", ex.getMessage());
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Network error validating key: " + ex.getMessage(),
-                    "Network Error",
-                    JOptionPane.ERROR_MESSAGE);
+        } else if (root instanceof SSLHandshakeException) {
+            logger.warn("SSL error validating Brokk Key: {}", root.getMessage());
+            errorMessage = ERROR_SSL;
+        } else if (root instanceof IOException) {
+            logger.warn("Network error validating Brokk Key: {}", root.getMessage());
+            errorMessage = ERROR_NETWORK;
         } else {
             logger.error("Unexpected error validating Brokk Key", ex);
-            var msg = ex.getMessage();
-            var detail = (msg == null || msg.isBlank()) ? ex.toString() : msg;
-            JOptionPane.showMessageDialog(this, "Unexpected error: " + detail, "Error", JOptionPane.ERROR_MESSAGE);
+            var msg = root.getMessage();
+            errorMessage = (msg == null || msg.isBlank())
+                    ? "Unexpected error: " + root.getClass().getSimpleName()
+                    : msg;
+        }
+
+        if (statusLabel != null) {
+            statusLabel.setText(errorMessage);
+            statusLabel.setForeground(Color.RED);
         }
     }
 

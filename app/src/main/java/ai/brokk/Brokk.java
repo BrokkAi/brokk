@@ -63,6 +63,9 @@ public class Brokk {
             ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
             """;
 
+    private static final String ERROR_INVALID_KEY = "Invalid Brokk Key";
+    private static final String ERROR_NETWORK = "Network error - please check your connection";
+
     private static void logBanner() {
         var lines = Splitter.on('\n').split(BANNER);
         for (String line : lines) {
@@ -300,9 +303,8 @@ public class Brokk {
 
     private static class ValidationOutcome {
         static final ValidationOutcome VALID = new ValidationOutcome(null);
-        static final ValidationOutcome INVALID = new ValidationOutcome("Invalid key");
-        static final ValidationOutcome NETWORK_ERROR =
-                new ValidationOutcome("Network error - please check your connection");
+        static final ValidationOutcome INVALID = new ValidationOutcome(ERROR_INVALID_KEY);
+        static final ValidationOutcome NETWORK_ERROR = new ValidationOutcome(ERROR_NETWORK);
 
         final @Nullable String message;
 
