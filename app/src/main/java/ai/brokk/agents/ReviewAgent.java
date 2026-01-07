@@ -240,27 +240,7 @@ public class ReviewAgent {
             }
 
             var rawReview = ReviewParser.RawReview.fromJson(executionResult.resultText());
-            var review = ReviewParser.GuidedReview.fromRaw(
-                    rawReview,
-                    resolvedExcerpts.entrySet().stream()
-                            .collect(java.util.stream.Collectors.toMap(
-                                    Map.Entry::getKey, e -> e.getValue().excerpt())),
-                    resolvedExcerpts.entrySet().stream()
-                            .collect(java.util.stream.Collectors.toMap(
-                                    Map.Entry::getKey, e -> e.getValue().file().toString())),
-                    (file, content) -> {
-                        var fileObj = cm.toFile(file);
-                        return resolvedExcerpts.values().stream()
-                                .filter(e ->
-                                        e.file().equals(fileObj) && e.excerpt().equals(content))
-                                .findFirst()
-                                .orElse(new ReviewParser.CodeExcerpt(
-                                        fileObj,
-                                        null,
-                                        1, // Default to line 1 if unresolved
-                                        ReviewParser.DiffSide.NEW,
-                                        content));
-                    });
+            var review = ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
 
             return new ReviewResult(review, reviewContext);
         }

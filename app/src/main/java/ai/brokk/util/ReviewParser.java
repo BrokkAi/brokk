@@ -205,30 +205,25 @@ public class ReviewParser {
             return Json.fromJson(json, GuidedReview.class);
         }
 
-        public static GuidedReview fromRaw(
-                RawReview rawReview,
-                Map<Integer, String> excerptContents,
-                Map<Integer, String> excerptFiles,
-                java.util.function.BiFunction<String, String, CodeExcerpt> resolver) {
+        public static GuidedReview fromRaw(RawReview rawReview, Map<Integer, CodeExcerpt> resolvedExcerpts) {
             List<DesignFeedback> designNotes = rawReview.designNotes().stream()
                     .map(raw -> new DesignFeedback(
                             raw.title(),
                             raw.description(),
                             raw.excerptIds().stream()
-                                    .filter(id -> id != null && id >= 0 && excerptContents.containsKey(id))
-                                    .map(id -> resolver.apply(excerptFiles.get(id), excerptContents.get(id)))
+                                    .map(resolvedExcerpts::get)
+                                    .filter(java.util.Objects::nonNull)
                                     .toList(),
                             raw.recommendation()))
                     .toList();
 
             List<TacticalFeedback> tacticalNotes = rawReview.tacticalNotes().stream()
-                    .map(raw -> {
-                        CodeExcerpt excerpt = (raw.excerptId() >= 0 && excerptContents.containsKey(raw.excerptId()))
-                                ? resolver.apply(
-                                        excerptFiles.get(raw.excerptId()), excerptContents.get(raw.excerptId()))
-                                : resolver.apply("unknown", "");
-                        return new TacticalFeedback(raw.title(), raw.description(), excerpt, raw.recommendation());
-                    })
+                    .map(raw -> new TacticalFeedback(
+                            raw.title(),
+                            raw.description(),
+                            resolvedExcerpts.get(raw.excerptId()),
+                            raw.recommendation()))
+                    .filter(feedback -> feedback.excerpt() != null)
                     .toList();
 
             return new GuidedReview(rawReview.overview(), designNotes, tacticalNotes, rawReview.additionalTests());
