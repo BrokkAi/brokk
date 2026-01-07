@@ -2,7 +2,7 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IWatchService.EventBatch;
+import ai.brokk.AbstractWatchService.EventBatch;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.project.MainProject;
@@ -241,7 +241,7 @@ class ContextManagerFileWatchingTest {
         ioField.set(contextManager, testIO);
 
         // Create listener directly
-        IWatchService.Listener listener = contextManager.createFileWatchListener();
+        AbstractWatchService.Listener listener = contextManager.createFileWatchListener();
         assertNotNull(listener, "createFileWatchListener should return a listener");
 
         // Create an event batch with git metadata changes
@@ -270,7 +270,7 @@ class ContextManagerFileWatchingTest {
         ioField.set(contextManager, testIO);
 
         // Create listener directly
-        IWatchService.Listener listener = contextManager.createFileWatchListener();
+        AbstractWatchService.Listener listener = contextManager.createFileWatchListener();
 
         // Create an event batch with tracked file changes
         EventBatch batch = new EventBatch();
@@ -295,7 +295,7 @@ class ContextManagerFileWatchingTest {
         ioField.set(contextManager, testIO);
 
         // Create listener directly
-        IWatchService.Listener listener = contextManager.createFileWatchListener();
+        AbstractWatchService.Listener listener = contextManager.createFileWatchListener();
 
         // Create an event batch with both types of changes
         EventBatch batch = new EventBatch();

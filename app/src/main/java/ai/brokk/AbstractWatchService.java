@@ -14,8 +14,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public interface IWatchService extends AutoCloseable {
-    Logger logger = LogManager.getLogger(IWatchService.class);
+public interface AbstractWatchService extends AutoCloseable {
+    Logger logger = LogManager.getLogger(AbstractWatchService.class);
 
     /**
      * Resolves the actual git metadata directory, handling worktrees where .git is a file.

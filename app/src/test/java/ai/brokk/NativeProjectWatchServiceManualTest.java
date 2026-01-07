@@ -200,13 +200,13 @@ class NativeProjectWatchServiceManualTest {
     /**
      * Test listener that tracks received events
      */
-    private static class TestListener implements IWatchService.Listener {
+    private static class TestListener implements AbstractWatchService.Listener {
         private final CountDownLatch latch = new CountDownLatch(1);
-        private final List<IWatchService.EventBatch> events = new CopyOnWriteArrayList<>();
+        private final List<AbstractWatchService.EventBatch> events = new CopyOnWriteArrayList<>();
         private volatile CountDownLatch currentLatch = new CountDownLatch(1);
 
         @Override
-        public void onFilesChanged(IWatchService.EventBatch batch) {
+        public void onFilesChanged(AbstractWatchService.EventBatch batch) {
             events.add(batch);
             currentLatch.countDown();
         }

@@ -32,7 +32,7 @@ import org.jetbrains.annotations.Nullable;
  * This is the recommended implementation for most platforms, especially macOS,
  * as it drastically reduces file descriptor usage compared to LegacyProjectWatchService.
  */
-public class NativeProjectWatchService implements IWatchService {
+public class NativeProjectWatchService implements AbstractWatchService {
     private static final Logger logger = LogManager.getLogger(NativeProjectWatchService.class);
     private static final long DEBOUNCE_DELAY_MS = 500;
 
@@ -79,7 +79,7 @@ public class NativeProjectWatchService implements IWatchService {
         this.gitRepoRoot = gitRepoRoot;
         this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
-        this.gitMetaDir = IWatchService.resolveGitMetaDir(gitRepoRoot);
+        this.gitMetaDir = AbstractWatchService.resolveGitMetaDir(gitRepoRoot);
 
         // Initialize debounce executor
         this.debounceExecutor = Executors.newSingleThreadScheduledExecutor(r -> {

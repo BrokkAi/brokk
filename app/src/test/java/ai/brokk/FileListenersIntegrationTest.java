@@ -2,8 +2,8 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IWatchService.EventBatch;
-import ai.brokk.IWatchService.Listener;
+import ai.brokk.AbstractWatchService.EventBatch;
+import ai.brokk.AbstractWatchService.Listener;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;

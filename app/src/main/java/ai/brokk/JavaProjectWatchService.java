@@ -24,7 +24,7 @@ import org.jetbrains.annotations.Nullable;
  * For new code, consider using NativeProjectWatchService which uses platform-native
  * recursive watching APIs (FSEvents on macOS, optimized inotify on Linux).
  */
-public class JavaProjectWatchService implements IWatchService {
+public class JavaProjectWatchService implements AbstractWatchService {
 
     private final Logger logger = LogManager.getLogger(JavaProjectWatchService.class);
 
@@ -61,7 +61,7 @@ public class JavaProjectWatchService implements IWatchService {
         this.gitRepoRoot = gitRepoRoot;
         this.globalGitignorePath = globalGitignorePath;
         this.listeners = new CopyOnWriteArrayList<>(listeners);
-        this.gitMetaDir = IWatchService.resolveGitMetaDir(gitRepoRoot);
+        this.gitMetaDir = AbstractWatchService.resolveGitMetaDir(gitRepoRoot);
 
         // Precompute real path for robust comparison (handles symlinks, case-insensitive filesystems)
         if (globalGitignorePath != null) {

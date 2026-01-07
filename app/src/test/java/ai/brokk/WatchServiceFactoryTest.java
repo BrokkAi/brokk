@@ -157,9 +157,9 @@ class WatchServiceFactoryTest {
     /**
      * Test listener implementation for testing purposes
      */
-    private static class TestListener implements IWatchService.Listener {
+    private static class TestListener implements AbstractWatchService.Listener {
         @Override
-        public void onFilesChanged(IWatchService.EventBatch batch) {
+        public void onFilesChanged(AbstractWatchService.EventBatch batch) {
             // No-op for testing
         }
 

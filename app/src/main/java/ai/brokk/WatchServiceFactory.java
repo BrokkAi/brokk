@@ -45,11 +45,11 @@ public class WatchServiceFactory {
      * @param listeners Listeners to notify of file changes
      * @return An appropriate IWatchService implementation
      */
-    public static IWatchService create(
+    public static AbstractWatchService create(
             Path root,
             @Nullable Path gitRepoRoot,
             @Nullable Path globalGitignorePath,
-            List<IWatchService.Listener> listeners) {
+            List<AbstractWatchService.Listener> listeners) {
         String implProp = getImplementationPreference();
         String os = getOsName();
         return createInternal(root, gitRepoRoot, globalGitignorePath, listeners, implProp, os);
@@ -106,11 +106,11 @@ public class WatchServiceFactory {
      * Internal creation method that can be tested without modifying global state.
      * Package-private for testing.
      */
-    static IWatchService createInternal(
+    static AbstractWatchService createInternal(
             Path root,
             @Nullable Path gitRepoRoot,
             @Nullable Path globalGitignorePath,
-            List<IWatchService.Listener> listeners,
+            List<AbstractWatchService.Listener> listeners,
             String implProp,
             String os) {
 
@@ -146,11 +146,11 @@ public class WatchServiceFactory {
     /**
      * Try to create native implementation, fall back to legacy on error.
      */
-    private static IWatchService createNativeWithFallback(
+    private static AbstractWatchService createNativeWithFallback(
             Path root,
             @Nullable Path gitRepoRoot,
             @Nullable Path globalGitignorePath,
-            List<IWatchService.Listener> listeners) {
+            List<AbstractWatchService.Listener> listeners) {
         try {
             return new NativeProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         } catch (Exception e) {

@@ -541,13 +541,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * This replaces the temporary uiListener created in AnalyzerWrapper (Phase 2), moving file watching
      * responsibility to ContextManager where it belongs.
      */
-    IWatchService.Listener createFileWatchListener() {
+    AbstractWatchService.Listener createFileWatchListener() {
         Path gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         FileWatcherHelper helper = new FileWatcherHelper(gitRepoRoot);
 
-        return new IWatchService.Listener() {
+        return new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 logger.trace("ContextManager file watch listener received events batch: {}", batch);
 
                 // Classify the changes using helper
@@ -2624,7 +2624,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // no AnalyzerListener, instead we will block for it to be ready
         // Headless mode doesn't need file watching, so pass null for both analyzerListener and watchService
-        this.analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new IWatchService() {});
+        this.analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new AbstractWatchService() {});
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {

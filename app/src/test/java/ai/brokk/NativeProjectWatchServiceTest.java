@@ -61,12 +61,12 @@ public class NativeProjectWatchServiceTest {
 
         // Listener state
         AtomicReference<CountDownLatch> postResumeLatchRef = new AtomicReference<>();
-        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicReference<AbstractWatchService.EventBatch> received = new AtomicReference<>();
         AtomicInteger filesChangedCount = new AtomicInteger(0);
 
-        service.addListener(new IWatchService.Listener() {
+        service.addListener(new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 filesChangedCount.incrementAndGet();
                 received.set(batch);
                 CountDownLatch l = postResumeLatchRef.get();
@@ -116,7 +116,7 @@ public class NativeProjectWatchServiceTest {
         // Ensure exactly one onFilesChanged occurred after resume
         assertEquals(1, filesChangedCount.get(), "Exactly one onFilesChanged delivery should occur after resume");
 
-        IWatchService.EventBatch batch = received.get();
+        AbstractWatchService.EventBatch batch = received.get();
         assertNotNull(batch, "EventBatch should be non-null after resume");
         assertFalse(batch.files.isEmpty(), "EventBatch should contain files");
 
@@ -133,12 +133,12 @@ public class NativeProjectWatchServiceTest {
 
         // Listener state
         AtomicReference<CountDownLatch> postResumeLatchRef = new AtomicReference<>();
-        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicReference<AbstractWatchService.EventBatch> received = new AtomicReference<>();
         AtomicInteger filesChangedCount = new AtomicInteger(0);
 
-        service.addListener(new IWatchService.Listener() {
+        service.addListener(new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 filesChangedCount.incrementAndGet();
                 received.set(batch);
                 CountDownLatch l = postResumeLatchRef.get();
@@ -200,7 +200,7 @@ public class NativeProjectWatchServiceTest {
         assertEquals(
                 1, filesChangedCount.get(), "Exactly one onFilesChanged delivery should occur after fully resuming");
 
-        IWatchService.EventBatch batch = received.get();
+        AbstractWatchService.EventBatch batch = received.get();
         assertNotNull(batch, "EventBatch should be non-null after fully resuming");
         assertFalse(batch.files.isEmpty(), "EventBatch should contain files after nested resume");
 
@@ -218,12 +218,12 @@ public class NativeProjectWatchServiceTest {
 
         // Listener state
         AtomicReference<CountDownLatch> postResumeLatchRef = new AtomicReference<>();
-        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicReference<AbstractWatchService.EventBatch> received = new AtomicReference<>();
         AtomicInteger filesChangedCount = new AtomicInteger(0);
 
-        service.addListener(new IWatchService.Listener() {
+        service.addListener(new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 filesChangedCount.incrementAndGet();
                 received.set(batch);
                 CountDownLatch l = postResumeLatchRef.get();
@@ -281,7 +281,7 @@ public class NativeProjectWatchServiceTest {
                 filesChangedCount.get(),
                 "Exactly one onFilesChanged delivery should occur after resume (debounce coalescing)");
 
-        IWatchService.EventBatch batch = received.get();
+        AbstractWatchService.EventBatch batch = received.get();
         assertNotNull(batch, "EventBatch should be non-null after resume (debounce coalescing)");
         assertFalse(batch.files.isEmpty(), "EventBatch should contain files after resume (debounce coalescing)");
         assertEquals(fileCount, batch.files.size(), "EventBatch should contain all created files");
@@ -316,12 +316,12 @@ public class NativeProjectWatchServiceTest {
 
         // Listener state
         AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
-        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicReference<AbstractWatchService.EventBatch> received = new AtomicReference<>();
         AtomicInteger filesChangedCount = new AtomicInteger(0);
 
-        service.addListener(new IWatchService.Listener() {
+        service.addListener(new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 filesChangedCount.incrementAndGet();
                 received.set(batch);
                 CountDownLatch l = latchRef.get();
@@ -353,7 +353,7 @@ public class NativeProjectWatchServiceTest {
         boolean delivered = notified.await(5, TimeUnit.SECONDS);
         assertTrue(delivered, "Git metadata event from external directory should be delivered");
 
-        IWatchService.EventBatch batch = received.get();
+        AbstractWatchService.EventBatch batch = received.get();
         assertNotNull(batch, "EventBatch should be non-null");
         assertFalse(batch.files.isEmpty(), "EventBatch should contain files");
 
@@ -390,11 +390,11 @@ public class NativeProjectWatchServiceTest {
 
         // Listener state
         AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
-        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicReference<AbstractWatchService.EventBatch> received = new AtomicReference<>();
 
-        service.addListener(new IWatchService.Listener() {
+        service.addListener(new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 received.set(batch);
                 CountDownLatch l = latchRef.get();
                 if (l != null) {
@@ -424,7 +424,7 @@ public class NativeProjectWatchServiceTest {
         boolean delivered = notified.await(5, TimeUnit.SECONDS);
         assertTrue(delivered, "Regular file event in worktree root should be delivered");
 
-        IWatchService.EventBatch batch = received.get();
+        AbstractWatchService.EventBatch batch = received.get();
         assertNotNull(batch, "EventBatch should be non-null");
 
         // The file should be relativized to tempDir (worktree root)
@@ -459,11 +459,11 @@ public class NativeProjectWatchServiceTest {
 
         // Listener state
         AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
-        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicReference<AbstractWatchService.EventBatch> received = new AtomicReference<>();
 
-        service.addListener(new IWatchService.Listener() {
+        service.addListener(new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 received.set(batch);
                 CountDownLatch l = latchRef.get();
                 if (l != null) {
@@ -493,7 +493,7 @@ public class NativeProjectWatchServiceTest {
         boolean delivered = notified.await(5, TimeUnit.SECONDS);
         assertTrue(delivered, "Git metadata event from external worktree directory should be delivered");
 
-        IWatchService.EventBatch batch = received.get();
+        AbstractWatchService.EventBatch batch = received.get();
         assertNotNull(batch, "EventBatch should be non-null");
         assertFalse(batch.files.isEmpty(), "EventBatch should contain files");
 
@@ -519,11 +519,11 @@ public class NativeProjectWatchServiceTest {
         service = new NativeProjectWatchService(tempDir, tempDir, null, List.of());
 
         AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
-        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicReference<AbstractWatchService.EventBatch> received = new AtomicReference<>();
 
-        service.addListener(new IWatchService.Listener() {
+        service.addListener(new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 received.set(batch);
                 CountDownLatch l = latchRef.get();
                 if (l != null) {
@@ -548,7 +548,7 @@ public class NativeProjectWatchServiceTest {
         boolean delivered = notified.await(5, TimeUnit.SECONDS);
         assertTrue(delivered, "Regular file events should still work with malformed .git file");
 
-        IWatchService.EventBatch batch = received.get();
+        AbstractWatchService.EventBatch batch = received.get();
         assertNotNull(batch);
         assertTrue(
                 batch.files.stream().anyMatch(pf -> pf.getRelPath().toString().contains("Source.java")));
@@ -569,11 +569,11 @@ public class NativeProjectWatchServiceTest {
         service = new NativeProjectWatchService(tempDir, tempDir, null, List.of());
 
         AtomicReference<CountDownLatch> latchRef = new AtomicReference<>();
-        AtomicReference<IWatchService.EventBatch> received = new AtomicReference<>();
+        AtomicReference<AbstractWatchService.EventBatch> received = new AtomicReference<>();
 
-        service.addListener(new IWatchService.Listener() {
+        service.addListener(new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 received.set(batch);
                 CountDownLatch l = latchRef.get();
                 if (l != null) {
@@ -615,7 +615,7 @@ public class NativeProjectWatchServiceTest {
 
         try {
             // Resolve should follow symlink and return real path
-            Path resolved = IWatchService.resolveGitMetaDir(symlinkedRoot);
+            Path resolved = AbstractWatchService.resolveGitMetaDir(symlinkedRoot);
             assertNotNull(resolved);
             assertEquals(gitDir.toRealPath(), resolved.toRealPath());
         } finally {

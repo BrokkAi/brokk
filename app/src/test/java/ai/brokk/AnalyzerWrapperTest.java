@@ -2,8 +2,8 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IWatchService.EventBatch;
-import ai.brokk.IWatchService.Listener;
+import ai.brokk.AbstractWatchService.EventBatch;
+import ai.brokk.AbstractWatchService.Listener;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.FileUtil;
@@ -209,7 +209,7 @@ class AnalyzerWrapperTest {
         var project = new TestProject(projectRoot, Languages.JAVA);
 
         // Create AnalyzerWrapper with null watch service (headless mode)
-        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new IWatchService() {});
+        analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new AbstractWatchService() {});
 
         // Verify AnalyzerWrapper was created successfully
         assertNotNull(analyzerWrapper, "AnalyzerWrapper should be created with null watch service");

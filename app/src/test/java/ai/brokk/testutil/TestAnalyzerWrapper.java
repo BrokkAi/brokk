@@ -1,7 +1,7 @@
 package ai.brokk.testutil;
 
 import ai.brokk.IAnalyzerWrapper;
-import ai.brokk.IWatchService;
+import ai.brokk.AbstractWatchService;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.Set;
@@ -60,11 +60,6 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
     @Override
     public boolean isPause() {
         return pauseCount.get() > resumeCount.get();
-    }
-
-    @Override
-    public IWatchService getWatchService() {
-        return new IWatchService() {};
     }
 
     public int getPauseCount() {

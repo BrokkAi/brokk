@@ -2,7 +2,7 @@ package ai.brokk;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.IWatchService.EventBatch;
+import ai.brokk.AbstractWatchService.EventBatch;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
@@ -29,7 +29,7 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper {
+public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzerWrapper {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
     private final AnalyzerListener listener; // can be null if no one is listening
@@ -40,7 +40,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     private final Path gitRepoRoot;
 
     private final IProject project;
-    private final IWatchService watchService;
+    private final AbstractWatchService watchService;
 
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
 
@@ -64,7 +64,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * @param analyzerListener Listener for analyzer lifecycle events (can be null for headless mode)
      * @param watchService The watch service to use (can be null for headless mode or testing)
      */
-    public AnalyzerWrapper(IProject project, AnalyzerListener analyzerListener, @NotNull IWatchService watchService) {
+    public AnalyzerWrapper(IProject project, AnalyzerListener analyzerListener, @NotNull AbstractWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
         this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
@@ -530,7 +530,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     }
 
     @Override
-    public IWatchService getWatchService() {
+    public AbstractWatchService getWatchService() {
         return watchService;
     }
 
