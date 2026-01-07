@@ -1452,12 +1452,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         SwingUtilities.invokeLater(() -> {
             notifyContextListeners(liveContext());
 
-            // Notify about task list changes
-            var taskList = liveContext().getTaskListDataOrEmpty();
-            for (var callback : analyzerCallbacks) {
-                callback.onTaskListChanged(taskList);
-            }
-
             io.updateContextHistoryTable(liveContext());
             if (io instanceof Chrome) {
                 io.enableActionButtons();
@@ -1648,12 +1642,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Ensure listeners are notified on the EDT
         SwingUtilities.invokeLater(() -> notifyContextListeners(context));
 
-        // Notify about task list changes
-        var taskList = context.getTaskListDataOrEmpty();
-        for (var callback : analyzerCallbacks) {
-            callback.onTaskListChanged(taskList);
-        }
-
         // Defer save until TaskScope closes to ensure group mappings are captured
         if (!taskScopeInProgress.get()) {
             project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1682,8 +1670,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.warn("notifyContextListeners called with null context");
             return;
         }
+        var taskList = ctx.getTaskListDataOrEmpty();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
+            listener.onTaskListChanged(taskList);
         }
     }
 

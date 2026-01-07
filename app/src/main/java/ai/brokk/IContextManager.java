@@ -62,9 +62,6 @@ public interface IContextManager {
 
         /** Called when tracked files change in the working tree. */
         default void onTrackedFileChange() {}
-
-        /** Called when the task list data has been modified. */
-        default void onTaskListChanged(ai.brokk.tasks.TaskList.TaskListData data) {}
     }
 
     default ExecutorService getBackgroundTasks() {
@@ -92,6 +89,9 @@ public interface IContextManager {
          * @param newCtx The new context state.
          */
         void contextChanged(Context newCtx);
+
+        /** Called when the task list data has been modified. */
+        default void onTaskListChanged(ai.brokk.tasks.TaskList.TaskListData data) {}
     }
 
     /**
