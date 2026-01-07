@@ -132,7 +132,8 @@ class ReviewAgentTest {
         initialMessages.add(new dev.langchain4j.data.message.UserMessage("analyze"));
         var turn1Result = llm.sendRequest(initialMessages);
 
-        Map<Integer, CodeExcerpt> result = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
+        Map<Integer, CodeExcerpt> result =
+                agent.retryInStages(llm, new ArrayList<>(), turn1Result).resolvedExcerpts();
 
         assertEquals(2, result.size());
         assertEquals("file1.java", result.get(0).file().toString());
@@ -162,7 +163,8 @@ class ReviewAgentTest {
         initialMessages.add(new dev.langchain4j.data.message.UserMessage("analyze"));
         var turn1Result = llm.sendRequest(initialMessages);
 
-        Map<Integer, CodeExcerpt> result = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
+        Map<Integer, CodeExcerpt> result =
+                agent.retryInStages(llm, new ArrayList<>(), turn1Result).resolvedExcerpts();
 
         // Should be empty because no valid files were ever found across all retries
         assertTrue(result.isEmpty());
@@ -222,7 +224,8 @@ class ReviewAgentTest {
         initialMessages.add(new dev.langchain4j.data.message.UserMessage("analyze"));
         var turn1Result = llm.sendRequest(initialMessages);
 
-        Map<Integer, CodeExcerpt> result = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
+        Map<Integer, CodeExcerpt> result =
+                agent.retryInStages(llm, new ArrayList<>(), turn1Result).resolvedExcerpts();
 
         assertEquals(2, result.size());
         assertEquals(1, result.get(0).line());
@@ -250,7 +253,8 @@ class ReviewAgentTest {
         var stage2Llm = new Llm(stage2Model, "test", cm, false, false, false, false);
         var t1Result = stage2Llm.sendRequest(initialMessages);
 
-        Map<Integer, CodeExcerpt> result2 = agent.retryInStages(stage2Llm, new ArrayList<>(), t1Result);
+        Map<Integer, CodeExcerpt> result2 =
+                agent.retryInStages(stage2Llm, new ArrayList<>(), t1Result).resolvedExcerpts();
         assertEquals(1, result2.size());
         assertEquals(4, result2.get(10).line());
     }
@@ -303,7 +307,8 @@ class ReviewAgentTest {
         var llm = new Llm(stubModel, "test", cm, false, false, false, false);
         var turn1Result = llm.sendRequest(List.of(new UserMessage("start")));
 
-        Map<Integer, CodeExcerpt> result = agent.retryInStages(llm, new ArrayList<>(), turn1Result);
+        Map<Integer, CodeExcerpt> result =
+                agent.retryInStages(llm, new ArrayList<>(), turn1Result).resolvedExcerpts();
 
         assertEquals(2, result.size(), "Should have accumulated both excerpts");
         assertEquals("good.java", result.get(0).file().toString());

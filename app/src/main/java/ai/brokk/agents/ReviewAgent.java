@@ -153,14 +153,42 @@ public class ReviewAgent {
 
             // --- Turn 1.5: Retry for missing files and non-matching excerpts ---
             // Returns fully resolved excerpts with line numbers and sides
-            Map<Integer, CodeExcerpt> resolvedExcerpts = retryInStages(reviewLlm, turn1Messages, turn1Result);
+            RetryResult retryResult = retryInStages(reviewLlm, turn1Messages, turn1Result);
+            Map<Integer, CodeExcerpt> resolvedExcerpts = retryResult.resolvedExcerpts();
 
             // --- Turn 2: Generate structured review via tool call ---
             var turn2Messages = new ArrayList<ChatMessage>(turn1Messages);
-            turn2Messages.add(new AiMessage(
-                    turn1Result.text(),
-                    requireNonNullElse(
-                            requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+
+            if (retryResult.retryCount() > 0) {
+                // Collapse Turn 1 and its retries into a single clean turn
+                String baseText = ReviewParser.instance.stripExcerpts(turn1Result.text());
+                String serializedExcerpts = resolvedExcerpts.entrySet().stream()
+                        .sorted(Map.Entry.comparingByKey())
+                        .map(e ->
+                                """
+                                BRK_EXCERPT_%d
+                                %s @%d
+                                ```
+                                %s
+                                ```"""
+                                        .formatted(
+                                                e.getKey(),
+                                                e.getValue().file().toString(),
+                                                e.getValue().line(),
+                                                e.getValue().excerpt()))
+                        .collect(java.util.stream.Collectors.joining("\n\n"));
+
+                String collapsedText = baseText + "\n\n" + serializedExcerpts;
+                turn2Messages.add(new AiMessage(
+                        collapsedText,
+                        requireNonNullElse(
+                                requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+            } else {
+                turn2Messages.add(new AiMessage(
+                        turn1Result.text(),
+                        requireNonNullElse(
+                                requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+            }
             turn2Messages.add(buildReviewRequestMessage());
 
             var tr = cm.getToolRegistry().builder().register(this).build();
@@ -272,14 +300,17 @@ public class ReviewAgent {
         }
     }
 
+    record RetryResult(Map<Integer, CodeExcerpt> resolvedExcerpts, int retryCount) {}
+
     @Blocking
-    Map<Integer, CodeExcerpt> retryInStages(Llm llm, List<ChatMessage> turn1Messages, Llm.StreamingResult turn1Result)
+    RetryResult retryInStages(Llm llm, List<ChatMessage> turn1Messages, Llm.StreamingResult turn1Result)
             throws InterruptedException {
         // we split up "validate filenames" and "validate text" into two stages so that
         // we can tailor the Context to each
 
         List<ChatMessage> history = new ArrayList<>(turn1Messages);
         Map<Integer, RawExcerpt> validPathExcerpts = new HashMap<>();
+        int totalRetries = 0;
 
         // Stage 1: Validate file paths exist
         Llm.StreamingResult currentResult = turn1Result;
@@ -324,6 +355,7 @@ public class ReviewAgent {
                             .formatted(successNote, errorList)));
 
             currentResult = llm.sendRequest(history);
+            totalRetries++;
             if (currentResult.error() != null) break;
         }
 
@@ -395,6 +427,7 @@ public class ReviewAgent {
                             .formatted(successNote, errorList)));
 
             currentResult = llm.sendRequest(stage2Messages);
+            totalRetries++;
             if (currentResult.error() != null) break;
 
             String text = currentResult.text();
@@ -411,7 +444,7 @@ public class ReviewAgent {
             }
         }
 
-        return resolvedExcerpts;
+        return new RetryResult(resolvedExcerpts, totalRetries);
     }
 
     private SystemMessage buildSystemMessage() {

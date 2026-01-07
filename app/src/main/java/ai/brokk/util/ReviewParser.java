@@ -51,6 +51,47 @@ public class ReviewParser {
         NEW
     }
 
+    public String stripExcerpts(String text) {
+        StringBuilder sb = new StringBuilder();
+        String[] lines = text.split("\\R", -1);
+        State state = State.SEARCHING;
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            switch (state) {
+                case SEARCHING -> {
+                    if (trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
+                        try {
+                            Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
+                            state = State.EXPECTING_FILENAME;
+                        } catch (NumberFormatException ignored) {
+                            sb.append(line).append("\n");
+                        }
+                    } else {
+                        sb.append(line).append("\n");
+                    }
+                }
+                case EXPECTING_FILENAME -> {
+                    if (!trimmed.isEmpty()) {
+                        state = State.EXPECTING_FENCE;
+                    }
+                }
+                case EXPECTING_FENCE -> {
+                    if (trimmed.startsWith("```")) {
+                        state = State.IN_CONTENT;
+                    }
+                }
+                case IN_CONTENT -> {
+                    if (line.equals("```")
+                            || (line.startsWith("```") && line.substring(3).isBlank())) {
+                        state = State.SEARCHING;
+                    }
+                }
+            }
+        }
+        return sb.toString().trim();
+    }
+
     public Map<Integer, RawExcerpt> parseExcerpts(String text) {
         Map<Integer, RawExcerpt> results = new HashMap<>();
         String[] lines = text.split("\\R", -1);
