@@ -545,8 +545,8 @@ public class ReviewAgent {
 
                 Excerpt handling:
                 The input review contains BRK_EXCERPT_$id blocks embedded inline within Design Notes and Tactical Notes. These
-                must be referenced by id in the review parameters. OMIT excerpt blocks from your transcribed
-                title, description, and recommendation fields.
+                must be referenced by id in the review parameters. DO NOT INCLUDE raw excerpt blocks (including the BRK_EXCERPT markers)
+                anywhere in your createReview tool call.
 
                 Mapping rules:
                 - Use the Markdown "## Overview" content as the createReview `overview` argument.
