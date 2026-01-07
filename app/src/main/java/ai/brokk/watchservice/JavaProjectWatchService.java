@@ -124,9 +124,9 @@ public class JavaProjectWatchService extends AbstractWatchService {
         }
     }
 
-    private void waitWhilePaused() {
-        while (pauseCount > 0) {
-            Thread.onSpinWait();
+    private synchronized void waitWhilePaused() throws InterruptedException {
+        while (pauseCount > 0 && running) {
+            wait();
         }
     }
 
@@ -317,6 +317,9 @@ public class JavaProjectWatchService extends AbstractWatchService {
         logger.debug("Resuming file watcher");
         if (pauseCount > 0) {
             pauseCount--;
+            if (pauseCount == 0) {
+                notifyAll();
+            }
         }
     }
 
@@ -329,6 +332,7 @@ public class JavaProjectWatchService extends AbstractWatchService {
     public synchronized void close() {
         running = false;
         pauseCount = 0; // Ensure any waiting thread is woken up to exit
+        notifyAll();
     }
 
     /**
