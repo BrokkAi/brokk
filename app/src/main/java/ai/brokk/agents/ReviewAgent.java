@@ -32,6 +32,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
@@ -98,8 +99,7 @@ public class ReviewAgent {
                     "addFileSummariesToWorkspace",
                     "addFilesToWorkspace");
             SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, io, scanConfig, searchTools);
-            java.util.concurrent.atomic.AtomicInteger searchTurnCount =
-                    new java.util.concurrent.atomic.AtomicInteger(0);
+            AtomicInteger searchTurnCount = new AtomicInteger(0);
             agent.setTurnListener(() -> {
                 int turns = searchTurnCount.incrementAndGet();
                 updateProgress(Math.min(10, turns * 2));
@@ -125,7 +125,7 @@ public class ReviewAgent {
             turn1Messages.add(buildAnalysisRequestMessage());
 
             int turn1Floor = progressOf100;
-            java.util.concurrent.atomic.AtomicInteger linesSeen = new java.util.concurrent.atomic.AtomicInteger(0);
+            AtomicInteger linesSeen = new AtomicInteger(0);
             ai.brokk.cli.MemoryConsole progressConsole = new ai.brokk.cli.MemoryConsole() {
                 @Override
                 public void llmOutput(
@@ -166,7 +166,7 @@ public class ReviewAgent {
 
             int turn2Floor = progressOf100;
             javax.swing.Timer turn2Timer = new javax.swing.Timer(1000, null);
-            java.util.concurrent.atomic.AtomicInteger turn2Seconds = new java.util.concurrent.atomic.AtomicInteger(0);
+            AtomicInteger turn2Seconds = new AtomicInteger(0);
             turn2Timer.addActionListener(e -> {
                 if (progressUpdater != null) {
                     int p = turn2Floor + turn2Seconds.incrementAndGet();

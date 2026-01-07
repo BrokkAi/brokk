@@ -2148,7 +2148,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * This means it is the agent's responsibility to propagate any sub-agents' Contexts
      * without losing important history.
      */
-    public final class TaskScope implements AutoCloseable {
+    public class TaskScope implements AutoCloseable {
         private final boolean groupAndCompress;
         private final AtomicBoolean closed = new AtomicBoolean(false);
         private final UUID groupId = UUID.randomUUID();
@@ -2250,6 +2250,25 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             analyzerWrapper.resume();
+        }
+    }
+
+    public class AnonymousScope extends TaskScope {
+        
+
+        @Override
+        public Context append(TaskResult result) throws InterruptedException {
+            return super.append(result);
+        }
+
+        @Override
+        public void publish(Context context) {
+            super.publish(context);
+        }
+
+        @Override
+        public void close() throws InterruptedException {
+            super.close();
         }
     }
 

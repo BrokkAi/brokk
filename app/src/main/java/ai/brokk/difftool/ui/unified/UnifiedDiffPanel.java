@@ -836,9 +836,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
         if (docLine < 0) {
             logger.warn("Could not find document line for source line {} on {} side", sourceLineNumber, side);
-            // Fall back to using the source line directly (legacy behavior)
-            scrollToLine(sourceLineNumber);
-            return;
+            return; // Don't scroll to wrong location
         }
 
         // Convert 0-based to 1-based for the existing scrollToLine method
