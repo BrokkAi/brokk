@@ -84,7 +84,7 @@ public class SimpleHtmlPanel extends JEditorPane {
 
         // Base typography
         ss.addRule("body { font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.5; "
-                + "font-size: " + bodyFontSize + "pt; width: 100%; "
+                + "font-size: " + bodyFontSize + "pt; width: 100%; word-wrap: break-word; "
                 + "background-color: " + bgColorHex + "; color: " + textColorHex + "; "
                 + "margin: 0; padding-left: 8px; padding-right: 8px; }");
 
@@ -109,13 +109,14 @@ public class SimpleHtmlPanel extends JEditorPane {
         // Code styling
         ss.addRule("code { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; "
                 + "padding: 0.2em 0.4em; margin: 0; font-size: 85%; border-radius: 3px; "
-                + "color: "
+                + "word-wrap: break-word; color: "
                 + linkColor + "; }");
 
         // Pre blocks (for fenced code)
         var codeBlockBg = ThemeColors.getColorHex(isDarkTheme, ThemeColors.CODE_BLOCK_BACKGROUND);
         ss.addRule("pre { background-color: " + codeBlockBg + "; padding: 12px; "
-                + "border-radius: 6px; overflow: auto; margin: 12px 0; }");
+                + "border-radius: 6px; overflow-wrap: break-word; white-space: pre-wrap; word-wrap: break-word; "
+                + "margin: 12px 0; }");
         ss.addRule("pre code { padding: 0; background: none; color: " + textColorHex + "; }");
 
         // Table styling
@@ -135,6 +136,12 @@ public class SimpleHtmlPanel extends JEditorPane {
      */
     private static String sanitizeForSwing(String html) {
         return html.replace("&amp;apos;", "&#39;").replace("&amp;#39;", "&#39;").replace("&apos;", "&#39;");
+    }
+
+    @Override
+    public void setSize(Dimension d) {
+        super.setSize(d);
+        setSize(d.width, getPreferredSize().height);
     }
 
     @Override
