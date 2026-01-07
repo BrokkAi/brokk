@@ -67,34 +67,24 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private BaselineMode lastBaselineMode = null;
 
-    @Nullable
     private ai.brokk.difftool.ui.DiffDisplayCore diffCore;
 
-    @Nullable
     private ai.brokk.difftool.ui.FileTreePanel fileTreePanel;
 
-    @Nullable
     private CodeReviewPanel codeReviewPanel;
 
-    @Nullable
     private JSplitPane leftSplitPane;
 
-    @Nullable
     private JPanel diffContainer;
 
-    @Nullable
     private JLabel headerLabel;
 
-    @Nullable
     private MaterialButton commitBtn;
 
-    @Nullable
     private MaterialButton pullBtn;
 
-    @Nullable
     private MaterialButton pushBtn;
 
-    @Nullable
     private MaterialButton prBtn;
 
     @Nullable
@@ -203,7 +193,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         updateTitleAndTooltipFromResult(result, state.baselineLabel());
                         updateContent(result, prepared, state.baselineLabel(), state.baselineMode());
 
-                        if (finalStaleness != null && codeReviewPanel != null) {
+                        if (finalStaleness != null) {
                             int commits = finalStaleness.commitsBehind();
                             int uncommitted = finalStaleness.uncommittedChanges();
 
@@ -394,12 +384,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        if (headerLabel != null) {
-            headerLabel.setText(
-                    (baselineLabel != null && !baselineLabel.isEmpty())
-                            ? "Comparing vs " + baselineLabel
-                            : "Branch-based changes");
-        }
+        headerLabel.setText(
+                (baselineLabel != null && !baselineLabel.isEmpty())
+                        ? "Comparing vs " + baselineLabel
+                        : "Branch-based changes");
 
         boolean hasUncommittedChanges = false;
         try {
@@ -408,24 +396,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             logger.debug("Unable to determine uncommitted changes state", e);
         }
 
-        if (commitBtn != null) commitBtn.setVisible(hasUncommittedChanges);
+        commitBtn.setVisible(hasUncommittedChanges);
 
         var pushPull = res.pushPullState();
-        if (pullBtn != null) {
-            pullBtn.setVisible(pushPull != null && pushPull.canPull());
-            pullBtn.setEnabled(!hasUncommittedChanges);
-        }
-        if (pushBtn != null) {
-            pushBtn.setVisible(pushPull != null && pushPull.canPush());
-            pushBtn.setEnabled(!hasUncommittedChanges);
-        }
+        pullBtn.setVisible(pushPull != null && pushPull.canPull());
+        pullBtn.setEnabled(!hasUncommittedChanges);
+        pushBtn.setVisible(pushPull != null && pushPull.canPush());
+        pushBtn.setEnabled(!hasUncommittedChanges);
 
         boolean showPR = baselineMode == BaselineMode.NON_DEFAULT_BRANCH
                 || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
-        if (prBtn != null) {
-            prBtn.setVisible(showPR);
-            prBtn.setEnabled(!hasUncommittedChanges);
-        }
+        prBtn.setVisible(showPR);
+        prBtn.setEnabled(!hasUncommittedChanges);
 
         var newComparisons = prepared.stream().map(this::toFileComparisonInfo).toList();
 
@@ -548,9 +530,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     @Override
                     public void showFile(int index) {
                         super.showFile(index);
-                        if (fileTreePanel != null) {
-                            fileTreePanel.selectFile(index);
-                        }
+                        fileTreePanel.selectFile(index);
                     }
 
                     @Override
@@ -559,11 +539,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             ai.brokk.difftool.ui.AbstractDiffPanel panel,
                             int targetLine,
                             ReviewParser.DiffSide targetSide) {
-                        if (diffContainer != null) {
-                            diffContainer.removeAll();
-                            diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+                        diffContainer.removeAll();
+                        diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
 
-                            if (targetLine > 0) {
+                        if (targetLine > 0) {
                                 panel.resetAutoScrollFlag();
                                 panel.diff(false);
                                 if (panel instanceof ai.brokk.difftool.ui.BufferDiffPanel bp) {
@@ -588,9 +567,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                                 panel.diff(true);
                             }
 
-                            diffContainer.revalidate();
-                            diffContainer.repaint();
-                        }
+                        diffContainer.revalidate();
+                        diffContainer.repaint();
                     }
                 };
 
@@ -753,7 +731,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void generateGuidedReview() {
-        if (codeReviewPanel == null || lastCumulativeChanges == null) return;
+        if (lastCumulativeChanges == null) return;
 
         codeReviewPanel.setBusy(true);
 
@@ -787,7 +765,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         final int savedDividerLocation = (parent instanceof JSplitPane sp) ? sp.getDividerLocation() : -1;
 
         SwingUtilities.invokeLater(() -> {
-            if (parent instanceof JSplitPane splitPane && codeReviewPanel != null) {
+            if (parent instanceof JSplitPane splitPane) {
                 splitPane.setTopComponent(progressPanel);
             }
             parent.revalidate();
@@ -817,31 +795,29 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 long now = System.currentTimeMillis();
 
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane && codeReviewPanel != null) {
+                    if (parent instanceof JSplitPane splitPane) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
                         if (savedDividerLocation > 0) {
                             splitPane.setDividerLocation(savedDividerLocation);
                         }
                     }
-                    if (codeReviewPanel != null) {
-                        lastReviewState = new ReviewState(currentHash, now);
-                        codeReviewPanel.displayReview(review);
-                        codeReviewPanel.setBusy(false);
-                        codeReviewPanel.getListPanel().setStalenessNotice(null);
-                    }
+                    lastReviewState = new ReviewState(currentHash, now);
+                    codeReviewPanel.displayReview(review);
+                    codeReviewPanel.setBusy(false);
+                    codeReviewPanel.getListPanel().setStalenessNotice(null);
                     parent.revalidate();
                     parent.repaint();
                 });
             } catch (ReviewGenerationException ex) {
                 logger.warn("Review generation failed: {}", ex.getMessage());
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane && codeReviewPanel != null) {
+                    if (parent instanceof JSplitPane splitPane) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
                         if (savedDividerLocation > 0) {
                             splitPane.setDividerLocation(savedDividerLocation);
                         }
                     }
-                    if (codeReviewPanel != null) codeReviewPanel.setBusy(false);
+                    codeReviewPanel.setBusy(false);
 
                     String userMessage = ex.getStopDetails() != null
                             ? "Review generation failed: " + ex.getStopDetails().explanation()
@@ -853,13 +829,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (Exception ex) {
                 logger.error("Unexpected error during review generation", ex);
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane && codeReviewPanel != null) {
+                    if (parent instanceof JSplitPane splitPane) {
                         splitPane.setTopComponent(codeReviewPanel.getListPanel());
                         if (savedDividerLocation > 0) {
                             splitPane.setDividerLocation(savedDividerLocation);
                         }
                     }
-                    if (codeReviewPanel != null) codeReviewPanel.setBusy(false);
+                    codeReviewPanel.setBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());
                     parent.revalidate();
                     parent.repaint();
@@ -870,8 +846,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        if (codeReviewPanel != null) codeReviewPanel.applyTheme(guiTheme);
-        if (fileTreePanel != null) fileTreePanel.applyTheme(guiTheme);
+        if (codeReviewPanel != null) {
+            codeReviewPanel.applyTheme(guiTheme);
+        }
+        if (fileTreePanel != null) {
+            fileTreePanel.applyTheme(guiTheme);
+        }
         if (diffCore != null) {
             for (var panel : diffCore.getCachedPanels()) {
                 panel.applyTheme(guiTheme);
@@ -883,8 +863,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (diffCore != null) {
             diffCore.clearCache();
         }
-        diffCore = null;
-        leftSplitPane = null;
     }
 
     public enum BaselineMode {
