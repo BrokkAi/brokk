@@ -537,14 +537,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
         leftSplitPane.setResizeWeight(0.5); // 50% split
 
-        // Right side: Review Detail above Diff
-        JPanel rightPanel = new JPanel(new BorderLayout());
-        rightPanel.setOpaque(false);
-        rightPanel.add(codeReviewPanel.getDetailPanel(), BorderLayout.NORTH);
-        rightPanel.add(diffContainer, BorderLayout.CENTER);
+        // Right side: Review Detail (in scroll pane) above Diff view in a vertical split
+        JScrollPane detailScrollPane = new JScrollPane(codeReviewPanel.getDetailPanel());
+        detailScrollPane.setBorder(null);
+
+        JSplitPane rightVerticalSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detailScrollPane, diffContainer);
+        rightVerticalSplit.setResizeWeight(0.5); // Default to 50% split
 
         // Main horizontal split: [Review List / File Tree] | [Review Detail / Diff]
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightPanel);
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplit);
         mainSplit.setDividerLocation(300);
 
         topContainer.add(mainSplit, BorderLayout.CENTER);

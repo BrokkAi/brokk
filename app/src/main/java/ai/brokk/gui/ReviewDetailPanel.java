@@ -65,11 +65,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-        JScrollPane scrollPane = new JScrollPane(contentPanel);
-        scrollPane.setBorder(null);
-
         add(placeholderArea, CARD_PLACEHOLDER);
-        add(scrollPane, CARD_CONTENT);
+        add(contentPanel, CARD_CONTENT);
 
         showPlaceholder();
     }
