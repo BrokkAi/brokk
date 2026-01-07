@@ -4,7 +4,6 @@ import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.git.gpg.ExternalGpgSigner;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
 import java.io.*;
@@ -21,6 +20,7 @@ import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.*;
+import org.eclipse.jgit.gpg.signing.GpgBinarySigner;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.TransportException;
 import org.eclipse.jgit.diff.DiffConfig;
@@ -648,7 +648,7 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     public CommitCommand commitCommand() {
         if (mainProject != null && mainProject.isGpgCommitSigningEnabled()) {
-            ExternalGpgSigner signer = new ExternalGpgSigner();
+            GpgBinarySigner signer = new GpgBinarySigner();
             return git.commit()
                     .setSigner(signer)
                     .setSigningKey(mainProject.getGpgSigningKey())
