@@ -265,8 +265,7 @@ public final class ImportPageRanker {
         Set<ProjectFile> resolved;
         // Prefer TreeSitterAnalyzer if available for accurate resolution
         if (analyzer instanceof TreeSitterAnalyzer tsa) {
-            Set<CodeUnit> cus = tsa.importedCodeUnitsOf(file);
-            resolved = toFiles(cus);
+            resolved = toFiles(tsa.importedCodeUnitsOf(file));
         } else {
             // Fallback using import statements + definition lookup
             resolved = new LinkedHashSet<>();
