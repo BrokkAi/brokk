@@ -82,4 +82,18 @@ class MessagesTest {
         assertTrue(Messages.shouldDisplayInMop(new UserMessage("hello")));
         assertTrue(Messages.shouldDisplayInMop(AiMessage.from("hi")));
     }
+
+    @Test
+    void testGetTextWithToolCalls_filtersOutPlaceholder() {
+        var toolRequest = ToolExecutionRequest.builder()
+                .id("1")
+                .name("testTool")
+                .arguments("{}")
+                .build();
+        var message = new AiMessage(Messages.TOOL_CALLS_PLACEHOLDER, null, List.of(toolRequest));
+
+        String result = Messages.getTextWithToolCalls(message);
+
+        assertFalse(result.startsWith(Messages.TOOL_CALLS_PLACEHOLDER));
+    }
 }

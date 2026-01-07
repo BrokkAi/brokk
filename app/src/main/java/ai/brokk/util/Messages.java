@@ -21,6 +21,13 @@ import org.jetbrains.annotations.Blocking;
 public class Messages {
     private static final Logger logger = LogManager.getLogger(Messages.class);
 
+    /**
+     * Placeholder text used when an AI message has tool calls but no text content.
+     * This is a workaround for Anthropic's API which doesn't allow empty text in tool call responses.
+     * This placeholder should be filtered out when displaying messages to users.
+     */
+    public static final String TOOL_CALLS_PLACEHOLDER = "Tool calls";
+
     // Simple OpenAI token count estimator for approximate counting
     // It can remain static as it's stateless based on model ID
     private static final OpenAiTokenCountEstimator tokenCountEstimator = new OpenAiTokenCountEstimator("gpt-4o");
@@ -200,6 +207,10 @@ public class Messages {
         }
 
         var text = getText(message);
+        if (TOOL_CALLS_PLACEHOLDER.equals(text)) {
+            text = "";
+        }
+
         var rendered = aiMessage.toolExecutionRequests().stream()
                 .map(ExplanationRenderer::renderToolRequest)
                 .filter(s -> !s.isBlank())

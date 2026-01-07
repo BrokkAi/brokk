@@ -491,12 +491,17 @@ public class SearchAgent {
         }
         var toolSpecs = tr.getTools(toolNames);
 
-        conversation.appendUi("Initial workspace review...",true);
+        var label = "Initial workspace review";
+        io.showTransientMessage(label);
         var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
         var result = jLlm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
-        conversation.append(result.aiMessage());
+
+        var aiMsg = result.aiMessage();
+        var enhAiMsg = AiMessage.from(label +"\n\n" + aiMsg.text(), aiMsg.reasoningContent(), aiMsg.toolExecutionRequests());
+
+        conversation.append(enhAiMsg);
         if (result.error() != null || result.isEmpty()) {
             return context;
         }
@@ -524,9 +529,8 @@ public class SearchAgent {
         StreamingChatModel scanModel = getScanModel();
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
+        io.showTransientMessage("Scanning the repository");
         var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
-        conversation.appendUi(
-                "Scanning repository...", true);
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
@@ -619,9 +623,8 @@ public class SearchAgent {
 
         var explanation = ExplanationRenderer.renderExplanation("Adding context to workspace", details);
         // Fake this like an AI message (it's not a real tool call)
-        var aiMsg = new AiMessage(explanation);
-        conversation.appendUi(aiMsg, true);
-        conversation.appendInternal(aiMsg);
+        var aiMsg = new AiMessage("Context recommendations\n\n" + explanation);
+        conversation.append(aiMsg, true);
     }
 
     @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")

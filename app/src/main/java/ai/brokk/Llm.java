@@ -1557,7 +1557,7 @@ public class Llm {
                 // Works around crazy-ass Anthropic bug where they don't allow empty text
                 // but sometimes return empty themselves as part of a tool call response.
                 // See https://github.com/BrokkAi/brokk/pull/1556
-                messageText = "Tool calls";
+                messageText = Messages.TOOL_CALLS_PLACEHOLDER;
             }
             return new AiMessage(messageText, reasoningContent, toolRequests);
         }
