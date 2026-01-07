@@ -80,6 +80,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private JLabel headerLabel;
 
+    @Nullable
+    private JProgressBar headerProgressBar = null;
+
     private final MaterialButton commitBtn;
 
     private final MaterialButton pullBtn;
@@ -449,6 +452,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         headerLabel.setFont(headerLabel.getFont().deriveFont(Font.BOLD));
         headerPanel.add(headerLabel, BorderLayout.WEST);
 
+        // Create progress bar for the header (hidden by default)
+        headerProgressBar = new JProgressBar(0, 100);
+        headerProgressBar.setStringPainted(true);
+        headerProgressBar.setString("");
+        headerProgressBar.setVisible(false);
+        headerProgressBar.setPreferredSize(new Dimension(200, 20));
+
+        headerPanel.add(headerProgressBar, BorderLayout.CENTER);
+
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         buttonPanel.setOpaque(false);
 
@@ -786,74 +798,54 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void generateGuidedReview() {
         if (lastCumulativeChanges == null) return;
 
-        var listPanel = codeReviewPanel.getListPanel();
-        var parent = listPanel.getParent();
-        if (parent == null) return;
-
         setGuidedReviewBusy(true);
         codeReviewPanel.setBusy(true);
 
-        JProgressBar progressBar = new JProgressBar(0, 100);
-        progressBar.setStringPainted(true);
-        progressBar.setString("Starting guided review...");
-
-        JPanel progressPanel = new JPanel(new GridBagLayout());
-        progressPanel.setBackground(ThemeColors.getPanelBackground());
-        progressPanel.setMinimumSize(new Dimension(200, 200));
-        progressPanel.setPreferredSize(listPanel.getPreferredSize());
-
-        GridBagConstraints gbc = new GridBagConstraints();
-        gbc.gridx = 0;
-        gbc.gridy = 0;
-        gbc.insets = new java.awt.Insets(20, 20, 20, 20);
-        gbc.fill = GridBagConstraints.HORIZONTAL;
-        gbc.weightx = 1.0;
-
-        JLabel statusLabel = new JLabel("Brokk is analyzing your changes...", SwingConstants.CENTER);
-        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD, 14f));
-        progressPanel.add(statusLabel, gbc);
-
-        gbc.gridy = 1;
-        progressPanel.add(progressBar, gbc);
-
-        final int savedDividerLocation = (parent instanceof JSplitPane sp) ? sp.getDividerLocation() : -1;
-
-        SwingUtilities.invokeLater(() -> {
-            if (parent instanceof JSplitPane splitPane) {
-                splitPane.setTopComponent(progressPanel);
-            }
-            parent.revalidate();
-            parent.repaint();
-        });
+        // Show progress bar in header
+        if (headerProgressBar != null) {
+            headerProgressBar.setValue(0);
+            headerProgressBar.setString("Starting review...");
+            headerProgressBar.setVisible(true);
+        }
 
         contextManager.submitLlmAction(() -> {
             try {
                 var changes = lastCumulativeChanges;
-                if (changes == null) return;
+                if (changes == null) {
+                    SwingUtilities.invokeLater(() -> {
+                        if (headerProgressBar != null) {
+                            headerProgressBar.setVisible(false);
+                        }
+                        codeReviewPanel.setBusy(false);
+                        setGuidedReviewBusy(false);
+                        revalidate();
+                        repaint();
+                    });
+                    return;
+                }
 
                 String formattedDiff = changes.perFileChanges().stream()
                         .map(de -> "File: " + de.title() + "\n" + de.diff())
                         .collect(java.util.stream.Collectors.joining("\n\n"));
 
-                ReviewParser.GuidedReview review;
                 var agent = new ReviewAgent(formattedDiff, contextManager, chrome, fileComparisons);
                 agent.setProgressUpdater(p -> SwingUtilities.invokeLater(() -> {
-                    progressBar.setValue(p);
-                    if (p < 10) progressBar.setString("Gathering context...");
-                    else if (p < 80) progressBar.setString("Analyzing changes...");
-                    else progressBar.setString("Generating review...");
+                    if (headerProgressBar != null) {
+                        headerProgressBar.setValue(p);
+                        if (p < 10) headerProgressBar.setString("Gathering context...");
+                        else if (p < 80) headerProgressBar.setString("Analyzing changes...");
+                        else headerProgressBar.setString("Generating review...");
+                    }
                 }));
-                review = agent.execute();
+
+                ReviewParser.GuidedReview review = agent.execute();
 
                 String currentHash = repo.getCurrentCommitId();
                 long now = System.currentTimeMillis();
 
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane) {
-                        splitPane.setTopComponent(codeReviewPanel.getListPanel());
-                        if (savedDividerLocation > 0) {
-                            splitPane.setDividerLocation(savedDividerLocation);
-                        }
+                    if (headerProgressBar != null) {
+                        headerProgressBar.setVisible(false);
                     }
                     lastReviewState = new ReviewState(currentHash, now);
                     hasGeneratedReview = true;
@@ -862,17 +854,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
-                    parent.revalidate();
-                    parent.repaint();
+                    revalidate();
+                    repaint();
                 });
             } catch (ReviewGenerationException ex) {
                 logger.warn("Review generation failed: {}", ex.getMessage());
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane) {
-                        splitPane.setTopComponent(codeReviewPanel.getListPanel());
-                        if (savedDividerLocation > 0) {
-                            splitPane.setDividerLocation(savedDividerLocation);
-                        }
+                    if (headerProgressBar != null) {
+                        headerProgressBar.setVisible(false);
                     }
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
@@ -881,23 +870,20 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             ? "Review generation failed: " + ex.getStopDetails().explanation()
                             : "Review generation failed: " + ex.getMessage();
                     chrome.toolError(userMessage, "Review Error");
-                    parent.revalidate();
-                    parent.repaint();
+                    revalidate();
+                    repaint();
                 });
             } catch (Exception ex) {
                 logger.error("Unexpected error during review generation", ex);
                 SwingUtilities.invokeLater(() -> {
-                    if (parent instanceof JSplitPane splitPane) {
-                        splitPane.setTopComponent(codeReviewPanel.getListPanel());
-                        if (savedDividerLocation > 0) {
-                            splitPane.setDividerLocation(savedDividerLocation);
-                        }
+                    if (headerProgressBar != null) {
+                        headerProgressBar.setVisible(false);
                     }
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());
-                    parent.revalidate();
-                    parent.repaint();
+                    revalidate();
+                    repaint();
                 });
             }
         });
