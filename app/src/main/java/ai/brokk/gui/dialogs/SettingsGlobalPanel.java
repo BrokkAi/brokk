@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.Service;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.ExceptionAwareSwingWorker;
 import ai.brokk.gui.SwingUtil.ThemedIcon;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
@@ -767,6 +768,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
                 var field = new JTextField(formatKeyStroke(cur));
                 field.setEditable(false);
+                field.setFocusable(false);
                 var gbcField = new GridBagConstraints();
                 gbcField.insets = new Insets(4, 6, 4, 6);
                 gbcField.fill = GridBagConstraints.HORIZONTAL;
@@ -776,6 +778,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 panel.add(field, gbcField);
 
                 var setBtn = new MaterialButton("Set");
+                setBtn.setFocusable(false);
                 var gbcSet = new GridBagConstraints();
                 gbcSet.insets = new Insets(4, 6, 4, 6);
                 gbcSet.gridx = 2;
@@ -784,6 +787,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 panel.add(setBtn, gbcSet);
 
                 var clearBtn = new MaterialButton("Clear");
+                clearBtn.setFocusable(false);
                 var gbcClear = new GridBagConstraints();
                 gbcClear.insets = new Insets(4, 6, 4, 6);
                 gbcClear.gridx = 3;
@@ -792,7 +796,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 panel.add(clearBtn, gbcClear);
 
                 setBtn.addActionListener(ev -> {
-                    KeyStroke captured = captureKeyStroke(panel);
+                    var captured = captureKeyStroke(panel);
+                    if (captured == null) return; // cancelled
                     if ("global.closeWindow".equals(id)
                             && captured.getKeyCode() == KeyEvent.VK_ESCAPE
                             && captured.getModifiers() == 0) {
@@ -918,7 +923,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
     }
 
-    private static KeyStroke captureKeyStroke(Component parent) {
+    private static @Nullable KeyStroke captureKeyStroke(Component parent) {
         final KeyStroke[] result = new KeyStroke[1];
         final KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
         KeyEventDispatcher[] ref = new KeyEventDispatcher[1];
@@ -958,7 +963,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         } finally {
             if (ref[0] != null) kfm.removeKeyEventDispatcher(ref[0]);
         }
-        return result[0] == null ? KeyStroke.getKeyStroke(0, 0) : result[0];
+        return result[0];
     }
 
     private static @Nullable String findConflictingKeybinding(KeyStroke newKeyStroke, String excludeId) {
@@ -1104,10 +1109,10 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
 
         // Validate UI Scale and compute new preference
         String oldUiScalePref = MainProject.getUiScalePref();
-        String newUiScalePref = oldUiScalePref;
+        String computedUiScalePref;
         if (uiScaleAutoRadio != null && uiScaleCustomRadio != null && uiScaleCombo != null) {
             if (uiScaleAutoRadio.isSelected()) {
-                newUiScalePref = "auto";
+                computedUiScalePref = "auto";
             } else {
                 String txt = String.valueOf(uiScaleCombo.getSelectedItem()).trim();
                 var allowed = Set.of("1.0", "2.0", "3.0", "4.0", "5.0");
@@ -1119,9 +1124,12 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                             JOptionPane.ERROR_MESSAGE);
                     return false;
                 }
-                newUiScalePref = txt;
+                computedUiScalePref = txt;
             }
+        } else {
+            computedUiScalePref = oldUiScalePref;
         }
+        final String newUiScalePref = computedUiScalePref;
 
         // GitHub settings
         if (!gitSettingsPanel.applySettings()) {
@@ -1152,27 +1160,19 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
         boolean forceToolEmulation = (forceToolEmulationCheckbox != null) && forceToolEmulationCheckbox.isSelected();
 
-        MainProject.setBrokkKey(newBrokkKeyFromField);
-        MainProject.setLlmProxySetting(proxySetting);
-        MainProject.setForceToolEmulation(forceToolEmulation);
-
         // Appearance: theme
         String selectedDisplay = (String) themeCombo.getSelectedItem();
         String newTheme = getThemeValueFromDisplayName(selectedDisplay != null ? selectedDisplay : "Light");
-        MainProject.setTheme(newTheme);
 
         // Appearance: word wrap
         boolean newWrapMode = wordWrapCheckbox.isSelected();
-        MainProject.setCodeBlockWrapMode(newWrapMode);
 
-        // UI Scale persistence
-        if (!newUiScalePref.equals(oldUiScalePref)) {
-            if ("auto".equalsIgnoreCase(newUiScalePref)) {
-                MainProject.setUiScalePrefAuto();
-            } else {
+        // UI Scale persistence - validate before background save
+        boolean uiScaleChanged = !newUiScalePref.equals(oldUiScalePref);
+        if (uiScaleChanged) {
+            if (!"auto".equalsIgnoreCase(newUiScalePref)) {
                 try {
-                    double scale = Double.parseDouble(newUiScalePref);
-                    MainProject.setUiScalePrefCustom(scale);
+                    Double.parseDouble(newUiScalePref);
                 } catch (NumberFormatException e) {
                     JOptionPane.showMessageDialog(
                             this,
@@ -1182,19 +1182,14 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                     return false;
                 }
             }
-            parentDialog.markRestartNeededForUiScale();
         }
 
         // Terminal font size
         float terminalFontSize = ((Double) terminalFontSizeSpinner.getValue()).floatValue();
-        MainProject.setTerminalFontSize(terminalFontSize);
 
         // Layout and diff preferences
         boolean verticalLayout = !classicBrokkViewCheckbox.isSelected();
-        GlobalUiSettings.saveVerticalActivityLayout(verticalLayout);
-
         boolean diffUnified = diffUnifiedRadio.isSelected();
-        GlobalUiSettings.saveDiffUnifiedView(diffUnified);
 
         // MCP configuration
         var mcpServers = new ArrayList<McpServer>();
@@ -1202,36 +1197,26 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             mcpServers.add(mcpServersListModel.getElementAt(i));
         }
         var mcpConfig = new McpConfig(mcpServers);
-        chrome.getProject().getMainProject().setMcpConfig(mcpConfig);
 
-        // Side effects
-
-        if (keyStateChangedInUI) {
-            refreshBalanceDisplay();
-            updateSignupLabelVisibility();
-            parentDialog.triggerDataRetentionPolicyRefresh();
-            try {
-                chrome.getContextManager().reloadService();
-            } catch (Exception e) {
-                logger.debug("Failed to reload service after Brokk key change (non-fatal)", e);
-            }
-        }
-
-        boolean themeChanged = !newTheme.equals(oldTheme);
-        boolean wrapChanged = newWrapMode != oldWrapMode;
-        if (themeChanged || wrapChanged) {
-            chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
-        }
-
-        if (verticalLayout != previousVerticalLayout) {
-            JOptionPane.showMessageDialog(
-                    this,
-                    "Restart required: Changing Activity Layout will take effect after restarting Brokk.",
-                    "Restart Required",
-                    JOptionPane.INFORMATION_MESSAGE);
-        }
-
-        chrome.updateTerminalFontSize();
+        // Move all file I/O operations to background thread to avoid blocking EDT
+        new SaveGlobalSettingsWorker(
+                        chrome,
+                        newBrokkKeyFromField,
+                        proxySetting,
+                        forceToolEmulation,
+                        newTheme,
+                        newWrapMode,
+                        uiScaleChanged,
+                        newUiScalePref,
+                        terminalFontSize,
+                        verticalLayout,
+                        diffUnified,
+                        mcpConfig,
+                        keyStateChangedInUI,
+                        oldTheme,
+                        oldWrapMode,
+                        previousVerticalLayout)
+                .execute();
 
         logger.debug("Applied global settings (service + appearance + MCP + GitHub) successfully");
         return true;
@@ -2484,5 +2469,132 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
             case "High Contrast" -> GuiTheme.THEME_HIGH_CONTRAST;
             default -> GuiTheme.THEME_LIGHT;
         };
+    }
+
+    /**
+     * SwingWorker to save global settings to disk on a background thread,
+     * then trigger UI updates on EDT after successful save.
+     */
+    private class SaveGlobalSettingsWorker extends ExceptionAwareSwingWorker<Void, Void> {
+        private final String newBrokkKeyFromField;
+        private final MainProject.LlmProxySetting proxySetting;
+        private final boolean forceToolEmulation;
+        private final String newTheme;
+        private final boolean newWrapMode;
+        private final boolean uiScaleChanged;
+        private final String newUiScalePref;
+        private final float terminalFontSize;
+        private final boolean verticalLayout;
+        private final boolean diffUnified;
+        private final McpConfig mcpConfig;
+        private final boolean keyStateChangedInUI;
+        private final String oldTheme;
+        private final boolean oldWrapMode;
+        private final boolean previousVerticalLayout;
+
+        SaveGlobalSettingsWorker(
+                Chrome chrome,
+                String newBrokkKeyFromField,
+                MainProject.LlmProxySetting proxySetting,
+                boolean forceToolEmulation,
+                String newTheme,
+                boolean newWrapMode,
+                boolean uiScaleChanged,
+                String newUiScalePref,
+                float terminalFontSize,
+                boolean verticalLayout,
+                boolean diffUnified,
+                McpConfig mcpConfig,
+                boolean keyStateChangedInUI,
+                String oldTheme,
+                boolean oldWrapMode,
+                boolean previousVerticalLayout) {
+            super(chrome);
+            this.newBrokkKeyFromField = newBrokkKeyFromField;
+            this.proxySetting = proxySetting;
+            this.forceToolEmulation = forceToolEmulation;
+            this.newTheme = newTheme;
+            this.newWrapMode = newWrapMode;
+            this.uiScaleChanged = uiScaleChanged;
+            this.newUiScalePref = newUiScalePref;
+            this.terminalFontSize = terminalFontSize;
+            this.verticalLayout = verticalLayout;
+            this.diffUnified = diffUnified;
+            this.mcpConfig = mcpConfig;
+            this.keyStateChangedInUI = keyStateChangedInUI;
+            this.oldTheme = oldTheme;
+            this.oldWrapMode = oldWrapMode;
+            this.previousVerticalLayout = previousVerticalLayout;
+        }
+
+        @Override
+        protected Void doInBackground() {
+            MainProject.setBrokkKey(newBrokkKeyFromField);
+            MainProject.setLlmProxySetting(proxySetting);
+            MainProject.setForceToolEmulation(forceToolEmulation);
+            MainProject.setTheme(newTheme);
+            MainProject.setCodeBlockWrapMode(newWrapMode);
+
+            if (uiScaleChanged) {
+                if ("auto".equalsIgnoreCase(newUiScalePref)) {
+                    MainProject.setUiScalePrefAuto();
+                } else {
+                    double scale = Double.parseDouble(newUiScalePref);
+                    MainProject.setUiScalePrefCustom(scale);
+                }
+            }
+
+            MainProject.setTerminalFontSize(terminalFontSize);
+            GlobalUiSettings.saveVerticalActivityLayout(verticalLayout);
+            GlobalUiSettings.saveDiffUnifiedView(diffUnified);
+            chrome.getProject().getMainProject().setMcpConfig(mcpConfig);
+
+            return null;
+        }
+
+        @Override
+        protected void done() {
+            // First invoke centralized exception handling (logs, uploads, and notifies user)
+            super.done();
+
+            // If successful, trigger UI updates on EDT
+            try {
+                get();
+            } catch (Exception ignored) {
+                // Already handled by ExceptionAwareSwingWorker.done()
+                return;
+            }
+
+            if (uiScaleChanged) {
+                parentDialog.markRestartNeededForUiScale();
+            }
+
+            if (keyStateChangedInUI) {
+                refreshBalanceDisplay();
+                updateSignupLabelVisibility();
+                parentDialog.triggerDataRetentionPolicyRefresh();
+                try {
+                    chrome.getContextManager().reloadService();
+                } catch (Exception e) {
+                    logger.debug("Failed to reload service after Brokk key change (non-fatal)", e);
+                }
+            }
+
+            boolean themeChanged = !newTheme.equals(oldTheme);
+            boolean wrapChanged = newWrapMode != oldWrapMode;
+            if (themeChanged || wrapChanged) {
+                chrome.switchThemeAndWrapMode(newTheme, newWrapMode);
+            }
+
+            if (verticalLayout != previousVerticalLayout) {
+                JOptionPane.showMessageDialog(
+                        SettingsGlobalPanel.this,
+                        "Restart required: Changing Activity Layout will take effect after restarting Brokk.",
+                        "Restart Required",
+                        JOptionPane.INFORMATION_MESSAGE);
+            }
+
+            chrome.updateTerminalFontSize();
+        }
     }
 }
