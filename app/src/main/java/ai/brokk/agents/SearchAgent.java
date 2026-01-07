@@ -523,7 +523,7 @@ public class SearchAgent {
             int finalBudget =
                     cm.getService().getMaxInputTokens(this.model) / 2 - Messages.getApproximateTokens(context);
             if (totalTokens > finalBudget) {
-                var summaries = ContextFragment.describe(recommendation.fragments());
+                var summaries = ContextFragment.describe(recommendation.fragments().stream());
                 context = context.addFragments(List.of(new ContextFragments.StringFragment(
                         cm,
                         "ContextAgent analyzed the repository and marked these fragments as highly relevant. Since including all would exceed the model's context capacity, their summarized descriptions are provided below:\n\n"
