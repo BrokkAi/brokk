@@ -122,11 +122,13 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         scrollPane.addComponentListener(new ComponentAdapter() {
             @Override
             public void componentResized(ComponentEvent e) {
-                // Force the text pane to recalculate its size for the new viewport width
                 var viewport = scrollPane.getViewport();
                 if (viewport != null && viewport.getWidth() > 0) {
-                    contentPane.setSize(viewport.getWidth(), Short.MAX_VALUE);
-                    contentPane.revalidate();
+                    int width = viewport.getWidth();
+                    contentPane.setSize(width, Short.MAX_VALUE);
+                    if (!htmlChunks.isEmpty()) {
+                        flushContent();
+                    }
                 }
             }
         });
