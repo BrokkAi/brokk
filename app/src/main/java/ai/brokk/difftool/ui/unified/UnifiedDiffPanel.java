@@ -770,13 +770,11 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
         if (startDocLine < 0 || endDocLine < 0) {
             logger.warn(
-                    "Could not find document lines for source lines {}-{} on {} side",
+                    "Could not find document lines for source lines {}-{} on {} side, skipping highlight",
                     startSourceLine,
                     endSourceLine,
                     side);
-            // Fall back to legacy behavior
-            highlightExcerptLines(startSourceLine, endSourceLine);
-            return;
+            return; // Don't highlight incorrectly
         }
 
         // Use 1-based line numbers for the highlight
