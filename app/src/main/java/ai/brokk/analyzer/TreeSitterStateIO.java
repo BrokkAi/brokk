@@ -411,14 +411,23 @@ public final class TreeSitterStateIO {
         List<ImportEntryDto> importEntries = new ArrayList<>(state.imports().size());
         for (var e : state.imports().entrySet()) {
             importEntries.add(new ImportEntryDto(
-                    toDto(e.getKey()), e.getValue().stream().map(TreeSitterStateIO::toDto).toList()));
+                    toDto(e.getKey()),
+                    e.getValue().stream()
+                            .map(TreeSitterStateIO::toDto)
+                            .sorted(Comparator.comparing(CodeUnitDto::packageName)
+                                    .thenComparing(CodeUnitDto::shortName))
+                            .toList()));
         }
 
         // reverseImports -> entries list
         List<ReverseImportEntryDto> reverseImportEntries = new ArrayList<>(state.reverseImports().size());
         for (var e : state.reverseImports().entrySet()) {
             reverseImportEntries.add(new ReverseImportEntryDto(
-                    toDto(e.getKey()), e.getValue().stream().map(TreeSitterStateIO::toDto).toList()));
+                    toDto(e.getKey()),
+                    e.getValue().stream()
+                            .map(TreeSitterStateIO::toDto)
+                            .sorted(Comparator.comparing(ProjectFileDto::relPath))
+                            .toList()));
         }
 
         // Symbol keys for the index

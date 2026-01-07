@@ -265,6 +265,37 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void roundTripImportsAndReverseImports(@TempDir Path tempDir) throws Exception {
+        var root = tempDir.resolve("root");
+        Files.createDirectories(root);
+        var fileA = new ProjectFile(root, Path.of("A.java"));
+        var fileB = new ProjectFile(root, Path.of("B.java"));
+        var cuB = CodeUnit.cls(fileB, "com.example", "B");
+
+        var imports = HashTreePMap.singleton(fileA, Set.of(cuB));
+        var reverseImports = HashTreePMap.singleton(fileB, Set.of(fileA));
+
+        var state = new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.empty(),
+                HashTreePMap.empty(),
+                HashTreePMap.empty(),
+                imports,
+                reverseImports,
+                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
+                System.nanoTime());
+
+        Path out = tempDir.resolve("imports.smile.gz");
+        TreeSitterStateIO.save(state, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent());
+        var loaded = loadedOpt.get();
+
+        assertEquals(state.imports(), loaded.imports(), "Forward imports should match after round-trip");
+        assertEquals(state.reverseImports(), loaded.reverseImports(), "Reverse imports should match after round-trip");
+    }
+
+    @Test
     void deserializeLegacyStateWithComputedSupertypes(@TempDir Path tempDir) throws Exception {
         // Construct DTO components manually to simulate legacy structure
         var root = tempDir.toAbsolutePath().normalize();
