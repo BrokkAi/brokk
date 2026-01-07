@@ -381,14 +381,14 @@ public class ReviewAgent {
 
                 ExcerptMatch match = matchExcerptInFile(excerpt, fileInfo);
                 if (match == null) {
-                    stage2Errors.put(id, "Excerpt text not found in file content");
+                    stage2Errors.put(id, "Excerpt text not found in " + excerpt.file());
                 } else {
                     var file = cm.toFile(excerpt.file());
                     int lineCount = (int) match.matchedText().lines().count();
                     CodeUnit unit = cm.getAnalyzerUninterrupted()
                             .enclosingCodeUnit(file, match.line(), match.line() + Math.max(0, lineCount - 1))
                             .orElse(null);
-                    logger.debug("Found enclosing CodeUnit for excerpt {}: {}", id, unit);
+                    logger.debug("Enclosing CodeUnit for excerpt {} is {}", id, unit);
                     resolvedExcerpts.put(
                             id, new CodeExcerpt(file, unit, match.line(), match.side(), match.matchedText()));
                 }
