@@ -895,74 +895,77 @@ public class Brokk {
             }
         }
 
-        // Standard cleanup
+        // Standard cleanup - run async to avoid blocking EDT
         Chrome removedChrome = openProjectWindows.remove(projectPath);
-        if (removedChrome != null) {
-            removedChrome.close();
-        }
         logger.debug("Removed project from open windows map: {}", projectPath);
 
-        if (reOpeningProjects.contains(projectPath)) {
-            CompletableFuture.runAsync(() -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
-                    .exceptionally(ex -> {
-                        logger.error(
-                                "Error removing project (before reopen) from open projects list: {}", projectPath, ex);
-                        return null;
-                    });
-
-            new OpenProjectBuilder(projectPath)
-                    .open()
-                    .whenCompleteAsync(
-                            (@Nullable Boolean success, @Nullable Throwable reopenEx) -> {
-                                reOpeningProjects.remove(projectPath);
-                                if (reopenEx != null) {
-                                    logger.error(
-                                            "Exception occurred while trying to reopen project: {}",
-                                            projectPath,
-                                            reopenEx);
-                                } else if (success == null || !success) {
-                                    logger.warn("Failed to reopen project: {}. It will not be reopened.", projectPath);
-                                }
-                                if (openProjectWindows.isEmpty() && reOpeningProjects.isEmpty()) {
-                                    logger.info(
-                                            "All projects closed after reopen attempt of {}. Exiting.", projectPath);
-                                    System.exit(0);
-                                }
-                            },
-                            SwingUtilities::invokeLater);
-            return;
+        // Hide the window immediately for responsive UX
+        if (removedChrome != null) {
+            removedChrome.getFrame().setVisible(false);
         }
 
-        // Dispose the frame to actually close the window
-        if (ourChromeInstance != null) {
-            ourChromeInstance.getFrame().dispose();
-        }
+        // Async cleanup then dispose frame
+        var closeFuture = removedChrome != null
+                ? removedChrome.closeAsync()
+                : CompletableFuture.<Void>completedFuture(null);
 
-        boolean noMainProjectsOpen = openProjectWindows.values().stream().noneMatch(chrome -> {
-            IProject p = chrome.getContextManager().getProject();
-            return p instanceof MainProject; // Check if it's a main project
-        });
-        boolean appIsExiting = noMainProjectsOpen && reOpeningProjects.isEmpty();
-        if (appIsExiting) {
-            // We are about to exit the application.
-            // Do NOT remove this project from the persistent "open projects" list.
-            logger.info("Last project window ({}) closed. App exiting. It remains MRU.", projectPath);
-            try {
-                ContextFragments.shutdownFragmentExecutor();
-            } catch (Throwable t) {
-                logger.debug("Error during fragment executor shutdown on window close", t);
+        closeFuture.whenComplete((v, ex) -> {
+            if (ex != null) {
+                logger.error("Error during Chrome async close for {}", projectPath, ex);
             }
-            System.exit(0);
-        } else {
-            // Other projects are still open or other projects are pending reopening.
-            // This one is just closing, so remove it from the persistent "open projects" list.
-            CompletableFuture.runAsync(() -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
-                    .exceptionally(ex -> {
-                        logger.error("Error removing project from open projects list: {}", projectPath, ex);
-                        return null;
-                    });
-            // No System.exit(0) here, as other windows/tasks are active.
-        }
+
+            if (reOpeningProjects.contains(projectPath)) {
+                CompletableFuture.runAsync(() -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
+                        .exceptionally(removeEx -> {
+                            logger.error("Error removing project (before reopen) from open projects list: {}", projectPath, removeEx);
+                            return null;
+                        });
+
+                new OpenProjectBuilder(projectPath)
+                        .open()
+                        .whenCompleteAsync((@Nullable Boolean success, @Nullable Throwable reopenEx) -> {
+                            reOpeningProjects.remove(projectPath);
+                            if (reopenEx != null) {
+                                logger.error("Exception occurred while trying to reopen project: {}", projectPath, reopenEx);
+                            } else if (success == null || !success) {
+                                logger.warn("Failed to reopen project: {}. It will not be reopened.", projectPath);
+                            }
+                            if (openProjectWindows.isEmpty() && reOpeningProjects.isEmpty()) {
+                                logger.info("All projects closed after reopen attempt of {}. Exiting.", projectPath);
+                                System.exit(0);
+                            }
+                        }, SwingUtilities::invokeLater);
+                return;
+            }
+
+            // Dispose the frame on EDT after cleanup is done
+            SwingUtilities.invokeLater(() -> {
+                if (removedChrome != null) {
+                    removedChrome.getFrame().dispose();
+                }
+
+                boolean noMainProjectsOpen = openProjectWindows.values().stream().noneMatch(chrome -> {
+                    IProject p = chrome.getContextManager().getProject();
+                    return p instanceof MainProject;
+                });
+                boolean appIsExiting = noMainProjectsOpen && reOpeningProjects.isEmpty();
+                if (appIsExiting) {
+                    logger.info("Last project window ({}) closed. App exiting. It remains MRU.", projectPath);
+                    try {
+                        ContextFragments.shutdownFragmentExecutor();
+                    } catch (Throwable t) {
+                        logger.debug("Error during fragment executor shutdown on window close", t);
+                    }
+                    System.exit(0);
+                } else {
+                    CompletableFuture.runAsync(() -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
+                            .exceptionally(removeEx -> {
+                                logger.error("Error removing project from open projects list: {}", projectPath, removeEx);
+                                return null;
+                            });
+                }
+            });
+        });
     }
 
     private static CompletableFuture<Optional<ContextManager>> initializeProjectAndContextManager(

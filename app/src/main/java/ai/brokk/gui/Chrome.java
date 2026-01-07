@@ -1021,12 +1021,20 @@ public class Chrome
 
     @Override
     public void close() {
-        logger.info("Closing Chrome UI");
-
+        logger.info("Closing Chrome UI (sync)");
         contextManager.close();
         frame.dispose();
-        // Unregister this instance
         openInstances.remove(this);
+    }
+
+    /**
+     * Asynchronously close Chrome, running cleanup off EDT.
+     * Returns a future that completes when cleanup is done.
+     */
+    public CompletableFuture<Void> closeAsync() {
+        logger.info("Closing Chrome UI (async)");
+        openInstances.remove(this);
+        return contextManager.closeAsync(5_000);
     }
 
     private void registerAllListeners() {
