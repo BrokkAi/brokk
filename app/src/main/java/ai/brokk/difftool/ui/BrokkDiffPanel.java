@@ -598,11 +598,11 @@ public class BrokkDiffPanel extends JPanel
         btnSaveAll.addActionListener(e -> saveAll());
 
         // File navigation handlers
-        btnPreviousFile.setIcon(Icons.CHEVRON_LEFT);
+        btnPreviousFile.setIcon(Icons.NAVIGATE_BEFORE);
         btnPreviousFile.setToolTipText("Previous File");
         btnPreviousFile.addActionListener(e -> previousFile());
 
-        btnNextFile.setIcon(Icons.CHEVRON_RIGHT);
+        btnNextFile.setIcon(Icons.NAVIGATE_NEXT);
         btnNextFile.setToolTipText("Next File");
         btnNextFile.addActionListener(e -> nextFile());
 
