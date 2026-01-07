@@ -181,18 +181,18 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     private void enqueueTask(String text) {
-        contextManager.pushContext(ctx -> {
-            var currentTasks = ctx.getTaskListDataOrEmpty().tasks();
+        var currentData = contextManager.liveContext().getTaskListDataOrEmpty();
+        var currentTasks = currentData.tasks();
 
-            if (currentTasks.stream().anyMatch(t -> text.equals(t.text()))) {
-                return ctx;
-            }
+        if (currentTasks.stream().anyMatch(t -> text.equals(t.text()))) {
+            return; // Already exists
+        }
 
-            var newTasks = Stream.concat(currentTasks.stream(), Stream.of(new TaskList.TaskItem(null, text, false)))
-                    .toList();
-
-            return ctx.withTaskList(new TaskList.TaskListData(newTasks));
-        });
+        var newTasks = Stream.concat(currentTasks.stream(), Stream.of(new TaskList.TaskItem(null, text, false)))
+                .toList();
+        if (contextManager instanceof ai.brokk.ContextManager cm) {
+            cm.setTaskListAsync(new TaskList.TaskListData(newTasks));
+        }
     }
 
     private void clearContent() {
