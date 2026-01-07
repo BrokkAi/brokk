@@ -57,8 +57,13 @@ public class ExplanationRenderer {
         }
 
         try {
-            Map<String, Object> argsMap =
-                    OBJECT_MAPPER.readValue(request.arguments(), new TypeReference<LinkedHashMap<String, Object>>() {});
+            Map<String, Object> argsMap;
+            if (request.arguments() == null || request.arguments().isBlank()) {
+                argsMap = new LinkedHashMap<>();
+            } else {
+                argsMap = OBJECT_MAPPER.readValue(
+                        request.arguments(), new TypeReference<LinkedHashMap<String, Object>>() {});
+            }
             return renderExplanation(headlineFor(request.name()), argsMap);
         } catch (Exception e) {
             logger.debug(
