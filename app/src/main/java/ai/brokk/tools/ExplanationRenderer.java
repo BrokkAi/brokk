@@ -89,7 +89,7 @@ public class ExplanationRenderer {
                    %s
                    ````
                    """
-                .formatted(headline, yaml);
+                .formatted(headline, yaml.isBlank() ? "(EMPTY)" : yaml);
     }
 
     /**
