@@ -128,7 +128,8 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto emptyDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
+        AnalyzerStateDto emptyDto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
         Path out = tempDir.resolve("state.smile.gz");
@@ -170,6 +171,8 @@ public class TreeSitterStateIOTest {
                 HashTreePMap.empty(),
                 HashTreePMap.from(stateMap),
                 HashTreePMap.empty(),
+                HashTreePMap.empty(),
+                HashTreePMap.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
@@ -192,7 +195,8 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         Path out = tempDir.resolve("roundtrip.smile.gz");
@@ -219,7 +223,7 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("A"), 1L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), List.of(), List.of("A"), 1L);
         var state = TreeSitterStateIO.fromDto(dto);
         TreeSitterStateIO.save(state, out);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
@@ -242,7 +246,8 @@ public class TreeSitterStateIOTest {
 
         Files.writeString(out, "this is corrupt gzip content");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("win"), 42L);
+        AnalyzerStateDto dto =
+                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), List.of(), List.of("win"), 42L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         TreeSitterStateIO.save(original, out);
@@ -286,6 +291,8 @@ public class TreeSitterStateIOTest {
         stateDtoMap.put("symbolIndex", Map.of());
         stateDtoMap.put("codeUnitState", List.of(entry));
         stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
         stateDtoMap.put("symbolKeys", List.of());
         stateDtoMap.put("snapshotEpochNanos", 12345L);
 

@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipException;
@@ -219,6 +220,8 @@ public final class TreeSitterStateIO {
             Map<String, List<CodeUnitDto>> symbolIndex,
             List<CodeUnitEntryDto> codeUnitState,
             List<FileStateEntryDto> fileState,
+            List<ImportEntryDto> imports,
+            List<ReverseImportEntryDto> reverseImports,
             List<String> symbolKeys,
             long snapshotEpochNanos) {}
 
@@ -261,8 +264,19 @@ public final class TreeSitterStateIO {
      * DTO for TreeSitterAnalyzer.FileProperties without the TSTree.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record FilePropertiesDto(
-            List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, Set<CodeUnitDto> resolvedImports) {}
+    public record FilePropertiesDto(List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements) {}
+
+    /**
+     * DTO entry for ProjectFile -> Set<CodeUnit> (imports).
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ImportEntryDto(ProjectFileDto key, List<CodeUnitDto> value) {}
+
+    /**
+     * DTO entry for ProjectFile -> Set<ProjectFile> (reverse imports).
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ReverseImportEntryDto(ProjectFileDto key, List<ProjectFileDto> value) {}
 
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
@@ -389,12 +403,22 @@ public final class TreeSitterStateIO {
                     new ArrayList<CodeUnitDto>(fileProps.topLevelCodeUnits().size());
             for (var cu : fileProps.topLevelCodeUnits()) topLevelDtos.add(toDto(cu));
 
-            var resolvedDtos = new LinkedHashSet<CodeUnitDto>(
-                    Math.max(16, fileProps.resolvedImports().size()));
-            for (var cu : fileProps.resolvedImports()) resolvedDtos.add(toDto(cu));
-
-            var fpDto = new FilePropertiesDto(topLevelDtos, fileProps.importStatements(), resolvedDtos);
+            var fpDto = new FilePropertiesDto(topLevelDtos, fileProps.importStatements());
             fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
+        }
+
+        // imports -> entries list
+        List<ImportEntryDto> importEntries = new ArrayList<>(state.imports().size());
+        for (var e : state.imports().entrySet()) {
+            importEntries.add(new ImportEntryDto(
+                    toDto(e.getKey()), e.getValue().stream().map(TreeSitterStateIO::toDto).toList()));
+        }
+
+        // reverseImports -> entries list
+        List<ReverseImportEntryDto> reverseImportEntries = new ArrayList<>(state.reverseImports().size());
+        for (var e : state.reverseImports().entrySet()) {
+            reverseImportEntries.add(new ReverseImportEntryDto(
+                    toDto(e.getKey()), e.getValue().stream().map(TreeSitterStateIO::toDto).toList()));
         }
 
         // Symbol keys for the index
@@ -403,7 +427,14 @@ public final class TreeSitterStateIO {
             symbolKeys.add(key);
         }
 
-        return new AnalyzerStateDto(symbolIndexCopy, cuEntries, fileEntries, symbolKeys, state.snapshotEpochNanos());
+        return new AnalyzerStateDto(
+                symbolIndexCopy,
+                cuEntries,
+                fileEntries,
+                importEntries,
+                reverseImportEntries,
+                symbolKeys,
+                state.snapshotEpochNanos());
     }
 
     /**
@@ -455,18 +486,39 @@ public final class TreeSitterStateIO {
             var topLevel = new ArrayList<CodeUnit>(v.topLevelCodeUnits().size());
             for (var cuDto : v.topLevelCodeUnits()) topLevel.add(fromDto(cuDto));
 
-            var resolved =
-                    new LinkedHashSet<CodeUnit>(Math.max(16, v.resolvedImports().size()));
-            for (var cuDto : v.resolvedImports()) resolved.add(fromDto(cuDto));
-
             var fp = new TreeSitterAnalyzer.FileProperties(
                     topLevel,
                     null, // parsedTree intentionally omitted
-                    v.importStatements(),
-                    resolved);
+                    v.importStatements());
             fileStateMap.put(fromDto(entry.key()), fp);
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
+
+        // Rebuild imports PMap
+        Map<ProjectFile, Set<CodeUnit>> importsMap = new HashMap<>();
+        if (dto.imports() != null) {
+            for (var entry : dto.imports()) {
+                importsMap.put(
+                        fromDto(entry.key()),
+                        entry.value().stream()
+                                .map(TreeSitterStateIO::fromDto)
+                                .collect(Collectors.toUnmodifiableSet()));
+            }
+        }
+        PMap<ProjectFile, Set<CodeUnit>> imports = HashTreePMap.from(importsMap);
+
+        // Rebuild reverseImports PMap
+        Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
+        if (dto.reverseImports() != null) {
+            for (var entry : dto.reverseImports()) {
+                reverseImportsMap.put(
+                        fromDto(entry.key()),
+                        entry.value().stream()
+                                .map(TreeSitterStateIO::fromDto)
+                                .collect(Collectors.toUnmodifiableSet()));
+            }
+        }
+        PMap<ProjectFile, Set<ProjectFile>> reverseImports = HashTreePMap.from(reverseImportsMap);
 
         // Rebuild SymbolKeyIndex
         var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
@@ -476,7 +528,7 @@ public final class TreeSitterStateIO {
 
         // Construct new immutable AnalyzerState
         return new TreeSitterAnalyzer.AnalyzerState(
-                symbolIndex, codeUnitState, fileState, symbolKeyIndex, dto.snapshotEpochNanos());
+                symbolIndex, codeUnitState, fileState, imports, reverseImports, symbolKeyIndex, dto.snapshotEpochNanos());
     }
 
     /* ================= Helpers ================= */

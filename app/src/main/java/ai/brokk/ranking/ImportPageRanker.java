@@ -47,12 +47,13 @@ public final class ImportPageRanker {
 
     /**
      * Builds a candidate set and the associated import graph by starting from the seed files
-     * and expanding via import relationships up to IMPORT_DEPTH.
+     * and expanding via import relationships (both directions) up to IMPORT_DEPTH.
      */
     private static Graph buildGraph(
             IAnalyzer analyzer, Set<ProjectFile> seeds, Map<ProjectFile, Set<ProjectFile>> cache) {
         Map<ProjectFile, Set<ProjectFile>> forward = new HashMap<>();
         Map<ProjectFile, Set<ProjectFile>> reverse = new HashMap<>();
+        Map<ProjectFile, Set<ProjectFile>> reverseCache = new HashMap<>();
         ArrayDeque<ProjectFile> frontier = new ArrayDeque<>();
 
         for (ProjectFile pf : seeds) {
@@ -68,9 +69,9 @@ public final class ImportPageRanker {
             ArrayDeque<ProjectFile> next = new ArrayDeque<>();
             while (!frontier.isEmpty()) {
                 ProjectFile pf = frontier.removeFirst();
+
+                // 1. Outgoing edges: pf -> target (pf imports target)
                 for (ProjectFile target : importedFilesFor(analyzer, pf, cache)) {
-                    // Always record the edge if we've seen or are about to see the target
-                    // To keep the graph small, we only add new nodes to the frontier within IMPORT_DEPTH
                     if (!forward.containsKey(target)) {
                         forward.put(target, new LinkedHashSet<>());
                         reverse.put(target, new LinkedHashSet<>());
@@ -78,6 +79,17 @@ public final class ImportPageRanker {
                     }
                     Objects.requireNonNull(forward.get(pf)).add(target);
                     Objects.requireNonNull(reverse.get(target)).add(pf);
+                }
+
+                // 2. Incoming edges: source -> pf (source imports pf)
+                for (ProjectFile source : referencingFilesFor(analyzer, pf, reverseCache)) {
+                    if (!forward.containsKey(source)) {
+                        forward.put(source, new LinkedHashSet<>());
+                        reverse.put(source, new LinkedHashSet<>());
+                        next.add(source);
+                    }
+                    Objects.requireNonNull(forward.get(source)).add(pf);
+                    Objects.requireNonNull(reverse.get(pf)).add(source);
                 }
             }
             frontier = next;
@@ -284,5 +296,27 @@ public final class ImportPageRanker {
         for (CodeUnit cu : defs) {
             out.add(cu.source());
         }
+    }
+
+    /**
+     * Resolve files that import the given file using the most accurate analyzer APIs available.
+     */
+    private static Set<ProjectFile> referencingFilesFor(
+            IAnalyzer analyzer, ProjectFile file, Map<ProjectFile, Set<ProjectFile>> cache) {
+        Set<ProjectFile> cached = cache.get(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        Set<ProjectFile> resolved;
+        if (analyzer instanceof TreeSitterAnalyzer tsa) {
+            resolved = tsa.referencingFilesOf(file);
+        } else {
+            // Fallback: we don't have an efficient reverse lookup for generic analyzers
+            resolved = Set.of();
+        }
+
+        cache.put(file, resolved);
+        return resolved;
     }
 }
