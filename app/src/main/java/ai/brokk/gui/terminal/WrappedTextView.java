@@ -5,6 +5,7 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.List;
@@ -131,6 +132,8 @@ public class WrappedTextView extends JComponent {
 
         Graphics2D g2 = (Graphics2D) g.create();
         try {
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setColor(getForeground());
             g2.setFont(getFont());
             FontMetrics fm = g2.getFontMetrics();
