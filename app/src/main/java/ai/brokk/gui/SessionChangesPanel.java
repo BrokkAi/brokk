@@ -67,25 +67,26 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private BaselineMode lastBaselineMode = null;
 
+    @SuppressWarnings("NullAway.Init")
     private ai.brokk.difftool.ui.DiffDisplayCore diffCore;
 
-    private ai.brokk.difftool.ui.FileTreePanel fileTreePanel;
+    private final ai.brokk.difftool.ui.FileTreePanel fileTreePanel;
 
-    private CodeReviewPanel codeReviewPanel;
+    private final CodeReviewPanel codeReviewPanel;
 
-    private JSplitPane leftSplitPane;
+    private final JSplitPane leftSplitPane;
 
     private JPanel diffContainer;
 
     private JLabel headerLabel;
 
-    private MaterialButton commitBtn;
+    private final MaterialButton commitBtn;
 
-    private MaterialButton pullBtn;
+    private final MaterialButton pullBtn;
 
-    private MaterialButton pushBtn;
+    private final MaterialButton pushBtn;
 
-    private MaterialButton prBtn;
+    private final MaterialButton prBtn;
 
     @Nullable
     private ReviewParser.CodeExcerpt activeExcerpt = null;
@@ -110,6 +111,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.repo = gr;
 
         setOpaque(false);
+
+        // Initialize components to satisfy NullAway and avoid redundant null checks
+        this.headerLabel = new JLabel();
+        this.commitBtn = new MaterialButton("Changes to Commit");
+        this.pullBtn = new MaterialButton("Pull");
+        this.pushBtn = new MaterialButton("Push");
+        this.prBtn = new MaterialButton("Create PR");
+        this.diffContainer = new JPanel(new BorderLayout());
+        this.diffContainer.setOpaque(false);
+
+        this.codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
+        this.fileTreePanel = new ai.brokk.difftool.ui.FileTreePanel(
+                List.of(), contextManager.getProject().getRoot());
+
+        this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
+        this.leftSplitPane.setResizeWeight(0.5);
+
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
     }
 
@@ -343,17 +361,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         boolean hadChanges = !fileComparisons.isEmpty();
         boolean hasChanges = res.filesChanged() > 0;
 
-        if (hadChanges != hasChanges || (hasChanges && diffCore == null)) {
+        if (hadChanges != hasChanges || hasChanges) {
             rebuildUI(res, prepared, baselineLabel, baselineMode);
-            return;
-        }
-
-        if (!hasChanges) {
+        } else {
             updateEmptyState();
-            return;
         }
-
-        updateInPlace(res, prepared, baselineLabel, baselineMode);
     }
 
     private void updateEmptyState() {
@@ -378,47 +390,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
-    private void updateInPlace(
-            DiffService.CumulativeChanges res,
-            List<Map.Entry<String, DiffService.DiffEntry>> prepared,
-            @Nullable String baselineLabel,
-            @Nullable BaselineMode baselineMode) {
-
-        headerLabel.setText(
-                (baselineLabel != null && !baselineLabel.isEmpty())
-                        ? "Comparing vs " + baselineLabel
-                        : "Branch-based changes");
-
-        boolean hasUncommittedChanges = false;
-        try {
-            hasUncommittedChanges = !repo.getModifiedFiles().isEmpty();
-        } catch (GitAPIException e) {
-            logger.debug("Unable to determine uncommitted changes state", e);
-        }
-
-        commitBtn.setVisible(hasUncommittedChanges);
-
-        var pushPull = res.pushPullState();
-        pullBtn.setVisible(pushPull != null && pushPull.canPull());
-        pullBtn.setEnabled(!hasUncommittedChanges);
-        pushBtn.setVisible(pushPull != null && pushPull.canPush());
-        pushBtn.setEnabled(!hasUncommittedChanges);
-
-        boolean showPR = baselineMode == BaselineMode.NON_DEFAULT_BRANCH
-                || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
-        prBtn.setVisible(showPR);
-        prBtn.setEnabled(!hasUncommittedChanges);
-
-        var newComparisons = prepared.stream().map(this::toFileComparisonInfo).toList();
-
-        this.fileComparisons = newComparisons;
-
-        if (diffCore != null) {
-            diffCore.clearCache();
-            diffCore.showFile(diffCore.getCurrentIndex());
-        }
-    }
-
     private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, DiffService.DiffEntry> entry) {
         ProjectFile pf = null;
         try {
@@ -438,9 +409,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        if (diffCore != null) {
-            diffCore.clearCache();
-        }
+        diffCore.clearCache();
         removeAll();
 
         if (res.filesChanged() == 0) {
@@ -468,21 +437,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             logger.debug("Unable to determine uncommitted changes state", e);
         }
 
-        commitBtn = new MaterialButton("Changes to Commit");
         SwingUtil.applyPrimaryButtonStyle(commitBtn);
+        for (var al : commitBtn.getActionListeners()) commitBtn.removeActionListener(al);
         commitBtn.addActionListener(e -> showCommitDialog());
         commitBtn.setVisible(hasUncommittedChanges);
         buttonPanel.add(commitBtn);
 
         var pushPull = res.pushPullState();
-        pullBtn = new MaterialButton("Pull");
         pullBtn.setEnabled(!hasUncommittedChanges);
+        for (var al : pullBtn.getActionListeners()) pullBtn.removeActionListener(al);
         pullBtn.addActionListener(e -> performPull());
         pullBtn.setVisible(pushPull != null && pushPull.canPull());
         buttonPanel.add(pullBtn);
 
-        pushBtn = new MaterialButton("Push");
         pushBtn.setEnabled(!hasUncommittedChanges);
+        for (var al : pushBtn.getActionListeners()) pushBtn.removeActionListener(al);
         pushBtn.addActionListener(e -> performPush());
         pushBtn.setVisible(pushPull != null && pushPull.canPush());
         buttonPanel.add(pushBtn);
@@ -490,8 +459,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         boolean showPR = baselineMode == BaselineMode.NON_DEFAULT_BRANCH
                 || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
 
-        prBtn = new MaterialButton("Create PR");
         prBtn.setEnabled(!hasUncommittedChanges);
+        for (var al : prBtn.getActionListeners()) prBtn.removeActionListener(al);
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
         prBtn.setVisible(showPR);
         buttonPanel.add(prBtn);
@@ -574,50 +543,41 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         dummyPanel.setBufferDiffPanel(null);
 
-        this.fileTreePanel = new ai.brokk.difftool.ui.FileTreePanel(fileComparisons, root, projectName);
-        this.fileTreePanel.setSelectionListener(new DiffProjectFileNavigationTarget() {
+        // Update existing fileTreePanel instead of replacing
+        fileTreePanel.removeAll();
+        var newTreePanel = new ai.brokk.difftool.ui.FileTreePanel(fileComparisons, root, projectName);
+        fileTreePanel.setLayout(new BorderLayout());
+        fileTreePanel.add(newTreePanel, BorderLayout.CENTER);
+
+        newTreePanel.setSelectionListener(new DiffProjectFileNavigationTarget() {
             @Override
             public void navigateToFile(int fileIndex) {
-                if (codeReviewPanel != null) codeReviewPanel.clearSelection();
+                codeReviewPanel.clearSelection();
                 activeExcerpt = null;
-                if (diffCore != null) {
-                    diffCore.showFile(fileIndex);
-                }
+                diffCore.showFile(fileIndex);
             }
 
             @Override
             public void navigateToFile(ProjectFile file) {
-                if (codeReviewPanel != null) codeReviewPanel.clearSelection();
+                codeReviewPanel.clearSelection();
                 activeExcerpt = null;
-                if (diffCore != null) {
-                    diffCore.showFile(file);
-                }
+                diffCore.showFile(file);
             }
 
             @Override
             public void navigateToLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
-                if (codeReviewPanel != null) codeReviewPanel.clearSelection();
+                codeReviewPanel.clearSelection();
                 activeExcerpt = null;
-                if (diffCore != null) {
-                    diffCore.showLocation(file, lineNumber, side);
-                }
+                diffCore.showLocation(file, lineNumber, side);
             }
         });
-        this.fileTreePanel.initializeTree();
+        newTreePanel.initializeTree();
 
-        codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
         codeReviewPanel.addReviewNavigationListener(ce -> {
-            if (fileTreePanel != null) {
-                fileTreePanel.selectFileQuietly(ce.file());
-            }
+            newTreePanel.selectFileQuietly(ce.file());
             activeExcerpt = ce;
-            if (diffCore != null) {
-                diffCore.showLocation(ce.file(), ce.line(), ce.side());
-            }
+            diffCore.showLocation(ce.file(), ce.line(), ce.side());
         });
-
-        this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
-        leftSplitPane.setResizeWeight(0.5);
 
         JScrollPane detailScrollPane = new JScrollPane(codeReviewPanel.getDetailPanel());
         detailScrollPane.setBorder(null);
@@ -846,23 +806,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        if (codeReviewPanel != null) {
-            codeReviewPanel.applyTheme(guiTheme);
-        }
-        if (fileTreePanel != null) {
-            fileTreePanel.applyTheme(guiTheme);
-        }
-        if (diffCore != null) {
-            for (var panel : diffCore.getCachedPanels()) {
-                panel.applyTheme(guiTheme);
-            }
+        codeReviewPanel.applyTheme(guiTheme);
+        fileTreePanel.applyTheme(guiTheme);
+        for (var panel : diffCore.getCachedPanels()) {
+            panel.applyTheme(guiTheme);
         }
     }
 
     public void dispose() {
-        if (diffCore != null) {
-            diffCore.clearCache();
-        }
+        diffCore.clearCache();
     }
 
     public enum BaselineMode {
