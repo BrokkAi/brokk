@@ -231,6 +231,10 @@ public interface IContextManager {
         return beginTask(input, false, null);
     }
 
+    default ContextManager.TaskScope anonymousScope() {
+        throw new UnsupportedOperationException();
+    }
+
     default IConsoleIO getIo() {
         throw new UnsupportedOperationException();
     }

@@ -2254,22 +2254,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public class AnonymousScope extends TaskScope {
-        
+        private AnonymousScope() {
+            super(false, "");
+        }
 
         @Override
         public Context append(TaskResult result) throws InterruptedException {
-            return super.append(result);
+            return result.context();
         }
 
         @Override
-        public void publish(Context context) {
-            super.publish(context);
-        }
+        public void publish(Context context) {}
 
         @Override
         public void close() throws InterruptedException {
-            super.close();
         }
+    }
+    public AnonymousScope anonymousScope() {
+        return new AnonymousScope();
     }
 
     public List<Context> getContextHistoryList() {

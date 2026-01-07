@@ -21,6 +21,7 @@ import java.awt.Font;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
 import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JMenuItem;
@@ -165,16 +166,14 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         contextManager.pushContext(ctx -> {
             var currentTasks = ctx.getTaskListDataOrEmpty().tasks();
 
-            // Idempotency: skip if an identical task already exists in the list
-            boolean alreadyExists = currentTasks.stream().anyMatch(t -> text.equals(t.text()));
-
-            if (alreadyExists) {
+            if (currentTasks.stream().anyMatch(t -> text.equals(t.text()))) {
                 return ctx;
             }
 
-            var newList = new ArrayList<>(currentTasks);
-            newList.add(new TaskList.TaskItem(null, text, false));
-            return ctx.withTaskList(new TaskList.TaskListData(List.copyOf(newList)));
+            var newTasks = Stream.concat(currentTasks.stream(), Stream.of(new TaskList.TaskItem(null, text, false)))
+                    .toList();
+
+            return ctx.withTaskList(new TaskList.TaskListData(newTasks));
         });
     }
 

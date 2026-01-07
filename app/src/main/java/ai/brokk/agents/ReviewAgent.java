@@ -3,7 +3,6 @@ package ai.brokk.agents;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
-import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
@@ -90,7 +89,7 @@ public class ReviewAgent {
         var model = cm.getService().getModel(ModelType.ARCHITECT);
         var scanConfig = SearchAgent.ScanConfig.noAppend();
 
-        try (ContextManager.TaskScope scope = cm.beginTask(goal, false, "Code Review")) {
+        try (var scope = cm.anonymousScope()) {
             var searchTools = List.of(
                     "addSymbolUsagesToWorkspace",
                     "addClassesToWorkspace",
