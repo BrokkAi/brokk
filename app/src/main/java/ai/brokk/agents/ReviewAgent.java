@@ -43,6 +43,14 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public class ReviewAgent {
 
+    @FunctionalInterface
+    public interface ProgressUpdater {
+        /**
+         * @param progress value between 0 and 100
+         */
+        void updateProgress(int progress);
+    }
+
     private final String diff;
     private final IContextManager cm;
     private final IConsoleIO io;
@@ -53,6 +61,12 @@ public class ReviewAgent {
         this.cm = cm;
         this.io = io;
         this.fileComparisons = fileComparisons;
+    }
+
+    private @Nullable ProgressUpdater progressUpdater;
+
+    public void setProgressUpdater(@Nullable ProgressUpdater updater) {
+        this.progressUpdater = updater;
     }
 
     @Blocking
@@ -82,6 +96,13 @@ public class ReviewAgent {
                     "addFileSummariesToWorkspace",
                     "addFilesToWorkspace");
             SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, io, scanConfig, searchTools);
+            java.util.concurrent.atomic.AtomicInteger searchTurnCount = new java.util.concurrent.atomic.AtomicInteger(0);
+            agent.setTurnListener(() -> {
+                int turns = searchTurnCount.incrementAndGet();
+                if (progressUpdater != null) {
+                    progressUpdater.updateProgress(Math.min(10, turns * 2));
+                }
+            });
 
             // Phase 1: Establish context using SearchAgent
             TaskResult searchResult = agent.execute();
@@ -103,6 +124,20 @@ public class ReviewAgent {
                     WorkspacePrompts.getMessagesInAddedOrder(finalContext, EnumSet.noneOf(SpecialTextType.class)));
             turn1Messages.add(buildAnalysisRequestMessage());
 
+            java.util.concurrent.atomic.AtomicInteger linesSeen = new java.util.concurrent.atomic.AtomicInteger(0);
+            ai.brokk.cli.MemoryConsole progressConsole = new ai.brokk.cli.MemoryConsole() {
+                @Override
+                public void llmOutput(String token, dev.langchain4j.data.message.ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
+                    super.llmOutput(token, type, explicitNewMessage, isReasoning);
+                    if (token.contains("\n") && progressUpdater != null) {
+                        int lines = linesSeen.addAndGet((int) token.chars().filter(ch -> ch == '\n').count());
+                        int p = 10 + (lines / 10);
+                        progressUpdater.updateProgress(Math.min(80, p));
+                    }
+                }
+            };
+
+            reviewLlm.setOutput(progressConsole);
             var turn1Result = reviewLlm.sendRequest(turn1Messages);
             if (turn1Result.error() != null) {
                 throw new RuntimeException("Failed to analyze diff for review: "
@@ -123,7 +158,23 @@ public class ReviewAgent {
 
             var tr = cm.getToolRegistry().builder().register(this).build();
             var toolSpecs = tr.getTools(List.of("createReview"));
-            var turn2Result = reviewLlm.sendRequest(turn2Messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+
+            javax.swing.Timer turn2Timer = new javax.swing.Timer(1000, null);
+            java.util.concurrent.atomic.AtomicInteger turn2Seconds = new java.util.concurrent.atomic.AtomicInteger(0);
+            turn2Timer.addActionListener(e -> {
+                if (progressUpdater != null) {
+                    int p = 80 + turn2Seconds.incrementAndGet();
+                    progressUpdater.updateProgress(Math.min(100, p));
+                }
+            });
+            turn2Timer.start();
+
+            Llm.StreamingResult turn2Result;
+            try {
+                turn2Result = reviewLlm.sendRequest(turn2Messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+            } finally {
+                turn2Timer.stop();
+            }
 
             if (turn2Result.error() != null || turn2Result.toolRequests().isEmpty()) {
                 throw new RuntimeException("Failed to generate code review: "

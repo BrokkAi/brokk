@@ -114,6 +114,17 @@ public class SearchAgent {
     // State toggles
     protected boolean beastMode;
 
+    @FunctionalInterface
+    public interface TurnListener {
+        void turnFinished();
+    }
+
+    private @Nullable TurnListener turnListener;
+
+    public void setTurnListener(@Nullable TurnListener listener) {
+        this.turnListener = listener;
+    }
+
     public SearchAgent(
             Context initialContext,
             String goal,
@@ -408,6 +419,9 @@ public class SearchAgent {
                 }
             } finally {
                 endTurnAndRecordFileChanges(filesBeforeSet);
+                if (turnListener != null) {
+                    turnListener.turnFinished();
+                }
             }
         }
     }

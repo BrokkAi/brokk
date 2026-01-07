@@ -641,34 +641,28 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         var parent = listPanel.getParent();
         if (parent == null) return;
 
-        JTextArea logArea = new JTextArea();
-        logArea.setEditable(false);
-        logArea.setLineWrap(true);
-        logArea.setWrapStyleWord(true);
-        logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
-        logArea.setBackground(ThemeColors.getPanelBackground());
-        logArea.setForeground(UIManager.getColor("Label.foreground"));
-        JScrollPane logScrollPane = new JScrollPane(logArea);
-        logScrollPane.setBorder(null);
+        JProgressBar progressBar = new JProgressBar(0, 100);
+        progressBar.setStringPainted(true);
+        progressBar.setString("Starting guided review...");
 
-        // Mimic the ReviewListPanel layout to prevent "bouncing"
-        JPanel progressPanel = new JPanel(new BorderLayout());
+        JPanel progressPanel = new JPanel(new GridBagLayout());
         progressPanel.setBackground(ThemeColors.getPanelBackground());
         progressPanel.setMinimumSize(new Dimension(200, 200));
         progressPanel.setPreferredSize(listPanel.getPreferredSize());
 
-        JPanel shimHeader = new JPanel(new BorderLayout());
-        shimHeader.setOpaque(false);
-        shimHeader.setBorder(new EmptyBorder(10, 10, 10, 10));
-        var generatingBtn = new ai.brokk.gui.components.MaterialButton("Generating...");
-        SwingUtil.applyPrimaryButtonStyle(generatingBtn);
-        generatingBtn.setEnabled(false);
-        shimHeader.add(generatingBtn, BorderLayout.CENTER);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        gbc.insets = new java.awt.Insets(20, 20, 20, 20);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.weightx = 1.0;
 
-        progressPanel.add(shimHeader, BorderLayout.NORTH);
-        progressPanel.add(logScrollPane, BorderLayout.CENTER);
+        JLabel statusLabel = new JLabel("Brokk is analyzing your changes...", SwingConstants.CENTER);
+        statusLabel.setFont(statusLabel.getFont().deriveFont(Font.BOLD, 14f));
+        progressPanel.add(statusLabel, gbc);
 
-        TextAreaConsoleIO tio = new TextAreaConsoleIO(logArea, chrome, "Starting guided review...", false);
+        gbc.gridy = 1;
+        progressPanel.add(progressBar, gbc);
 
         final int savedDividerLocation = (parent instanceof JSplitPane sp) ? sp.getDividerLocation() : -1;
 
@@ -698,7 +692,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 if (cachedJson.isPresent()) {
                     review = ReviewParser.GuidedReview.fromJson(cachedJson.get());
                 } else {
-                    var agent = new ReviewAgent(formattedDiff, contextManager, tio, fileComparisons);
+                    var agent = new ReviewAgent(formattedDiff, contextManager, chrome, fileComparisons);
+                    agent.setProgressUpdater(p -> SwingUtilities.invokeLater(() -> {
+                        progressBar.setValue(p);
+                        if (p < 10) progressBar.setString("Gathering context...");
+                        else if (p < 80) progressBar.setString("Analyzing changes...");
+                        else progressBar.setString("Generating review...");
+                    }));
                     review = agent.execute();
                     diskCache.put(cacheKey, review.toJson());
                 }
