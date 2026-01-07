@@ -18,6 +18,10 @@
 (enum_specifier
   name: (type_identifier) @enum.name) @enum.definition
 
+; Enumerators (enum members)
+(enumerator
+  name: (identifier) @enumerator.name) @field.definition
+
 ; Global function definitions (non-method functions)
 ; Capture the inner declarator generically so destructors and scoped out-of-class definitions
 ; (which may use field_identifier or more complex declarator shapes) are captured as well.
