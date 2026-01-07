@@ -80,9 +80,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private JLabel headerLabel;
 
-    @Nullable
-    private JProgressBar headerProgressBar = null;
-
     private final MaterialButton commitBtn;
 
     private final MaterialButton pullBtn;
@@ -452,18 +449,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         headerLabel.setFont(headerLabel.getFont().deriveFont(Font.BOLD));
         headerPanel.add(headerLabel, BorderLayout.WEST);
 
-        // Create progress bar for the header (hidden by default)
-        headerProgressBar = new JProgressBar(0, 100);
-        headerProgressBar.setStringPainted(true);
-        headerProgressBar.setString("");
-        headerProgressBar.setVisible(false);
-        headerProgressBar.setPreferredSize(new Dimension(130, 16));
-
-        var progressWrapper = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        progressWrapper.setOpaque(false);
-        progressWrapper.add(headerProgressBar);
-        headerPanel.add(progressWrapper, BorderLayout.CENTER);
-
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         buttonPanel.setOpaque(false);
 
@@ -804,21 +789,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         setGuidedReviewBusy(true);
         codeReviewPanel.setBusy(true);
 
-        // Show progress bar in header
-        if (headerProgressBar != null) {
-            headerProgressBar.setValue(0);
-            headerProgressBar.setString("Starting review...");
-            headerProgressBar.setVisible(true);
-        }
-
         contextManager.submitLlmAction(() -> {
             try {
                 var changes = lastCumulativeChanges;
                 if (changes == null) {
                     SwingUtilities.invokeLater(() -> {
-                        if (headerProgressBar != null) {
-                            headerProgressBar.setVisible(false);
-                        }
                         codeReviewPanel.setBusy(false);
                         setGuidedReviewBusy(false);
                         revalidate();
@@ -832,14 +807,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         .collect(java.util.stream.Collectors.joining("\n\n"));
 
                 var agent = new ReviewAgent(formattedDiff, contextManager, chrome, fileComparisons);
-                agent.setProgressUpdater(p -> SwingUtilities.invokeLater(() -> {
-                    if (headerProgressBar != null) {
-                        headerProgressBar.setValue(p);
-                        if (p < 10) headerProgressBar.setString("Gathering context...");
-                        else if (p < 80) headerProgressBar.setString("Analyzing changes...");
-                        else headerProgressBar.setString("Generating review...");
-                    }
-                }));
 
                 ReviewParser.GuidedReview review = agent.execute();
 
@@ -847,9 +814,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 long now = System.currentTimeMillis();
 
                 SwingUtilities.invokeLater(() -> {
-                    if (headerProgressBar != null) {
-                        headerProgressBar.setVisible(false);
-                    }
                     lastReviewState = new ReviewState(currentHash, now);
                     hasGeneratedReview = true;
                     updateReviewPanelVisibility(true);
@@ -863,9 +827,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (ReviewGenerationException ex) {
                 logger.warn("Review generation failed: {}", ex.getMessage());
                 SwingUtilities.invokeLater(() -> {
-                    if (headerProgressBar != null) {
-                        headerProgressBar.setVisible(false);
-                    }
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
 
@@ -879,9 +840,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (Exception ex) {
                 logger.error("Unexpected error during review generation", ex);
                 SwingUtilities.invokeLater(() -> {
-                    if (headerProgressBar != null) {
-                        headerProgressBar.setVisible(false);
-                    }
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());
