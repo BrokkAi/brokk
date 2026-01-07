@@ -110,6 +110,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         this.chrome = chrome;
         this.parentDialog = parentDialog;
+        this.gitSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
         setLayout(new BorderLayout());
         initComponents(); // This will fully initialize or conditionally initialize fields
         // NOTE: loadSettings() is now called explicitly in SettingsDialog.showSettingsDialog()
@@ -630,8 +631,6 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
     }
 
     private JPanel createGitTabPanel() {
-        gitSettingsPanel = new GitHubSettingsPanel(chrome.getContextManager(), this);
-
         var gpgPanel = new JPanel(new GridBagLayout());
         gpgPanel.setBorder(BorderFactory.createTitledBorder("GPG Signing"));
         var gbc = new GridBagConstraints();

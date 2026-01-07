@@ -51,8 +51,7 @@ public class GpgKeyUtil {
         try {
             Process process = pb.start();
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                    process.getInputStream(),
-                    SystemReader.getInstance().getDefaultCharset()))) {
+                    process.getInputStream(), SystemReader.getInstance().getDefaultCharset()))) {
 
                 String line;
                 String currentKeyId = null;
