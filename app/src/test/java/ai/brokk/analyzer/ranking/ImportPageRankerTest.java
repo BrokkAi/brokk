@@ -343,7 +343,7 @@ public class ImportPageRankerTest {
 
             ProjectFile importer = files.get("Importer.java");
             ProjectFile imported = files.get("Imported.java");
-            
+
             assert importer != null : "Importer.java not found in project";
             assert imported != null : "Imported.java not found in project";
 
@@ -357,7 +357,8 @@ public class ImportPageRankerTest {
             List<ProjectFile> resultFiles =
                     results.stream().map(IAnalyzer.FileRelevance::file).toList();
 
-            assertTrue(resultFiles.contains(importer),
+            assertTrue(
+                    resultFiles.contains(importer),
                     "Importer.java should be found from Imported.java via reverse reference traversal");
         }
     }
@@ -370,12 +371,9 @@ public class ImportPageRankerTest {
     @Test
     public void testDirectionalityOfReversedFlag() throws Exception {
         // Setup: Upstream <- Middle <- Downstream
-        try (var project = InlineTestProjectCreator.code(
-                        "package test; public class Upstream {}", "test/Upstream.java")
-                .addFileContents(
-                        "package test; import test.Upstream; public class Middle {}", "test/Middle.java")
-                .addFileContents(
-                        "package test; import test.Middle; public class Downstream {}", "test/Downstream.java")
+        try (var project = InlineTestProjectCreator.code("package test; public class Upstream {}", "test/Upstream.java")
+                .addFileContents("package test; import test.Upstream; public class Middle {}", "test/Middle.java")
+                .addFileContents("package test; import test.Middle; public class Downstream {}", "test/Downstream.java")
                 .build()) {
 
             IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
@@ -391,15 +389,21 @@ public class ImportPageRankerTest {
             Map<ProjectFile, Double> seeds = Map.of(middle, 1.0);
 
             // 1. reversed=false (outgoing: what does Middle import?)
-            List<ProjectFile> forwardResults = ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, false)
-                    .stream().map(IAnalyzer.FileRelevance::file).toList();
+            List<ProjectFile> forwardResults =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, false).stream()
+                            .map(IAnalyzer.FileRelevance::file)
+                            .toList();
 
             assertTrue(forwardResults.contains(upstream), "reversed=false should include files the seed imports");
-            assertFalse(forwardResults.contains(downstream), "reversed=false should NOT include files that import the seed");
+            assertFalse(
+                    forwardResults.contains(downstream),
+                    "reversed=false should NOT include files that import the seed");
 
             // 2. reversed=true (incoming: what imports Middle?)
-            List<ProjectFile> reverseResults = ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, true)
-                    .stream().map(IAnalyzer.FileRelevance::file).toList();
+            List<ProjectFile> reverseResults =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, true).stream()
+                            .map(IAnalyzer.FileRelevance::file)
+                            .toList();
 
             assertTrue(reverseResults.contains(downstream), "reversed=true should include files that import the seed");
             assertFalse(reverseResults.contains(upstream), "reversed=true should NOT include files the seed imports");

@@ -14,19 +14,15 @@ import org.pcollections.PMap;
  */
 @NullMarked
 public record ImportGraph(
-        PMap<ProjectFile, Set<CodeUnit>> imports,
-        PMap<ProjectFile, Set<ProjectFile>> reverseImports) {
+        PMap<ProjectFile, Set<CodeUnit>> imports, PMap<ProjectFile, Set<ProjectFile>> reverseImports) {
 
     public static ImportGraph empty() {
         return new ImportGraph(HashTreePMap.empty(), HashTreePMap.empty());
     }
 
     public static ImportGraph from(
-            Map<ProjectFile, Set<CodeUnit>> imports,
-            Map<ProjectFile, Set<ProjectFile>> reverseImports) {
-        return new ImportGraph(
-                HashTreePMap.from(imports),
-                HashTreePMap.from(reverseImports));
+            Map<ProjectFile, Set<CodeUnit>> imports, Map<ProjectFile, Set<ProjectFile>> reverseImports) {
+        return new ImportGraph(HashTreePMap.from(imports), HashTreePMap.from(reverseImports));
     }
 
     /**

@@ -507,22 +507,18 @@ public final class TreeSitterStateIO {
 
         // Rebuild forward imports Map for ImportGraph
         Map<ProjectFile, Set<CodeUnit>> importsMap = new HashMap<>();
-        if (dto.imports() != null) {
-            for (var entry : dto.imports()) {
-                importsMap.put(
-                        fromDto(entry.key()),
-                        entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
-            }
+        for (var entry : dto.imports()) {
+            importsMap.put(
+                    fromDto(entry.key()),
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
         }
 
         // Rebuild reverse imports Map for ImportGraph
         Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
-        if (dto.reverseImports() != null) {
-            for (var entry : dto.reverseImports()) {
-                reverseImportsMap.put(
-                        fromDto(entry.key()),
-                        entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
-            }
+        for (var entry : dto.reverseImports()) {
+            reverseImportsMap.put(
+                    fromDto(entry.key()),
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
         }
 
         // Rebuild SymbolKeyIndex

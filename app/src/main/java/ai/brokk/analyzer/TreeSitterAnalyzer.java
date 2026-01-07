@@ -139,9 +139,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param importStatements  imports found on this file.
      */
     public record FileProperties(
-            List<CodeUnit> topLevelCodeUnits,
-            @JsonIgnore @Nullable TSTree parsedTree,
-            List<String> importStatements) {
+            List<CodeUnit> topLevelCodeUnits, @JsonIgnore @Nullable TSTree parsedTree, List<String> importStatements) {
 
         public static FileProperties empty() {
             return new FileProperties(Collections.emptyList(), null, Collections.emptyList());
@@ -3415,9 +3413,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         targetFileState.put(
                 pf,
                 new FileProperties(
-                        analysisResult.topLevelCUs(),
-                        analysisResult.parsedTree(),
-                        analysisResult.importStatements()));
+                        analysisResult.topLevelCUs(), analysisResult.parsedTree(), analysisResult.importStatements()));
 
         long __mergeEnd = System.nanoTime();
         if (timing != null) {
@@ -3706,7 +3702,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                             FileProperties fileProps = entry.getValue();
                             Set<CodeUnit> resolved =
                                     delegateForImports.resolveImports(file, fileProps.importStatements());
-                            if (resolved != null && !resolved.isEmpty()) {
+                            if (!resolved.isEmpty()) {
                                 resolvedImportsMap.put(file, Collections.unmodifiableSet(new HashSet<>(resolved)));
                             }
                             progressReporter.increment();
@@ -3722,7 +3718,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
         resolvedImportsMap.forEach((importer, importedCUs) -> {
             for (CodeUnit cu : importedCUs) {
-                reverseImportsMap.computeIfAbsent(cu.source(), k -> new HashSet<>()).add(importer);
+                reverseImportsMap
+                        .computeIfAbsent(cu.source(), k -> new HashSet<>())
+                        .add(importer);
             }
         });
 

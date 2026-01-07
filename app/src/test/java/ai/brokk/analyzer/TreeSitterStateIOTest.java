@@ -194,8 +194,8 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto dto =
-                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         Path out = tempDir.resolve("roundtrip.smile.gz");
@@ -272,9 +272,7 @@ public class TreeSitterStateIOTest {
         var fileB = new ProjectFile(root, Path.of("B.java"));
         var cuB = CodeUnit.cls(fileB, "com.example", "B");
 
-        var importGraph = ImportGraph.from(
-                Map.of(fileA, Set.of(cuB)),
-                Map.of(fileB, Set.of(fileA)));
+        var importGraph = ImportGraph.from(Map.of(fileA, Set.of(cuB)), Map.of(fileB, Set.of(fileA)));
 
         var state = new TreeSitterAnalyzer.AnalyzerState(
                 HashTreePMap.empty(),
