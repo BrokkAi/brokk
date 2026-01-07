@@ -93,8 +93,9 @@ public class ReviewAgent {
         Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
 
         // Configure SearchAgent with ARCHITECT model and noAppend scan config
-        var model = cm.getService().getModel(ModelType.ARCHITECT);
-        var scanConfig = SearchAgent.ScanConfig.noAppend();
+        var architectModel = cm.getService().getModel(ModelType.ARCHITECT);
+        var scanModel = cm.getService().getModel(ModelType.SCAN);
+        var searchScanConfig = SearchAgent.ScanConfig.noAppend();
 
         try (var scope = cm.anonymousScope()) {
             var searchTools = List.of(
@@ -104,7 +105,8 @@ public class ReviewAgent {
                     "addMethodsToWorkspace",
                     "addFileSummariesToWorkspace",
                     "addFilesToWorkspace");
-            SearchAgent agent = new SearchAgent(initialContext, goal, model, scope, io, scanConfig, searchTools);
+            SearchAgent agent =
+                    new SearchAgent(initialContext, goal, architectModel, scope, io, searchScanConfig, searchTools);
             AtomicInteger searchTurnCount = new AtomicInteger(0);
             agent.setTurnListener(() -> {
                 int turns = searchTurnCount.incrementAndGet();
@@ -120,10 +122,13 @@ public class ReviewAgent {
 
             // Phase 2: Two-turn review process
             var reviewContext = searchResult.context().withHistory(List.of());
-            var reviewLlm = cm.getLlm(new Llm.Options(model, "Code Review").withEcho());
-            reviewLlm.setOutput(io);
+            var turn1Llm = cm.getLlm(new Llm.Options(architectModel, "Code Review").withEcho());
+            turn1Llm.setOutput(io);
 
-            // --- Turn 1: Analyze the diff and extract code excerpts ---
+            var turn2Llm = cm.getLlm(new Llm.Options(scanModel, "Code Review (Structuring)").withEcho());
+            turn2Llm.setOutput(io);
+
+            // --- Turn 1: Full Markdown review + excerpt extraction ---
             var turn1Messages = new ArrayList<ChatMessage>();
             turn1Messages.add(buildSystemMessage());
             turn1Messages.addAll(
@@ -149,19 +154,21 @@ public class ReviewAgent {
                 }
             };
 
-            reviewLlm.setOutput(progressConsole);
-            var turn1Result = reviewLlm.sendRequest(turn1Messages);
+            turn1Llm.setOutput(progressConsole);
+            var turn1Result = turn1Llm.sendRequest(turn1Messages);
             if (turn1Result.error() != null) {
                 throw new ReviewGenerationException("Failed to analyze diff for review", turn1Result.error());
             }
 
             // --- Turn 1.5: Retry for missing files and non-matching excerpts ---
             // Returns fully resolved excerpts with line numbers and sides
-            RetryResult retryResult = retryInStages(reviewLlm, turn1Messages, turn1Result);
+            RetryResult retryResult = retryInStages(turn1Llm, turn1Messages, turn1Result);
             Map<Integer, CodeExcerpt> resolvedExcerpts = retryResult.resolvedExcerpts();
 
-            // --- Turn 2: Generate structured review via tool call ---
-            var turn2Messages = new ArrayList<ChatMessage>(turn1Messages);
+            // --- Turn 2: Convert Markdown review into structured tool call (fresh context) ---
+            String mergedReviewText;
+            String mergedReasoning = requireNonNullElse(
+                    requireNonNull(turn1Result.chatResponse()).reasoningContent(), "");
 
             if (retryResult.retryCount() > 0) {
                 // Collapse Turn 1 and its retries into a single clean turn
@@ -181,18 +188,18 @@ public class ReviewAgent {
                                                 e.getValue().line(),
                                                 e.getValue().excerpt()))
                         .collect(java.util.stream.Collectors.joining("\n\n"));
-
-                String collapsedText = baseText + "\n\n" + serializedExcerpts;
-                turn2Messages.add(new AiMessage(
-                        collapsedText,
-                        requireNonNullElse(
-                                requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+                mergedReviewText = baseText + "\n\n" + serializedExcerpts;
             } else {
-                turn2Messages.add(new AiMessage(
-                        turn1Result.text(),
-                        requireNonNullElse(
-                                requireNonNull(turn1Result.chatResponse()).reasoningContent(), "")));
+                mergedReviewText = turn1Result.text();
             }
+
+            Context turn2Context = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
+
+            var turn2Messages = new ArrayList<ChatMessage>();
+            turn2Messages.add(buildTurn2SystemMessage());
+            turn2Messages.addAll(
+                    WorkspacePrompts.getMessagesInAddedOrder(turn2Context, EnumSet.noneOf(SpecialTextType.class)));
+            turn2Messages.add(new AiMessage(mergedReviewText, mergedReasoning));
             turn2Messages.add(buildReviewRequestMessage());
 
             var tr = cm.getToolRegistry().builder().register(this).build();
@@ -209,7 +216,7 @@ public class ReviewAgent {
 
             Llm.StreamingResult turn2Result;
             try {
-                turn2Result = reviewLlm.sendRequest(turn2Messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+                turn2Result = turn2Llm.sendRequest(turn2Messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
             } finally {
                 turn2Timer.stop();
             }
@@ -228,7 +235,7 @@ public class ReviewAgent {
                             requireNonNull(turn2Result.chatResponse()).reasoningContent(), "")));
             // clunky way to get a context but that's what it looks like I guess
             var tf = new ContextFragments.TaskFragment(cm, turn2Messages, "Guided Review");
-            var cf = AbstractService.ModelConfig.from(model, cm.getService());
+            var cf = AbstractService.ModelConfig.from(scanModel, cm.getService());
             var te = new TaskEntry(0, tf, null, new TaskResult.TaskMeta(TaskResult.Type.REVIEW, cf));
             reviewContext = reviewContext.addHistoryEntry(te, null);
 
@@ -447,76 +454,119 @@ public class ReviewAgent {
     private SystemMessage buildSystemMessage() {
         return new SystemMessage(
                 """
-                You are an expert code reviewer. Your task is to analyze the proposed changes
-                and identify the most important code excerpts that warrant discussion.
+                You are an expert code reviewer. Your task is to review the proposed changes based on the diff and the gathered workspace context.
 
                 Focus on:
                 1. Design issues - architectural concerns, coupling, abstraction problems
                 2. Tactical issues - local bugs, edge cases, error handling gaps
                 3. Testing gaps - missing test coverage that would add significant value
 
-                Be constructive and specific in your analysis.
+                Be constructive and specific.
+                """);
+    }
+
+    private SystemMessage buildTurn2SystemMessage() {
+        return new SystemMessage(
+                """
+                You are a review transcription assistant.
+
+                You will be given:
+                - The proposed diff
+                - A complete Markdown code review produced by a separate (smarter) model, including BRK_EXCERPT blocks
+
+                Your job is ONLY to convert that existing Markdown review into a single createReview tool call.
+                Do NOT editorialize, expand, paraphrase, add new findings, remove findings, or change priorities.
+                Preserve the wording and intent of the provided review as closely as possible.
+
+                Where the Markdown review contains excerpt references like BRK_EXCERPT_3, use the numeric IDs (e.g., 3) in the tool call.
                 """);
     }
 
     private UserMessage buildAnalysisRequestMessage() {
         return new UserMessage(
                 """
-                Analyze the proposed changes in the diff against the gathered context.
+                Write a complete code review in Markdown based on the proposed diff and the gathered workspace context.
 
-                ### Step 1: Analysis
-                Think step-by-step about the intent, design, and testing gaps:
-                  - What is this code intended to do?
-                  - Does it accomplish its goals in the simplest way possible?
-                  - What parts are the trickiest and how could they be simplified?
-                  - What additional tests, if any, would add the most value?
+                Your output MUST follow this exact section structure:
 
-                ### Step 2: Code Excerpt Extraction
-                Extract the subtle, tricky, or potentially incorrect blocks of code that you will
-                reference in your review. Use this exact format, with sequentially numbered, 0-based IDs.
-                IMPORTANT: Append @line_number to the filename to indicate where the excerpt starts.
+                ## Overview
+                Explain your understanding of what this PR is intended to do.
 
-                BRK_EXCERPT_0
-                path/to/filename.java @42
-                ```java
-                // code here
+                ## Design Notes
+                Focus on answering the question: does this accomplish its goals in the simplest way possible?
+
+                For each design-level concern (architectural issues, coupling, abstraction problems), use this template,
+                with placholders using $. Use Markdown for the overview, description, and recommendation sections.
+
+                ### $title
+                #### Description:
+                $description
+
+                [Include all of the most relevant code excerpts pertaining to this design note with the following format:]
+                BRK_EXCERPT_$N
+                path/to/file.java @$linenumber
+                ```
+                $excerpt
                 ```
 
-                BRK_EXCERPT_1
-                path/to/another_file.py @120
-                ```python
-                // code here
+                #### Recommendation:
+                $recommendation
+
+                ## Tactical Notes
+                For each local issue (local bugs, edge cases, error handling gaps), use this template:
+
+                ### $title
+                #### Description
+                $description
+
+                [Include the single most relevant code excerpt pertaining to this design note with the following format:]
+                BRK_EXCERPT_$N
+                path/to/file.java @$linenumber
+                ```
+                $excerpt
                 ```
 
-                Include ALL excerpts you plan to reference in your feedback.
+                #### Recommendation:
+                $ recommendation
+
+                ## Additional Tests
+                
+                For each test, include the description as a list bullet:
+                - $description
                 """);
     }
 
     private UserMessage buildReviewRequestMessage() {
         return new UserMessage(
                 """
-                Now call createReview to produce the final structured review.
+                Convert the provided Markdown review into a single createReview tool call.
 
-                For each item [except Overview], provide a `title` which is a short 4-5 word label summarizing the feedback,
-                a `description` explaining the problem in detail, and
-                a `recommendation` for remediation detailed enough to give to Code Agent.
-                DesignFeedback may have multiple CodeExcerpts associated with it, while
-                TacticalFeedback should each have a single CodeExcerpt.
+                Critical rules:
+                - Do NOT editorialize or alter the review content.
+                - Do NOT add new findings, remove findings, or change priorities.
+                - Preserve titles, descriptions, recommendations, and test suggestions as closely as possible (copy, do not rewrite).
+                - Only perform the minimal transformation required to populate createReview fields.
 
-                Reference the excerpts you extracted by their numeric ID (0, 1, 2, ...) in your
-                designNotes and tacticalNotes fields.
+                Excerpt handling:
+                The input review contains BRK_EXCERPT_$id blocks embedded inline within Design Notes and Tactical Notes. These
+                must be referenced by id in the review parameters. OMIT excerpt blocks from your transcribed
+                title, description, and recommendation fields.
 
-                Use Markdown formatting in description and recommendation fields.
+                Mapping rules:
+                - Use the Markdown "## Overview" content as the createReview `overview` argument.
+                - Each "### <Title>" under "## Design Notes" becomes one RawDesignFeedback with:
+                  - title: the "### <Title>" text
+                  - description: the "Description:" content (with BRK_EXCERPT blocks replaced by BRK_EXCERPT_N references)
+                  - recommendation: the "Recommendation:" content
+                  - excerptIds: list of the numeric IDs assigned to excerpts that were embedded in this note
+                - Each "### <Title>" under "## Tactical Notes" becomes one RawTacticalFeedback with:
+                  - title: the "### <Title>" text
+                  - description: the "Description:" content (with BRK_EXCERPT block replaced by BRK_EXCERPT_N reference)
+                  - recommendation: the "Recommendation:" content
+                  - excerptId: the numeric ID assigned to the single excerpt embedded in this note
+                - Use the Markdown "## Additional Tests" bullet list as `additionalTests` (one string per bullet).
 
-                Remember:
-                - overview: Explain what changes accomplish and whether they do so simply
-                - designNotes: High-level architectural concerns with excerpt references
-                - tacticalNotes: Local bugs/issues with excerpt references
-                - additionalTests: High-value tests that should be added
-
-                Be opinionated in your recommendations: pick the best solution instead of giving multiple options.
-                Your recommendations should include enough context that they can be added as standalone
-                tasks for the Code Agent to execute.
+                Now call createReview.
                 """);
     }
 
