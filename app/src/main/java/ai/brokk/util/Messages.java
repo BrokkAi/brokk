@@ -189,7 +189,7 @@ public class Messages {
      */
     public static boolean shouldDisplayInMop(ChatMessage message) {
         if (message instanceof ToolExecutionResultMessage) {
-            return Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+            return Boolean.parseBoolean(System.getProperty("brokk.showtoolresult", "false"));
         }
         return true;
     }

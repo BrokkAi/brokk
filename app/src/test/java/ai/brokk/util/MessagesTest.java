@@ -66,14 +66,14 @@ class MessagesTest {
 
     @Test
     void shouldDisplayInMop_toolExecutionResult_hiddenByDefault() {
-        String original = System.getProperty("brokk.devmode");
+        String original = System.getProperty("brokk.showtoolresult");
         try {
-            System.setProperty("brokk.devmode", "false");
+            System.setProperty("brokk.showtoolresult", "false");
             var message = new ToolExecutionResultMessage("tool", "id", "result");
             assertFalse(Messages.shouldDisplayInMop(message));
         } finally {
-            if (original != null) System.setProperty("brokk.devmode", original);
-            else System.clearProperty("brokk.devmode");
+            if (original != null) System.setProperty("brokk.showtoolresult", original);
+            else System.clearProperty("brokk.showtoolresult");
         }
     }
 
