@@ -2,11 +2,12 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.AbstractWatchService.EventBatch;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
+import ai.brokk.watchservice.AbstractWatchService;
+import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Files;
 import java.nio.file.Path;

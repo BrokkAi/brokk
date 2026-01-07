@@ -1,9 +1,9 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.AbstractWatchService.EventBatch;
-import ai.brokk.AbstractWatchService.Listener;
+import ai.brokk.watchservice.AbstractWatchService.EventBatch;
+import ai.brokk.watchservice.AbstractWatchService.Listener;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;

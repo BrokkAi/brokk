@@ -1,4 +1,4 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
 import static java.util.Objects.requireNonNull;
 
@@ -89,9 +89,9 @@ public interface AbstractWatchService extends AutoCloseable {
 
     /** mutable since we will collect events until they stop arriving */
     class EventBatch {
-        boolean isOverflowed;
-        boolean untrackedGitignoreChanged;
-        Set<ProjectFile> files = new HashSet<>();
+        public boolean isOverflowed;
+        public boolean untrackedGitignoreChanged;
+        public Set<ProjectFile> files = new HashSet<>();
 
         @Override
         public String toString() {

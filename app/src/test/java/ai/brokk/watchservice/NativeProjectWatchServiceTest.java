@@ -1,4 +1,4 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
 import static org.junit.jupiter.api.Assertions.*;
 

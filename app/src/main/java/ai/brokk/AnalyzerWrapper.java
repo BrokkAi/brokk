@@ -2,7 +2,6 @@ package ai.brokk;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.AbstractWatchService.EventBatch;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
@@ -11,6 +10,8 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
 import ai.brokk.util.LoggingExecutorService;
+import ai.brokk.watchservice.AbstractWatchService;
+import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -64,7 +65,8 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      * @param analyzerListener Listener for analyzer lifecycle events (can be null for headless mode)
      * @param watchService The watch service to use (can be null for headless mode or testing)
      */
-    public AnalyzerWrapper(IProject project, AnalyzerListener analyzerListener, @NotNull AbstractWatchService watchService) {
+    public AnalyzerWrapper(
+            IProject project, AnalyzerListener analyzerListener, @NotNull AbstractWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
         this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;

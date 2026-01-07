@@ -38,6 +38,10 @@ import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.UiTools;
 import ai.brokk.util.*;
 import ai.brokk.util.UserActionManager.ThrowingRunnable;
+import ai.brokk.watchservice.AbstractWatchService;
+import ai.brokk.watchservice.FileWatcherHelper;
+import ai.brokk.watchservice.NoopWatchService;
+import ai.brokk.watchservice.WatchServiceFactory;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.Image;
@@ -2624,7 +2628,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // no AnalyzerListener, instead we will block for it to be ready
         // Headless mode doesn't need file watching, so pass null for both analyzerListener and watchService
-        this.analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new AbstractWatchService() {});
+        this.analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {

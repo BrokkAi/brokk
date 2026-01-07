@@ -1,4 +1,4 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
 import java.io.IOException;
 import java.lang.management.ManagementFactory;

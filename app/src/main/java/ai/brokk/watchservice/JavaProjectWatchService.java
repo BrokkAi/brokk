@@ -1,4 +1,4 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
 import ai.brokk.analyzer.ProjectFile;
 import java.awt.KeyboardFocusManager;
