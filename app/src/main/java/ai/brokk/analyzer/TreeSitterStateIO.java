@@ -407,9 +407,10 @@ public final class TreeSitterStateIO {
             fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
         }
 
-        // imports -> entries list
-        List<ImportEntryDto> importEntries = new ArrayList<>(state.importGraph().imports().size());
-        for (var e : state.importGraph().imports().entrySet()) {
+        // imports -> entries list from ImportGraph
+        var forwardImports = state.importGraph().imports();
+        List<ImportEntryDto> importEntries = new ArrayList<>(forwardImports.size());
+        for (var e : forwardImports.entrySet()) {
             importEntries.add(new ImportEntryDto(
                     toDto(e.getKey()),
                     e.getValue().stream()
@@ -419,10 +420,10 @@ public final class TreeSitterStateIO {
                             .toList()));
         }
 
-        // reverseImports -> entries list
-        List<ReverseImportEntryDto> reverseImportEntries =
-                new ArrayList<>(state.importGraph().reverseImports().size());
-        for (var e : state.importGraph().reverseImports().entrySet()) {
+        // reverseImports -> entries list from ImportGraph
+        var reverseImports = state.importGraph().reverseImports();
+        List<ReverseImportEntryDto> reverseImportEntries = new ArrayList<>(reverseImports.size());
+        for (var e : reverseImports.entrySet()) {
             reverseImportEntries.add(new ReverseImportEntryDto(
                     toDto(e.getKey()),
                     e.getValue().stream()
@@ -504,27 +505,23 @@ public final class TreeSitterStateIO {
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
 
-        // Rebuild imports Map
+        // Rebuild forward imports Map for ImportGraph
         Map<ProjectFile, Set<CodeUnit>> importsMap = new HashMap<>();
         if (dto.imports() != null) {
             for (var entry : dto.imports()) {
                 importsMap.put(
                         fromDto(entry.key()),
-                        entry.value().stream()
-                                .map(TreeSitterStateIO::fromDto)
-                                .collect(Collectors.toSet()));
+                        entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
             }
         }
 
-        // Rebuild reverseImports Map
+        // Rebuild reverse imports Map for ImportGraph
         Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
         if (dto.reverseImports() != null) {
             for (var entry : dto.reverseImports()) {
                 reverseImportsMap.put(
                         fromDto(entry.key()),
-                        entry.value().stream()
-                                .map(TreeSitterStateIO::fromDto)
-                                .collect(Collectors.toSet()));
+                        entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
             }
         }
 
