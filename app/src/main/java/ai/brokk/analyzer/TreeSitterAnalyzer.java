@@ -498,8 +498,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 formatSecondsMillis(mergeWall),
                 formatSecondsMillis(totalWall));
 
-        // Post-processing: resolve imports then compute supertypes in a single pipeline
-        var postProcessed = runPostProcessing(initialState);
+        // Post-processing: resolve imports then compute supertypes in a single pipeline.
+        // We track total progress across 3 stages to avoid the progress bar "jumping" back to 0.
+        // Stage 1: Parsing (completed during construction)
+        // Stage 2: Resolving imports
+        // Stage 3: Computing hierarchies
+        int totalStages = filesToProcess.size() + filesToProcess.size() + initialState.codeUnitState().size();
+        var postProcessed = runPostProcessing(initialState, filesToProcess.size(), totalStages);
         this.state = postProcessed;
 
         log.debug(
@@ -3530,21 +3535,39 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * without rebinding this.state. Each step returns a new AnalyzerState snapshot.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        var afterImports = runImportResolution(baseState);
-        return runTypeAnalysis(afterImports);
+        int totalFiles = baseState.fileState().size();
+        int totalClasses = (int) baseState.codeUnitState().keySet().stream().filter(CodeUnit::isClass).count();
+        // Since we are running post-processing on an already parsed state (incremental or snapshot),
+        // we set the total to (Files + Classes).
+        return runPostProcessing(baseState, 0, totalFiles + totalClasses);
+    }
+
+    /**
+     * Internal implementation of post-processing that supports continuous progress reporting
+     * across multiple stages.
+     */
+    protected AnalyzerState runPostProcessing(AnalyzerState baseState, int initialCompleted, int totalGlobal) {
+        var afterImports = runImportResolution(baseState, initialCompleted, totalGlobal);
+        int completedAfterImports = initialCompleted + baseState.fileState().size();
+        return runTypeAnalysis(afterImports, completedAfterImports, totalGlobal);
     }
 
     /**
      * Performs import resolution as a standalone step. Produces a new AnalyzerState with updated fileState.resolvedImports.
      */
     protected AnalyzerState runImportResolution(AnalyzerState baseState) {
+        return runImportResolution(baseState, 0, baseState.fileState().size());
+    }
+
+    private AnalyzerState runImportResolution(AnalyzerState baseState, int initialCompleted, int totalGlobal) {
         // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
         TreeSitterAnalyzer delegateForImports = (TreeSitterAnalyzer) newSnapshot(baseState);
 
         Map<ProjectFile, FileProperties> updatedFileState = new ConcurrentHashMap<>(baseState.fileState());
 
         int totalFiles = baseState.fileState().size();
-        var progressReporter = new DebouncedProgressReporter(totalFiles, "Resolving imports", 100);
+        var progressReporter = new DebouncedProgressReporter(totalGlobal, "Resolving imports", 100);
+        for (int i = 0; i < initialCompleted; i++) progressReporter.increment();
 
         int parallelism = Runtime.getRuntime().availableProcessors();
         try (var fjp = new java.util.concurrent.ForkJoinPool(parallelism)) {
@@ -3582,6 +3605,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Performs type analysis (direct supertypes) as a standalone step. Produces a new AnalyzerState with updated codeUnitState.supertypes.
      */
     protected AnalyzerState runTypeAnalysis(AnalyzerState baseState) {
+        int totalClasses = (int) baseState.codeUnitState().keySet().stream().filter(CodeUnit::isClass).count();
+        return runTypeAnalysis(baseState, 0, totalClasses);
+    }
+
+    private AnalyzerState runTypeAnalysis(AnalyzerState baseState, int initialCompleted, int totalGlobal) {
         // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
         TreeSitterAnalyzer delegateForTypes = (TreeSitterAnalyzer) newSnapshot(baseState);
 
@@ -3591,7 +3619,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         int totalClasses = (int) baseState.codeUnitState().keySet().stream()
                 .filter(CodeUnit::isClass)
                 .count();
-        var progressReporter = new DebouncedProgressReporter(totalClasses, "Computing type hierarchies", 100);
+        var progressReporter = new DebouncedProgressReporter(totalGlobal, "Computing type hierarchies", 100);
+        for (int i = 0; i < initialCompleted; i++) progressReporter.increment();
 
         int parallelism = Runtime.getRuntime().availableProcessors();
         try (var fjp = new java.util.concurrent.ForkJoinPool(parallelism)) {
