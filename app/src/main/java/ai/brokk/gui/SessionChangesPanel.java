@@ -59,6 +59,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public record ReviewState(String commitHash, long generatedAtMillis) {}
 
+    public record StalenessInfo(int commitsBehind, int uncommittedChanges) {}
+
     @Nullable
     private ReviewState lastReviewState = null;
 
@@ -638,6 +640,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
             return null;
         });
+    }
+
+    public @Nullable StalenessInfo computeStaleness() {
+        var state = lastReviewState;
+        if (state == null) {
+            return null;
+        }
+
+        int commitsBehind = repo.countCommitsSince(state.commitHash());
+        int uncommittedChanges = 0;
+        try {
+            uncommittedChanges = repo.getModifiedFiles().size();
+        } catch (GitAPIException e) {
+            logger.debug("Failed to get modified files for staleness check", e);
+        }
+
+        return new StalenessInfo(commitsBehind, uncommittedChanges);
     }
 
     private void generateGuidedReview() {
