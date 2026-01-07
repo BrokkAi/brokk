@@ -1435,7 +1435,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * should call after modifying the task list.
      */
     public void setTaskListAsync(TaskList.TaskListData data) {
-        CompletableFuture.runAsync(() -> {
+        submitContextTask(() -> {
             pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
         });
     }
