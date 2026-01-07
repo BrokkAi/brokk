@@ -243,18 +243,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
         updateSelection.run();
 
-        if (excerpts.size() > 1) {
-            JPanel headerPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
-            headerPanel.setOpaque(false);
-            headerPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-            JLabel countLabel = new JLabel(String.format("Locations (%d):", excerpts.size()));
-            countLabel.setFont(countLabel.getFont().deriveFont(Font.BOLD));
-            headerPanel.add(countLabel);
-
-            container.add(headerPanel);
-        }
-
         container.add(chipPanel);
         contentPanel.add(container);
     }
