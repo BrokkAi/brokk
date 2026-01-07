@@ -189,9 +189,35 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 .thenAccept(result -> {
                     lastCumulativeChanges = result;
                     var prepared = DiffService.preparePerFileSummaries(result);
+
+                    StalenessInfo staleness = null;
+                    if (lastReviewState != null) {
+                        staleness = computeStaleness();
+                    }
+
+                    final StalenessInfo finalStaleness = staleness;
                     SwingUtilities.invokeLater(() -> {
                         updateTitleAndTooltipFromResult(result, state.baselineLabel());
                         updateContent(result, prepared, state.baselineLabel(), state.baselineMode());
+
+                        if (finalStaleness != null && codeReviewPanel != null) {
+                            int commits = finalStaleness.commitsBehind();
+                            int uncommitted = finalStaleness.uncommittedChanges();
+
+                            if (commits > 0 || uncommitted > 0) {
+                                StringBuilder sb = new StringBuilder("! Review may be stale: ");
+                                if (commits > 0) {
+                                    sb.append(commits).append(" commit(s)");
+                                }
+                                if (uncommitted > 0) {
+                                    if (commits > 0) sb.append(", ");
+                                    sb.append(uncommitted).append(" uncommitted change(s)");
+                                }
+                                codeReviewPanel.getListPanel().setStalenessNotice(sb.toString());
+                            } else {
+                                codeReviewPanel.getListPanel().setStalenessNotice(null);
+                            }
+                        }
                     });
                 })
                 .exceptionally(ex -> {
@@ -321,17 +347,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        // Check for staleness if we have a review displayed
-        StalenessInfo staleness = computeStaleness();
-        if (staleness != null && codeReviewPanel != null) {
-            if (staleness.commitsBehind() > 0 || staleness.uncommittedChanges() > 0) {
-                String msg = String.format("Review may be stale: %d commits, %d uncommitted changes",
-                        staleness.commitsBehind(), staleness.uncommittedChanges());
-                codeReviewPanel.getListPanel().setStalenessNotice(msg);
-            } else {
-                codeReviewPanel.getListPanel().setStalenessNotice(null);
-            }
-        }
+        // Staleness check is now performed after cumulative changes are refreshed
 
         if (diffCore != null) {
             diffCore.clearCache();
