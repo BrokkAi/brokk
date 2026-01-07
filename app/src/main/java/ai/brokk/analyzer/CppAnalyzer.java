@@ -2,8 +2,6 @@ package ai.brokk.analyzer;
 
 import static ai.brokk.analyzer.cpp.CppTreeSitterNodeTypes.*;
 
-import ai.brokk.analyzer.cpp.NamespaceProcessor;
-import ai.brokk.analyzer.cpp.SkeletonGenerator;
 import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -22,9 +20,6 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForCpp(reference);
     }
-
-    private final SkeletonGenerator skeletonGenerator;
-    private final NamespaceProcessor namespaceProcessor;
 
     private static Map<String, SkeletonType> createCaptureConfiguration() {
         var config = new HashMap<String, SkeletonType>();
@@ -71,18 +66,10 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     public CppAnalyzer(IProject project, ProgressListener listener) {
         super(project, Languages.CPP_TREESITTER, listener);
-
-        var templateParser = getTSParser();
-        this.skeletonGenerator = new SkeletonGenerator(templateParser);
-        this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
 
     private CppAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
         super(project, Languages.CPP_TREESITTER, state, listener);
-
-        var templateParser = getTSParser();
-        this.skeletonGenerator = new SkeletonGenerator(templateParser);
-        this.namespaceProcessor = new NamespaceProcessor(templateParser);
     }
 
     public static CppAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
@@ -194,7 +181,19 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
             if (NAMESPACE_DEFINITION.equals(current.getType())) {
                 var nameNode = current.getChildByFieldName("name");
                 if (nameNode != null && !nameNode.isNull()) {
-                    namespaceParts.add(sourceContent.substringFrom(nameNode));
+                    String name = sourceContent.substringFrom(nameNode).strip();
+                    if (!name.isEmpty()) {
+                        // Handle C++17 nested namespace syntax: namespace A::B { ... }
+                        // Split by "::" and add segments in reverse order (inner to outer)
+                        // because they are reversed again at the end of the method.
+                        String[] parts = name.split("::");
+                        for (int i = parts.length - 1; i >= 0; i--) {
+                            String part = parts[i].strip();
+                            if (!part.isEmpty()) {
+                                namespaceParts.add(part);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -216,6 +215,20 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String bodyPlaceholder() {
         return "{...}";
+    }
+
+    @Override
+    protected String formatFieldSignature(
+            TSNode fieldNode,
+            SourceContent sourceContent,
+            String exportPrefix,
+            String signatureText,
+            String baseIndent,
+            ProjectFile file) {
+        if (ENUMERATOR.equals(fieldNode.getType())) {
+            return baseIndent + sourceContent.substringFrom(fieldNode);
+        }
+        return super.formatFieldSignature(fieldNode, sourceContent, exportPrefix, signatureText, baseIndent, file);
     }
 
     @Override
@@ -319,47 +332,13 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
 
     @Override
     public Map<CodeUnit, String> getSkeletons(ProjectFile file) {
-        Map<CodeUnit, String> resultSkeletons = new HashMap<>(super.getSkeletons(file));
+        Map<CodeUnit, String> resultSkeletons = super.getSkeletons(file);
 
-        String fileContent = file.read().orElse("");
-        var sourceContent = SourceContent.of(fileContent);
-        TSTree tree = treeOf(file);
-        if (tree == null) {
-            var parser = getTSParser();
-            tree = Objects.requireNonNull(parser.parseString(null, fileContent), "Failed to parse file: " + file);
-        }
-        var rootNode = tree.getRootNode();
-
-        resultSkeletons = skeletonGenerator.fixGlobalEnumSkeletons(resultSkeletons, file, rootNode, sourceContent);
-        resultSkeletons = skeletonGenerator.fixGlobalUnionSkeletons(resultSkeletons, file, rootNode, sourceContent);
-        final var tempSkeletons = resultSkeletons; // we need an "effectively final" variable for the callback
-        resultSkeletons = withCodeUnitProperties(properties -> {
-            var signaturesMap = new HashMap<CodeUnit, List<String>>();
-            var signatureCache = new HashMap<NamespaceProcessor.NodeRange, String>();
-            properties.forEach((cu, props) -> {
-                signaturesMap.put(cu, props.signatures());
-                if (cu.source().equals(file)) {
-                    String signature = props.signatures().stream().findFirst().orElse("");
-                    for (var range : props.ranges()) {
-                        var nodeRange = new NamespaceProcessor.NodeRange(range.startByte(), range.endByte());
-                        signatureCache.put(nodeRange, signature);
-                    }
-                }
-            });
-            return namespaceProcessor.mergeNamespaceBlocks(
-                    tempSkeletons,
-                    signaturesMap,
-                    file,
-                    rootNode,
-                    sourceContent,
-                    namespaceName -> createCodeUnit(file, CodeUnitType.MODULE, "", namespaceName),
-                    signatureCache);
-        });
         if (isHeaderFile(file)) {
             resultSkeletons = addCorrespondingSourceDeclarations(resultSkeletons, file);
         }
 
-        return Collections.unmodifiableMap(resultSkeletons);
+        return resultSkeletons;
     }
 
     private Map<CodeUnit, String> addCorrespondingSourceDeclarations(

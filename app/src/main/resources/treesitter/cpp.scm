@@ -1,6 +1,6 @@
 ; Namespace declarations
 (namespace_definition
-  name: (namespace_identifier) @namespace.name) @namespace.definition
+  name: (_) @namespace.name) @namespace.definition
 
 ; Class declarations
 (class_specifier
