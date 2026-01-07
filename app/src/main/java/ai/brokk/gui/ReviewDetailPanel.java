@@ -363,15 +363,32 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
      */
     private static class WrappingTextPane extends JTextPane {
         @Override
+        public void setSize(Dimension d) {
+            super.setSize(d);
+            super.setSize(d.width, super.getPreferredSize().height);
+        }
+
+        @Override
         public boolean getScrollableTracksViewportWidth() {
             return true;
         }
 
         @Override
+        public Dimension getMaximumSize() {
+            var parent = getParent();
+            if (parent != null && parent.getWidth() > 0) {
+                return new Dimension(parent.getWidth(), Integer.MAX_VALUE);
+            }
+            return super.getMaximumSize();
+        }
+
+        @Override
         public Dimension getPreferredSize() {
             var parent = getParent();
-            if (parent instanceof JViewport viewport) {
-                setSize(viewport.getWidth(), Short.MAX_VALUE);
+            if (parent != null && parent.getWidth() > 0) {
+                super.setSize(parent.getWidth(), Short.MAX_VALUE);
+                var pref = super.getPreferredSize();
+                return new Dimension(parent.getWidth(), pref.height);
             }
             return super.getPreferredSize();
         }
