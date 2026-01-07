@@ -1,7 +1,7 @@
 package ai.brokk.gui;
 
+import ai.brokk.ContextManager;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
-import ai.brokk.IContextManager;
 import ai.brokk.gui.components.MaterialChip;
 import ai.brokk.gui.components.SimpleHtmlPanel;
 import ai.brokk.gui.components.SplitButton;
@@ -38,7 +38,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private static final String CARD_PLACEHOLDER = "placeholder";
     private static final String CARD_CONTENT = "content";
 
-    private final ai.brokk.IContextManager contextManager;
+    private final ContextManager contextManager;
     private final Runnable onNext;
     private final JPanel contentPanel;
     private final javax.swing.JScrollPane scrollPane;
@@ -47,7 +47,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
     private final List<SimpleHtmlPanel> htmlPanels = new ArrayList<>();
 
-    public ReviewDetailPanel(IContextManager contextManager, Runnable onNext) {
+    public ReviewDetailPanel(ContextManager contextManager, Runnable onNext) {
         this.contextManager = contextManager;
         this.onNext = onNext;
         cardLayout = new CardLayout();
@@ -189,9 +189,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
         var newTasks = Stream.concat(currentTasks.stream(), Stream.of(new TaskList.TaskItem(null, text, false)))
                 .toList();
-        if (contextManager instanceof ai.brokk.ContextManager cm) {
-            cm.setTaskListAsync(new TaskList.TaskListData(newTasks));
-        }
+        contextManager.setTaskListAsync(new TaskList.TaskListData(newTasks));
     }
 
     private void clearContent() {

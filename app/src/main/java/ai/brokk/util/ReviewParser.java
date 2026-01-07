@@ -51,82 +51,13 @@ public class ReviewParser {
         NEW
     }
 
-    private record FileLine(String path, int line) {}
-
-    private Map<Integer, FileLine> parseExcerptFileLines(String text) {
-        Map<Integer, FileLine> files = new HashMap<>();
-        String[] lines = text.split("\\R", -1);
-        State state = State.SEARCHING;
-        Integer currentId = null;
-        Pattern fileLinePattern = Pattern.compile("^(.*)\\s+@(\\d+)$");
-
-        for (String line : lines) {
-            String trimmed = line.trim();
-            if (state != State.SEARCHING && trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
-                try {
-                    currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
-                    state = State.EXPECTING_FILENAME;
-                    continue;
-                } catch (NumberFormatException ignored) {
-                    // expected when ID is not a valid number
-                }
-            }
-            switch (state) {
-                case SEARCHING -> {
-                    if (trimmed.startsWith("BRK_EXCERPT_") && !trimmed.contains(" ")) {
-                        try {
-                            currentId = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
-                            state = State.EXPECTING_FILENAME;
-                        } catch (NumberFormatException ignored) {
-                            // expected when ID is not a valid number
-                        }
-                    }
-                }
-                case EXPECTING_FILENAME -> {
-                    if (!trimmed.isEmpty()) {
-                        Matcher m = fileLinePattern.matcher(trimmed);
-                        if (m.matches()) {
-                            files.put(currentId, new FileLine(m.group(1).trim(), Integer.parseInt(m.group(2))));
-                            state = State.EXPECTING_FENCE;
-                        } else {
-                            state = State.SEARCHING;
-                        }
-                    }
-                }
-                case EXPECTING_FENCE -> {
-                    if (trimmed.startsWith("```")) {
-                        state = State.IN_CONTENT;
-                    }
-                }
-                case IN_CONTENT -> {
-                    if (line.equals("```")
-                            || (line.startsWith("```") && line.substring(3).isBlank())) {
-                        state = State.SEARCHING;
-                    }
-                }
-            }
-        }
-        return Map.copyOf(files);
-    }
-
     public Map<Integer, RawExcerpt> parseExcerpts(String text) {
-        Map<Integer, FileLine> files = parseExcerptFileLines(text);
-        Map<Integer, String> contents = parseExcerptContents(text);
-        Map<Integer, RawExcerpt> result = new HashMap<>();
-        for (Integer id : files.keySet()) {
-            if (contents.containsKey(id)) {
-                FileLine fl = files.get(id);
-                result.put(id, new RawExcerpt(fl.path(), fl.line(), contents.get(id)));
-            }
-        }
-        return Map.copyOf(result);
-    }
-
-    public Map<Integer, String> parseExcerptContents(String text) {
-        Map<Integer, String> contents = new HashMap<>();
+        Map<Integer, RawExcerpt> results = new HashMap<>();
         String[] lines = text.split("\\R", -1);
         State state = State.SEARCHING;
         Integer currentId = null;
+        String currentFile = null;
+        int currentLineNum = -1;
         StringBuilder currentContent = new StringBuilder();
         Pattern fileLinePattern = Pattern.compile("^(.*)\\s+@(\\d+)$");
 
@@ -156,6 +87,8 @@ public class ReviewParser {
                     if (!trimmed.isEmpty()) {
                         Matcher m = fileLinePattern.matcher(trimmed);
                         if (m.matches()) {
+                            currentFile = m.group(1).trim();
+                            currentLineNum = Integer.parseInt(m.group(2));
                             state = State.EXPECTING_FENCE;
                         } else {
                             state = State.SEARCHING;
@@ -171,16 +104,21 @@ public class ReviewParser {
                 case IN_CONTENT -> {
                     if (line.equals("```")
                             || (line.startsWith("```") && line.substring(3).isBlank())) {
-                        if (currentId != null) contents.put(currentId, currentContent.toString());
+                        if (currentId != null && currentFile != null) {
+                            results.put(
+                                    currentId, new RawExcerpt(currentFile, currentLineNum, currentContent.toString()));
+                        }
                         state = State.SEARCHING;
                     } else {
-                        if (!currentContent.isEmpty()) currentContent.append("\n");
+                        if (!currentContent.isEmpty()) {
+                            currentContent.append("\n");
+                        }
                         currentContent.append(line);
                     }
                 }
             }
         }
-        return Map.copyOf(contents);
+        return Map.copyOf(results);
     }
 
     public record RawExcerpt(String file, int line, String excerpt) {}

@@ -1,5 +1,6 @@
 package ai.brokk.gui;
 
+import ai.brokk.ContextManager;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -20,7 +21,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
     private final Map<Object, List<CodeExcerpt>> itemExcerpts = new HashMap<>();
     private final List<ReviewNavigationListener> navigationListeners = new ArrayList<>();
 
-    public CodeReviewPanel(Runnable triggerCallback, ai.brokk.IContextManager contextManager) {
+    public CodeReviewPanel(Runnable triggerCallback, ContextManager contextManager) {
         setLayout(new BorderLayout());
 
         listPanel = new ReviewListPanel(triggerCallback, this::handleItemSelected);
