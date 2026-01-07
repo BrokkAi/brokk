@@ -67,7 +67,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private BaselineMode lastBaselineMode = null;
 
-    @SuppressWarnings("NullAway.Init")
+    @Nullable
     private ai.brokk.difftool.ui.DiffDisplayCore diffCore;
 
     private final ai.brokk.difftool.ui.FileTreePanel fileTreePanel;
@@ -409,7 +409,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        diffCore.clearCache();
+        if (diffCore != null) {
+            diffCore.clearCache();
+        }
         removeAll();
 
         if (res.filesChanged() == 0) {
