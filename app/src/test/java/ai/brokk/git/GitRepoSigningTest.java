@@ -2,12 +2,15 @@ package ai.brokk.git;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.MainProject;
-import java.lang.reflect.Field;
+import ai.brokk.util.GpgKeyUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.eclipse.jgit.api.CommitCommand;
-import org.eclipse.jgit.gpg.signing.GpgBinarySigner;
+import java.util.List;
+import org.eclipse.jgit.revwalk.RevCommit;
+import org.eclipse.jgit.revwalk.RevWalk;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -17,12 +20,13 @@ class GitRepoSigningTest {
     @TempDir
     Path tempDir;
 
+    private Path projectDir;
     private MainProject project;
     private GitRepo repo;
 
     @BeforeEach
     void setUp() throws Exception {
-        Path projectDir = tempDir.resolve("project");
+        projectDir = tempDir.resolve("project");
         Files.createDirectories(projectDir);
 
         // Initialize a real git repo in the temp directory
@@ -34,51 +38,40 @@ class GitRepoSigningTest {
 
     @Test
     void testCommitCommand_SigningEnabled() throws Exception {
+        List<GpgKeyUtil.GpgKey> keys = GpgKeyUtil.listSecretKeys();
+        Assumptions.assumeFalse(keys.isEmpty(), "No GPG keys found, skipping signing test");
+
         project.setGpgCommitSigningEnabled(true);
-        project.setGpgSigningKey("ABCDEF12");
+        project.setGpgSigningKey(keys.getFirst().id());
 
-        CommitCommand command = repo.commitCommand();
+        Path file = projectDir.resolve("signed.txt");
+        Files.writeString(file, "content");
+        repo.add(new ProjectFile(projectDir, projectDir.relativize(file)));
 
-        // JGit CommitCommand doesn't expose getters for sign/signer/signingKey.
-        // Use reflection to verify internal state.
-        Field signerField = CommitCommand.class.getDeclaredField("signer");
-        signerField.setAccessible(true);
-        Object signer = signerField.get(command);
-        assertInstanceOf(GpgBinarySigner.class, signer, "Signer should be an instance of GpgBinarySigner");
+        repo.commitCommand().setMessage("Signed commit").call();
 
-        // signingKey and signCommit are fields in CommitCommand
-        Field signingKeyField = getFieldFromHierarchy(CommitCommand.class, "signingKey");
-        signingKeyField.setAccessible(true);
-        assertEquals("ABCDEF12", signingKeyField.get(command), "Signing key should match project setting");
-
-        Field signField = getFieldFromHierarchy(CommitCommand.class, "signCommit");
-        signField.setAccessible(true);
-        assertEquals(Boolean.TRUE, signField.get(command), "Signing should be enabled on the command");
+        try (RevWalk walk = new RevWalk(repo.getRepository())) {
+            RevCommit commit = walk.parseCommit(repo.getRepository().resolve("HEAD"));
+            byte[] signature = commit.getRawGpgSignature();
+            assertNotNull(signature, "Commit should have a GPG signature");
+            assertTrue(signature.length > 0, "Signature should not be empty");
+        }
     }
 
     @Test
     void testCommitCommand_SigningDisabled() throws Exception {
         project.setGpgCommitSigningEnabled(false);
 
-        CommitCommand command = repo.commitCommand();
+        Path file = projectDir.resolve("unsigned.txt");
+        Files.writeString(file, "content");
+        repo.add(new ProjectFile(projectDir, projectDir.relativize(file)));
 
-        Field signField = getFieldFromHierarchy(CommitCommand.class, "signCommit");
-        signField.setAccessible(true);
-        // Note: signCommit field in CommitCommand can be null (default) or Boolean.FALSE
-        Object signValue = signField.get(command);
-        assertTrue(signValue == null || Boolean.FALSE.equals(signValue), "Signing should be disabled on the command");
-    }
+        repo.commitCommand().setMessage("Unsigned commit").call();
 
-    private static Field getFieldFromHierarchy(Class<?> clazz, String fieldName) throws NoSuchFieldException {
-        Class<?> current = clazz;
-        while (current != null) {
-            try {
-                return current.getDeclaredField(fieldName);
-            } catch (NoSuchFieldException e) {
-                current = current.getSuperclass();
-            }
+        try (RevWalk walk = new RevWalk(repo.getRepository())) {
+            RevCommit commit = walk.parseCommit(repo.getRepository().resolve("HEAD"));
+            assertNull(commit.getRawGpgSignature(), "Commit should NOT have a GPG signature");
         }
-        throw new NoSuchFieldException(fieldName);
     }
 
     @Test
