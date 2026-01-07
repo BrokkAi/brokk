@@ -15,6 +15,7 @@ import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.git.GitCommitTab;
@@ -87,6 +88,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton prBtn;
 
+    private final MaterialButton guidedReviewBtn;
+
+    private boolean guidedReviewBusy = false;
+
     @Nullable
     private ReviewParser.CodeExcerpt activeExcerpt = null;
 
@@ -117,6 +122,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.pullBtn = new MaterialButton("Pull");
         this.pushBtn = new MaterialButton("Push");
         this.prBtn = new MaterialButton("Create PR");
+        this.guidedReviewBtn = new MaterialButton("Guided Review");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -448,6 +454,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         commitBtn.setVisible(hasUncommittedChanges);
         buttonPanel.add(commitBtn);
 
+        SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
+        for (var al : guidedReviewBtn.getActionListeners()) guidedReviewBtn.removeActionListener(al);
+        guidedReviewBtn.addActionListener(e -> generateGuidedReview());
+        guidedReviewBtn.setVisible(true);
+        setGuidedReviewBusy(guidedReviewBusy);
+        buttonPanel.add(guidedReviewBtn);
+
         var pushPull = res.pushPullState();
         pullBtn.setEnabled(!hasUncommittedChanges);
         for (var al : pullBtn.getActionListeners()) pullBtn.removeActionListener(al);
@@ -695,14 +708,24 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         return new StalenessInfo(commitsBehind, uncommittedChanges);
     }
 
+    private void setGuidedReviewBusy(boolean busy) {
+        SwingUtil.runOnEdt(() -> {
+            guidedReviewBusy = busy;
+            guidedReviewBtn.setEnabled(!busy);
+            guidedReviewBtn.setText(busy ? "Generating..." : "Guided Review");
+            guidedReviewBtn.setIcon(busy ? SpinnerIconUtil.getSpinner(chrome, true) : null);
+        });
+    }
+
     private void generateGuidedReview() {
         if (lastCumulativeChanges == null) return;
-
-        codeReviewPanel.setBusy(true);
 
         var listPanel = codeReviewPanel.getListPanel();
         var parent = listPanel.getParent();
         if (parent == null) return;
+
+        setGuidedReviewBusy(true);
+        codeReviewPanel.setBusy(true);
 
         JProgressBar progressBar = new JProgressBar(0, 100);
         progressBar.setStringPainted(true);
@@ -769,6 +792,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     lastReviewState = new ReviewState(currentHash, now);
                     codeReviewPanel.displayReview(review);
                     codeReviewPanel.setBusy(false);
+                    setGuidedReviewBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
                     parent.revalidate();
                     parent.repaint();
@@ -783,6 +807,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         }
                     }
                     codeReviewPanel.setBusy(false);
+                    setGuidedReviewBusy(false);
 
                     String userMessage = ex.getStopDetails() != null
                             ? "Review generation failed: " + ex.getStopDetails().explanation()
@@ -801,6 +826,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         }
                     }
                     codeReviewPanel.setBusy(false);
+                    setGuidedReviewBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());
                     parent.revalidate();
                     parent.repaint();
@@ -815,6 +841,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         fileTreePanel.applyTheme(guiTheme);
         for (var panel : diffCore.getCachedPanels()) {
             panel.applyTheme(guiTheme);
+        }
+        if (guidedReviewBusy) {
+            setGuidedReviewBusy(true);
         }
     }
 
