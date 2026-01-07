@@ -133,7 +133,20 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         panel.setMarkdown(markdown);
         panel.setAlignmentX(Component.LEFT_ALIGNMENT);
         htmlPanels.add(panel);
-        contentPanel.add(panel);
+
+        javax.swing.JScrollPane sp = new javax.swing.JScrollPane(panel) {
+            @Override
+            public Dimension getPreferredSize() {
+                Dimension d = super.getPreferredSize();
+                d.height = (int) (ReviewDetailPanel.this.getHeight() * 0.4);
+                return d;
+            }
+        };
+        sp.setBorder(null);
+        sp.setOpaque(false);
+        sp.getViewport().setOpaque(false);
+        sp.setAlignmentX(Component.LEFT_ALIGNMENT);
+        contentPanel.add(sp);
     }
 
     private void addRecommendationSection(String recommendation) {
