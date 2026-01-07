@@ -77,8 +77,12 @@ public final class ImportPageRanker {
                         reverse.put(target, new LinkedHashSet<>());
                         next.add(target);
                     }
+                    // Add symmetric edges: forward and reverse in both directions
                     Objects.requireNonNull(forward.get(pf)).add(target);
                     Objects.requireNonNull(reverse.get(target)).add(pf);
+
+                    Objects.requireNonNull(forward.get(target)).add(pf);
+                    Objects.requireNonNull(reverse.get(pf)).add(target);
                 }
 
                 // 2. Incoming edges: source -> pf (source imports pf)
@@ -88,8 +92,12 @@ public final class ImportPageRanker {
                         reverse.put(source, new LinkedHashSet<>());
                         next.add(source);
                     }
+                    // Add symmetric edges: forward and reverse in both directions
                     Objects.requireNonNull(forward.get(source)).add(pf);
                     Objects.requireNonNull(reverse.get(pf)).add(source);
+
+                    Objects.requireNonNull(forward.get(pf)).add(source);
+                    Objects.requireNonNull(reverse.get(source)).add(pf);
                 }
             }
             frontier = next;

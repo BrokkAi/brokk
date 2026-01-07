@@ -325,4 +325,40 @@ public class ImportPageRankerTest {
             assertTrue(results.isEmpty(), "Expected no related files when no project-internal imports exist");
         }
     }
+
+    @Test
+    public void testReverseImportTraversal() throws Exception {
+        // Importer -> Imported. Seed is Imported.
+        // Even though Imported has no outgoing imports, it should find Importer via reverse traversal.
+        try (var project = InlineTestProjectCreator.code(
+                        "package test; import test.Imported; public class Importer {}", "test/Importer.java")
+                .addFileContents("package test; public class Imported {}", "test/Imported.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
+                    .map(CodeUnit::source)
+                    .distinct()
+                    .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
+
+            ProjectFile importer = files.get("Importer.java");
+            ProjectFile imported = files.get("Imported.java");
+            
+            assert importer != null : "Importer.java not found in project";
+            assert imported != null : "Imported.java not found in project";
+
+            // Seed with Imported (the file being imported)
+            Map<ProjectFile, Double> seeds = Map.of(imported, 1.0);
+
+            // reversed=false means we are looking for related files using the standard graph (which is now bidirectional)
+            List<IAnalyzer.FileRelevance> results =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, false);
+
+            List<ProjectFile> resultFiles =
+                    results.stream().map(IAnalyzer.FileRelevance::file).toList();
+
+            assertTrue(resultFiles.contains(importer),
+                    "Importer.java should be found from Imported.java via reverse reference traversal");
+        }
+    }
 }
