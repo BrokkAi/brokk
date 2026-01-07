@@ -19,6 +19,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -28,6 +29,8 @@ import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JTextArea;
+import javax.swing.Scrollable;
+import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
@@ -38,9 +41,36 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private static final String CARD_PLACEHOLDER = "placeholder";
     private static final String CARD_CONTENT = "content";
 
+    private static final class ScrollablePanel extends JPanel implements Scrollable {
+        @Override
+        public Dimension getPreferredScrollableViewportSize() {
+            return getPreferredSize();
+        }
+
+        @Override
+        public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return 16;
+        }
+
+        @Override
+        public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == SwingConstants.VERTICAL ? visibleRect.height : visibleRect.width;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public boolean getScrollableTracksViewportHeight() {
+            return false;
+        }
+    }
+
     private final ContextManager contextManager;
     private final Runnable onNext;
-    private final JPanel contentPanel;
+    private final ScrollablePanel contentPanel;
     private final javax.swing.JScrollPane scrollPane;
     private final JTextArea placeholderArea;
     private final CardLayout cardLayout;
@@ -62,7 +92,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         placeholderArea.setFont(placeholderArea.getFont().deriveFont(Font.ITALIC, 14f));
         placeholderArea.setBorder(new EmptyBorder(40, 40, 40, 40));
 
-        contentPanel = new JPanel();
+        contentPanel = new ScrollablePanel();
         contentPanel.setLayout(new BoxLayout(contentPanel, BoxLayout.Y_AXIS));
         contentPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
