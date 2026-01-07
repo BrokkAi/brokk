@@ -459,7 +459,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         headerProgressBar.setVisible(false);
         headerProgressBar.setPreferredSize(new Dimension(130, 16));
 
-        headerPanel.add(headerProgressBar, BorderLayout.CENTER);
+        var progressWrapper = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        progressWrapper.setOpaque(false);
+        progressWrapper.add(headerProgressBar);
+        headerPanel.add(progressWrapper, BorderLayout.CENTER);
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         buttonPanel.setOpaque(false);
