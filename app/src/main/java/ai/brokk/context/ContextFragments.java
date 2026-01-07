@@ -34,7 +34,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.Comparator;
@@ -404,8 +403,7 @@ public class ContextFragments {
         }
 
         private static String computeDescription(ProjectFile file) {
-            String name = file.getFileName();
-            return file.getParent().equals(Path.of("")) ? name : "%s [%s]".formatted(name, file.getParent());
+            return file.toString();
         }
 
         private static ContentSnapshot decodeFrozen(ProjectFile file, IContextManager contextManager, byte[] bytes) {
@@ -501,9 +499,7 @@ public class ContextFragments {
         }
 
         private static String computeDescription(ProjectFile file, String revision) {
-            var parentDir = file.getParent();
-            var shortDesc = "%s @%s".formatted(file.getFileName(), revision);
-            return parentDir.equals(Path.of("")) ? shortDesc : "%s [%s]".formatted(shortDesc, parentDir);
+            return "%s @%s".formatted(file.toString(), revision);
         }
 
         public GitFileFragment(ProjectFile file, String revision, String content, String id) {
@@ -649,9 +645,6 @@ public class ContextFragments {
         }
 
         private static String computeDescription(BrokkFile file) {
-            if (file instanceof ProjectFile pf && !pf.getParent().equals(Path.of(""))) {
-                return "%s [%s]".formatted(file.getFileName(), pf.getParent());
-            }
             return file.toString();
         }
 

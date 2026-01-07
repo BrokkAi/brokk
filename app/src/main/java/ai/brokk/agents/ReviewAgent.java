@@ -309,14 +309,19 @@ public class ReviewAgent {
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
                     .collect(java.util.stream.Collectors.joining("\n"));
 
+            boolean someSucceeded = !validPathExcerpts.isEmpty();
+            String successNote = someSucceeded
+                    ? " for ONLY these excerpts.\nAll other excerpts have been recorded successfully and do not need to be repeated."
+                    : ":";
+
             history.add(new UserMessage(
                     """
                     The following excerpts referenced unknown file paths.
-                    Please provide corrected BRK_EXCERPT blocks with paths in the diff:
+                    Please provide corrected BRK_EXCERPT blocks%s
 
                     %s
                     """
-                            .formatted(errorList)));
+                            .formatted(successNote, errorList)));
 
             currentResult = llm.sendRequest(history);
             if (currentResult.error() != null) break;
@@ -374,14 +379,20 @@ public class ReviewAgent {
             stage2Messages.addAll(
                     WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
             stage2Messages.addAll(history);
+
+            boolean someResolved = !resolvedExcerpts.isEmpty();
+            String successNote = someResolved
+                    ? " for ONLY these excerpts.\nAll other excerpts have been recorded successfully and do not need to be repeated."
+                    : ":";
+
             stage2Messages.add(new UserMessage(
                     """
                     The following excerpts could not be matched in the file content.
-                    Please provide corrected BRK_EXCERPT blocks:
+                    Please provide corrected BRK_EXCERPT blocks%s
 
                     %s
                     """
-                            .formatted(errorList)));
+                            .formatted(successNote, errorList)));
 
             currentResult = llm.sendRequest(stage2Messages);
             if (currentResult.error() != null) break;

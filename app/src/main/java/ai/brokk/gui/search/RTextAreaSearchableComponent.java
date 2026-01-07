@@ -2,6 +2,8 @@ package ai.brokk.gui.search;
 
 import ai.brokk.gui.SwingUtil;
 import javax.swing.*;
+import javax.swing.Timer;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rtextarea.RTextArea;
 import org.fife.ui.rtextarea.SearchContext;
 import org.fife.ui.rtextarea.SearchEngine;
@@ -102,9 +104,19 @@ public class RTextAreaSearchableComponent extends BaseSearchableComponent {
     @Override
     public void clearHighlights() {
         highlightManager.clearHighlights();
+        textArea.clearMarkAllHighlights();
 
-        // Clear the current selection/highlight as well
+        // Clear selection first
         textArea.setCaretPosition(textArea.getCaretPosition());
+
+        // Clear mark-occurrences highlights - disable temporarily, re-enable after timer expires
+        if (textArea instanceof RSyntaxTextArea rsta && rsta.getMarkOccurrences()) {
+            rsta.setMarkOccurrences(false);
+            // Re-enable after 500ms to allow mark-occurrences timer to expire
+            var timer = new Timer(500, e -> rsta.setMarkOccurrences(true));
+            timer.setRepeats(false);
+            timer.start();
+        }
     }
 
     @Override

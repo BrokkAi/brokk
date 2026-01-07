@@ -9,6 +9,8 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
+import java.awt.event.AWTEventListener;
+import java.awt.event.MouseEvent;
 import java.util.UUID;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
@@ -41,6 +43,9 @@ public class RightPanel extends JPanel implements ThemeAware {
     private @Nullable JSplitPane verticalActivityCombinedPanel = null;
     private @Nullable JSplitPane verticalLayoutLeftSplit = null;
 
+    private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame reviewFrame = null;
+    private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame terminalFrame = null;
+
     // Review tab infrastructure
     private final JComponent reviewTabComponent;
     private @Nullable ai.brokk.gui.util.BadgedIcon buildTabBadgedIcon;
@@ -50,6 +55,32 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     private final ContextManager contextManager;
+
+    private final TabDragUndockHandler tabDragUndockHandler;
+
+    enum UndockTarget {
+        REVIEW,
+        PREVIEW,
+        TERMINAL,
+        NONE
+    }
+
+    static UndockTarget getUndockTarget(
+            Component comp,
+            Component reviewTabComponent,
+            Component previewTabbedPane,
+            Component terminalPanel,
+            Component buildSplitPane,
+            @Nullable Component verticalActivityCombinedPanel) {
+        if (comp == buildSplitPane
+                || (verticalActivityCombinedPanel != null && comp == verticalActivityCombinedPanel)) {
+            return UndockTarget.NONE;
+        }
+        if (comp == reviewTabComponent) return UndockTarget.REVIEW;
+        if (comp == previewTabbedPane) return UndockTarget.PREVIEW;
+        if (comp == terminalPanel) return UndockTarget.TERMINAL;
+        return UndockTarget.NONE;
+    }
 
     public RightPanel(Chrome chrome, ContextManager contextManager) {
         super(new BorderLayout());
@@ -141,8 +172,24 @@ public class RightPanel extends JPanel implements ThemeAware {
         // Set up tab change listeners (must be after buildReviewTabs is created)
         setupCommandPaneLogic();
 
+        tabDragUndockHandler = new TabDragUndockHandler();
+        tabDragUndockHandler.register();
+
         add(sessionHeaderPanel, BorderLayout.NORTH);
         add(buildReviewTabs, BorderLayout.CENTER);
+
+        // Restore persistent docking states
+        SwingUtilities.invokeLater(() -> {
+            // Migration: Build is no longer undockable
+            GlobalUiSettings.saveBuildDocked(true);
+
+            if (!GlobalUiSettings.isReviewDocked()) {
+                undockReview();
+            }
+            if (!GlobalUiSettings.isTerminalDocked()) {
+                undockTerminal();
+            }
+        });
     }
 
     private JPanel createSessionHeader() {
@@ -395,16 +442,69 @@ public class RightPanel extends JPanel implements ThemeAware {
                 int tabIndex = buildReviewTabs.indexAtLocation(e.getX(), e.getY());
                 if (tabIndex == -1) return;
 
-                String title = buildReviewTabs.getTitleAt(tabIndex);
-                if ("Preview".equals(title)) {
-                    JPopupMenu popup = new JPopupMenu();
-                    JMenuItem undockItem = new JMenuItem("Undock Preview", Icons.VISIBILITY);
-                    undockItem.addActionListener(ae -> undockPreview());
-                    popup.add(undockItem);
+                Component comp = buildReviewTabs.getComponentAt(tabIndex);
+                UndockTarget target = getUndockTarget(
+                        comp,
+                        reviewTabComponent,
+                        previewTabbedPane,
+                        terminalPanel,
+                        buildSplitPane,
+                        verticalActivityCombinedPanel);
+                JPopupMenu popup = new JPopupMenu();
+
+                switch (target) {
+                    case REVIEW -> {
+                        JMenuItem undockItem = new JMenuItem("Undock Review", Icons.FLOWSHEET);
+                        undockItem.addActionListener(ae -> undockReview());
+                        popup.add(undockItem);
+                    }
+                    case PREVIEW -> {
+                        JMenuItem undockItem = new JMenuItem("Undock Preview", Icons.VISIBILITY);
+                        undockItem.addActionListener(ae -> undockPreview());
+                        popup.add(undockItem);
+                    }
+                    case TERMINAL -> {
+                        JMenuItem undockItem = new JMenuItem("Undock Terminal", Icons.TERMINAL);
+                        undockItem.addActionListener(ae -> undockTerminal());
+                        popup.add(undockItem);
+                    }
+                    case NONE -> {}
+                }
+
+                if (popup.getComponentCount() > 0) {
+                    chrome.getThemeManager().registerPopupMenu(popup);
                     popup.show(buildReviewTabs, e.getX(), e.getY());
                 }
             }
         });
+    }
+
+    private void undockReview() {
+        if (!GlobalUiSettings.isReviewDocked()) return;
+
+        GlobalUiSettings.saveReviewDocked(false);
+        int idx = buildReviewTabs.indexOfTab("Review");
+        if (idx != -1) {
+            buildReviewTabs.removeTabAt(idx);
+        }
+
+        reviewFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Review", reviewTabComponent, this::redockReview);
+        reviewFrame.setVisible(true);
+    }
+
+    public void redockReview() {
+        if (GlobalUiSettings.isReviewDocked()) return;
+
+        GlobalUiSettings.saveReviewDocked(true);
+        // Review is 2nd (after Build)
+        int idx = Math.min(1, buildReviewTabs.getTabCount());
+        buildReviewTabs.insertTab("Review", Icons.FLOWSHEET, reviewTabComponent, null, idx);
+        buildReviewTabs.setSelectedIndex(idx);
+
+        if (reviewFrame != null) {
+            reviewFrame.dispose();
+            reviewFrame = null;
+        }
     }
 
     private void undockPreview() {
@@ -419,7 +519,6 @@ public class RightPanel extends JPanel implements ThemeAware {
         }
 
         chrome.getPreviewManager().showPreviewInTabbedFrame("Preview", previewTabbedPane, null);
-        // previewTabbedPane is now owned by PreviewFrame - don't create a replacement
     }
 
     public void redockPreview() {
@@ -437,6 +536,32 @@ public class RightPanel extends JPanel implements ThemeAware {
         }
 
         selectPreviewTab();
+    }
+
+    private void undockTerminal() {
+        if (!GlobalUiSettings.isTerminalDocked()) return;
+
+        GlobalUiSettings.saveTerminalDocked(false);
+        int idx = buildReviewTabs.indexOfTab("Terminal");
+        if (idx != -1) {
+            buildReviewTabs.removeTabAt(idx);
+        }
+
+        terminalFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Terminal", terminalPanel, this::redockTerminal);
+        terminalFrame.setVisible(true);
+    }
+
+    public void redockTerminal() {
+        if (GlobalUiSettings.isTerminalDocked()) return;
+
+        GlobalUiSettings.saveTerminalDocked(true);
+        buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+        selectTerminalTab();
+
+        if (terminalFrame != null) {
+            terminalFrame.dispose();
+            terminalFrame = null;
+        }
     }
 
     public void setPreviewDocked(boolean docked) {
@@ -478,10 +603,21 @@ public class RightPanel extends JPanel implements ThemeAware {
         historyOutputPanel.setAdvancedMode(advanced);
 
         int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
-        if (!advanced && terminalIdx != -1) {
-            buildReviewTabs.removeTabAt(terminalIdx);
-        } else if (advanced && terminalIdx == -1) {
-            buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+        if (!advanced) {
+            if (terminalIdx != -1) {
+                buildReviewTabs.removeTabAt(terminalIdx);
+            }
+            if (terminalFrame != null) {
+                terminalFrame.setVisible(false);
+            }
+        } else {
+            // If advanced and docked, ensure it is in the tabs
+            if (GlobalUiSettings.isTerminalDocked() && terminalIdx == -1) {
+                buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+            } else if (!GlobalUiSettings.isTerminalDocked() && terminalFrame != null) {
+                // If advanced and undocked, ensure frame is visible
+                terminalFrame.setVisible(true);
+            }
         }
     }
 
@@ -686,6 +822,154 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     public JTabbedPane getCommandPane() {
         return commandPane;
+    }
+
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        tabDragUndockHandler.register();
+    }
+
+    @Override
+    public void removeNotify() {
+        tabDragUndockHandler.unregister();
+        super.removeNotify();
+    }
+
+    private class TabDragUndockHandler implements AWTEventListener {
+        private static final int DRAG_THRESHOLD = 32;
+        private @Nullable Point pressPoint;
+        private int dragTabIndex = -1;
+        private boolean undocked;
+        private boolean registered = false;
+
+        /**
+         * Registers the AWT event listener to intercept mouse events globally within buildReviewTabs.
+         * Pairs with unregister() in removeNotify to handle panel re-parenting.
+         */
+        public void register() {
+            if (registered) return;
+            Toolkit.getDefaultToolkit()
+                    .addAWTEventListener(this, AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_MOTION_EVENT_MASK);
+            registered = true;
+        }
+
+        public void unregister() {
+            if (!registered) return;
+            Toolkit.getDefaultToolkit().removeAWTEventListener(this);
+            registered = false;
+        }
+
+        @Override
+        public void eventDispatched(AWTEvent event) {
+            if (!(event instanceof MouseEvent me)) return;
+
+            Component source = me.getComponent();
+            if (source == null) return;
+
+            // Only handle events originating from buildReviewTabs or its descendants
+            if (source != buildReviewTabs && !SwingUtilities.isDescendingFrom(source, buildReviewTabs)) {
+                return;
+            }
+
+            switch (me.getID()) {
+                case MouseEvent.MOUSE_PRESSED -> handleMousePressed(me);
+                case MouseEvent.MOUSE_DRAGGED -> handleMouseDragged(me);
+                case MouseEvent.MOUSE_RELEASED -> handleMouseReleased(me);
+            }
+        }
+
+        private void handleMousePressed(MouseEvent e) {
+            undocked = false;
+            Point pInTabs = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), buildReviewTabs);
+
+            // Check if press is on a tab header
+            int headerIdx = buildReviewTabs.indexAtLocation(pInTabs.x, pInTabs.y);
+
+            // Only allow drag to start if the press is actually on a tab header
+            if (headerIdx == -1) {
+                dragTabIndex = -1;
+                pressPoint = null;
+                return;
+            }
+
+            dragTabIndex = headerIdx;
+            pressPoint = pInTabs;
+
+            Component comp = buildReviewTabs.getComponentAt(dragTabIndex);
+            UndockTarget target = getUndockTarget(
+                    comp,
+                    reviewTabComponent,
+                    previewTabbedPane,
+                    terminalPanel,
+                    buildSplitPane,
+                    verticalActivityCombinedPanel);
+
+            if (target != UndockTarget.NONE) {
+                buildReviewTabs.setCursor(Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR));
+            }
+        }
+
+        private void handleMouseDragged(MouseEvent e) {
+            if (dragTabIndex == -1 || pressPoint == null || undocked) return;
+
+            Point currentPointInTabs = SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), buildReviewTabs);
+            double dist = currentPointInTabs.distance(pressPoint);
+
+            if (dist > DRAG_THRESHOLD) {
+                Rectangle headerRect = null;
+                try {
+                    headerRect = buildReviewTabs.getBoundsAt(dragTabIndex);
+                } catch (IndexOutOfBoundsException ex) {
+                    headerRect = null;
+                }
+
+                boolean outsideTriggerArea;
+                if (headerRect != null) {
+                    outsideTriggerArea = !headerRect.contains(currentPointInTabs);
+                } else {
+                    // Fallback: previous behavior using full tabbed pane bounds
+                    Rectangle fullBounds = new Rectangle(0, 0, buildReviewTabs.getWidth(), buildReviewTabs.getHeight());
+                    outsideTriggerArea = !fullBounds.contains(currentPointInTabs);
+                }
+
+                if (outsideTriggerArea) {
+                    buildReviewTabs.setCursor(Cursor.getDefaultCursor());
+                    triggerUndock(dragTabIndex);
+                    undocked = true;
+                }
+            }
+        }
+
+        @SuppressWarnings("unused")
+        private void handleMouseReleased(MouseEvent e) {
+            if (buildReviewTabs.getCursor().getType() != Cursor.DEFAULT_CURSOR) {
+                buildReviewTabs.setCursor(Cursor.getDefaultCursor());
+            }
+            dragTabIndex = -1;
+            pressPoint = null;
+            undocked = false;
+        }
+
+        private void triggerUndock(int index) {
+            if (index < 0 || index >= buildReviewTabs.getTabCount()) return;
+
+            Component comp = buildReviewTabs.getComponentAt(index);
+            UndockTarget target = getUndockTarget(
+                    comp,
+                    reviewTabComponent,
+                    previewTabbedPane,
+                    terminalPanel,
+                    buildSplitPane,
+                    verticalActivityCombinedPanel);
+
+            switch (target) {
+                case REVIEW -> undockReview();
+                case PREVIEW -> undockPreview();
+                case TERMINAL -> undockTerminal();
+                case NONE -> {}
+            }
+        }
     }
 
     @Override
