@@ -1,4 +1,4 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
@@ -203,9 +203,9 @@ public class FileWatcherBenchmark {
         final CountDownLatch[] currentLatch = new CountDownLatch[1];
         AtomicLong lastModificationTime = new AtomicLong();
 
-        IWatchService.Listener listener = new IWatchService.Listener() {
+        AbstractWatchService.Listener listener = new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 long detectionTime = System.nanoTime();
                 long modTime = lastModificationTime.get();
                 if (modTime > 0) {
@@ -224,7 +224,7 @@ public class FileWatcherBenchmark {
         };
 
         // Start watch service with selected implementation
-        IWatchService watchService = createWatchService(projectRoot, implementation, List.of(listener));
+        AbstractWatchService watchService = createWatchService(projectRoot, implementation, List.of(listener));
         watchService.start(CompletableFuture.completedFuture(null));
 
         // Wait for watch service to initialize - longer for large projects
@@ -288,8 +288,8 @@ public class FileWatcherBenchmark {
                 metadata);
     }
 
-    private IWatchService createWatchService(
-            Path projectRoot, String implementation, List<IWatchService.Listener> listeners) {
+    private AbstractWatchService createWatchService(
+            Path projectRoot, String implementation, List<AbstractWatchService.Listener> listeners) {
         if ("native".equalsIgnoreCase(implementation)) {
             return new NativeProjectWatchService(projectRoot, null, null, listeners);
         } else if ("legacy".equalsIgnoreCase(implementation)) {
@@ -318,9 +318,9 @@ public class FileWatcherBenchmark {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicLong bulkModificationTime = new AtomicLong();
 
-        IWatchService.Listener listener = new IWatchService.Listener() {
+        AbstractWatchService.Listener listener = new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 long detectionTime = System.nanoTime();
                 long modTime = bulkModificationTime.get();
                 if (modTime > 0) {
@@ -328,8 +328,8 @@ public class FileWatcherBenchmark {
                     latencies.add(latency);
                     logger.info(
                             "Detected bulk change: {} files, overflow={}, latency={}ms",
-                            batch.files.size(),
-                            batch.isOverflowed,
+                            batch.getFiles().size(),
+                            batch.isOverflowed(),
                             latency / 1_000_000.0);
                     latch.countDown();
                 }
@@ -339,7 +339,7 @@ public class FileWatcherBenchmark {
             public void onNoFilesChangedDuringPollInterval() {}
         };
 
-        IWatchService watchService = createWatchService(projectRoot, implementation, List.of(listener));
+        AbstractWatchService watchService = createWatchService(projectRoot, implementation, List.of(listener));
         watchService.start(CompletableFuture.completedFuture(null));
         Thread.sleep(500);
 
@@ -411,9 +411,9 @@ public class FileWatcherBenchmark {
         MetricsCollector metrics = new MetricsCollector();
         long startWallTime = System.nanoTime();
 
-        IWatchService.Listener listener = new IWatchService.Listener() {
+        AbstractWatchService.Listener listener = new AbstractWatchService.Listener() {
             @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
+            public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 logger.warn("Unexpected file change during idle benchmark: {}", batch);
             }
 
@@ -421,7 +421,7 @@ public class FileWatcherBenchmark {
             public void onNoFilesChangedDuringPollInterval() {}
         };
 
-        IWatchService watchService = createWatchService(projectRoot, implementation, List.of(listener));
+        AbstractWatchService watchService = createWatchService(projectRoot, implementation, List.of(listener));
         watchService.start(CompletableFuture.completedFuture(null));
 
         Thread.sleep(500); // Startup time

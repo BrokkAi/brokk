@@ -1,9 +1,9 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IWatchService.EventBatch;
-import ai.brokk.IWatchService.Listener;
+import ai.brokk.watchservice.AbstractWatchService.EventBatch;
+import ai.brokk.watchservice.AbstractWatchService.Listener;
 import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -89,9 +89,9 @@ class JavaProjectWatchServiceTest {
         assertEquals(1, listener3.filesChangedCount.get(), "Listener3 should receive 1 file change");
 
         // Verify the file is in the batch
-        assertFalse(listener1.lastBatch.files.isEmpty(), "Batch should contain files");
+        assertFalse(listener1.lastBatch.getFiles().isEmpty(), "Batch should contain files");
         assertTrue(
-                listener1.lastBatch.files.stream()
+                listener1.lastBatch.getFiles().stream()
                         .anyMatch(pf -> pf.getRelPath().toString().equals("test.txt")),
                 "Batch should contain test.txt");
     }
@@ -411,10 +411,10 @@ class JavaProjectWatchServiceTest {
 
         EventBatch batch = listener.lastBatch;
         assertNotNull(batch, "EventBatch should be non-null");
-        assertFalse(batch.files.isEmpty(), "EventBatch should contain files");
+        assertFalse(batch.getFiles().isEmpty(), "EventBatch should contain files");
 
         // Verify the batch contains files with .git prefix
-        var gitFiles = batch.files.stream()
+        var gitFiles = batch.getFiles().stream()
                 .filter(pf -> pf.getRelPath().startsWith(".git"))
                 .toList();
         assertFalse(gitFiles.isEmpty(), "EventBatch should contain files with .git prefix");
@@ -458,7 +458,8 @@ class JavaProjectWatchServiceTest {
 
         // The file should be in the batch with tempDir (worktree root) as base
         assertTrue(
-                batch.files.stream().anyMatch(pf -> pf.getRelPath().toString().equals("Source.java")),
+                batch.getFiles().stream()
+                        .anyMatch(pf -> pf.getRelPath().toString().equals("Source.java")),
                 "EventBatch should contain the source file");
     }
 
@@ -500,11 +501,12 @@ class JavaProjectWatchServiceTest {
 
         EventBatch batch = listener.lastBatch;
         assertNotNull(batch, "EventBatch should be non-null");
-        assertFalse(batch.files.isEmpty(), "EventBatch should contain files");
+        assertFalse(batch.getFiles().isEmpty(), "EventBatch should contain files");
 
         // Verify the event was received
         assertTrue(
-                batch.files.stream().anyMatch(pf -> pf.getRelPath().toString().contains("HEAD")),
+                batch.getFiles().stream()
+                        .anyMatch(pf -> pf.getRelPath().toString().contains("HEAD")),
                 "EventBatch should contain the HEAD file change");
     }
 

@@ -63,7 +63,7 @@ Run all benchmarks and save report:
 
 Run specific benchmark:
 ```bash
-java -cp <classpath> ai.brokk.FileWatcherBenchmarkRunner latency-small
+java -cp <classpath> ai.brokk.watchservice.FileWatcherBenchmarkRunner latency-small
 ```
 
 Available benchmarks:
@@ -79,7 +79,7 @@ Available benchmarks:
 
 Specify output directory:
 ```bash
-java -cp <classpath> ai.brokk.FileWatcherBenchmarkRunner --output=./my-results
+java -cp <classpath> ai.brokk.watchservice.FileWatcherBenchmarkRunner --output=./my-results
 ```
 
 ## Interpreting Results

@@ -1,7 +1,7 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
-import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -41,7 +41,7 @@ public class FileWatcherHelper {
         // Check if any file's relative path starts with .git directory
         // This works for both regular repos and worktrees since git events always
         // have .git-prefixed relative paths (though the base may differ)
-        return batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(GIT_DIR_PREFIX));
+        return batch.getFiles().stream().anyMatch(pf -> pf.getRelPath().startsWith(GIT_DIR_PREFIX));
     }
 
     /**
@@ -52,7 +52,7 @@ public class FileWatcherHelper {
      * @return Set of changed files that are tracked
      */
     public Set<ProjectFile> getChangedTrackedFiles(EventBatch batch, Set<ProjectFile> trackedFiles) {
-        return batch.files.stream().filter(trackedFiles::contains).collect(Collectors.toSet());
+        return batch.getFiles().stream().filter(trackedFiles::contains).collect(Collectors.toSet());
     }
 
     /**
@@ -63,7 +63,7 @@ public class FileWatcherHelper {
      * @return Set of changed files matching the extensions
      */
     public Set<ProjectFile> getFilesWithExtensions(EventBatch batch, Set<String> extensions) {
-        return batch.files.stream()
+        return batch.getFiles().stream()
                 .filter(pf -> extensions.contains(pf.extension()))
                 .collect(Collectors.toSet());
     }
@@ -76,7 +76,7 @@ public class FileWatcherHelper {
      * @return Set of changed files under the directory
      */
     public Set<ProjectFile> getFilesInDirectory(EventBatch batch, Path directory) {
-        return batch.files.stream()
+        return batch.getFiles().stream()
                 .filter(pf -> pf.getRelPath().startsWith(directory))
                 .collect(Collectors.toSet());
     }
@@ -89,7 +89,7 @@ public class FileWatcherHelper {
      * @return true if any of the specified files are in the batch
      */
     public boolean containsAnyFile(EventBatch batch, Set<ProjectFile> files) {
-        return batch.files.stream().anyMatch(files::contains);
+        return batch.getFiles().stream().anyMatch(files::contains);
     }
 
     /**
@@ -100,7 +100,7 @@ public class FileWatcherHelper {
      * @return true if this is a significant change
      */
     public boolean isSignificantChange(EventBatch batch) {
-        return batch.isOverflowed || !batch.files.isEmpty();
+        return batch.isOverflowed() || !batch.getFiles().isEmpty();
     }
 
     /**
@@ -129,7 +129,7 @@ public class FileWatcherHelper {
     public ChangeClassification classifyChanges(EventBatch batch, Set<ProjectFile> trackedFiles) {
         boolean gitChanged = isGitMetadataChanged(batch);
         Set<ProjectFile> changedTracked = getChangedTrackedFiles(batch, trackedFiles);
-        boolean trackedChanged = !changedTracked.isEmpty() || batch.isOverflowed;
+        boolean trackedChanged = !changedTracked.isEmpty() || batch.isOverflowed();
 
         return new ChangeClassification(gitChanged, trackedChanged, changedTracked);
     }

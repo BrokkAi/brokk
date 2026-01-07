@@ -1,4 +1,4 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
 import ai.brokk.analyzer.ProjectFile;
 import java.awt.KeyboardFocusManager;
@@ -7,11 +7,8 @@ import java.io.UncheckedIOException;
 import java.nio.file.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -24,29 +21,11 @@ import org.jetbrains.annotations.Nullable;
  * For new code, consider using NativeProjectWatchService which uses platform-native
  * recursive watching APIs (FSEvents on macOS, optimized inotify on Linux).
  */
-public class JavaProjectWatchService implements IWatchService {
-
-    private final Logger logger = LogManager.getLogger(JavaProjectWatchService.class);
+public class JavaProjectWatchService extends AbstractWatchService {
 
     private static final long DEBOUNCE_DELAY_MS = 500;
     private static final long POLL_TIMEOUT_FOCUSED_MS = 100;
     private static final long POLL_TIMEOUT_UNFOCUSED_MS = 1000;
-
-    private final Path root;
-
-    @Nullable
-    private final Path gitRepoRoot;
-
-    @Nullable
-    private final Path gitMetaDir;
-
-    @Nullable
-    private final Path globalGitignorePath;
-
-    @Nullable
-    private final Path globalGitignoreRealPath;
-
-    private final List<Listener> listeners;
 
     private volatile boolean running = true;
     private volatile int pauseCount = 0;
@@ -57,75 +36,21 @@ public class JavaProjectWatchService implements IWatchService {
      */
     public JavaProjectWatchService(
             Path root, @Nullable Path gitRepoRoot, @Nullable Path globalGitignorePath, List<Listener> listeners) {
-        this.root = root;
-        this.gitRepoRoot = gitRepoRoot;
-        this.globalGitignorePath = globalGitignorePath;
-        this.listeners = new CopyOnWriteArrayList<>(listeners);
-        this.gitMetaDir = IWatchService.resolveGitMetaDir(gitRepoRoot);
-
-        // Precompute real path for robust comparison (handles symlinks, case-insensitive filesystems)
-        if (globalGitignorePath != null) {
-            Path realPath;
-            try {
-                realPath = globalGitignorePath.toRealPath();
-            } catch (IOException e) {
-                // If file doesn't exist or can't be resolved, use original path as fallback
-                realPath = globalGitignorePath;
-                logger.debug("Could not resolve global gitignore to real path: {}", e.getMessage());
-            }
-            this.globalGitignoreRealPath = realPath;
-        } else {
-            this.globalGitignoreRealPath = null;
-        }
+        super(root, gitRepoRoot, globalGitignorePath, listeners);
     }
 
     @Override
     public void start(CompletableFuture<?> delayNotificationsUntilCompleted) {
         Thread watcherThread = new Thread(
-                () -> beginWatching(delayNotificationsUntilCompleted),
+                () -> watch(delayNotificationsUntilCompleted),
                 "DirectoryWatcher@" + Long.toHexString(Thread.currentThread().threadId()));
         watcherThread.start();
     }
 
-    private void beginWatching(CompletableFuture<?> delayNotificationsUntilCompleted) {
+    private void watch(CompletableFuture<?> delayNotificationsUntilCompleted) {
         logger.debug("Setting up WatchService for {}", root);
         try (WatchService watchService = FileSystems.getDefault().newWatchService()) {
-            // Recursively register all directories under project root except .brokk and .git
-            registerAllDirectories(root, watchService);
-
-            // Always watch git metadata to ensure ref changes (HEAD, refs/heads/*) trigger onRepoChange.
-            // Note: For worktrees, gitMetaDir may be external. If on different filesystem or
-            // becomes inaccessible, events may stop - this is an inherent limitation of file watching.
-            if (gitMetaDir != null && Files.isDirectory(gitMetaDir)) {
-                logger.debug("Watching git metadata directory for changes: {}", gitMetaDir);
-                registerGitMetadata(gitMetaDir, watchService);
-            } else if (gitRepoRoot != null) {
-                logger.debug(
-                        "Git metadata directory not found at {}; skipping git metadata watch setup",
-                        gitRepoRoot.resolve(".git"));
-            } else {
-                logger.debug("No git repository detected for {}; skipping git metadata watch setup", root);
-            }
-
-            // Watch global gitignore file directory if it exists
-            if (globalGitignorePath != null && Files.exists(globalGitignorePath)) {
-                Path globalGitignoreDir = globalGitignorePath.getParent();
-                if (globalGitignoreDir != null && Files.isDirectory(globalGitignoreDir)) {
-                    logger.debug("Watching global gitignore directory for changes: {}", globalGitignoreDir);
-                    try {
-                        globalGitignoreDir.register(
-                                watchService,
-                                StandardWatchEventKinds.ENTRY_CREATE,
-                                StandardWatchEventKinds.ENTRY_DELETE,
-                                StandardWatchEventKinds.ENTRY_MODIFY);
-                    } catch (IOException e) {
-                        logger.warn(
-                                "Failed to watch global gitignore directory {}: {}",
-                                globalGitignoreDir,
-                                e.getMessage());
-                    }
-                }
-            }
+            registerWatchTargets(watchService);
 
             // Wait for the initial future to complete.
             // The WatchService will queue any events that arrive during this time.
@@ -138,14 +63,9 @@ public class JavaProjectWatchService implements IWatchService {
 
             // Watch for events, debounce them, and handle them
             while (running) {
-                // Wait if paused
-                while (pauseCount > 0) {
-                    Thread.onSpinWait();
-                }
+                waitWhilePaused();
 
-                // Choose a short or long poll depending on focus
-                long pollTimeout = isApplicationFocused() ? POLL_TIMEOUT_FOCUSED_MS : POLL_TIMEOUT_UNFOCUSED_MS;
-                WatchKey key = watchService.poll(pollTimeout, TimeUnit.MILLISECONDS);
+                WatchKey key = pollForEvents(watchService);
 
                 // No event arrived within the poll window
                 if (key == null) {
@@ -154,17 +74,7 @@ public class JavaProjectWatchService implements IWatchService {
                 }
 
                 // We got an event, collect it and any others within the debounce window
-                var batch = new EventBatch();
-                collectEventsFromKey(key, watchService, batch);
-
-                long deadline = System.currentTimeMillis() + DEBOUNCE_DELAY_MS;
-                while (true) {
-                    long remaining = deadline - System.currentTimeMillis();
-                    if (remaining <= 0) break;
-                    WatchKey nextKey = watchService.poll(remaining, TimeUnit.MILLISECONDS);
-                    if (nextKey == null) break;
-                    collectEventsFromKey(nextKey, watchService, batch);
-                }
+                EventBatch batch = collectDebouncedBatch(key, watchService);
 
                 // Process the batch
                 notifyFilesChanged(batch);
@@ -177,54 +87,69 @@ public class JavaProjectWatchService implements IWatchService {
         }
     }
 
-    /**
-     * Checks if a gitignore-related file change should trigger cache invalidation.
-     * This targets untracked .gitignore files, .git/info/exclude, and global gitignore files
-     * which are not covered by git metadata watching.
-     */
-    private boolean shouldInvalidateForGitignoreChange(Path eventPath) {
-        var fileName = eventPath.getFileName().toString();
+    private void registerWatchTargets(WatchService watchService) throws IOException {
+        // Recursively register all directories under project root except .brokk and .git
+        registerAllDirectories(root, watchService);
 
-        // .git/info/exclude is never tracked by git
-        // Use path traversal instead of string matching for cross-platform compatibility
-        if (fileName.equals("exclude")) {
-            var parent = eventPath.getParent();
-            if (parent != null && parent.getFileName().toString().equals("info")) {
-                var grandParent = parent.getParent();
-                if (grandParent != null && grandParent.getFileName().toString().equals(".git")) {
-                    logger.debug("Git info exclude file changed: {}", eventPath);
-                    return true;
+        // Always watch git metadata to ensure ref changes (HEAD, refs/heads/*) trigger onRepoChange.
+        // Note: For worktrees, gitMetaDir may be external. If on different filesystem or
+        // becomes inaccessible, events may stop - this is an inherent limitation of file watching.
+        if (gitMetaDir != null && Files.isDirectory(gitMetaDir)) {
+            logger.debug("Watching git metadata directory for changes: {}", gitMetaDir);
+            registerGitMetadata(gitMetaDir, watchService);
+        } else if (gitRepoRoot != null) {
+            logger.debug(
+                    "Git metadata directory not found at {}; skipping git metadata watch setup",
+                    gitRepoRoot.resolve(".git"));
+        } else {
+            logger.debug("No git repository detected for {}; skipping git metadata watch setup", root);
+        }
+
+        // Watch global gitignore file directory if it exists
+        if (globalGitignorePath != null && Files.exists(globalGitignorePath)) {
+            Path globalGitignoreDir = globalGitignorePath.getParent();
+            if (globalGitignoreDir != null && Files.isDirectory(globalGitignoreDir)) {
+                logger.debug("Watching global gitignore directory for changes: {}", globalGitignoreDir);
+                try {
+                    globalGitignoreDir.register(
+                            watchService,
+                            StandardWatchEventKinds.ENTRY_CREATE,
+                            StandardWatchEventKinds.ENTRY_DELETE,
+                            StandardWatchEventKinds.ENTRY_MODIFY);
+                } catch (IOException e) {
+                    logger.warn(
+                            "Failed to watch global gitignore directory {}: {}", globalGitignoreDir, e.getMessage());
                 }
             }
         }
+    }
 
-        // For .gitignore files, only trigger if they're likely untracked
-        // (tracked .gitignore changes are handled by git metadata watching)
-        if (fileName.equals(".gitignore")) {
-            // We can't easily determine if it's tracked here, so we'll be conservative
-            // and invalidate. The performance impact is minimal since this is rare.
-            logger.debug("Gitignore file changed: {}", eventPath);
-            return true;
+    private void waitWhilePaused() {
+        while (pauseCount > 0) {
+            Thread.onSpinWait();
         }
+    }
 
-        // Check if this is the global gitignore file
-        if (globalGitignoreRealPath != null) {
-            try {
-                Path eventRealPath = eventPath.toRealPath();
-                if (eventRealPath.equals(globalGitignoreRealPath)) {
-                    logger.debug("Global gitignore file changed: {}", eventPath);
-                    return true;
-                }
-            } catch (IOException e) {
-                // If toRealPath() fails (file deleted during event), fall back to simple comparison
-                if (eventPath.equals(globalGitignorePath)) {
-                    logger.debug("Global gitignore file changed: {} (fallback comparison)", eventPath);
-                    return true;
-                }
-            }
+    private @Nullable WatchKey pollForEvents(WatchService watchService) throws InterruptedException {
+        // Choose a short or long poll depending on focus
+        long pollTimeout = isApplicationFocused() ? POLL_TIMEOUT_FOCUSED_MS : POLL_TIMEOUT_UNFOCUSED_MS;
+        return watchService.poll(pollTimeout, TimeUnit.MILLISECONDS);
+    }
+
+    private EventBatch collectDebouncedBatch(WatchKey initialKey, WatchService watchService)
+            throws InterruptedException {
+        var batch = new EventBatch();
+        collectEventsFromKey(initialKey, watchService, batch);
+
+        long deadline = System.currentTimeMillis() + DEBOUNCE_DELAY_MS;
+        while (true) {
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) break;
+            WatchKey nextKey = watchService.poll(remaining, TimeUnit.MILLISECONDS);
+            if (nextKey == null) break;
+            collectEventsFromKey(nextKey, watchService, batch);
         }
-
-        return false;
+        return batch;
     }
 
     private void collectEventsFromKey(WatchKey key, WatchService watchService, EventBatch batch) {
@@ -269,7 +194,7 @@ public class JavaProjectWatchService implements IWatchService {
                     continue;
                 }
             }
-            batch.files.add(new ProjectFile(baseForFile, relativized));
+            batch.getFiles().add(new ProjectFile(baseForFile, relativized));
 
             // If it's a directory creation, register it so we can watch its children
             if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE && Files.isDirectory(eventPath)) {
@@ -401,18 +326,6 @@ public class JavaProjectWatchService implements IWatchService {
     }
 
     @Override
-    public void addListener(Listener listener) {
-        listeners.add(listener);
-        logger.debug("Added listener: {}", listener.getClass().getSimpleName());
-    }
-
-    @Override
-    public void removeListener(Listener listener) {
-        listeners.remove(listener);
-        logger.debug("Removed listener: {}", listener.getClass().getSimpleName());
-    }
-
-    @Override
     public synchronized void close() {
         running = false;
         pauseCount = 0; // Ensure any waiting thread is woken up to exit
@@ -427,37 +340,5 @@ public class JavaProjectWatchService implements IWatchService {
         var focusedWindow =
                 KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
         return focusedWindow != null;
-    }
-
-    /**
-     * Notify all registered listeners that files have changed.
-     */
-    private void notifyFilesChanged(EventBatch batch) {
-        for (Listener listener : listeners) {
-            try {
-                listener.onFilesChanged(batch);
-            } catch (Exception e) {
-                logger.error(
-                        "Error notifying listener {} of file changes",
-                        listener.getClass().getSimpleName(),
-                        e);
-            }
-        }
-    }
-
-    /**
-     * Notify all registered listeners that no files changed during the poll interval.
-     */
-    private void notifyNoFilesChanged() {
-        for (Listener listener : listeners) {
-            try {
-                listener.onNoFilesChangedDuringPollInterval();
-            } catch (Exception e) {
-                logger.error(
-                        "Error notifying listener {} of no file changes",
-                        listener.getClass().getSimpleName(),
-                        e);
-            }
-        }
     }
 }
