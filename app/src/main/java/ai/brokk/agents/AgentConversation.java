@@ -2,10 +2,8 @@ package ai.brokk.agents;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.util.Messages;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
-import dev.langchain4j.data.message.ChatMessageType;
-import dev.langchain4j.data.message.CustomMessage;
+import dev.langchain4j.data.message.*;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -20,17 +18,20 @@ public final class AgentConversation {
     this.io = io;
   }
 
-  private static boolean shouldEchoToolCalls() {
-    return Boolean.parseBoolean(System.getProperty("brokk.showtoolresult", "false"));
+  // for debugging purpose we can show the tool results in MOP
+  private static boolean shouldEchoToolResults(ChatMessage message) {
+    return Boolean.parseBoolean(System.getProperty("brokk.showtoolresult", "false")) &&
+        message instanceof ToolExecutionResultMessage;
   }
 
+  // MOP is only able to display one message at a time, so we split AiMessages that contain both reasoning and tool calls/text
   private static List<ChatMessage> splitAiMessageForUi(AiMessage message) {
     var reasoning = message.reasoningContent();
     boolean hasReasoning = reasoning != null && !reasoning.isBlank();
     boolean hasText = message.text() != null && !message.text().isBlank();
 
     if (hasReasoning && (hasText || message.hasToolExecutionRequests())) {
-      var reasoningOnly = AiMessage.from(reasoning);
+      var reasoningOnly = AiMessage.from("", reasoning);
 
       AiMessage withoutReasoning =
           new AiMessage(message.text(), null, message.hasToolExecutionRequests() ? message.toolExecutionRequests() : null);
@@ -41,51 +42,31 @@ public final class AgentConversation {
     return List.of(message);
   }
 
+  // append to both internal and ui and do not echo to MOP
   public void append(ChatMessage message) {
-    internalMessages.add(message);
-    uiMessages.add(message);
+    append(message, false);
   }
 
+  // append to both internal and ui and echo to MOP if true
   public void append(ChatMessage message, boolean echo) {
     internalMessages.add(message);
-
-    List<ChatMessage> uiToAppend =
-        message instanceof AiMessage ai ? splitAiMessageForUi(ai) : List.of(message);
-    uiMessages.addAll(uiToAppend);
-
-    if (!echo) {
-      return;
-    }
-
-    if (message instanceof AiMessage ai && ai.hasToolExecutionRequests()) {
-      if (!shouldEchoToolCalls()) {
-        return;
-      }
-    }
-
-    io.llmOutput(Messages.getText(message), message.type(), true, false);
+    appendUi(message, echo || shouldEchoToolResults(message));
   }
 
+  // append to internal only
   public void appendInternal(ChatMessage message) {
     internalMessages.add(message);
   }
 
+  // append to ui only and echo to MOP if true
   public void appendUi(ChatMessage message, boolean echo) {
     List<ChatMessage> uiToAppend =
         message instanceof AiMessage ai ? splitAiMessageForUi(ai) : List.of(message);
     uiMessages.addAll(uiToAppend);
 
-    if (!echo) {
-      return;
+    if (echo) {
+        io.llmOutput(Messages.getText(message), message.type(), true, false);
     }
-
-    if (message instanceof AiMessage ai && ai.hasToolExecutionRequests()) {
-      if (!shouldEchoToolCalls()) {
-        return;
-      }
-    }
-
-    io.llmOutput(Messages.getText(message), message.type(), true, false);
   }
 
   public void appendUi(String text, boolean echo) {

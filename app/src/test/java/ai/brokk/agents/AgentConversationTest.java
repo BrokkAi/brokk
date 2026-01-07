@@ -178,7 +178,7 @@ final class AgentConversationTest {
 
     var ui = conversation.getUiMessages();
     assertEquals(2, ui.size());
-    assertEquals(AiMessage.from("some reasoning"), ui.get(0));
+    assertEquals(AiMessage.from("", "some reasoning"), ui.get(0));
     assertEquals(new AiMessage("final answer", null, null), ui.get(1));
   }
 
@@ -194,7 +194,7 @@ final class AgentConversationTest {
 
     var ui = conversation.getUiMessages();
     assertEquals(2, ui.size());
-    assertEquals(AiMessage.from("tool reasoning"), ui.get(0));
+    assertEquals(AiMessage.from("", "tool reasoning"), ui.get(0));
 
     assertEquals(new AiMessage("", null, List.of(req)), ui.get(1));
     assertNull(((AiMessage) ui.get(1)).reasoningContent());
@@ -239,7 +239,7 @@ final class AgentConversationTest {
 
     var ui = conversation.getUiMessages();
     assertEquals(2, ui.size());
-    assertEquals(AiMessage.from("hidden reasoning"), ui.get(0));
+    assertEquals(AiMessage.from("", "hidden reasoning"), ui.get(0));
     assertEquals(new AiMessage("visible", null, null), ui.get(1));
   }
 }

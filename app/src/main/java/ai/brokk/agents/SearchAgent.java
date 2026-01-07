@@ -252,7 +252,7 @@ public class SearchAgent {
             }
 
             conversation.appendInternal(new UserMessage("What tools do you want to use next?"));
-            conversation.append(result.aiMessage(), true);
+            conversation.append(result.aiMessage());
 
             if (!ai.hasToolExecutionRequests()) {
                 return errorResult(
