@@ -1,6 +1,8 @@
 package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.tools.ExplanationRenderer;
 import ai.brokk.tools.ToolRegistry;
@@ -8,6 +10,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -54,11 +57,29 @@ class MessagesTest {
         var expectedRendered = List.of(request1, request2).stream()
                 .map(ExplanationRenderer::renderToolRequest)
                 .filter(s -> !s.isBlank())
-                .reduce((a, b) -> a + "\n" + b)
-                .orElse("");
+                .collect(java.util.stream.Collectors.joining("\n\n"));
 
-        var expected = expectedRendered.isBlank() ? "hi" : "hi\n" + expectedRendered;
+        var expected = expectedRendered.isBlank() ? "hi" : "hi\n\n" + expectedRendered;
 
         assertEquals(expected, Messages.getTextWithToolCalls(message));
+    }
+
+    @Test
+    void shouldDisplayInMop_toolExecutionResult_hiddenByDefault() {
+        String original = System.getProperty("brokk.devmode");
+        try {
+            System.setProperty("brokk.devmode", "false");
+            var message = new ToolExecutionResultMessage("tool", "id", "result");
+            assertFalse(Messages.shouldDisplayInMop(message));
+        } finally {
+            if (original != null) System.setProperty("brokk.devmode", original);
+            else System.clearProperty("brokk.devmode");
+        }
+    }
+
+    @Test
+    void shouldDisplayInMop_nonToolMessages_alwaysDisplayed() {
+        assertTrue(Messages.shouldDisplayInMop(new UserMessage("hello")));
+        assertTrue(Messages.shouldDisplayInMop(AiMessage.from("hi")));
     }
 }

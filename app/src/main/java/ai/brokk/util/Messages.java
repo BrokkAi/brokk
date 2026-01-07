@@ -183,6 +183,17 @@ public class Messages {
                 && !aiMessage.reasoningContent().isBlank();
     }
 
+    /**
+     * Determines if a message should be displayed in the MOP (Markdown Output Panel).
+     * ToolExecutionResultMessage is hidden unless dev mode is enabled.
+     */
+    public static boolean shouldDisplayInMop(ChatMessage message) {
+        if (message instanceof ToolExecutionResultMessage) {
+            return Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"));
+        }
+        return true;
+    }
+
     public static String getTextWithToolCalls(ChatMessage message) {
         if (!(message instanceof AiMessage aiMessage) || !aiMessage.hasToolExecutionRequests()) {
             return getText(message);

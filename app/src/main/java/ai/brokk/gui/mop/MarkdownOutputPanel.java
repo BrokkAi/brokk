@@ -197,10 +197,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void append(String text, ChatMessageType type, boolean isNewMessage) {
-        append(text, type, isNewMessage, false);
-    }
-
     public void append(String text, ChatMessageType type, boolean isNewMessage, boolean reasoning) {
         if (text.isEmpty()) {
             return;
@@ -244,6 +240,9 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         messages.addAll(newMessages);
         webHost.clear();
         for (var message : newMessages) {
+            if (!Messages.shouldDisplayInMop(message)) {
+                continue;
+            }
             var isReasoning = isReasoningMessage(message);
             webHost.append(Messages.getTextWithToolCalls(message), true, message.type(), false, isReasoning);
         }
