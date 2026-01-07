@@ -226,7 +226,8 @@ public class Chrome
         // Show initial system message
         var projectType = getProject() instanceof MainProject ? "project" : "worktree";
         showNotification(
-                NotificationRole.INFO, "Opening " + projectType + " at " + getProject().getRoot());
+                NotificationRole.INFO,
+                "Opening " + projectType + " at " + getProject().getRoot());
 
         // Test runner persistence and panel
         var brokkDir = getProject().getRoot().resolve(AbstractProject.BROKK_DIR);

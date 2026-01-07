@@ -1935,8 +1935,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var topClasses = GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), 10);
 
             if (topClasses.isEmpty()) {
-                io.showNotification(IConsoleIO.NotificationRole.INFO,
-                                    "No classes found via PageRank for style guide generation.");
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "No classes found via PageRank for style guide generation.");
                 String fallbackContent =
                         "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n";
                 project.saveStyleGuide(fallbackContent);
@@ -1965,35 +1965,42 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     break;
                 }
                 if (chunkTokens > MAX_STYLE_TOKENS) {
-                    logger.debug("Skipping large file {} ({} tokens) for style guide context.",
-                                 relativePath, chunkTokens);
+                    logger.debug(
+                            "Skipping large file {} ({} tokens) for style guide context.", relativePath, chunkTokens);
                     continue;
                 }
                 codeForLLM.append(chunk);
                 tokens += chunkTokens;
-                logger.trace("Added {} ({} tokens, total {}) to style guide context", relativePath, chunkTokens, tokens);
+                logger.trace(
+                        "Added {} ({} tokens, total {}) to style guide context", relativePath, chunkTokens, tokens);
             }
 
             if (codeForLLM.isEmpty()) {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "No relevant code found for style guide generation");
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "No relevant code found for style guide generation");
                 String fallbackContent = "# Style Guide\n\n(No relevant code found for generation)\n";
                 project.saveStyleGuide(fallbackContent);
                 return fallbackContent;
             }
 
             var messages = List.of(
-                    new SystemMessage("You are an expert software engineer. Your task is to extract a concise coding style guide from the provided code examples."),
-                    new UserMessage("""
+                    new SystemMessage(
+                            "You are an expert software engineer. Your task is to extract a concise coding style guide from the provided code examples."),
+                    new UserMessage(
+                            """
                             Based on these code examples, create a concise, clear coding style guide in Markdown format
                             that captures the conventions used in this codebase, particularly the ones that leverage new or uncommon features.
                             DO NOT repeat what are simply common best practices.
 
                             %s
-                            """.formatted(codeForLLM)));
+                            """
+                                    .formatted(codeForLLM)));
 
-            var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide").sendRequest(messages);
+            var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide")
+                    .sendRequest(messages);
             if (result.error() != null) {
-                String message = "Failed to generate style guide: " + result.error().getMessage();
+                String message =
+                        "Failed to generate style guide: " + result.error().getMessage();
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 String fallbackContent = "# Style Guide\n\n(Generation failed)\n";
                 project.saveStyleGuide(fallbackContent);
@@ -2016,7 +2023,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } else {
                 savedFileName = ".brokk/style.md";
             }
-            io.showNotification(IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
             return styleGuide;
         } catch (Exception e) {
             logger.error("Error generating style guide", e);
@@ -2061,7 +2069,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 logger.info("No Git repository found, skipping style guide regeneration.");
                 styleGenerationSkipped = true;
                 io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide regeneration.");
+                        IConsoleIO.NotificationRole.INFO,
+                        "No Git repository found, skipping style guide regeneration.");
                 return "";
             }
             return generateStyleGuide();
