@@ -22,6 +22,8 @@ import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -115,6 +117,19 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
         add(placeholderArea, CARD_PLACEHOLDER);
         add(contentCard, CARD_CONTENT);
+
+        // Listen for resize events to re-layout HTML content at new width
+        scrollPane.addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                // Force the text pane to recalculate its size for the new viewport width
+                var viewport = scrollPane.getViewport();
+                if (viewport != null && viewport.getWidth() > 0) {
+                    contentPane.setSize(viewport.getWidth(), Short.MAX_VALUE);
+                    contentPane.revalidate();
+                }
+            }
+        });
 
         showPlaceholder();
     }
