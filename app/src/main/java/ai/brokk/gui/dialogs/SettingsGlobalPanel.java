@@ -713,7 +713,8 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
                 panel.add(clearBtn, gbcClear);
 
                 setBtn.addActionListener(ev -> {
-                    KeyStroke captured = captureKeyStroke(panel);
+                    var captured = captureKeyStroke(panel);
+                    if (captured == null) return; // cancelled
                     if ("global.closeWindow".equals(id)
                             && captured.getKeyCode() == KeyEvent.VK_ESCAPE
                             && captured.getModifiers() == 0) {
@@ -839,7 +840,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         }
     }
 
-    private static KeyStroke captureKeyStroke(Component parent) {
+    private static @Nullable KeyStroke captureKeyStroke(Component parent) {
         final KeyStroke[] result = new KeyStroke[1];
         final KeyboardFocusManager kfm = KeyboardFocusManager.getCurrentKeyboardFocusManager();
         KeyEventDispatcher[] ref = new KeyEventDispatcher[1];
@@ -879,7 +880,7 @@ public class SettingsGlobalPanel extends JPanel implements ThemeAware, SettingsC
         } finally {
             if (ref[0] != null) kfm.removeKeyEventDispatcher(ref[0]);
         }
-        return result[0] == null ? KeyStroke.getKeyStroke(0, 0) : result[0];
+        return result[0];
     }
 
     private static @Nullable String findConflictingKeybinding(KeyStroke newKeyStroke, String excludeId) {
