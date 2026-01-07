@@ -92,6 +92,17 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private boolean guidedReviewBusy = false;
 
+    private boolean hasGeneratedReview = false;
+
+    @Nullable
+    private JScrollPane detailScrollPane = null;
+
+    @Nullable
+    private JSplitPane rightVerticalSplitPane = null;
+
+    @Nullable
+    private JSplitPane mainSplitPane = null;
+
     @Nullable
     private ReviewParser.CodeExcerpt activeExcerpt = null;
 
@@ -596,16 +607,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             diffCore.showLocation(ce.file(), ce.line(), ce.side());
         });
 
-        JScrollPane detailScrollPane = new JScrollPane(codeReviewPanel.getDetailPanel());
+        detailScrollPane = new JScrollPane(codeReviewPanel.getDetailPanel());
         detailScrollPane.setBorder(null);
 
-        JSplitPane rightVerticalSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detailScrollPane, diffContainer);
-        rightVerticalSplit.setResizeWeight(0.5);
+        rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detailScrollPane, diffContainer);
+        rightVerticalSplitPane.setResizeWeight(0.5);
 
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplit);
-        mainSplit.setDividerLocation(300);
+        mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplitPane);
+        mainSplitPane.setDividerLocation(300);
 
-        topContainer.add(mainSplit, BorderLayout.CENTER);
+        updateReviewPanelVisibility(hasGeneratedReview);
+
+        topContainer.add(mainSplitPane, BorderLayout.CENTER);
 
         setBorder(new CompoundBorder(
                 new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
@@ -707,6 +720,46 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         return new StalenessInfo(commitsBehind, uncommittedChanges);
     }
 
+    private static int defaultSplitPaneDividerSize() {
+        int size = UIManager.getInt("SplitPane.dividerSize");
+        return size > 0 ? size : 8;
+    }
+
+    private void updateReviewPanelVisibility(boolean visible) {
+        SwingUtil.runOnEdt(() -> {
+            leftSplitPane.setVisible(visible);
+
+            if (detailScrollPane != null) {
+                detailScrollPane.setVisible(visible);
+            }
+
+            if (rightVerticalSplitPane != null) {
+                rightVerticalSplitPane.setEnabled(visible);
+                rightVerticalSplitPane.setDividerSize(visible ? defaultSplitPaneDividerSize() : 0);
+                rightVerticalSplitPane.setResizeWeight(visible ? 0.5 : 0.0);
+                if (!visible) {
+                    rightVerticalSplitPane.setDividerLocation(0);
+                } else {
+                    rightVerticalSplitPane.setDividerLocation(0.5);
+                }
+            }
+
+            if (mainSplitPane != null) {
+                mainSplitPane.setEnabled(visible);
+                mainSplitPane.setDividerSize(visible ? defaultSplitPaneDividerSize() : 0);
+                mainSplitPane.setResizeWeight(0.0);
+                if (!visible) {
+                    mainSplitPane.setDividerLocation(0);
+                } else {
+                    mainSplitPane.setDividerLocation(300);
+                }
+            }
+
+            revalidate();
+            repaint();
+        });
+    }
+
     private void setGuidedReviewBusy(boolean busy) {
         SwingUtil.runOnEdt(() -> {
             guidedReviewBusy = busy;
@@ -800,6 +853,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         }
                     }
                     lastReviewState = new ReviewState(currentHash, now);
+                    hasGeneratedReview = true;
+                    updateReviewPanelVisibility(true);
                     codeReviewPanel.displayReview(review);
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
