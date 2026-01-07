@@ -202,16 +202,16 @@ class ReviewParserTest {
         var rawReview =
                 new ReviewParser.RawReview("Overview", List.of(rawDesign), List.of(rawTactical), List.of("Test more"));
 
-        ReviewParser.GuidedReview guided = ReviewParser.GuidedReview.fromRaw(
-                rawReview,
-                contents,
-                files,
-                (f, c) -> new ReviewParser.CodeExcerpt(
-                        new ProjectFile(Path.of(".").toAbsolutePath().normalize(), Path.of(f)),
-                        null,
-                        1,
-                        ReviewParser.DiffSide.NEW,
-                        c));
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var resolvedExcerpts = Map.of(
+                0,
+                        new ReviewParser.CodeExcerpt(
+                                new ProjectFile(root, "FileA.java"), null, 1, ReviewParser.DiffSide.NEW, "code A"),
+                1,
+                        new ReviewParser.CodeExcerpt(
+                                new ProjectFile(root, "FileB.java"), null, 1, ReviewParser.DiffSide.NEW, "code B"));
+
+        ReviewParser.GuidedReview guided = ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
 
         assertEquals("Overview", guided.overview());
         assertEquals(1, guided.designNotes().size());

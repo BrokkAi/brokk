@@ -218,12 +218,12 @@ public class ReviewParser {
                     .toList();
 
             List<TacticalFeedback> tacticalNotes = rawReview.tacticalNotes().stream()
+                    .filter(raw -> resolvedExcerpts.containsKey(raw.excerptId()))
                     .map(raw -> new TacticalFeedback(
                             raw.title(),
                             raw.description(),
-                            resolvedExcerpts.get(raw.excerptId()),
+                            java.util.Objects.requireNonNull(resolvedExcerpts.get(raw.excerptId())),
                             raw.recommendation()))
-                    .filter(feedback -> feedback.excerpt() != null)
                     .toList();
 
             return new GuidedReview(rawReview.overview(), designNotes, tacticalNotes, rawReview.additionalTests());
