@@ -286,14 +286,14 @@ public class ReviewAgent {
     @Blocking
     RetryResult retryInStages(Llm llm, List<ChatMessage> turn1Messages, Llm.StreamingResult turn1Result)
             throws InterruptedException {
-        // we split up "validate filenames" and "validate text" into two stages so that
-        // we can tailor the Context to each
+        // we split up "file resolution" (resolving filenames) and "text resolution" (validating excerpt content)
+        // into two stages so that we can tailor the Context to each
 
-        List<ChatMessage> stage1Messages = new ArrayList<>(turn1Messages);
+        List<ChatMessage> fileResolutionMessages = new ArrayList<>(turn1Messages);
         Map<Integer, RawExcerpt> validPathExcerpts = new HashMap<>();
         int totalRetries = 0;
 
-        // Stage 1: Validate file paths exist
+        // Stage 1: File Resolution (Validate file paths exist)
         Llm.StreamingResult currentResult = turn1Result;
         int attempts = 0;
 
@@ -301,23 +301,23 @@ public class ReviewAgent {
             String text = currentResult.text();
             String reasoning = requireNonNullElse(
                     requireNonNull(currentResult.chatResponse()).reasoningContent(), "");
-            stage1Messages.add(new AiMessage(text, reasoning));
+            fileResolutionMessages.add(new AiMessage(text, reasoning));
 
             Map<Integer, RawExcerpt> parsed = ReviewParser.instance.parseExcerpts(text);
-            Map<Integer, String> stage1Errors = new HashMap<>();
+            Map<Integer, String> fileResolutionErrors = new HashMap<>();
 
             for (var entry : parsed.entrySet()) {
                 RawExcerpt excerpt = entry.getValue();
                 if (fileExists(excerpt.file())) {
                     validPathExcerpts.put(entry.getKey(), excerpt);
                 } else {
-                    stage1Errors.put(entry.getKey(), "File does not exist: " + excerpt.file());
+                    fileResolutionErrors.put(entry.getKey(), "File does not exist: " + excerpt.file());
                 }
             }
 
-            if (stage1Errors.isEmpty() || attempts++ == 2) break;
+            if (fileResolutionErrors.isEmpty() || attempts++ == 2) break;
 
-            String errorList = stage1Errors.entrySet().stream()
+            String errorList = fileResolutionErrors.entrySet().stream()
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
                     .collect(java.util.stream.Collectors.joining("\n"));
 
@@ -326,7 +326,7 @@ public class ReviewAgent {
                     ? " for ONLY these excerpts.\nAll other excerpts have been recorded successfully and do not need to be repeated."
                     : ":";
 
-            stage1Messages.add(new UserMessage(
+            fileResolutionMessages.add(new UserMessage(
                     """
                     The following excerpts referenced unknown file paths.
                     Please provide corrected BRK_EXCERPT blocks%s
@@ -335,34 +335,34 @@ public class ReviewAgent {
                     """
                             .formatted(successNote, errorList)));
 
-            currentResult = llm.sendRequest(stage1Messages);
+            currentResult = llm.sendRequest(fileResolutionMessages);
             totalRetries++;
             if (currentResult.error() != null) break;
         }
 
-        // Build merged stage 1 text by replacing excerpts in original with corrected versions
+        // Build merged text by replacing excerpts in original with corrected versions
         String mergedResponseText = buildMergedResponseText(turn1Result.text(), validPathExcerpts);
 
-        // Stage 2: Validate excerpts match file content
-        Map<Integer, CodeExcerpt> resolvedExcerpts = new HashMap<>();
-        List<ChatMessage> stage2Messages = new ArrayList<>();
+        // Stage 2: Text Resolution (Validate excerpts match file content)
+        Map<Integer, CodeExcerpt> matchedExcerpts = new HashMap<>();
+        List<ChatMessage> textResolutionMessages = new ArrayList<>();
         attempts = 0;
         while (true) {
-            Map<Integer, String> stage2Errors = new HashMap<>();
+            Map<Integer, String> textResolutionErrors = new HashMap<>();
             for (var entry : validPathExcerpts.entrySet()) {
                 int id = entry.getKey();
-                if (resolvedExcerpts.containsKey(id)) continue;
+                if (matchedExcerpts.containsKey(id)) continue;
 
                 RawExcerpt excerpt = entry.getValue();
                 FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
                 if (fileInfo == null) {
-                    stage2Errors.put(id, "File not in diff: " + excerpt.file());
+                    textResolutionErrors.put(id, "File not in diff: " + excerpt.file());
                     continue;
                 }
 
                 ExcerptMatch match = matchExcerptInFile(excerpt, fileInfo);
                 if (match == null) {
-                    stage2Errors.put(id, "Excerpt text not found in " + excerpt.file());
+                    textResolutionErrors.put(id, "Excerpt text not found in " + excerpt.file());
                 } else {
                     var file = cm.toFile(excerpt.file());
                     int lineCount = (int) match.matchedText().lines().count();
@@ -370,18 +370,18 @@ public class ReviewAgent {
                             .enclosingCodeUnit(file, match.line(), match.line() + Math.max(0, lineCount - 1))
                             .orElse(null);
                     logger.debug("Enclosing CodeUnit for excerpt {} is {}", id, unit);
-                    resolvedExcerpts.put(
+                    matchedExcerpts.put(
                             id, new CodeExcerpt(file, unit, match.line(), match.side(), match.matchedText()));
                 }
             }
 
-            if (stage2Errors.isEmpty() || attempts++ == 2) break;
+            if (textResolutionErrors.isEmpty() || attempts++ == 2) break;
 
-            String errorList = stage2Errors.entrySet().stream()
+            String errorList = textResolutionErrors.entrySet().stream()
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
                     .collect(java.util.stream.Collectors.joining("\n"));
 
-            var filesToInclude = stage2Errors.keySet().stream()
+            var filesToInclude = textResolutionErrors.keySet().stream()
                     .map(validPathExcerpts::get)
                     .map(RawExcerpt::file)
                     .filter(this::fileExists)
@@ -391,20 +391,20 @@ public class ReviewAgent {
 
             Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
 
-            // Build stage 2 messages: system, turn1 prompt, merged result as AiMessage, workspace, stage2 prompt
-            stage2Messages.clear();
-            stage2Messages.add(buildSystemMessage());
-            stage2Messages.add(buildAnalysisRequestMessage());
-            stage2Messages.add(new AiMessage(mergedResponseText));
-            stage2Messages.addAll(
+            // Build messages: system, turn1 prompt, merged result as AiMessage, workspace, text resolution prompt
+            textResolutionMessages.clear();
+            textResolutionMessages.add(buildSystemMessage());
+            textResolutionMessages.add(buildAnalysisRequestMessage());
+            textResolutionMessages.add(new AiMessage(mergedResponseText));
+            textResolutionMessages.addAll(
                     WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
 
-            boolean someResolved = !resolvedExcerpts.isEmpty();
-            String successNote = someResolved
+            boolean someMatched = !matchedExcerpts.isEmpty();
+            String successNote = someMatched
                     ? " for ONLY these excerpts.\nAll other excerpts have been recorded successfully and do not need to be repeated."
                     : ":";
 
-            stage2Messages.add(new UserMessage(
+            textResolutionMessages.add(new UserMessage(
                     """
                     The following excerpts could not be matched in the file content.
                     Please provide corrected BRK_EXCERPT blocks%s
@@ -413,7 +413,7 @@ public class ReviewAgent {
                     """
                             .formatted(successNote, errorList)));
 
-            currentResult = llm.sendRequest(stage2Messages);
+            currentResult = llm.sendRequest(textResolutionMessages);
             totalRetries++;
             if (currentResult.error() != null) break;
 
@@ -431,13 +431,14 @@ public class ReviewAgent {
             mergedResponseText = buildMergedResponseText(turn1Result.text(), validPathExcerpts);
         }
 
-        return new RetryResult(resolvedExcerpts, totalRetries, mergedResponseText);
+        return new RetryResult(matchedExcerpts, totalRetries, mergedResponseText);
     }
 
     private String buildMergedResponseText(String originalText, Map<Integer, RawExcerpt> correctedExcerpts) {
         List<ReviewParser.Segment> segments = ReviewParser.instance.parseToSegments(originalText);
-        List<ReviewParser.Segment> mergedSegments = new ArrayList<>();
+        logger.debug("Original response segments: {}", segments);
 
+        List<ReviewParser.Segment> mergedSegments = new ArrayList<>();
         for (var segment : segments) {
             if (segment instanceof ReviewParser.ExcerptSegment excerptSeg) {
                 RawExcerpt corrected = correctedExcerpts.get(excerptSeg.id());
@@ -451,6 +452,7 @@ public class ReviewAgent {
                 mergedSegments.add(segment);
             }
         }
+        logger.debug("Merged response segments: {}", segments);
 
         return ReviewParser.instance.serializeSegments(mergedSegments);
     }
