@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
+import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.agents.ReviewGenerationException;
@@ -485,7 +486,26 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         boolean showPR = baselineMode == BaselineMode.NON_DEFAULT_BRANCH
                 || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
 
-        prBtn.setEnabled(!hasUncommittedChanges);
+        boolean prBtnEnabled = !hasUncommittedChanges;
+        String prBtnTooltip = null;
+        if (prBtnEnabled && showPR) {
+            // Check if a PR already exists for this branch
+            try {
+                String currentBranch = repo.getCurrentBranch();
+                if (GitHubAuth.getOrCreateInstance(contextManager.getProject())
+                        .hasOpenPullRequestForBranch(currentBranch)) {
+                    prBtnEnabled = false;
+                    prBtnTooltip = "A pull request already exists for branch " + currentBranch;
+                }
+            } catch (Exception e) {
+                logger.debug("Could not check for existing PRs: {}", e.getMessage());
+                // Continue - don't block PR creation just because we couldn't check
+            }
+        }
+        prBtn.setEnabled(prBtnEnabled);
+        if (prBtnTooltip != null) {
+            prBtn.setToolTipText(prBtnTooltip);
+        }
         for (var al : prBtn.getActionListeners()) prBtn.removeActionListener(al);
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
         prBtn.setVisible(showPR);
