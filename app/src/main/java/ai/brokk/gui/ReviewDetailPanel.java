@@ -33,6 +33,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextPane;
+import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
@@ -56,7 +57,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final ContextManager contextManager;
     private final Runnable onNext;
 
-    private final JTextPane contentPane;
+    private final WrappingTextPane contentPane;
     private final JScrollPane scrollPane;
 
     private final JPanel excerptsPanel;
@@ -84,7 +85,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         placeholderArea.setFont(placeholderArea.getFont().deriveFont(Font.ITALIC, 14f));
         placeholderArea.setBorder(new EmptyBorder(40, 40, 40, 40));
 
-        contentPane = new JTextPane();
+        contentPane = new WrappingTextPane();
         contentPane.setEditorKit(new AutoScalingHtmlPane.ScalingHTMLEditorKit());
         contentPane.setEditable(false);
         contentPane.setContentType("text/html");
@@ -354,6 +355,25 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
         if (!htmlChunks.isEmpty()) {
             flushContent();
+        }
+    }
+
+    /**
+     * A JTextPane that always tracks the viewport width, forcing HTML content to wrap.
+     */
+    private static class WrappingTextPane extends JTextPane {
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            var parent = getParent();
+            if (parent instanceof JViewport viewport) {
+                setSize(viewport.getWidth(), Short.MAX_VALUE);
+            }
+            return super.getPreferredSize();
         }
     }
 }
