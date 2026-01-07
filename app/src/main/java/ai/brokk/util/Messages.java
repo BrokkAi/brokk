@@ -192,10 +192,10 @@ public class Messages {
         var rendered = aiMessage.toolExecutionRequests().stream()
                 .map(ExplanationRenderer::renderToolRequest)
                 .filter(s -> !s.isBlank())
-                .collect(Collectors.joining("\n"));
+                .collect(Collectors.joining("\n\n"));
         if (rendered.isBlank()) {
             return text;
         }
-        return text + "\n" + rendered;
+        return text + "\n\n" + rendered;
     }
 }

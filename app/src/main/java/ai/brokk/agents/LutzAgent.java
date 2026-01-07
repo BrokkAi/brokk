@@ -13,7 +13,6 @@ import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
-import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
