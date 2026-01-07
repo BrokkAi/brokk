@@ -899,7 +899,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                         currentActualBranch = localTrackingName;
                     }
                 }
-                refreshAllGitUi(currentActualBranch);
+                chrome.refreshAllGitUi(currentActualBranch);
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
                 chrome.toolError(Objects.toString(e.getMessage(), "Unknown error during checkout."));
@@ -992,7 +992,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     // Update commit/branch tables
                     if (branchForUiRefreshFinal != null) {
-                        refreshAllGitUi(branchForUiRefreshFinal);
+                        chrome.refreshAllGitUi(branchForUiRefreshFinal);
                     }
                 });
             }
@@ -1059,7 +1059,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
             contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
-                    refreshAllGitUi(newName);
+                    chrome.refreshAllGitUi(newName);
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
@@ -1244,18 +1244,6 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 return this;
             }
         };
-    }
-
-    private void refreshAllGitUi(String branchName) {
-        chrome.updateGitRepo();
-        chrome.getInstructionsPanel().refreshBranchUi(branchName);
-
-        // Also refresh the Changes tab to reflect the new branch's diff
-        try {
-            chrome.getRightPanel().requestReviewUpdate();
-        } catch (Exception ex) {
-            logger.debug("Unable to refresh Changes tab after Git UI action", ex);
-        }
     }
 
     private GitRepo getRepo() {

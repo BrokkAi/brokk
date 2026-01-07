@@ -2442,6 +2442,22 @@ public class Chrome
     }
 
     /**
+     * Refreshes all Git-related UI components after a branch change or significant repo update.
+     * This coordinates updates across the repo state, branch labels, and the review/changes panel.
+     */
+    public void refreshAllGitUi(@Nullable String branchName) {
+        updateGitRepo();
+        refreshBranchUi(branchName);
+
+        // Also refresh the Changes tab to reflect the new branch's diff
+        try {
+            getRightPanel().requestReviewUpdate();
+        } catch (Exception ex) {
+            logger.debug("Unable to refresh Changes tab after Git UI action", ex);
+        }
+    }
+
+    /**
      * Calculates an appropriate initial width for the left sidebar based on content and window size.
      */
     public int computeInitialSidebarWidth() {
