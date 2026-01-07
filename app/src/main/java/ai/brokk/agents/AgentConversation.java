@@ -2,6 +2,7 @@ package ai.brokk.agents;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.util.Messages;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.CustomMessage;
@@ -19,6 +20,27 @@ public final class AgentConversation {
     this.io = io;
   }
 
+  private static boolean shouldEchoToolCalls() {
+    return Boolean.parseBoolean(System.getProperty("brokk.showtoolresult", "false"));
+  }
+
+  private static List<ChatMessage> splitAiMessageForUi(AiMessage message) {
+    var reasoning = message.reasoningContent();
+    boolean hasReasoning = reasoning != null && !reasoning.isBlank();
+    boolean hasText = message.text() != null && !message.text().isBlank();
+
+    if (hasReasoning && (hasText || message.hasToolExecutionRequests())) {
+      var reasoningOnly = AiMessage.from(reasoning);
+
+      AiMessage withoutReasoning =
+          new AiMessage(message.text(), null, message.hasToolExecutionRequests() ? message.toolExecutionRequests() : null);
+
+      return List.of(reasoningOnly, withoutReasoning);
+    }
+
+    return List.of(message);
+  }
+
   public void append(ChatMessage message) {
     internalMessages.add(message);
     uiMessages.add(message);
@@ -26,10 +48,22 @@ public final class AgentConversation {
 
   public void append(ChatMessage message, boolean echo) {
     internalMessages.add(message);
-    uiMessages.add(message);
-    if (echo) {
-      io.llmOutput(Messages.getText(message), message.type(), true, false);
+
+    List<ChatMessage> uiToAppend =
+        message instanceof AiMessage ai ? splitAiMessageForUi(ai) : List.of(message);
+    uiMessages.addAll(uiToAppend);
+
+    if (!echo) {
+      return;
     }
+
+    if (message instanceof AiMessage ai && ai.hasToolExecutionRequests()) {
+      if (!shouldEchoToolCalls()) {
+        return;
+      }
+    }
+
+    io.llmOutput(Messages.getText(message), message.type(), true, false);
   }
 
   public void appendInternal(ChatMessage message) {
@@ -37,10 +71,21 @@ public final class AgentConversation {
   }
 
   public void appendUi(ChatMessage message, boolean echo) {
-    uiMessages.add(message);
-    if (echo) {
-      io.llmOutput(Messages.getText(message), message.type(), true, false);
+    List<ChatMessage> uiToAppend =
+        message instanceof AiMessage ai ? splitAiMessageForUi(ai) : List.of(message);
+    uiMessages.addAll(uiToAppend);
+
+    if (!echo) {
+      return;
     }
+
+    if (message instanceof AiMessage ai && ai.hasToolExecutionRequests()) {
+      if (!shouldEchoToolCalls()) {
+        return;
+      }
+    }
+
+    io.llmOutput(Messages.getText(message), message.type(), true, false);
   }
 
   public void appendUi(String text, boolean echo) {

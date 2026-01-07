@@ -1,15 +1,19 @@
 package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.testutil.TestConsoleIO;
+import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.UserMessage;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -161,5 +165,81 @@ final class AgentConversationTest {
     assertThrows(
         UnsupportedOperationException.class,
         () -> conversation.getUiMessages().add(UserMessage.from("x")));
+  }
+
+  @Test
+  void append_aiMessageWithReasoningAndText_splitsForUi_internalUnsplit() {
+    var msg = new AiMessage("final answer", "some reasoning");
+
+    conversation.append(msg, false);
+
+    assertEquals(1, conversation.getInternalMessages().size());
+    assertSame(msg, conversation.getInternalMessages().getFirst());
+
+    var ui = conversation.getUiMessages();
+    assertEquals(2, ui.size());
+    assertEquals(AiMessage.from("some reasoning"), ui.get(0));
+    assertEquals(new AiMessage("final answer", null, null), ui.get(1));
+  }
+
+  @Test
+  void append_aiMessageWithReasoningAndToolCalls_splitsForUi_internalUnsplit() {
+    var req = ToolExecutionRequest.builder().id("call-1").name("searchSymbols").arguments("{}").build();
+    var msg = new AiMessage("", "tool reasoning", List.of(req));
+
+    conversation.append(msg, false);
+
+    assertEquals(1, conversation.getInternalMessages().size());
+    assertSame(msg, conversation.getInternalMessages().getFirst());
+
+    var ui = conversation.getUiMessages();
+    assertEquals(2, ui.size());
+    assertEquals(AiMessage.from("tool reasoning"), ui.get(0));
+
+    assertEquals(new AiMessage("", null, List.of(req)), ui.get(1));
+    assertNull(((AiMessage) ui.get(1)).reasoningContent());
+    assertTrue(((AiMessage) ui.get(1)).hasToolExecutionRequests());
+  }
+
+  @Test
+  void append_aiMessageWithOnlyReasoning_notSplit() {
+    var msg = new AiMessage("", "just reasoning");
+
+    conversation.append(msg, false);
+
+    assertEquals(1, conversation.getInternalMessages().size());
+    assertSame(msg, conversation.getInternalMessages().getFirst());
+
+    var ui = conversation.getUiMessages();
+    assertEquals(1, ui.size());
+    assertSame(msg, ui.getFirst());
+  }
+
+  @Test
+  void append_aiMessageWithOnlyText_notSplit() {
+    var msg = new AiMessage("just text");
+
+    conversation.append(msg, false);
+
+    assertEquals(1, conversation.getInternalMessages().size());
+    assertSame(msg, conversation.getInternalMessages().getFirst());
+
+    var ui = conversation.getUiMessages();
+    assertEquals(1, ui.size());
+    assertSame(msg, ui.getFirst());
+  }
+
+  @Test
+  void appendUi_aiMessageWithReasoningAndText_splitsForUi() {
+    var msg = new AiMessage("visible", "hidden reasoning");
+
+    conversation.appendUi(msg, false);
+
+    assertTrue(conversation.getInternalMessages().isEmpty());
+
+    var ui = conversation.getUiMessages();
+    assertEquals(2, ui.size());
+    assertEquals(AiMessage.from("hidden reasoning"), ui.get(0));
+    assertEquals(new AiMessage("visible", null, null), ui.get(1));
   }
 }
