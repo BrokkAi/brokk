@@ -1,17 +1,19 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { get } from 'svelte/store';
   import type { Writable } from 'svelte/store';
   import type { BubbleState } from './stores/bubblesStore';
   import CacheStatsDebug from './dev/components/CacheStatsDebug.svelte';
   import autoScroll, { escapeWhenUpPlugin } from '@yrobot/auto-scroll';
   import Spinner from './components/Spinner.svelte';
   import TransientMessage from './components/TransientMessage.svelte';
+  import StaticDocument from './components/StaticDocument.svelte';
   import { zoomStore } from './stores/zoomStore';
   import { transientStore } from './stores/transientStore';
   import { historyStore } from './stores/historyStore';
+  import { staticDocStore } from './stores/staticDocStore';
   import ThreadBlock from './components/ThreadBlock.svelte';
   import EmptyState from './components/EmptyState.svelte';
-  import { get } from 'svelte/store';
   import { threadStore } from './stores/threadStore';
   import Icon from '@iconify/svelte';
   import { summaryStore } from './stores/summaryStore';
@@ -209,76 +211,80 @@
 <!-- Debug panels -->
 <CacheStatsDebug />
 
-<div
-  class="chat-container"
-  id="chat-container"
-  style="--zoom-level: {$zoomStore}"
->
-  {#if hasHistory || hasLiveOrTransient}
-    <!-- History tasks (expanded) OR a single-line summary (collapsed) -->
-    {#if hasHistory}
-      {#if !historyCollapsed}
-        {#each $historyStore as task (task.threadId)}
-          {#if task.entries.length > 0 || task.summary}
-            <ThreadBlock taskSequence={task.taskSequence} threadId={task.threadId} bubbles={task.entries} compressed={task.compressed} summary={task.summary} />
-          {/if}
-        {/each}
-      {:else}
-        <header
-          class="header-preview"
-          role="button"
-          tabindex="0"
-          aria-label="Expand history"
-          on:click={() => historyCollapsed = false}
-          on:keydown={onSummaryKeydown}
-        >
-          <Icon icon="mdi:chevron-right" style="color: var(--chat-text);" />
-          <span class="tag">Conversation</span>
-          <div class="content-preview">
-            {#if compressedHistoryCount > 0}
-              ({fullHistoryCount} full thread{fullHistoryCount === 1 ? '' : 's'}, {compressedHistoryCount} compressed thread{compressedHistoryCount === 1 ? '' : 's'})
-            {:else}
-              ({historyTaskCount} thread{historyTaskCount === 1 ? '' : 's'})
+{#if $staticDocStore}
+  <StaticDocument />
+{:else}
+  <div
+    class="chat-container"
+    id="chat-container"
+    style="--zoom-level: {$zoomStore}"
+  >
+    {#if hasHistory || hasLiveOrTransient}
+      <!-- History tasks (expanded) OR a single-line summary (collapsed) -->
+      {#if hasHistory}
+        {#if !historyCollapsed}
+          {#each $historyStore as task (task.threadId)}
+            {#if task.entries.length > 0 || task.summary}
+              <ThreadBlock taskSequence={task.taskSequence} threadId={task.threadId} bubbles={task.entries} compressed={task.compressed} summary={task.summary} />
             {/if}
+          {/each}
+        {:else}
+          <header
+            class="header-preview"
+            role="button"
+            tabindex="0"
+            aria-label="Expand history"
+            on:click={() => historyCollapsed = false}
+            on:keydown={onSummaryKeydown}
+          >
+            <Icon icon="mdi:chevron-right" style="color: var(--chat-text);" />
+            <span class="tag">Conversation</span>
+            <div class="content-preview">
+              {#if compressedHistoryCount > 0}
+                ({fullHistoryCount} full thread{fullHistoryCount === 1 ? '' : 's'}, {compressedHistoryCount} compressed thread{compressedHistoryCount === 1 ? '' : 's'})
+              {:else}
+                ({historyTaskCount} thread{historyTaskCount === 1 ? '' : 's'})
+              {/if}
+            </div>
+          </header>
+        {/if}
+      {/if}
+
+      <!-- Separator line with centered toggle between history and live bubbles -->
+      {#if hasHistory && hasLiveOrTransient}
+        <div class="history-live-separator-container">
+          <div class="line"></div>
+          <div
+            class="history-toggle"
+            role="button"
+            tabindex="0"
+            aria-label={historyCollapsed ? 'Expand history' : 'Collapse history'}
+            aria-pressed={!historyCollapsed}
+            on:click={toggleHistoryCollapsed}
+            on:keydown={onToggleKeydown}
+          >
+            <Icon icon={historyCollapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'} style="color: var(--chat-text);" />
           </div>
-        </header>
+          <div class="line"></div>
+        </div>
+      {/if}
+
+      <!-- Live bubbles -->
+      {#if hasLive && liveThreadId !== undefined}
+        <ThreadBlock
+          threadId={liveThreadId}
+          bubbles={$bubblesStore}
+          compressed={liveSummaryEntry?.compressed}
+          summary={liveSummaryEntry?.text}
+        />
+      {/if}
+    {:else}
+      {#if !$transientStore.visible}
+        <!-- Empty state when no history or live bubbles -->
+        <EmptyState />
       {/if}
     {/if}
-
-    <!-- Separator line with centered toggle between history and live bubbles -->
-    {#if hasHistory && hasLiveOrTransient}
-      <div class="history-live-separator-container">
-        <div class="line"></div>
-        <div
-          class="history-toggle"
-          role="button"
-          tabindex="0"
-          aria-label={historyCollapsed ? 'Expand history' : 'Collapse history'}
-          aria-pressed={!historyCollapsed}
-          on:click={toggleHistoryCollapsed}
-          on:keydown={onToggleKeydown}
-        >
-          <Icon icon={historyCollapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'} style="color: var(--chat-text);" />
-        </div>
-        <div class="line"></div>
-      </div>
-    {/if}
-
-    <!-- Live bubbles -->
-    {#if hasLive && liveThreadId !== undefined}
-      <ThreadBlock
-        threadId={liveThreadId}
-        bubbles={$bubblesStore}
-        compressed={liveSummaryEntry?.compressed}
-        summary={liveSummaryEntry?.text}
-      />
-    {/if}
-  {:else}
-    {#if !$transientStore.visible}
-      <!-- Empty state when no history or live bubbles -->
-      <EmptyState />
-    {/if}
-  {/if}
-  <TransientMessage />
-  <Spinner />
-</div>
+    <TransientMessage />
+    <Spinner />
+  </div>
+{/if}
