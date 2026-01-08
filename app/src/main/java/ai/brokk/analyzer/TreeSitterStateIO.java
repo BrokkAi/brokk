@@ -564,8 +564,7 @@ public final class TreeSitterStateIO {
 
         // Rebuild forward imports Map for ImportGraph
         Map<ProjectFile, Set<CodeUnit>> importsMap = new HashMap<>();
-        var dtoImports = dto.imports() != null ? dto.imports() : List.<ImportEntryDto>of();
-        for (var entry : dtoImports) {
+        for (var entry : dto.imports()) {
             importsMap.put(
                     fromDto(entry.key()),
                     entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
@@ -573,8 +572,7 @@ public final class TreeSitterStateIO {
 
         // Rebuild reverse imports Map for ImportGraph
         Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
-        var dtoReverseImports = dto.reverseImports() != null ? dto.reverseImports() : List.<ReverseImportEntryDto>of();
-        for (var entry : dtoReverseImports) {
+        for (var entry : dto.reverseImports()) {
             reverseImportsMap.put(
                     fromDto(entry.key()),
                     entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
@@ -583,7 +581,7 @@ public final class TreeSitterStateIO {
         // Rebuild TypeHierarchyGraph
         Map<CodeUnit, List<CodeUnit>> supertypesMap = new HashMap<>();
         Map<CodeUnit, Set<CodeUnit>> subtypesMap = new HashMap<>();
-        var typeHierarchyDto = dto.typeHierarchy() != null ? dto.typeHierarchy() : TypeHierarchyGraphDto.EMPTY;
+        var typeHierarchyDto = dto.typeHierarchy();
         for (var entry : typeHierarchyDto.supertypes()) {
             supertypesMap.put(
                     fromDto(entry.key()),
@@ -597,9 +595,7 @@ public final class TreeSitterStateIO {
 
         // Rebuild SymbolKeyIndex
         var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        if (dto.symbolKeys() != null) {
-            keySet.addAll(dto.symbolKeys());
-        }
+        keySet.addAll(dto.symbolKeys());
         var unmodifiableKeys = Collections.unmodifiableNavigableSet(keySet);
         var symbolKeyIndex = new TreeSitterAnalyzer.SymbolKeyIndex(unmodifiableKeys);
 
