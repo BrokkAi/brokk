@@ -19,6 +19,7 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.git.GitRepo;
 import ai.brokk.util.ComputedValue;
 import ai.brokk.util.FragmentUtils;
 import ai.brokk.util.ImageUtil;
@@ -29,6 +30,7 @@ import com.github.difflib.unifieddiff.UnifiedDiffFile;
 import com.github.difflib.unifieddiff.UnifiedDiffReader;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
+import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -46,6 +48,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -91,15 +95,6 @@ public class ContextFragments {
         return IntStream.range(0, arr.length).mapToObj(i -> arr[i]).toList(); // Creates an unmodifiable list
     }
 
-    static void validateNumericId(String existingId) {
-        try {
-            int numericId = Integer.parseInt(existingId);
-            setMinimumId(numericId + 1);
-        } catch (NumberFormatException e) {
-            throw new RuntimeException("Attempted to use non-numeric ID with dynamic fragment", e);
-        }
-    }
-
     @VisibleForTesting
     public static LoggingExecutorService getFragmentExecutor() {
         return FRAGMENT_EXECUTOR;
@@ -125,14 +120,6 @@ public class ContextFragments {
         return new LoggingExecutorService(
                 virtualExecutor,
                 th -> logger.error("Uncaught exception in ContextFragment Virtual Thread executor", th));
-    }
-
-    /**
-     * Sets the next integer fragment ID value, typically called during deserialization to ensure new dynamic fragment
-     * IDs don't collide with loaded numeric IDs.
-     */
-    public static void setMinimumId(int value) {
-        ContextFragment.nextId.accumulateAndGet(value, Math::max);
     }
 
     public sealed interface PathFragment extends ContextFragment
@@ -201,7 +188,7 @@ public class ContextFragments {
                 String shortDescription,
                 String syntaxStyle,
                 @Nullable ContentSnapshot initialSnapshot,
-                @Nullable java.util.concurrent.Callable<ContentSnapshot> computeTask) {
+                @Nullable Callable<ContentSnapshot> computeTask) {
             this(
                     id,
                     contextManager,
@@ -222,7 +209,7 @@ public class ContextFragments {
                 ComputedValue<String> shortDescriptionCv,
                 ComputedValue<String> syntaxStyleCv,
                 @Nullable ContentSnapshot initialSnapshot,
-                @Nullable java.util.concurrent.Callable<ContentSnapshot> computeTask) {
+                @Nullable Callable<ContentSnapshot> computeTask) {
             assert (initialSnapshot == null) ^ (computeTask == null);
             this.id = id;
             this.contextManager = contextManager;
@@ -385,11 +372,11 @@ public class ContextFragments {
         private final ProjectFile file;
 
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+            this(file, UUID.randomUUID().toString(), contextManager, null);
         }
 
         public ProjectPathFragment(ProjectFile file, IContextManager contextManager, @Nullable String snapshotText) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
+            this(file, UUID.randomUUID().toString(), contextManager, snapshotText);
         }
 
         public static ProjectPathFragment withId(ProjectFile file, String existingId, IContextManager contextManager) {
@@ -398,7 +385,6 @@ public class ContextFragments {
 
         public static ProjectPathFragment withId(
                 ProjectFile file, String existingId, IContextManager contextManager, @Nullable String snapshotText) {
-            validateNumericId(existingId);
             return new ProjectPathFragment(file, existingId, contextManager, snapshotText);
         }
 
@@ -470,8 +456,7 @@ public class ContextFragments {
 
         @Override
         public ContextFragment refreshCopy() {
-            return new ProjectPathFragment(
-                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+            return new ProjectPathFragment(file, UUID.randomUUID().toString(), contextManager, null);
         }
 
         @Override
@@ -522,7 +507,7 @@ public class ContextFragments {
          * Create a GitFileFragment representing the content of the given file at the given revision.
          * This reads the file content via the provided GitRepo. On error, falls back to empty content.
          */
-        public static GitFileFragment fromCommit(ProjectFile file, String revision, ai.brokk.git.GitRepo repo) {
+        public static GitFileFragment fromCommit(ProjectFile file, String revision, GitRepo repo) {
             try {
                 var content = repo.getFileContent(revision, file);
                 return new GitFileFragment(file, revision, content);
@@ -561,11 +546,11 @@ public class ContextFragments {
         private final ExternalFile file;
 
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+            this(file, UUID.randomUUID().toString(), contextManager, null);
         }
 
         public ExternalPathFragment(ExternalFile file, IContextManager contextManager, @Nullable String snapshotText) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, snapshotText);
+            this(file, UUID.randomUUID().toString(), contextManager, snapshotText);
         }
 
         public static ExternalPathFragment withId(
@@ -575,7 +560,6 @@ public class ContextFragments {
 
         public static ExternalPathFragment withId(
                 ExternalFile file, String existingId, IContextManager contextManager, @Nullable String snapshotText) {
-            validateNumericId(existingId);
             return new ExternalPathFragment(file, existingId, contextManager, snapshotText);
         }
 
@@ -619,8 +603,7 @@ public class ContextFragments {
 
         @Override
         public ContextFragment refreshCopy() {
-            return new ExternalPathFragment(
-                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, null);
+            return new ExternalPathFragment(file, UUID.randomUUID().toString(), contextManager, null);
         }
     }
 
@@ -629,7 +612,7 @@ public class ContextFragments {
         private final BrokkFile file;
 
         public ImageFileFragment(BrokkFile file, IContextManager contextManager) {
-            this(file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+            this(file, UUID.randomUUID().toString(), contextManager);
         }
 
         private ImageFileFragment(BrokkFile file, String id, IContextManager contextManager) {
@@ -649,7 +632,6 @@ public class ContextFragments {
         }
 
         public static ImageFileFragment withId(BrokkFile file, String existingId, IContextManager contextManager) {
-            validateNumericId(existingId);
             return new ImageFileFragment(file, existingId, contextManager);
         }
 
@@ -709,7 +691,7 @@ public class ContextFragments {
 
                     // Last resort: try with BufferedInputStream for better reliability
                     if (bytes == null) {
-                        try (var bis = new java.io.BufferedInputStream(Files.newInputStream(path))) {
+                        try (var bis = new BufferedInputStream(Files.newInputStream(path))) {
                             Image img = ImageIO.read(bis);
                             if (img != null) {
                                 bytes = ImageUtil.imageToBytes(img);
@@ -746,8 +728,7 @@ public class ContextFragments {
 
         @Override
         public ContextFragment refreshCopy() {
-            return new ImageFileFragment(
-                    file, String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager);
+            return new ImageFileFragment(file, UUID.randomUUID().toString(), contextManager);
         }
 
         @Override
@@ -1154,12 +1135,7 @@ public class ContextFragments {
                 String targetIdentifier,
                 boolean includeTestFiles,
                 @Nullable String snapshotText) {
-            this(
-                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
-                    contextManager,
-                    targetIdentifier,
-                    includeTestFiles,
-                    snapshotText);
+            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, includeTestFiles, snapshotText);
         }
 
         public UsageFragment(String id, IContextManager contextManager, String targetIdentifier) {
@@ -1342,11 +1318,7 @@ public class ContextFragments {
         }
 
         public CodeFragment(IContextManager contextManager, String fullyQualifiedName, @Nullable String snapshotText) {
-            this(
-                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
-                    contextManager,
-                    fullyQualifiedName,
-                    snapshotText);
+            this(UUID.randomUUID().toString(), contextManager, fullyQualifiedName, snapshotText);
         }
 
         public CodeFragment(String id, IContextManager contextManager, String fullyQualifiedName) {
@@ -1401,7 +1373,7 @@ public class ContextFragments {
         }
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
-            this(String.valueOf(ContextFragment.nextId.getAndIncrement()), contextManager, unit.fqName(), null, unit);
+            this(UUID.randomUUID().toString(), contextManager, unit.fqName(), null, unit);
         }
 
         @Override
@@ -1470,12 +1442,7 @@ public class ContextFragments {
         private final boolean isCalleeGraph;
 
         public CallGraphFragment(IContextManager contextManager, String methodName, int depth, boolean isCalleeGraph) {
-            this(
-                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
-                    contextManager,
-                    methodName,
-                    depth,
-                    isCalleeGraph);
+            this(UUID.randomUUID().toString(), contextManager, methodName, depth, isCalleeGraph);
         }
 
         public CallGraphFragment(
@@ -1655,11 +1622,7 @@ public class ContextFragments {
         }
 
         public SummaryFragment(IContextManager contextManager, String targetIdentifier, SummaryType summaryType) {
-            this(
-                    String.valueOf(ContextFragment.nextId.getAndIncrement()),
-                    contextManager,
-                    targetIdentifier,
-                    summaryType);
+            this(UUID.randomUUID().toString(), contextManager, targetIdentifier, summaryType);
         }
 
         public SummaryFragment(

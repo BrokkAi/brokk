@@ -62,7 +62,6 @@ class DiffServiceTest {
     @BeforeEach
     void setup() {
         contextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        ContextFragments.setMinimumId(1);
     }
 
     @Test
