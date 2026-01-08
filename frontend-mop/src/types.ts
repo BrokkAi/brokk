@@ -31,6 +31,11 @@ export type BrokkEvent =
       epoch: number;
       compressed: boolean;
       summary: string;
+    }
+  | {
+      type: 'static-document';
+      epoch: number;
+      markdown: string;
     };
 
 export type Bubble = {
