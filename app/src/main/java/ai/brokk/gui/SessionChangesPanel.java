@@ -54,6 +54,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private final DeferredUpdateHelper deferredUpdateHelper;
     private final TabTitleUpdater tabTitleUpdater;
     private final AtomicBoolean refreshInProgress = new AtomicBoolean(false);
+    private volatile boolean pendingFetch = false;
 
     @Nullable
     private DiffService.CumulativeChanges lastCumulativeChanges = null;
@@ -159,7 +160,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
         this.leftSplitPane.setResizeWeight(0.5);
 
-        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
+        this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performComputeOnly);
 
         // Initialize diffCore with empty comparisons - will be replaced on first rebuildUI
         var initialDummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
@@ -168,7 +169,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 initialDummyPanel, contextManager, chrome.getTheme(), List.of(), false, 0);
     }
 
+    /**
+     * Request a recompute of the diff without fetching from upstream.
+     * Safe to call from file watchers - will not modify .git.
+     */
     public void requestUpdate() {
+        refreshTitleAsync();
+        deferredUpdateHelper.requestUpdate();
+    }
+
+    /**
+     * Request a fetch from upstream followed by a recompute.
+     * Call this for user-initiated refreshes or initial load.
+     */
+    public void requestFetchAndUpdate() {
+        pendingFetch = true;
         deferredUpdateHelper.requestUpdate();
     }
 
@@ -261,23 +276,44 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void performRefresh() {
+    /**
+     * Recompute the diff without fetching. Called by file watcher notifications.
+     */
+    private void performComputeOnly() {
+        performRefreshInternal(false);
+    }
+
+    /**
+     * Fetch from upstream then recompute. Called for user-initiated refreshes.
+     */
+    private void performFetchAndRefresh() {
+        performRefreshInternal(true);
+    }
+
+    private void performRefreshInternal(boolean fetch) {
         if (!refreshInProgress.compareAndSet(false, true)) {
             return;
         }
 
-        tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Refreshing from upstream...");
+        // Consume the pending fetch flag
+        boolean shouldFetch = fetch || pendingFetch;
+        pendingFetch = false;
+
+        String statusMessage = shouldFetch ? "Refreshing from upstream..." : "Computing changes...";
+        tabTitleUpdater.updateTitleAndTooltip("Review (...)", statusMessage);
 
         contextManager
-                .submitBackgroundTask("Refreshing from upstream", () -> {
-                    try {
-                        String defaultBranch = repo.getDefaultBranch();
-                        String remoteName = repo.remote().getOriginRemoteNameWithFallback();
-                        if (remoteName != null && repo.hasUpstreamBranch(defaultBranch)) {
-                            repo.remote().fetchBranch(remoteName, defaultBranch);
+                .submitBackgroundTask(shouldFetch ? "Refreshing from upstream" : "Computing changes", () -> {
+                    if (shouldFetch) {
+                        try {
+                            String defaultBranch = repo.getDefaultBranch();
+                            String remoteName = repo.remote().getOriginRemoteNameWithFallback();
+                            if (remoteName != null && repo.hasUpstreamBranch(defaultBranch)) {
+                                repo.remote().fetchBranch(remoteName, defaultBranch);
+                            }
+                        } catch (Exception e) {
+                            logger.debug("Failed to fetch upstream default branch", e);
                         }
-                    } catch (Exception e) {
-                        logger.debug("Failed to fetch upstream default branch", e);
                     }
                     return resolveBaselineState();
                 })
