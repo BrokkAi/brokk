@@ -50,7 +50,7 @@ public final class AskHumanDialog {
 
             // Question (Markdown)
             var questionPanel = new MarkdownOutputPanel(true);
-            questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
+            questionPanel.setContextForLookups(chrome.getContextManager(), chrome);
             questionPanel.setStaticDocument(question);
             questionPanel.applyTheme(chrome.getTheme());
 
@@ -190,7 +190,7 @@ public final class AskHumanDialog {
 
             // Question (Markdown)
             var questionPanel = new MarkdownOutputPanel(true);
-            questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
+            questionPanel.setContextForLookups(chrome.getContextManager(), chrome);
             questionPanel.setStaticDocument(question);
             questionPanel.applyTheme(chrome.getTheme());
 

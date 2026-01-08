@@ -9,6 +9,7 @@ import ai.brokk.gui.dialogs.AskHumanDialog;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.project.MainProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
@@ -76,6 +77,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         placeholderArea.setBorder(new EmptyBorder(40, 40, 40, 40));
 
         markdownPanel = new MarkdownOutputPanel();
+        markdownPanel.updateTheme(MainProject.getTheme());
 
         scrollPane = new JScrollPane(markdownPanel);
         scrollPane.setBorder(null);
@@ -186,11 +188,11 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
     private void flushContent() {
         // (Chrome isn't ready when RDP is constructed)
-        markdownPanel.withContextForLookups(contextManager, (Chrome) contextManager.getIo());
+        markdownPanel.setContextForLookups(contextManager, (Chrome) contextManager.getIo());
 
         // send the Markdown
         String combined = String.join("\n\n", markdownChunks);
-        markdownPanel.setText(List.of(new dev.langchain4j.data.message.AiMessage(combined)));
+        markdownPanel.setStaticDocument(combined);
     }
 
     private void addRecommendationSection(String recommendation) {

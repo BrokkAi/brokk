@@ -377,7 +377,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.removeSearchStateListener(l);
     }
 
-    public void withContextForLookups(@Nullable ContextManager contextManager, @Nullable Chrome chrome) {
+    public void setContextForLookups(@Nullable ContextManager contextManager, @Nullable Chrome chrome) {
         // Unregister from previous context manager if it exists
         if (currentContextManager != null) {
             currentContextManager.removeAnalyzerCallback(this);

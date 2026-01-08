@@ -188,7 +188,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Build combined Output + Instructions panel (Center)
         this.llmStreamArea = new MarkdownOutputPanel();
         this.llmStreamArea.setShowEmptyState(true);
-        this.llmStreamArea.withContextForLookups(contextManager, chrome);
+        this.llmStreamArea.setContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
         this.copyButton = new MaterialButton();
         this.clearButton = new MaterialButton();
