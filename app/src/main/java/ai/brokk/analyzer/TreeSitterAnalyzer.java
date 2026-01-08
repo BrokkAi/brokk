@@ -754,37 +754,50 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (lazySupertypes.isEmpty()) {
+        if (lazySupertypes.isEmpty() && lazyImports.isEmpty()) {
             return this.state;
         }
 
-        // Efficiently merge lazy-computed supertypes into the snapshot state using PMap structural sharing.
-        // Instead of copying the entire map (O(N)), we collect only the updates (O(M)) and apply them (O(M log N)).
-        Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>(lazySupertypes.size());
+        PMap<CodeUnit, CodeUnitProperties> nextCodeUnitState = this.state.codeUnitState();
+        if (!lazySupertypes.isEmpty()) {
+            // Efficiently merge lazy-computed supertypes into the snapshot state using PMap structural sharing.
+            // Instead of copying the entire map (O(N)), we collect only the updates (O(M)) and apply them (O(M log N)).
+            Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>(lazySupertypes.size());
 
-        lazySupertypes.forEach((cu, supers) -> {
-            CodeUnitProperties existing = this.state.codeUnitState().get(cu);
-            if (existing != null) {
-                // Create new record with Computed supertypes
-                var newProps = new CodeUnitProperties(
-                        existing.children(),
-                        existing.signatures(),
-                        existing.ranges(),
-                        existing.rawSupertypes(),
-                        new SuperTypeInfo.Computed(supers),
-                        existing.hasBody());
-                updates.put(cu, newProps);
-            }
-        });
+            lazySupertypes.forEach((cu, supers) -> {
+                CodeUnitProperties existing = this.state.codeUnitState().get(cu);
+                if (existing != null) {
+                    // Create new record with Computed supertypes
+                    var newProps = new CodeUnitProperties(
+                            existing.children(),
+                            existing.signatures(),
+                            existing.ranges(),
+                            existing.rawSupertypes(),
+                            new SuperTypeInfo.Computed(supers),
+                            existing.hasBody());
+                    updates.put(cu, newProps);
+                }
+            });
+            nextCodeUnitState = nextCodeUnitState.plusAll(updates);
+        }
 
-        PMap<CodeUnit, CodeUnitProperties> nextCodeUnitState =
-                this.state.codeUnitState().plusAll(updates);
+        ImportGraph nextImportGraph = this.state.importGraph();
+        if (!lazyImports.isEmpty()) {
+            Map<ProjectFile, Set<CodeUnit>> forwardUpdates = new HashMap<>(this.state.importGraph().imports());
+            Map<ProjectFile, Set<ProjectFile>> reverseUpdates =
+                    new HashMap<>(this.state.importGraph().reverseImports());
+
+            lazyImports.forEachForward(forwardUpdates::put);
+            lazyImports.forEachReverse(reverseUpdates::put);
+
+            nextImportGraph = ImportGraph.from(forwardUpdates, reverseUpdates);
+        }
 
         return new AnalyzerState(
                 this.state.symbolIndex(),
                 nextCodeUnitState,
                 this.state.fileState(),
-                this.state.importGraph(),
+                nextImportGraph,
                 this.state.symbolKeyIndex(),
                 this.state.snapshotEpochNanos());
     }
