@@ -187,12 +187,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             String defaultBranch = repo.getDefaultBranch();
             String currentBranch = repo.getCurrentBranch();
 
-            boolean isDetached = !repo.listLocalBranches().contains(currentBranch);
-
-            if (isDetached) {
-                return new BaselineState(BaselineMode.DETACHED, "detached HEAD");
-            }
-
             if (!currentBranch.equals(defaultBranch)) {
                 return new BaselineState(BaselineMode.NON_DEFAULT_BRANCH, defaultBranch);
             }
@@ -265,7 +259,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private DiffService.CumulativeChanges computeCumulativeChanges(String baselineLabel, BaselineMode baselineMode)
             throws GitAPIException {
-        if (baselineMode == BaselineMode.DETACHED || baselineMode == BaselineMode.NO_BASELINE) {
+        if (baselineMode == BaselineMode.NO_BASELINE) {
             return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
         }
 
@@ -277,7 +271,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             case NON_DEFAULT_BRANCH -> {
                 String defaultBranch = baselineLabel;
                 String defaultBranchRef = "refs/heads/" + defaultBranch;
-                leftCommitSha = repo.getMergeBase(currentBranch, defaultBranchRef);
+                leftCommitSha = repo.getMergeBase("HEAD", defaultBranchRef);
                 if (leftCommitSha != null) {
                     var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
                     for (var mf : myChanges) {
@@ -394,9 +388,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void updateEmptyState() {
         removeAll();
         String message;
-        if (BaselineMode.DETACHED == lastBaselineMode) {
-            message = "Detached HEAD \u2014 no changes to review";
-        } else if (BaselineMode.NO_BASELINE == lastBaselineMode) {
+        if (BaselineMode.NO_BASELINE == lastBaselineMode) {
             message = "No baseline to compare";
         } else if ("HEAD".equals(lastBaselineLabel)) {
             message = "Working tree is clean (no uncommitted changes).";
@@ -886,7 +878,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         NON_DEFAULT_BRANCH,
         DEFAULT_WITH_UPSTREAM,
         DEFAULT_LOCAL_ONLY,
-        DETACHED,
         NO_BASELINE
     }
 }
