@@ -311,4 +311,114 @@ public class JavaImportTest {
                     "First wildcard import should win for ambiguous simple names");
         }
     }
+
+    @Test
+    public void testCircularImportsABC() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                package pkg;
+                import pkg.B;
+                public class A {}
+                """,
+                        "A.java")
+                .addFileContents(
+                        """
+                package pkg;
+                import pkg.C;
+                public class B {}
+                """,
+                        "B.java")
+                .addFileContents(
+                        """
+                package pkg;
+                import pkg.A;
+                public class C {}
+                """,
+                        "C.java");
+
+        try (var testProject = builder.build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var fileA = AnalyzerUtil.getFileFor(analyzer, "pkg.A").get();
+            var fileB = AnalyzerUtil.getFileFor(analyzer, "pkg.B").get();
+            var fileC = AnalyzerUtil.getFileFor(analyzer, "pkg.C").get();
+
+            // Verify forward imports
+            var importsA = analyzer.importedCodeUnitsOf(fileA);
+            assertTrue(importsA.stream().anyMatch(cu -> cu.fqName().equals("pkg.B")), "A should import B");
+
+            var importsB = analyzer.importedCodeUnitsOf(fileB);
+            assertTrue(importsB.stream().anyMatch(cu -> cu.fqName().equals("pkg.C")), "B should import C");
+
+            var importsC = analyzer.importedCodeUnitsOf(fileC);
+            assertTrue(importsC.stream().anyMatch(cu -> cu.fqName().equals("pkg.A")), "C should import A");
+
+            // Verify reverse edges
+            var refsA = analyzer.referencingFilesOf(fileA);
+            assertTrue(refsA.contains(fileC), "C.java should be a referencing file of A.java");
+
+            var refsB = analyzer.referencingFilesOf(fileB);
+            assertTrue(refsB.contains(fileA), "A.java should be a referencing file of B.java");
+
+            var refsC = analyzer.referencingFilesOf(fileC);
+            assertTrue(refsC.contains(fileB), "B.java should be a referencing file of C.java");
+        }
+    }
+
+    @Test
+    public void testCircularImportsRecursionGuard() throws IOException {
+        // This test ensures that the recursion guard in TreeSitterAnalyzer prevents StackOverflowError
+        var builder = InlineTestProjectCreator.code(
+                        """
+                import B;
+                public class A {}
+                """,
+                        "A.java")
+                .addFileContents(
+                        """
+                import A;
+                public class B {}
+                """,
+                        "B.java");
+
+        try (var testProject = builder.build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var fileA = AnalyzerUtil.getFileFor(analyzer, "A").get();
+
+            // This call triggers resolveImports -> getDefinitions -> importedCodeUnitsOf...
+            // If the guard fails, this will throw StackOverflowError
+            var resolved = analyzer.importedCodeUnitsOf(fileA);
+            assertEquals(1, resolved.size());
+            assertEquals("B", resolved.iterator().next().fqName());
+        }
+    }
+
+    @Test
+    public void testCircularImportsConsistency() throws IOException {
+        var builder = InlineTestProjectCreator.code(
+                        """
+                package pkg;
+                import pkg.B;
+                public class A {}
+                """,
+                        "A.java")
+                .addFileContents(
+                        """
+                package pkg;
+                import pkg.A;
+                public class B {}
+                """,
+                        "B.java");
+
+        try (var testProject = builder.build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject);
+            var fileA = AnalyzerUtil.getFileFor(analyzer, "pkg.A").get();
+
+            var firstCall = analyzer.importedCodeUnitsOf(fileA);
+            var secondCall = analyzer.importedCodeUnitsOf(fileA);
+
+            assertEquals(firstCall, secondCall, "Subsequent calls should return identical cached results");
+            assertEquals(1, firstCall.size());
+            assertEquals("pkg.B", firstCall.iterator().next().fqName());
+        }
+    }
 }
