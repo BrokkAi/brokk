@@ -97,11 +97,6 @@ public class ReviewAgent {
     }
 
     @Blocking
-    public ReviewResult execute() throws InterruptedException, ReviewGenerationException {
-        return execute(false);
-    }
-
-    @Blocking
     public ReviewResult execute(boolean quickMode) throws InterruptedException, ReviewGenerationException {
         String goal =
                 """
