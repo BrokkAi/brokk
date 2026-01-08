@@ -209,7 +209,7 @@ public final class MOPBridge {
         scheduleSend();
     }
 
-    public void sendStaticDocument(String markdown) {
+    public void sendStaticDocument(@Nullable String markdown) {
         var e = epoch.incrementAndGet();
         eventQueue.add(new BrokkEvent.StaticDocument(e, markdown));
         scheduleSend();

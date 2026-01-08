@@ -88,7 +88,7 @@ public final class MOPWebViewHost extends JPanel {
 
         record LiveSummary(int taskSequence, boolean compressed, String summary) implements HostCommand {}
 
-        record StaticDocument(String markdown) implements HostCommand {}
+        record StaticDocument(@Nullable String markdown) implements HostCommand {}
     }
 
     public MOPWebViewHost() {
@@ -396,7 +396,7 @@ public final class MOPWebViewHost extends JPanel {
                 bridge -> bridge.sendLiveSummary(taskSequence, compressed, summary));
     }
 
-    public void sendStaticDocument(String markdown) {
+    public void sendStaticDocument(@Nullable String markdown) {
         sendOrQueue(new HostCommand.StaticDocument(markdown), bridge -> bridge.sendStaticDocument(markdown));
     }
 

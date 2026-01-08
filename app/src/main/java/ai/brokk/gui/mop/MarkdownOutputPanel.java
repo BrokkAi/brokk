@@ -41,6 +41,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     private boolean taskInProgress = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
+    private @Nullable String staticMarkdown = null;
     private @Nullable ContextManager currentContextManager;
     private @Nullable String lastHistorySignature = null;
     private boolean transientMessageVisible = false;
@@ -205,7 +206,9 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     private void clearStaticDocument() {
         // local
-        webHost.sendStaticDocument("");
+        staticMarkdown = null;
+        // webhost
+        webHost.sendStaticDocument(null);
     }
 
     public void clear() {
@@ -269,7 +272,19 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
+    public void setStaticDocument(String markdown) {
+        clearStaticDocument();
+        if (!markdown.isEmpty()) {
+            staticMarkdown = markdown;
+        }
+        webHost.sendStaticDocument(markdown);
+        textChangeListeners.forEach(Runnable::run);
+    }
+
     public String getText() {
+        if (staticMarkdown != null) {
+            return staticMarkdown;
+        }
         return messages.stream().map(Messages::getRepr).collect(Collectors.joining("\n\n"));
     }
 

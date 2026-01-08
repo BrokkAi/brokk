@@ -177,11 +177,11 @@ function onLiveSummary(payload: any): void {
 }
 
 function onStaticDocument(payload: any): void {
-    const markdown = payload.markdown ?? '';
+    const markdown = payload.markdown;
     const seq = STATIC_DOC_SEQ;
 
-    // Empty markdown means exit static mode
-    if (!markdown) {
+    // Null/empty markdown means exit static mode
+    if (markdown == null || markdown === '') {
         unregister(seq);
         staticDocStore.set(null);
         return;
@@ -202,7 +202,7 @@ function getCurrentSelection(): string {
 function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
     onHistoryEvent({type: 'history-reset', epoch: 0});
-    onStaticDocument('');
+    onStaticDocument({type: 'static-document', markdown: null, epoch: 0});
 }
 
 function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {

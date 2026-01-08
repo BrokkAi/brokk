@@ -101,7 +101,7 @@ public sealed interface BrokkEvent {
         }
     }
 
-    record StaticDocument(int epoch, String markdown) implements BrokkEvent {
+    record StaticDocument(int epoch, @Nullable String markdown) implements BrokkEvent {
         @Override
         public String getType() {
             return "static-document";
