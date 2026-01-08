@@ -16,7 +16,7 @@ import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.components.SpinnerIconUtil;
+import ai.brokk.gui.components.MaterialProgressButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
 import ai.brokk.gui.dialogs.CreatePullRequestDialog;
 import ai.brokk.gui.git.GitCommitTab;
@@ -81,9 +81,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private JComboBox<ComparisonTarget> baselineDropdown;
 
-    @Nullable
-    private JProgressBar headerProgressBar = null;
-
     private final MaterialButton commitBtn;
 
     private final MaterialButton pullBtn;
@@ -92,7 +89,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton prBtn;
 
-    private final MaterialButton guidedReviewBtn;
+    private final MaterialProgressButton guidedReviewBtn;
 
     private boolean guidedReviewBusy = false;
 
@@ -139,7 +136,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.pullBtn = new MaterialButton("Pull");
         this.pushBtn = new MaterialButton("Push");
         this.prBtn = new MaterialButton("Create PR");
-        this.guidedReviewBtn = new MaterialButton("Guided Review");
+        this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -541,18 +538,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        // Create progress bar for the header (hidden by default)
-        headerProgressBar = new JProgressBar(0, 100);
-        headerProgressBar.setStringPainted(true);
-        headerProgressBar.setString("");
-        headerProgressBar.setVisible(false);
-        headerProgressBar.setPreferredSize(new Dimension(130, 16));
-
-        var progressWrapper = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        progressWrapper.setOpaque(false);
-        progressWrapper.add(headerProgressBar);
-        headerPanel.add(progressWrapper, BorderLayout.CENTER);
-
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         buttonPanel.setOpaque(false);
 
@@ -573,7 +558,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
         guidedReviewBtn.setVisible(true);
-        setGuidedReviewBusy(guidedReviewBusy);
+        guidedReviewBtn.setIdleAction(this::generateGuidedReview);
+        guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
 
         var pushPull = res.pushPullState();
         boolean canPull = pushPull != null && pushPull.canPull();
@@ -903,19 +889,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void setGuidedReviewBusy(boolean busy) {
         SwingUtil.runOnEdt(() -> {
             guidedReviewBusy = busy;
-
-            for (var al : guidedReviewBtn.getActionListeners()) {
-                guidedReviewBtn.removeActionListener(al);
-            }
-
-            if (busy) {
-                guidedReviewBtn.setText("Cancel");
-                guidedReviewBtn.setIcon(SpinnerIconUtil.getSpinner(chrome, true));
-                guidedReviewBtn.addActionListener(e -> contextManager.interruptLlmAction());
-            } else {
-                guidedReviewBtn.setText("Guided Review");
-                guidedReviewBtn.setIcon(null);
-                guidedReviewBtn.addActionListener(e -> generateGuidedReview());
+            if (!busy) {
+                guidedReviewBtn.resetToIdle();
             }
         });
     }
@@ -925,22 +900,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         setGuidedReviewBusy(true);
         codeReviewPanel.setBusy(true);
-
-        // Show progress bar in header
-        if (headerProgressBar != null) {
-            headerProgressBar.setValue(0);
-            headerProgressBar.setString("Starting review...");
-            headerProgressBar.setVisible(true);
-        }
+        guidedReviewBtn.setProgress(0);
 
         contextManager.submitLlmAction(() -> {
             try {
                 var changes = lastCumulativeChanges;
                 if (changes == null) {
                     SwingUtilities.invokeLater(() -> {
-                        if (headerProgressBar != null) {
-                            headerProgressBar.setVisible(false);
-                        }
                         codeReviewPanel.setBusy(false);
                         setGuidedReviewBusy(false);
                         revalidate();
@@ -951,13 +917,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                 var agent = new ReviewAgent(changes, contextManager, chrome, fileComparisons);
 
-                agent.setProgressUpdater(p -> SwingUtilities.invokeLater(() -> {
-                    if (headerProgressBar != null) {
-                        headerProgressBar.setValue(p);
-                        if (p < 10) headerProgressBar.setString("Gathering context...");
-                        else if (p < 80) headerProgressBar.setString("Analyzing changes...");
-                        else headerProgressBar.setString("Generating review...");
-                    }
+                agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
+                    guidedReviewBtn.setProgress(p);
                 }));
 
                 var result = agent.execute();
@@ -966,9 +927,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 long now = System.currentTimeMillis();
 
                 SwingUtilities.invokeLater(() -> {
-                    if (headerProgressBar != null) {
-                        headerProgressBar.setVisible(false);
-                    }
                     lastReviewState = new ReviewState(currentHash, now);
                     hasGeneratedReview = true;
                     updateReviewPanelVisibility(true);
@@ -982,9 +940,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (ReviewGenerationException ex) {
                 logger.warn("Review generation failed: {}", ex.getMessage());
                 SwingUtilities.invokeLater(() -> {
-                    if (headerProgressBar != null) {
-                        headerProgressBar.setVisible(false);
-                    }
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
 
@@ -998,9 +953,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             } catch (Exception ex) {
                 logger.error("Unexpected error during review generation", ex);
                 SwingUtilities.invokeLater(() -> {
-                    if (headerProgressBar != null) {
-                        headerProgressBar.setVisible(false);
-                    }
                     codeReviewPanel.setBusy(false);
                     setGuidedReviewBusy(false);
                     chrome.toolError("Review generation failed: " + ex.getMessage());
@@ -1018,9 +970,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         for (var panel : diffCore.getCachedPanels()) {
             panel.applyTheme(guiTheme);
         }
-        if (guidedReviewBusy) {
-            setGuidedReviewBusy(true);
-        }
+        guidedReviewBtn.repaint();
     }
 
     public void dispose() {

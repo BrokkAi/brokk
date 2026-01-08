@@ -1,5 +1,6 @@
 package ai.brokk.agents;
 
+import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
@@ -17,6 +18,7 @@ import ai.brokk.context.SpecialTextType;
 import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ReviewParser;
@@ -56,13 +58,16 @@ public class ReviewAgent {
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
 
     int progressOf100 = 0;
+    int SETUP_PROGRESS = 5;
+    int REVIEW_PROGRESS = 90;
 
     @FunctionalInterface
     public interface ProgressUpdater {
         /**
+         * @param stage description of current stage
          * @param progress value between 0 and 100
          */
-        void updateProgress(int progress);
+        void updateProgress(String stage, int progress);
     }
 
     private final IContextManager cm;
@@ -116,10 +121,12 @@ public class ReviewAgent {
             // Turn 0: Context setup and determine complexity
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
 
+            updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
             var setupResult = setupContext(initialContext);
             var reviewContext = setupResult.context();
             logPhaseTime("Context selection", contextStart);
+            updateProgress("Analyzing changes", SETUP_PROGRESS);
 
             var turn1Model = setupResult.isComplex() ? architectModel : scanModel;
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
@@ -153,7 +160,7 @@ public class ReviewAgent {
                             int lines = linesSeen.addAndGet(
                                     (int) token.chars().filter(ch -> ch == '\n').count());
                             int p = turn1Floor + (lines / 10);
-                            updateProgress(Math.min(75, p));
+                            updateProgress("Analyzing changes", min(REVIEW_PROGRESS, p));
                         }
                     }
                 };
@@ -229,7 +236,7 @@ public class ReviewAgent {
             AtomicInteger turn2Seconds = new AtomicInteger(0);
             turn2Timer.addActionListener(e -> {
                 int p = turn2Floor + turn2Seconds.incrementAndGet();
-                updateProgress(Math.min(99, p));
+                updateProgress("Generating review", min(100, p));
             });
             turn2Timer.start();
 
@@ -340,10 +347,10 @@ public class ReviewAgent {
         return new ContextSetupResult(initialContext.addFragments(filesToContext), false);
     }
 
-    private void updateProgress(int min) {
-        progressOf100 = min;
+    private void updateProgress(String stage, int progress) {
+        progressOf100 = progress;
         if (progressUpdater != null) {
-            progressUpdater.updateProgress(min);
+            progressUpdater.updateProgress(stage, progress);
         }
     }
 
