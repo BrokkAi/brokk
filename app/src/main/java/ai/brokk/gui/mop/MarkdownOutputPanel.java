@@ -269,9 +269,10 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public void setStaticDocument(String markdown) {
         clearStaticDocument();
-        if (!markdown.isEmpty()) {
-            staticMarkdown = markdown;
+        if (markdown.isBlank()) {
+            return;
         }
+        staticMarkdown = markdown;
         webHost.sendStaticDocument(markdown);
         textChangeListeners.forEach(Runnable::run);
     }
