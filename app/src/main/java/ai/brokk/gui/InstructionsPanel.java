@@ -1286,8 +1286,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     .append(htmlEscape(costPerRequest))
                     .append("</div>");
         }
-        if (tier != Service.ProcessingTier.DEFAULT) {
-            String multiplier = tier == Service.ProcessingTier.PRIORITY ? "2x" : "0.5x";
+        var multiplier = tier.getMultiplierLabel();
+        if (!multiplier.isEmpty()) {
             body.append("<div>Service tier: ")
                     .append(tier.toString())
                     .append(" (")

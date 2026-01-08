@@ -167,6 +167,15 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         public @Nullable String toApiString() {
             return this == DEFAULT ? null : name().toLowerCase(Locale.ROOT);
         }
+
+        /** Returns the cost multiplier label for display (e.g., "2x", "0.5x"), or empty for DEFAULT. */
+        public String getMultiplierLabel() {
+            return switch (this) {
+                case PRIORITY -> "2x";
+                case FLEX -> "0.5x";
+                default -> "";
+            };
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
