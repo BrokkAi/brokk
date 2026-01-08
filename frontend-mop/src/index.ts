@@ -18,12 +18,10 @@ import { envStore } from './stores/envStore';
 import { setSummaryEntry, deleteSummaryEntry, getSummaryEntry, updateSummaryTree, summaryStore } from './stores/summaryStore';
 import { register, unregister, isRegistered } from './worker/parseRouter';
 import { parse } from './worker/worker-bridge';
-import { allocSummarySeq } from './shared/seq';
+import { allocSummarySeq, STATIC_DOC_SEQ } from './shared/seq';
 import { staticDocStore } from './stores/staticDocStore';
 
 const mainLog = createLogger('main');
-
-const STATIC_DOC_SEQ = -1;
 
 let searchCtrl: SearchController | null = null;
 
