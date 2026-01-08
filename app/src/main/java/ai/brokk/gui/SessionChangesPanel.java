@@ -559,10 +559,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         setGuidedReviewBusy(guidedReviewBusy);
 
         var pushPull = res.pushPullState();
-        pullBtn.setEnabled(!hasUncommittedChanges);
+        boolean canPull = pushPull != null && pushPull.canPull();
+        pullBtn.setEnabled(canPull && !hasUncommittedChanges);
+        if (hasUncommittedChanges) {
+            pullBtn.setToolTipText("Commit or stash changes before pulling");
+        } else if (!canPull) {
+            pullBtn.setToolTipText(
+                    pushPull != null && pushPull.hasUpstream()
+                            ? "No changes to pull"
+                            : "No upstream branch configured");
+        } else {
+            pullBtn.setToolTipText(null);
+        }
         for (var al : pullBtn.getActionListeners()) pullBtn.removeActionListener(al);
         pullBtn.addActionListener(e -> performPull());
-        pullBtn.setVisible(pushPull != null && pushPull.canPull());
+        pullBtn.setVisible(true);
         buttonPanel.add(pullBtn);
 
         pushBtn.setEnabled(!hasUncommittedChanges);
