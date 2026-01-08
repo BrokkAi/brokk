@@ -1,8 +1,6 @@
 package ai.brokk;
 
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
@@ -13,6 +11,7 @@ import ai.brokk.util.SerialByKeyExecutor;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.github.f4b6a3.uuid.UuidCreator;
+import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileSystems;
@@ -42,9 +41,15 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class SessionManager implements AutoCloseable {
+    private static final String SESSIONS_FORMAT_VERSION = "4.0";
+
     /** Record representing session metadata for the sessions management system. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record SessionInfo(UUID id, String name, long created, long modified) {
+    public record SessionInfo(UUID id, String name, long created, long modified, @Nullable String version) {
+
+        public SessionInfo(UUID id, String name, long created, long modified) {
+            this(id, name, created, modified, SESSIONS_FORMAT_VERSION);
+        }
 
         @JsonIgnore
         public boolean isSessionModified() {
@@ -104,7 +109,9 @@ public class SessionManager implements AutoCloseable {
             try (var stream = Files.list(sessionsDir)) {
                 stream.filter(path -> path.toString().endsWith(".zip"))
                         .forEach(zipPath -> readSessionInfoFromZip(zipPath).ifPresent(sessionInfo -> {
-                            sessions.put(sessionInfo.id(), sessionInfo);
+                            if (isVersionSupported(sessionInfo.version())) {
+                                sessions.put(sessionInfo.id(), sessionInfo);
+                            }
                         }));
             }
         } catch (IOException e) {
@@ -151,7 +158,8 @@ public class SessionManager implements AutoCloseable {
     public void renameSession(UUID sessionId, String newName) {
         SessionInfo oldInfo = sessionsCache.get(sessionId);
         if (oldInfo != null) {
-            var updatedInfo = new SessionInfo(oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis());
+            var updatedInfo = new SessionInfo(
+                    oldInfo.id(), newName, oldInfo.created(), System.currentTimeMillis(), oldInfo.version());
             sessionsCache.put(sessionId, updatedInfo);
             sessionExecutorByKey.submit(sessionId.toString(), () -> {
                 try {
@@ -265,6 +273,9 @@ public class SessionManager implements AutoCloseable {
                     moveSessionToUnreadable(sessionId);
                     quarantinedIds.add(sessionId);
                     moved++;
+                    continue;
+                }
+                if (!isVersionSupported(info.get().version())) {
                     continue;
                 }
 
@@ -401,14 +412,23 @@ public class SessionManager implements AutoCloseable {
 
     public void saveHistory(ContextHistory ch, UUID sessionId) {
         // ContextHistory is mutable, take a copy before passing it to an async task
-        var contextHistory =
-                new ContextHistory(ch.getHistory(), ch.getResetEdges(), ch.getGitStates(), ch.getEntryInfos());
+        var contextHistory = new ContextHistory(
+                ch.getHistory(),
+                ch.getResetEdges(),
+                ch.getGitStates(),
+                ch.getEntryInfos(),
+                ch.getContextToGroupId(),
+                ch.getGroupLabels());
         SessionInfo infoToSave = null;
         SessionInfo currentInfo = sessionsCache.get(sessionId);
         if (currentInfo != null) {
             if (!isSessionEmpty(currentInfo, contextHistory)) {
                 infoToSave = new SessionInfo(
-                        currentInfo.id(), currentInfo.name(), currentInfo.created(), System.currentTimeMillis());
+                        currentInfo.id(),
+                        currentInfo.name(),
+                        currentInfo.created(),
+                        System.currentTimeMillis(),
+                        currentInfo.version());
                 sessionsCache.put(sessionId, infoToSave); // Update cache before async task
             } // else, session info is not modified, we are just adding an empty initial context (e.g. welcome message)
             // to the session
@@ -505,7 +525,7 @@ public class SessionManager implements AutoCloseable {
             return null;
         }
 
-        var refreshed = ch.liveContext().copyAndRefresh("Load External Changes");
+        var refreshed = ch.liveContext().copyAndRefresh();
         if (!refreshed.equals(ch.liveContext())) {
             ch.pushContext(refreshed);
         }
@@ -515,44 +535,7 @@ public class SessionManager implements AutoCloseable {
 
     private ContextHistory loadHistoryInternal(UUID sessionId, IContextManager contextManager) throws IOException {
         var sessionHistoryPath = getSessionHistoryPath(sessionId);
-        ContextHistory ch = HistoryIo.readZip(sessionHistoryPath, contextManager);
-
-        // Resetting nextId based on loaded fragments.
-        // Only consider numeric IDs for dynamic fragments.
-        // Hashes will not parse to int and will be skipped by this logic.
-        int maxNumericId = 0;
-        for (Context ctx : ch.getHistory()) {
-            for (ContextFragment fragment : ctx.allFragments().toList()) {
-                try {
-                    maxNumericId = Math.max(maxNumericId, Integer.parseInt(fragment.id()));
-                } catch (NumberFormatException e) {
-                    // Ignore non-numeric IDs (hashes)
-                }
-            }
-            for (TaskEntry taskEntry : ctx.getTaskHistory()) {
-                if (taskEntry.log() != null) {
-                    try {
-                        // TaskFragment IDs are hashes, so this typically won't contribute to maxNumericId.
-                        // If some TaskFragments had numeric IDs historically, this would catch them.
-                        maxNumericId = Math.max(
-                                maxNumericId, Integer.parseInt(taskEntry.log().id()));
-                    } catch (NumberFormatException e) {
-                        // Ignore non-numeric IDs
-                    }
-                }
-            }
-        }
-        // ContextFragment.nextId is an AtomicInteger, its value is the *next* ID to be assigned.
-        // If maxNumericId found is, say, 10, nextId should be set to 10 so that getAndIncrement() yields 11.
-        // If setNextId ensures nextId will be value+1, then passing maxNumericId is correct.
-        // Current ContextFragment.setNextId: if (value >= nextId.get()) { nextId.set(value); }
-        // Then nextId.getAndIncrement() will use `value` and then increment it.
-        // So we should set it to maxNumericId found.
-        if (maxNumericId > 0) { // Only set if we found any numeric IDs
-            ContextFragments.setMinimumId(maxNumericId + 1);
-            logger.debug("Restored dynamic fragment ID counter based on max numeric ID: {}", maxNumericId);
-        }
-        return ch;
+        return HistoryIo.readZip(sessionHistoryPath, contextManager);
     }
 
     /**
@@ -724,6 +707,35 @@ public class SessionManager implements AutoCloseable {
 
     public Path getSessionsDir() {
         return sessionsDir;
+    }
+
+    private static boolean isVersionSupported(@Nullable String version) {
+        if (version == null) {
+            return true;
+        }
+        try {
+            return compareVersions(version, SESSIONS_FORMAT_VERSION) <= 0;
+        } catch (NumberFormatException e) {
+            logger.warn("Cannot parse session format version '{}'", version);
+            return false;
+        }
+    }
+
+    static int compareVersions(String v1, String v2) throws NumberFormatException {
+        List<String> parts1 = Splitter.on('.').splitToList(v1);
+        List<String> parts2 = Splitter.on('.').splitToList(v2);
+        int length = Math.max(parts1.size(), parts2.size());
+        for (int i = 0; i < length; i++) {
+            int p1 = i < parts1.size() ? Integer.parseInt(parts1.get(i)) : 0;
+            int p2 = i < parts2.size() ? Integer.parseInt(parts2.get(i)) : 0;
+            if (p1 < p2) {
+                return -1;
+            }
+            if (p1 > p2) {
+                return 1;
+            }
+        }
+        return 0;
     }
 
     @Override

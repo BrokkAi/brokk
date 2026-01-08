@@ -32,7 +32,6 @@ import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
     protected static final Logger logger = LogManager.getLogger(AbstractProject.class);
@@ -61,8 +60,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     protected final FileFilteringService fileFilteringService;
 
     // Cached pattern matcher for file exclusions (invalidated when patterns change)
-    private Set<String> cachedPatternSet = Set.of();
-    private FileFilteringService.FilePatternMatcher cachedPatternMatcher =
+    // Using volatile for thread-safe reads without synchronization
+    private volatile Set<String> cachedPatternSet = Set.of();
+    private volatile FileFilteringService.FilePatternMatcher cachedPatternMatcher =
             FileFilteringService.createPatternMatcher(Set.of());
 
     public AbstractProject(Path root) {
@@ -453,6 +453,12 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    public boolean hasJdkOverride() {
+        var value = workspaceProps.getProperty(PROP_JDK_HOME);
+        return value != null && !value.isBlank();
+    }
+
+    @Override
     public void setJdk(@Nullable String jdkHome) {
         if (jdkHome == null || jdkHome.isBlank()) {
             workspaceProps.remove(PROP_JDK_HOME);
@@ -632,6 +638,16 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    public boolean isEmptyProject() {
+        Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
+                .filter(lang -> lang != Languages.NONE)
+                .flatMap(lang -> lang.getExtensions().stream())
+                .collect(Collectors.toSet());
+
+        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
+    }
+
+    @Override
     public void close() {
         if (repo instanceof AutoCloseable autoCloseableRepo) {
             try {
@@ -730,14 +746,13 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public final synchronized Set<ProjectFile> getAllFiles() {
         if (allFilesCache == null) {
-            allFilesCache = applyFiltering(getAllFilesRaw());
+            allFilesCache = filterExcludedFiles(getAllFilesRaw());
         }
         return allFilesCache;
     }
 
-    @VisibleForTesting
-    public Set<ProjectFile> applyFiltering(Set<ProjectFile> files) {
-        // Always apply baseline exclusions and file patterns, regardless of Git presence
+    @Override
+    public Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
         var buildDetails = loadBuildDetails();
         return fileFilteringService.filterFiles(files, buildDetails.exclusionPatterns());
     }
@@ -805,11 +820,15 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public boolean isPathExcluded(String relativePath, boolean isDirectory) {
         var patterns = getExclusionPatterns();
-        // Check if cache is still valid
-        if (!patterns.equals(cachedPatternSet)) {
+        // Read volatile fields once for consistency
+        var currentPatterns = cachedPatternSet;
+        var currentMatcher = cachedPatternMatcher;
+        // Check if cache is still valid; if not, update (benign race: might compute twice)
+        if (!patterns.equals(currentPatterns)) {
+            currentMatcher = FileFilteringService.createPatternMatcher(patterns);
+            cachedPatternMatcher = currentMatcher;
             cachedPatternSet = patterns;
-            cachedPatternMatcher = FileFilteringService.createPatternMatcher(patterns);
         }
-        return cachedPatternMatcher.isPathExcluded(relativePath, isDirectory);
+        return currentMatcher.isPathExcluded(relativePath, isDirectory);
     }
 }

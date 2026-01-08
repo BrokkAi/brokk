@@ -1,5 +1,6 @@
 package ai.brokk.analyzer.scala;
 
+import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.ScalaAnalyzer;
@@ -37,6 +38,30 @@ public class ScalaLanguage implements Language {
         return TreeSitterStateIO.load(storage)
                 .map(state -> (IAnalyzer) ScalaAnalyzer.fromState(project, state, listener))
                 .orElseGet(() -> createAnalyzer(project, listener));
+    }
+
+    @Override
+    public Set<String> getSearchPatterns(CodeUnitType type) {
+        if (type == CodeUnitType.FUNCTION) {
+            return Set.of(
+                    "\\b$ident\\s*\\(", // function/method calls
+                    "\\.$ident\\s*\\(" // method calls
+                    );
+        } else if (type == CodeUnitType.CLASS) {
+            return Set.of(
+                    "\\bnew\\s+$ident(?:\\[.+?\\])?\\s*\\(", // constructor calls with optional type parameters
+                    "\\bextends\\s+$ident(?:\\[.+?\\])?", // inheritance with optional type parameters
+                    "\\bwith\\s+$ident(?:\\[.+?\\])?", // trait mixing with optional type parameters
+                    "\\b$ident\\s*\\.", // companion object access
+                    ":\\s*$ident(?:\\[.+?\\])?", // type annotations with optional type parameters
+                    "<\\s*$ident\\s*>", // generics (deprecated syntax)
+                    "\\[\\s*$ident\\s*\\]", // as type parameter argument
+                    "\\bcase\\s+class\\s+\\w+.*:\\s*$ident(?:\\[.+?\\])?", // case class parameter type with optional
+                    // type parameters
+                    "\\bimport\\s+.*\\.$ident\\b" // import statements
+                    );
+        }
+        return Language.super.getSearchPatterns(type);
     }
 
     @Override

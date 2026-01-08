@@ -3,18 +3,28 @@ package ai.brokk.analyzer;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.TreeSitterStateIO.AnalyzerStateDto;
+import ai.brokk.analyzer.TreeSitterStateIO.FilePropertiesDto;
+import ai.brokk.analyzer.TreeSitterStateIO.FileStateEntryDto;
+import ai.brokk.analyzer.TreeSitterStateIO.ProjectFileDto;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.smile.SmileFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.zip.GZIPOutputStream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
+import org.pcollections.HashTreePMap;
 
 public class TreeSitterStateIOTest {
 
@@ -122,7 +132,8 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto emptyDto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), 1L);
+        AnalyzerStateDto emptyDto = new AnalyzerStateDto(
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
         Path out = tempDir.resolve("state.smile.gz");
@@ -146,8 +157,58 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void roundTripCodeUnitProperties(@TempDir Path tempDir) throws Exception {
+        var root = tempDir.resolve("root");
+        Files.createDirectories(root);
+        var projectFile = new ProjectFile(root, Path.of("Test.java"));
+        var cu = CodeUnit.cls(projectFile, "com.example", "Test");
+
+        var props = new TreeSitterAnalyzer.CodeUnitProperties(
+                List.of(),
+                List.of("public class Test"),
+                List.of(new IAnalyzer.Range(0, 100, 0, 10, 0)),
+                List.of("Base"),
+                true);
+
+        var stateMap = Map.of(cu, props);
+        var originalState = new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.<String, Set<CodeUnit>>empty(),
+                HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>from(stateMap),
+                HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>empty(),
+                ImportGraph.empty(),
+                TypeHierarchyGraph.empty(),
+                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
+                System.nanoTime());
+
+        Path out = tempDir.resolve("props_roundtrip.smile.gz");
+        TreeSitterStateIO.save(originalState, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent());
+        var loadedState = loadedOpt.get();
+
+        var loadedProps = loadedState.codeUnitState().get(cu);
+
+        assertNotNull(loadedProps);
+        assertEquals(props.rawSupertypes(), loadedProps.rawSupertypes());
+        assertEquals(props.ranges(), loadedProps.ranges());
+        assertEquals(props.signatures(), loadedProps.signatures());
+        assertEquals(props.children(), loadedProps.children());
+        assertEquals(props.hasBody(), loadedProps.hasBody());
+    }
+
+    @Test
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of("KeyA", "keyb"),
+                99L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         Path out = tempDir.resolve("roundtrip.smile.gz");
@@ -174,7 +235,8 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("A"), 1L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("A"), 1L);
         var state = TreeSitterStateIO.fromDto(dto);
         TreeSitterStateIO.save(state, out);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
@@ -197,7 +259,8 @@ public class TreeSitterStateIOTest {
 
         Files.writeString(out, "this is corrupt gzip content");
 
-        AnalyzerStateDto dto = new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of("win"), 42L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("win"), 42L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         TreeSitterStateIO.save(original, out);
@@ -212,5 +275,228 @@ public class TreeSitterStateIOTest {
                 TreeSitterStateIO.toDto(original),
                 TreeSitterStateIO.toDto(loaded),
                 "DTO after replacing corrupt file should equal the original DTO");
+    }
+
+    @Test
+    void loadReturnsEmptyOnLegacyStateMissingContainsTests(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("legacy_state.smile.gz");
+
+        // Manually construct a JSON/Smile graph that looks like AnalyzerStateDto
+        // but whose FilePropertiesDto is missing the 'containsTests' field.
+        var legacyFileProperties = Map.of(
+                "topLevelCodeUnits", List.of(),
+                "importStatements", List.of());
+
+        var legacyFileEntry = Map.of(
+                "key", Map.of("root", tempDir.toString(), "relPath", "file.java"), "value", legacyFileProperties);
+
+        var legacyState = Map.of(
+                "symbolIndex", Map.of(),
+                "codeUnitState", List.of(),
+                "fileState", List.of(legacyFileEntry),
+                "symbolKeys", List.of(),
+                "snapshotEpochNanos", 12345L);
+
+        var mapper = new ObjectMapper(new SmileFactory())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        try (var os = new GZIPOutputStream(Files.newOutputStream(out))) {
+            mapper.writeValue(os, legacyState);
+        }
+
+        var loaded = TreeSitterStateIO.load(out);
+        assertTrue(
+                loaded.isEmpty(),
+                "Expected load to return empty because legacy state is missing required 'containsTests' field");
+    }
+
+    @Test
+    void roundTripPreservesContainsTests(@TempDir Path tempDir) {
+        var fileDto = new ProjectFileDto(tempDir.toString(), "Test.java");
+        var propsDto = new FilePropertiesDto(List.of(), List.of(), true);
+        var entryDto = new FileStateEntryDto(fileDto, propsDto);
+
+        var originalDto = new AnalyzerStateDto(
+                Map.of(), List.of(), List.of(entryDto), List.of(), List.of(), List.of(), List.of(), List.of(), 555L);
+        var state = TreeSitterStateIO.fromDto(originalDto);
+
+        Path out = tempDir.resolve("test_props.smile.gz");
+        TreeSitterStateIO.save(state, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent(), "Should load state with containsTests");
+
+        var loadedDto = TreeSitterStateIO.toDto(loadedOpt.get());
+        assertEquals(originalDto, loadedDto, "Round-trip should preserve all fields including containsTests");
+        assertTrue(loadedDto.fileState().getFirst().value().containsTests(), "containsTests=true should be preserved");
+    }
+
+    @Test
+    void roundTripTypeHierarchy(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                interface Base {}
+                class Derived implements Base {}
+                """,
+                "src/main/java/com/example/Hierarchy.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            CodeUnit baseCu = analyzer.getDefinitions("com.example.Base").getFirst();
+            CodeUnit derivedCu = analyzer.getDefinitions("com.example.Derived").getFirst();
+
+            // Trigger hierarchy computation (lazily populates the internal TypeHierarchyGraph)
+            Set<CodeUnit> descendants = analyzer.getDirectDescendants(baseCu);
+            assertTrue(descendants.contains(derivedCu), "Base should have Derived as descendant");
+
+            // Save state - this serializes the populated TypeHierarchyGraph
+            Path storage = Languages.JAVA.getStoragePath(project);
+            TreeSitterStateIO.save(analyzer.snapshotState(), storage);
+
+            // Load state into a fresh analyzer instance
+            IAnalyzer loaded = Languages.JAVA.loadAnalyzer(project);
+
+            // Verify descendants from loaded state without re-triggering full analysis
+            Set<CodeUnit> loadedDescendants = loaded.getDirectDescendants(baseCu);
+            assertTrue(loadedDescendants.contains(derivedCu), "Loaded analyzer should retain descendants");
+            assertEquals(descendants.size(), loadedDescendants.size());
+        }
+    }
+
+    @Test
+    void roundTripLazySubtypes(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                interface Base {}
+                class A implements Base {}
+                class B implements Base {}
+                """,
+                "src/main/java/com/example/Hierarchy.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            CodeUnit baseCu = analyzer.getDefinitions("com.example.Base").getFirst();
+            CodeUnit aCu = analyzer.getDefinitions("com.example.A").getFirst();
+            CodeUnit bCu = analyzer.getDefinitions("com.example.B").getFirst();
+
+            // Trigger lazy computation of subtypes for Base
+            Set<CodeUnit> originalDescendants = analyzer.getDirectDescendants(baseCu);
+            assertTrue(originalDescendants.contains(aCu));
+            assertTrue(originalDescendants.contains(bCu));
+
+            // Save state - this must merge lazyHierarchy.subtypeCache into the snapshot
+            Path storage = Languages.JAVA.getStoragePath(project);
+            TreeSitterStateIO.save(analyzer.snapshotState(), storage);
+
+            // Load into a new analyzer
+            IAnalyzer loaded = Languages.JAVA.loadAnalyzer(project);
+
+            // Verify that getDirectDescendants returns the same results
+            // In TreeSitterAnalyzer, if the state contains the results in TypeHierarchyGraph,
+            // they are returned immediately.
+            Set<CodeUnit> loadedDescendants = loaded.getDirectDescendants(baseCu);
+            assertEquals(originalDescendants, loadedDescendants, "Subtypes should match after round-trip");
+
+            // Specifically verify that no re-computation happened by checking the loaded state directly
+            // (Since we can't easily check the private cache of the loaded instance,
+            // the fact that it returns the expected set from a fresh load of the saved DTO
+            // confirms the DTO contained the subtypes).
+            assertTrue(loadedDescendants.contains(aCu));
+            assertTrue(loadedDescendants.contains(bCu));
+        }
+    }
+
+    @Test
+    void roundTripImportsAndReverseImports(@TempDir Path tempDir) throws Exception {
+        var root = tempDir.resolve("root");
+        Files.createDirectories(root);
+        var fileA = new ProjectFile(root, Path.of("A.java"));
+        var fileB = new ProjectFile(root, Path.of("B.java"));
+        var cuB = CodeUnit.cls(fileB, "com.example", "B");
+
+        var importGraph = ImportGraph.from(Map.of(fileA, Set.of(cuB)), Map.of(fileB, Set.of(fileA)));
+
+        var state = new TreeSitterAnalyzer.AnalyzerState(
+                HashTreePMap.<String, Set<CodeUnit>>empty(),
+                HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>empty(),
+                HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>empty(),
+                importGraph,
+                TypeHierarchyGraph.empty(),
+                new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
+                System.nanoTime());
+
+        Path out = tempDir.resolve("imports.smile.gz");
+        TreeSitterStateIO.save(state, out);
+
+        var loadedOpt = TreeSitterStateIO.load(out);
+        assertTrue(loadedOpt.isPresent());
+        var loaded = loadedOpt.get();
+
+        assertEquals(
+                state.importGraph().imports(),
+                loaded.importGraph().imports(),
+                "Forward imports should match after round-trip");
+        assertEquals(
+                state.importGraph().reverseImports(),
+                loaded.importGraph().reverseImports(),
+                "Reverse imports should match after round-trip");
+    }
+
+    @Test
+    void deserializeLegacyStateWithComputedSupertypes(@TempDir Path tempDir) throws Exception {
+        // Construct DTO components manually to simulate legacy structure
+        var root = tempDir.toAbsolutePath().normalize();
+        var pfDto = new TreeSitterStateIO.ProjectFileDto(root.toString(), "src/Test.java");
+        var cuDto = new TreeSitterStateIO.CodeUnitDto(pfDto, CodeUnitType.CLASS, "com.pkg", "Test", null);
+
+        // Legacy properties map with extra fields
+        Map<String, Object> legacyProps = new HashMap<>();
+        legacyProps.put("children", List.of());
+        legacyProps.put("signatures", List.of("sig"));
+        legacyProps.put("ranges", List.of(new IAnalyzer.Range(0, 10, 0, 1, 0)));
+        legacyProps.put("rawSupertypes", List.of("RawBase"));
+        legacyProps.put("hasBody", true);
+        legacyProps.put("supertypes", List.of(cuDto)); // Simulated legacy computed list
+        legacyProps.put("supertypesComputed", true); // Simulated legacy flag
+
+        // Entry as Map to bypass CodeUnitEntryDto's type check
+        Map<String, Object> entry = new HashMap<>();
+        entry.put("key", cuDto);
+        entry.put("value", legacyProps);
+
+        // AnalyzerStateDto as Map
+        Map<String, Object> stateDtoMap = new HashMap<>();
+        stateDtoMap.put("symbolIndex", Map.of());
+        stateDtoMap.put("codeUnitState", List.of(entry));
+        stateDtoMap.put("fileState", List.of());
+        stateDtoMap.put("imports", List.of());
+        stateDtoMap.put("reverseImports", List.of());
+        stateDtoMap.put("symbolKeys", List.of());
+        stateDtoMap.put("snapshotEpochNanos", 12345L);
+
+        // Serialize to file using Smile
+        Path file = tempDir.resolve("legacy.smile.gz");
+        ObjectMapper mapper = new ObjectMapper(new SmileFactory());
+        try (var out = new GZIPOutputStream(Files.newOutputStream(file))) {
+            mapper.writeValue(out, stateDtoMap);
+        }
+
+        // Load using TreeSitterStateIO
+        var loadedOpt = TreeSitterStateIO.load(file);
+        assertTrue(loadedOpt.isPresent(), "Should load legacy state successfully");
+        var loadedState = loadedOpt.get();
+
+        // Verify loaded content
+        assertEquals(1, loadedState.codeUnitState().size());
+        var loadedCu = loadedState.codeUnitState().keySet().iterator().next();
+        var loadedProps = loadedState.codeUnitState().get(loadedCu);
+
+        assertEquals("Test", loadedCu.shortName());
+        assertEquals(List.of("RawBase"), loadedProps.rawSupertypes());
+        assertEquals(1, loadedProps.ranges().size());
+        // Implicitly verified that 'supertypes' field was ignored (no crash, no field in domain object)
     }
 }

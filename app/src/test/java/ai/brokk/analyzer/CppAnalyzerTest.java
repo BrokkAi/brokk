@@ -1,6 +1,10 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
+import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
@@ -215,9 +219,7 @@ public class CppAnalyzerTest {
             if (functionName.contains("getArea")
                     || functionName.contains("print")
                     || functionName.contains("global_func")) {
-                assertTrue(
-                        skeleton.contains("{...}"),
-                        "Function " + functionName + " should contain body placeholder {...}, but got: " + skeleton);
+                assertCodeContains(skeleton, "{...}");
             }
         }
     }
@@ -238,8 +240,7 @@ public class CppAnalyzerTest {
         assertTrue(outerClass.isPresent(), "Should detect Outer class");
 
         var outerSkeleton = outerClass.get().getValue();
-        assertTrue(
-                outerSkeleton.contains("class Inner"), "Should detect nested Inner class within Outer class skeleton");
+        assertCodeContains(outerSkeleton, "class Inner");
 
         var mainFunction = skeletons.keySet().stream()
                 .filter(cu -> cu.fqName().contains("main"))
@@ -313,12 +314,8 @@ public class CppAnalyzerTest {
 
         var pointSkeleton = pointStruct.get().getValue();
 
-        assertTrue(
-                pointSkeleton.contains("int x") || pointSkeleton.contains("x"),
-                "Point struct skeleton should contain field 'x'");
-        assertTrue(
-                pointSkeleton.contains("int y") || pointSkeleton.contains("y"),
-                "Point struct skeleton should contain field 'y'");
+        assertCodeContains(pointSkeleton, "x");
+        assertCodeContains(pointSkeleton, "y");
     }
 
     @Test
@@ -458,9 +455,7 @@ public class CppAnalyzerTest {
         assertTrue(graphicsNamespace.isPresent(), "Should find graphics namespace");
         String graphicsSkeleton = graphicsNamespace.get().getValue();
 
-        assertTrue(
-                graphicsSkeleton.contains("Color") || graphicsSkeleton.contains("Renderer"),
-                "Graphics namespace should contain some declarations");
+        assertCodeContains(graphicsSkeleton, "Color");
     }
 
     @Test
@@ -1072,8 +1067,7 @@ public class CppAnalyzerTest {
 
         String sig = fooEntry.get().getValue();
         // The signature should either include a body placeholder or actual body text; prefer placeholder check
-        assertTrue(
-                sig.contains("{...}") || sig.contains("{"), "Expected function skeleton to indicate a body for foo()");
+        assertCodeContains(sig, "{");
     }
 
     @Test
@@ -1120,9 +1114,7 @@ public class CppAnalyzerTest {
 
         assertTrue(funcSkeletonEntry.isPresent(), "Should have skeleton for out-of-line definition");
         String skeleton = funcSkeletonEntry.get().getValue();
-        assertTrue(
-                skeleton.contains("{...}"),
-                "Out-of-line definition should contain '{...}' body placeholder. Skeleton: " + skeleton);
+        assertCodeContains(skeleton, "{...}");
 
         // Sanity: ensure in-class declaration is still present in the class skeleton and does not have body placeholder
         var classSkeleton = skeletons.entrySet().stream()
@@ -1282,9 +1274,7 @@ public class CppAnalyzerTest {
         logger.debug("DeclVsDef class skeleton:\n{}", classSkeletonContent);
 
         // Verify declaration_only appears without body placeholder in class skeleton
-        assertTrue(
-                classSkeletonContent.contains("void declaration_only()"),
-                "Class skeleton should contain declaration_only method declaration");
+        assertCodeContains(classSkeletonContent, "void declaration_only()");
 
         // Extract just the declaration_only line from the class skeleton
         var declarationOnlyLine = classSkeletonContent
@@ -1311,9 +1301,7 @@ public class CppAnalyzerTest {
 
         logger.debug("inline_definition line in class: '{}'", inlineDefinitionLine);
 
-        assertTrue(
-                inlineDefinitionLine.contains("{...}") || inlineDefinitionLine.contains("{"),
-                "Inline definition should contain body placeholder. Line: " + inlineDefinitionLine);
+        assertCodeContains(inlineDefinitionLine, "{");
 
         // Find out-of-line definition of declaration_only (should have body placeholder)
         var outOfLineDefinition = skeletons.entrySet().stream()
@@ -1328,9 +1316,7 @@ public class CppAnalyzerTest {
         logger.debug("declaration_only (out-of-line definition) skeleton: {}", outOfLineSkeleton);
 
         // Out-of-line definition should have body placeholder
-        assertTrue(
-                outOfLineSkeleton.contains("{...}"),
-                "Out-of-line definition should contain '{...}' body placeholder. Skeleton: " + outOfLineSkeleton);
+        assertCodeContains(outOfLineSkeleton, "{...}");
     }
 
     @Test
@@ -1463,9 +1449,7 @@ public class CppAnalyzerTest {
         var skeletons = analyzer.getSkeletons(file);
         String defSkeleton = skeletons.get(outOfLine);
         assertNotNull(defSkeleton, "Skeleton for out-of-line definition should exist");
-        assertTrue(
-                defSkeleton.contains("{...}"),
-                "Out-of-line definition skeleton should contain '{...}' body placeholder. Skeleton: " + defSkeleton);
+        assertCodeContains(defSkeleton, "{...}");
     }
 
     @Test
@@ -1535,9 +1519,7 @@ public class CppAnalyzerTest {
             var sourceSkeletons = analyzer.getSkeletons(sourceFile);
             String srcSkel = sourceSkeletons.get(sourceDef);
             assertNotNull(srcSkel, "Source skeleton for definition should exist");
-            assertTrue(
-                    srcSkel.contains("{...}"),
-                    "Source definition skeleton should contain '{...}' placeholder. Skeleton: " + srcSkel);
+            assertCodeContains(srcSkel, "{...}");
         } else {
             // No header prototype (hasBody==false) found: header may contain definition or merges occurred
             var allDecls = getAllDeclarations();
@@ -1565,9 +1547,7 @@ public class CppAnalyzerTest {
             var sourceSkeletons = analyzer.getSkeletons(sourceFile);
             String srcSkel = sourceSkeletons.get(sourceDef);
             assertNotNull(srcSkel, "Source skeleton for definition should exist");
-            assertTrue(
-                    srcSkel.contains("{...}"),
-                    "Source definition skeleton should contain '{...}' placeholder. Skeleton: " + srcSkel);
+            assertCodeContains(srcSkel, "{...}");
 
             // Additionally, ensure the header skeletons prefer a single function entry for 'foo'
             var headerSkeletons = analyzer.getSkeletons(headerFile);
@@ -1580,5 +1560,27 @@ public class CppAnalyzerTest {
                     headerFooCount,
                     "Header skeletons should prefer a single function entry for 'foo', but found: " + headerFooCount);
         }
+    }
+
+    @Test
+    public void getUsesClassComprehensivePatternsTest() {
+        var finder = newFinder(testProject, analyzer);
+        var symbol = "BaseClass";
+        var either = finder.findUsages(symbol).toEither();
+
+        assumeFalse(either.hasErrorMessage(), "C++ analyzer unavailable");
+
+        var hits = either.getUsages();
+        var files = fileNamesFromHits(hits);
+        assertTrue(
+                files.contains("class_usage_patterns.cpp"),
+                "Expected comprehensive usage patterns in class_usage_patterns.cpp; actual: " + files);
+
+        var classUsageHits = hits.stream()
+                .filter(h -> h.file().absPath().getFileName().toString().equals("class_usage_patterns.cpp"))
+                .toList();
+        assertTrue(
+                classUsageHits.size() >= 2,
+                "Expected at least 2 different usage patterns, found: " + classUsageHits.size());
     }
 }

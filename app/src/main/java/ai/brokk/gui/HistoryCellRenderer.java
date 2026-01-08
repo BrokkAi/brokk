@@ -3,7 +3,9 @@ package ai.brokk.gui;
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.DiffService;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.util.ComputedValue;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -83,8 +85,13 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         int indentLevel = 0;
         String actionText;
         if (value instanceof HistoryOutputPanel.ActionText at) {
-            actionText = at.text();
+            actionText = at.text().renderNowOr(Context.SUMMARIZING);
             indentLevel = Math.max(0, at.indentLevel());
+        } else if (value instanceof ComputedValue<?> cv) {
+            @SuppressWarnings("unchecked")
+            var castCv = (ai.brokk.util.ComputedValue<Object>) cv;
+            Object result = castCv.renderNowOr(Context.SUMMARIZING);
+            actionText = result != null ? result.toString() : "";
         } else {
             actionText = value != null ? value.toString() : "";
         }
@@ -146,7 +153,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         // Ensure tooltip is visible even though we return a composite panel.
         outerPanel.setToolTipText(historyOutputPanel.buildTooltipWithModel(ctx, actionText));
 
-        List<Context.DiffEntry> diffs = cachedOpt.orElseGet(List::of);
+        List<DiffService.DiffEntry> diffs = cachedOpt.orElseGet(List::of);
         if (!diffs.isEmpty()) {
             boolean isDark = chrome.getTheme().isDarkTheme();
             Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
@@ -157,7 +164,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
             for (int i = 0; i < diffRows.size(); i++) {
                 DiffRow dr = diffRows.get(i);
                 if (i < diffs.size()) {
-                    Context.DiffEntry de = diffs.get(i);
+                    DiffService.DiffEntry de = diffs.get(i);
                     String bareName = computeBareName(de);
 
                     dr.nameLabel.setText(bareName + " ");
@@ -203,25 +210,21 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
      * Computes a short display name for a diff entry: preferably the filename of the first ProjectFile,
      * or the fragment's shortDescription() as a fallback.
      */
-    private String computeBareName(Context.DiffEntry de) {
-        try {
-            var fragment = de.fragment();
-            Set<ProjectFile> files = Set.of();
-            var computedFilesOpt = fragment.files();
-            var filesOpt = computedFilesOpt.tryGet();
-            if (filesOpt.isPresent()) {
-                files = filesOpt.get();
-            }
-            // ComputedSubscription.bind has been moved to HistoryOutputPanel to avoid
-            // registering listeners from within the rendering path.
-            if (!files.isEmpty()) {
-                var pf = files.iterator().next();
-                return pf.getRelPath().getFileName().toString();
-            } else {
-                return fragment.shortDescription().renderNowOr("(Loading...)");
-            }
-        } catch (Exception ex) {
-            return de.fragment().shortDescription().renderNowOr("(Loading...)");
+    private String computeBareName(DiffService.DiffEntry de) {
+        var fragment = de.fragment();
+        Set<ProjectFile> files = Set.of();
+        var computedFilesOpt = fragment.files();
+        var filesOpt = computedFilesOpt.tryGet();
+        if (filesOpt.isPresent()) {
+            files = filesOpt.get();
+        }
+        // ComputedSubscription.bind has been moved to HistoryOutputPanel to avoid
+        // registering listeners from within the rendering path.
+        if (!files.isEmpty()) {
+            var pf = files.iterator().next();
+            return pf.getRelPath().getFileName().toString();
+        } else {
+            return fragment.shortDescription().renderNowOr("(Loading...)");
         }
     }
 

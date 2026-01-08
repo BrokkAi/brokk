@@ -2,6 +2,8 @@ package ai.brokk.gui.components;
 
 import ai.brokk.FuzzyMatcher;
 import ai.brokk.gui.mop.ThemeColors;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
@@ -9,7 +11,12 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.swing.*;
@@ -24,13 +31,25 @@ import org.jetbrains.annotations.Nullable;
  * @param <T> The type of items in the list
  */
 public class FuzzySearchListPanel<T> {
+    private static final int SEARCH_DEBOUNCE_MS = 200;
+    private static final int HTML_CACHE_MAX_SIZE = 200;
+
+    private record SearchResult<T>(
+            long generation, List<T> sortedMatches, Map<T, String> htmlMap, @Nullable FuzzyMatcher matcher) {}
+
     private final List<T> allItems;
     private final Function<T, String> displayMapper;
     private final JTextField searchField;
     private final JList<T> list;
     private final DefaultListModel<T> model;
+    private final Timer searchDebounceTimer;
     private @Nullable FuzzyMatcher currentMatcher;
     private @Nullable Consumer<T> selectionListener;
+    private boolean isTyping = false;
+    private final Cache<T, String> htmlCache =
+            Caffeine.newBuilder().maximumSize(HTML_CACHE_MAX_SIZE).build();
+    private final AtomicLong searchGeneration = new AtomicLong(0);
+    private final AtomicReference<CompletableFuture<Void>> currentSearch = new AtomicReference<>();
 
     /**
      * Creates a new FuzzySearchListPanel with the given items.
@@ -41,6 +60,10 @@ public class FuzzySearchListPanel<T> {
     public FuzzySearchListPanel(List<T> items, Function<T, String> displayMapper) {
         this.allItems = new ArrayList<>(items);
         this.displayMapper = displayMapper;
+
+        // Debounce timer for search filtering
+        searchDebounceTimer = new Timer(SEARCH_DEBOUNCE_MS, e -> filterItems());
+        searchDebounceTimer.setRepeats(false);
 
         searchField = new JTextField();
         searchField.putClientProperty("JTextField.placeholderText", "Search...");
@@ -64,12 +87,14 @@ public class FuzzySearchListPanel<T> {
                     JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 String text = displayMapper.apply((T) value);
-                if (currentMatcher != null) {
-                    var fragments = currentMatcher.getMatchingFragments(text);
-                    if (fragments != null && !fragments.isEmpty()) {
-                        var bg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
-                        var fg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
-                        setText(FuzzyMatcher.toHighlightedHtml(text, fragments, bg, fg));
+                // Use pre-calculated HTML from background search
+                if (currentMatcher != null && !isTyping) {
+                    T item = (T) value;
+                    String cachedHtml = htmlCache.getIfPresent(item);
+                    if (cachedHtml != null) {
+                        setText(cachedHtml);
+                    } else {
+                        setText(text); // No highlight if not in cache
                     }
                 } else {
                     setText(text);
@@ -96,17 +121,17 @@ public class FuzzySearchListPanel<T> {
         searchField.getDocument().addDocumentListener(new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent e) {
-                filterItems();
+                scheduleFilter();
             }
 
             @Override
             public void removeUpdate(DocumentEvent e) {
-                filterItems();
+                scheduleFilter();
             }
 
             @Override
             public void changedUpdate(DocumentEvent e) {
-                filterItems();
+                scheduleFilter();
             }
         });
 
@@ -167,28 +192,101 @@ public class FuzzySearchListPanel<T> {
         });
     }
 
-    private void filterItems() {
-        String query = searchField.getText().trim();
-        model.clear();
+    private void scheduleFilter() {
+        isTyping = true;
+        searchDebounceTimer.restart();
+    }
 
+    private void filterItems() {
+        assert SwingUtilities.isEventDispatchThread();
+
+        isTyping = false;
+        long generation = searchGeneration.incrementAndGet();
+
+        // Snapshot state on EDT
+        String query = searchField.getText().trim();
+        List<T> itemsSnapshot = new ArrayList<>(allItems);
+        Color highlightBg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT);
+        Color highlightFg = ThemeColors.getColor(ThemeColors.SEARCH_HIGHLIGHT_TEXT);
+
+        // Cancel previous search
+        CompletableFuture<Void> oldFuture = currentSearch.get();
+        if (oldFuture != null && !oldFuture.isDone()) {
+            oldFuture.cancel(true);
+        }
+
+        // Empty query: fast path on EDT
         if (query.isEmpty()) {
+            model.clear();
+            htmlCache.invalidateAll();
             currentMatcher = null;
             for (T item : allItems) {
                 model.addElement(item);
             }
-        } else {
-            var matcher = new FuzzyMatcher(query);
-            currentMatcher = matcher;
-            var matches = new ArrayList<T>();
-            for (T item : allItems) {
-                if (matcher.matches(displayMapper.apply(item))) {
-                    matches.add(item);
+            if (!model.isEmpty()) {
+                list.setSelectedIndex(0);
+            }
+            currentSearch.set(null);
+            return;
+        }
+
+        // Non-empty query: spawn background task
+        CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> performBackgroundSearch(
+                        generation, searchGeneration, query, itemsSnapshot, highlightBg, highlightFg))
+                .thenAcceptAsync(this::applyResults, SwingUtilities::invokeLater);
+
+        currentSearch.set(future);
+    }
+
+    private SearchResult<T> performBackgroundSearch(
+            long generation,
+            AtomicLong currentGeneration,
+            String query,
+            List<T> items,
+            Color highlightBg,
+            Color highlightFg) {
+        var matcher = new FuzzyMatcher(query);
+        var matches = new ArrayList<T>();
+        var htmlMap = new HashMap<T, String>();
+
+        for (T item : items) {
+            // Cooperative cancellation: exit early if this search is stale
+            if (generation != currentGeneration.get()) {
+                return new SearchResult<>(generation, List.of(), Map.of(), null);
+            }
+
+            String text = displayMapper.apply(item);
+            if (matcher.matches(text)) {
+                matches.add(item);
+
+                var fragments = matcher.getMatchingFragments(text);
+                if (fragments != null && !fragments.isEmpty()) {
+                    String html = FuzzyMatcher.toHighlightedHtml(text, fragments, highlightBg, highlightFg);
+                    htmlMap.put(item, html);
                 }
             }
-            matches.sort(Comparator.comparingInt(item -> matcher.score(displayMapper.apply(item))));
-            for (T item : matches) {
-                model.addElement(item);
-            }
+        }
+
+        matches.sort(Comparator.comparingInt(item -> matcher.score(displayMapper.apply(item))));
+        return new SearchResult<>(generation, matches, htmlMap, matcher);
+    }
+
+    private void applyResults(SearchResult<T> result) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // Check if this result is still current
+        if (result.generation != searchGeneration.get()) {
+            return; // Stale result, discard
+        }
+
+        // Bulk update model and cache
+        model.clear();
+        htmlCache.invalidateAll();
+        result.htmlMap.forEach(htmlCache::put);
+        currentMatcher = result.matcher;
+
+        for (T item : result.sortedMatches) {
+            model.addElement(item);
         }
 
         if (!model.isEmpty()) {

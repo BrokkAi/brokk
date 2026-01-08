@@ -38,8 +38,8 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
 
     private final OpenAiClient client;
     private final OpenAiChatRequestParameters defaultRequestParameters;
-    private final Boolean strictJsonSchema;
-    private final Boolean strictTools;
+    private final boolean strictJsonSchema;
+    private final boolean strictTools;
 
     @SuppressWarnings("unchecked")
     public OpenAiStreamingChatModel(OpenAiStreamingChatModelBuilder builder) {
@@ -87,6 +87,14 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                 .build();
         this.strictJsonSchema = getOrDefault(builder.strictJsonSchema, false);
         this.strictTools = getOrDefault(builder.strictTools, false);
+    }
+
+    public boolean strictTools() {
+        return strictTools;
+    }
+
+    public boolean strictJsonSchema() {
+        return strictJsonSchema;
     }
 
     @Override

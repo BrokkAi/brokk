@@ -1,7 +1,7 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.gui.Constants;
-import ai.brokk.gui.WorkspacePanel;
+import ai.brokk.gui.ContextActionsHandler;
 import ai.brokk.gui.components.MaterialButton;
 import java.awt.BorderLayout;
 import java.awt.Frame;
@@ -20,7 +20,7 @@ public final class DropActionDialog extends BaseThemedDialog {
     private final boolean allowSummarize;
 
     @Nullable
-    private WorkspacePanel.ContextAction selected = WorkspacePanel.ContextAction.EDIT;
+    private ContextActionsHandler.ContextAction selected = ContextActionsHandler.ContextAction.EDIT;
 
     private DropActionDialog(Frame owner, boolean allowSummarize) {
         super(owner, "Add to Workspace");
@@ -44,13 +44,13 @@ public final class DropActionDialog extends BaseThemedDialog {
 
         radiosPanel.add(edit);
 
-        edit.addActionListener(_e -> selected = WorkspacePanel.ContextAction.EDIT);
+        edit.addActionListener(_e -> selected = ContextActionsHandler.ContextAction.EDIT);
 
         if (allowSummarize) {
             var summarize = new JRadioButton("Summarize");
             group.add(summarize);
             radiosPanel.add(summarize);
-            summarize.addActionListener(_e -> selected = WorkspacePanel.ContextAction.SUMMARIZE);
+            summarize.addActionListener(_e -> selected = ContextActionsHandler.ContextAction.SUMMARIZE);
         }
 
         mainPanel.add(radiosPanel, BorderLayout.CENTER);
@@ -79,10 +79,10 @@ public final class DropActionDialog extends BaseThemedDialog {
     /**
      * Shows the dialog (on EDT) at the given screen location and returns the chosen ContextAction, or null if canceled.
      */
-    public static @Nullable WorkspacePanel.ContextAction show(
+    public static @Nullable ContextActionsHandler.ContextAction show(
             Frame owner, boolean allowSummarize, @Nullable Point screenLocation) {
         if (!SwingUtilities.isEventDispatchThread()) {
-            final WorkspacePanel.ContextAction[] out = new WorkspacePanel.ContextAction[1];
+            final ContextActionsHandler.ContextAction[] out = new ContextActionsHandler.ContextAction[1];
             SwingUtilities.invokeLater(() -> {
                 var d = new DropActionDialog(owner, allowSummarize);
                 if (screenLocation != null) {

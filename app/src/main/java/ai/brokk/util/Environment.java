@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -36,8 +37,20 @@ public class Environment {
     private static final Logger logger = LogManager.getLogger(Environment.class);
     public static final Environment instance = new Environment();
 
-    /** Default timeout for generic shell commands. */
-    public static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(2);
+    /** Default timeout for generic shell commands. Overridable via BRK_BUILD_TIMEOUT_SECONDS. */
+    public static final Duration DEFAULT_TIMEOUT = resolveDefaultTimeout();
+
+    private static Duration resolveDefaultTimeout() {
+        String override = System.getenv("BRK_BUILD_TIMEOUT_SECONDS");
+        if (override != null) {
+            try {
+                return Duration.ofSeconds(Long.parseLong(override));
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid BRK_BUILD_TIMEOUT_SECONDS value: '{}'. Using fallback.", override);
+            }
+        }
+        return Duration.ofMinutes(2);
+    }
 
     /** Timeout for fast git commands (status, branch, etc.). */
     public static final Duration GIT_TIMEOUT = Duration.ofSeconds(10);
@@ -141,7 +154,7 @@ public class Environment {
             Map<String, String> environment,
             @Nullable Consumer<Process> processConsumer)
             throws SubprocessException, InterruptedException {
-        logger.debug(
+        logger.trace(
                 "Running internal `{}` in `{}` (sandbox={}, has-consumer={})",
                 command,
                 root,
@@ -217,10 +230,10 @@ public class Environment {
             // Phase 1: Support custom executors for non-sandboxed execution
             if (executorConfig != null && executorConfig.isValid()) {
                 shellCommand = executorConfig.buildCommand(command);
-                logger.info("using custom executor '{}'", executorConfig.getDisplayName());
+                logger.trace("using custom executor '{}'", executorConfig.getDisplayName());
             } else {
                 if (executorConfig != null && !executorConfig.isValid()) {
-                    logger.warn("invalid custom executor '{}', using system default", executorConfig);
+                    logger.info("invalid custom executor '{}', using system default", executorConfig);
                 }
                 // Fall back to system default
                 shellCommand = isWindows()
@@ -229,7 +242,7 @@ public class Environment {
             }
         }
 
-        logger.trace("command: {}", String.join(" ", shellCommand));
+        logger.debug("Running: {} = {}", Arrays.toString(shellCommand), String.join(" ", shellCommand));
         ProcessBuilder pb = createProcessBuilder(root, shellCommand);
 
         if (!environment.isEmpty()) {
@@ -289,7 +302,7 @@ public class Environment {
 
         if (exitCode != 0) {
             throw new FailureException(
-                    "process '%s' signalled error code %d".formatted(command, exitCode), combinedOutput, exitCode);
+                    "process '%s' signaled error code %d".formatted(command, exitCode), combinedOutput, exitCode);
         }
 
         return combinedOutput;
@@ -304,7 +317,12 @@ public class Environment {
                 lines.add(line);
             }
         } catch (IOException e) {
-            logger.error("Error reading stream", e);
+            if (e.getMessage() != null && e.getMessage().contains("Stream closed")) {
+                // Stream closed is expected when process is killed (timeout/interrupt)
+                logger.debug("Stream closed during read (process likely terminated)");
+            } else {
+                logger.warn("Unexpected IO error reading process stream: {}", e.getMessage());
+            }
             // If an error occurs during streaming, consumer has processed what it could.
             // The returned string will contain lines accumulated so far.
         }

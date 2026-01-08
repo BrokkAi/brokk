@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitTestCleanupUtil;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.DependencyUpdater;
@@ -76,12 +77,14 @@ class GitDependencyAutoUpdateTest {
         String branch = remoteGit.getRepository().getBranch();
 
         // Seed the dependency directory with an initial clone, mirroring ImportDependencyDialog behavior.
-        ai.brokk.git.GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch);
+        try (var ignored = ai.brokk.git.GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch)) {
+            // Close GitRepo to release file handles
+        }
 
         // Remove .git metadata as ImportDependencyDialog.performGitImport() does.
         Path gitDir = depDir.resolve(".git");
         if (Files.exists(gitDir)) {
-            FileUtil.deleteRecursively(gitDir);
+            GitTestCleanupUtil.forceDeleteDirectory(gitDir);
         }
 
         // Record dependency metadata pointing at our local "remote" and branch.

@@ -12,6 +12,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
+import ai.brokk.prompts.CodePrompts;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
@@ -25,6 +26,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
@@ -34,6 +36,10 @@ import org.jetbrains.annotations.Blocking;
 /** Interface for context manager functionality */
 public interface IContextManager {
     Logger logger = LogManager.getLogger(IContextManager.class);
+
+    default boolean undoContext() {
+        throw new UnsupportedOperationException();
+    }
 
     /** Callback interface for analyzer update events. */
     interface AnalyzerCallback {
@@ -61,8 +67,8 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default Collection<? extends ChatMessage> getHistoryMessages() {
-        return List.of();
+    default Collection<ChatMessage> getHistoryMessages() {
+        return CodePrompts.instance.getHistoryMessages(liveContext());
     }
 
     /**
@@ -159,7 +165,10 @@ public interface IContextManager {
 
     default List<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
-        return allFiles.stream().filter(ContextManager::isTestFile).toList();
+        var analyzer = getAnalyzerWrapper().getNonBlocking();
+        return allFiles.stream()
+                .filter(f -> ContextManager.isTestFile(f, analyzer))
+                .toList();
     }
 
     default IAnalyzerWrapper getAnalyzerWrapper() {
@@ -253,5 +262,35 @@ public interface IContextManager {
     }
 
     @Blocking
-    default void compressHistory() throws InterruptedException {}
+    default void compressGlobalHistory() throws InterruptedException {
+        if (liveContext().getTaskHistory().isEmpty()) {
+            getIo().showNotification(IConsoleIO.NotificationRole.INFO, "No history to compress.");
+            return;
+        }
+
+        var interrupted = new AtomicReference<InterruptedException>();
+        pushContext(ctx -> {
+            try {
+                return compressHistory(ctx);
+            } catch (InterruptedException e) {
+                // user may interrupt
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        if (interrupted.get() != null) {
+            throw interrupted.get();
+        }
+        getIo().showNotification(IConsoleIO.NotificationRole.INFO, "Task history compressed successfully.");
+    }
+
+    @Blocking
+    default Context compressHistory(Context ctx) throws InterruptedException {
+        return ctx;
+    }
+
+    @Blocking
+    default CompletableFuture<String> summarizeTaskForConversation(String taskText) {
+        throw new UnsupportedOperationException();
+    }
 }

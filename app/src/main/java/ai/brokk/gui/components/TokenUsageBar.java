@@ -8,6 +8,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.ChipColorUtils;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.ContextActionsHandler;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
@@ -570,18 +571,18 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
         } else {
             // Empty area: show general workspace actions
             JMenuItem dropAllMenuItem = new JMenuItem("Drop All");
-            dropAllMenuItem.addActionListener(ev -> chrome.getContextPanel()
-                    .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.DROP, List.of()));
+            dropAllMenuItem.addActionListener(ev -> chrome.getContextActionsHandler()
+                    .performContextActionAsync(ContextActionsHandler.ContextAction.DROP, List.of()));
             menu.add(dropAllMenuItem);
 
             JMenuItem copyAllMenuItem = new JMenuItem("Copy All");
-            copyAllMenuItem.addActionListener(ev -> chrome.getContextPanel()
-                    .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.COPY, List.of()));
+            copyAllMenuItem.addActionListener(ev -> chrome.getContextActionsHandler()
+                    .performContextActionAsync(ContextActionsHandler.ContextAction.COPY, List.of()));
             menu.add(copyAllMenuItem);
 
             JMenuItem pasteMenuItem = new JMenuItem("Paste text, images, urls");
-            pasteMenuItem.addActionListener(ev -> chrome.getContextPanel()
-                    .performContextActionAsync(ai.brokk.gui.WorkspacePanel.ContextAction.PASTE, List.of()));
+            pasteMenuItem.addActionListener(ev -> chrome.getContextActionsHandler()
+                    .performContextActionAsync(ContextActionsHandler.ContextAction.PASTE, List.of()));
             menu.add(pasteMenuItem);
         }
 

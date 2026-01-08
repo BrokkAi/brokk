@@ -53,6 +53,13 @@ public interface IAnalyzer {
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
     /**
+     * @return true if the given file contains test cases according to this analyzer's logic.
+     */
+    default boolean containsTests(ProjectFile file) {
+        return false;
+    }
+
+    /**
      * Returns the set of languages this analyzer understands.
      */
     Set<Language> languages();
@@ -161,6 +168,23 @@ public interface IAnalyzer {
     List<String> importStatementsOf(ProjectFile file);
 
     /**
+     * Retrieves the resolved import CodeUnits for a given file.
+     *
+     * @param file the project file
+     * @return an unmodifiable set of resolved CodeUnits from import statements
+     */
+    default Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return Set.of();
+    }
+
+    /**
+     * Returns the set of files that import the given file.
+     */
+    default Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return Set.of();
+    }
+
+    /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
      * invalid.
      */
@@ -181,6 +205,14 @@ public interface IAnalyzer {
      * Implementations should return only the immediate ancestors.
      */
     List<CodeUnit> getDirectAncestors(CodeUnit cu);
+
+    /**
+     * Returns the direct subtypes/descendants (non-transitive) for the given CodeUnit.
+     * Implementations should return only the immediate descendants.
+     */
+    default Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return Set.of();
+    }
 
     // Things most implementations won't have to override
 
@@ -240,13 +272,12 @@ public interface IAnalyzer {
             throw new IllegalArgumentException("Search pattern may not be empty");
         }
 
-        // Prepare case-insensitive regex pattern
+        // Prepare case-insensitive regex pattern with non-greedy quantifiers
         if (autoQuote) {
-            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*" + Pattern.quote(pattern) + ".*");
+            pattern = "(?i)" + (pattern.contains(".*") ? pattern : ".*?" + Pattern.quote(pattern) + ".*?");
         }
 
         Pattern compiledPattern = Pattern.compile(pattern);
-        // Reuse a single Matcher across all declarations to avoid allocation overhead
         return searchDefinitions(compiledPattern);
     }
 
@@ -270,18 +301,18 @@ public interface IAnalyzer {
         }
 
         // Base: current behavior (case-insensitive substring via searchDefinitions)
-        var baseResults = searchDefinitions(".*" + query + ".*");
+        var baseResults = searchDefinitions(".*?" + query + ".*?");
 
-        // Fuzzy: if short query, over-approximate by inserting ".*" between characters
+        // Fuzzy: if short query, over-approximate by inserting ".*?" between characters
         Set<CodeUnit> fuzzyResults = Set.of();
         if (query.length() < 5) {
             StringBuilder sb = new StringBuilder("(?i)");
-            sb.append(".*");
+            sb.append(".*?");
             for (int i = 0; i < query.length(); i++) {
                 sb.append(Pattern.quote(String.valueOf(query.charAt(i))));
-                if (i < query.length() - 1) sb.append(".*");
+                if (i < query.length() - 1) sb.append(".*?");
             }
-            sb.append(".*");
+            sb.append(".*?");
             fuzzyResults = searchDefinitions(sb.toString());
         }
 
@@ -387,6 +418,52 @@ public interface IAnalyzer {
                 if (visited.add(key)) {
                     result.add(p);
                     queue.addLast(p);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Returns the transitive set of subtypes/descendants for the given CodeUnit.
+     * This is computed via a fixed-point iterative traversal using getDirectDescendants:
+     * - Direct descendants are listed first, followed by their descendants in discovery order (BFS).
+     * - Duplicates are removed by fqName.
+     * - Cycles are handled gracefully via a visited set.
+     * <p>
+     * Implementations should override {@link #getDirectDescendants(CodeUnit)} to provide language-specific direct
+     * descendant resolution. This method composes those results into a transitive closure.
+     */
+    default List<CodeUnit> getDescendants(CodeUnit cu) {
+        // Seed with direct descendants
+        Set<CodeUnit> direct = getDirectDescendants(cu);
+        if (direct.isEmpty()) {
+            return List.of();
+        }
+
+        // Fixed-point traversal: BFS over direct descendants
+        var result = new ArrayList<CodeUnit>(direct.size());
+        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
+        var queue = new ArrayDeque<CodeUnit>(direct.size());
+
+        for (var d : direct) {
+            if (visited.add(d.fqName())) {
+                result.add(d);
+                queue.add(d);
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            var current = queue.removeFirst();
+            Set<CodeUnit> children = getDirectDescendants(current);
+            if (children.isEmpty()) continue;
+
+            for (var child : children) {
+                String key = child.fqName();
+                if (visited.add(key)) {
+                    result.add(child);
+                    queue.addLast(child);
                 }
             }
         }

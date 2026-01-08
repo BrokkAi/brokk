@@ -10,7 +10,6 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.prompts.CodePrompts;
-import ai.brokk.prompts.EditBlockParser;
 import ai.brokk.util.AdaptiveExecutor;
 import ai.brokk.util.Messages;
 import ai.brokk.util.TokenAware;
@@ -265,8 +264,7 @@ public final class BlitzForge {
         } else {
             uiMessages = List.of(
                     new UserMessage(config.instructions()),
-                    CodePrompts.redactAiMessage(new AiMessage(outputText), EditBlockParser.instance)
-                            .orElse(new AiMessage("")));
+                    CodePrompts.redactAiMessage(new AiMessage(outputText)).orElse(new AiMessage("")));
         }
 
         List<String> failures = results.stream()

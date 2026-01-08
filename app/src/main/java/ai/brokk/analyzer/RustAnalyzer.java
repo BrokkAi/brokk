@@ -9,9 +9,7 @@ import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.treesitter.TSLanguage;
-import org.treesitter.TSNode;
-import org.treesitter.TreeSitterRust;
+import org.treesitter.*;
 
 public final class RustAnalyzer extends TreeSitterAnalyzer {
     private static final Logger log = LoggerFactory.getLogger(RustAnalyzer.class);
@@ -405,5 +403,23 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected Set<String> getLeadingMetadataNodeTypes() {
         return Set.of("attribute_item", "inner_attribute");
+    }
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree) {
+        TSQueryCursor cursor = new TSQueryCursor();
+        TSQuery rustQuery = getThreadLocalQuery();
+        cursor.exec(rustQuery, tree.getRootNode());
+
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String captureName = rustQuery.getCaptureNameForId(capture.getIndex());
+                if (TEST_MARKER.equals(captureName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

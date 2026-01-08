@@ -301,7 +301,7 @@ public final class BlitzForgeProgressDialog extends BaseThemedDialog implements 
         // Do not write GlobalUiSettings here; BrokkDiffPanel loads and persists the user's choice on toggle (Fixes
         // #1679)
         var panel = builder.build();
-        panel.showInFrame("Diff: " + pathDisplay);
+        panel.showInTab(chrome.getPreviewManager(), "Diff: " + pathDisplay);
     }
 
     private void updateTitles() {

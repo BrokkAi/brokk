@@ -1,0 +1,138 @@
+package ai.brokk.tools;
+
+import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.testutil.InlineTestProjectCreator;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Random;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import org.junit.jupiter.api.Test;
+import picocli.CommandLine;
+
+class PageRankBenchmarkTest {
+
+    @Test
+    void sanity_createsRunnerInstance() {
+        PageRankBenchmark benchmark = new PageRankBenchmark();
+        assertNotNull(benchmark);
+    }
+
+    @Test
+    void help_displaysUsageInformation() {
+        PageRankBenchmark benchmark = new PageRankBenchmark();
+        CommandLine cmd = new CommandLine(benchmark);
+        StringWriter sw = new StringWriter();
+        cmd.setOut(new PrintWriter(sw));
+
+        int exitCode = cmd.execute("--help");
+
+        assertEquals(0, exitCode);
+        String output = sw.toString();
+        assertTrue(output.contains("Usage: PageRankBenchmark"));
+        assertTrue(output.contains("--warm-up-iterations"));
+        assertTrue(output.contains("--iterations"));
+        assertTrue(output.contains("--nodes"));
+        assertTrue(output.contains("--scenario"));
+    }
+
+    @Test
+    void minimalRun_executesWithoutException() {
+        // Run a tiny scenario to verify plumbing (2 nodes, no warmups, 1 iteration)
+        PageRankBenchmark benchmark = new PageRankBenchmark();
+        CommandLine cmd = new CommandLine(benchmark);
+
+        int exitCode = cmd.execute(
+                "--nodes", "2",
+                "--warm-up-iterations", "0",
+                "--iterations", "1",
+                "--scenario", "sparse");
+
+        assertEquals(0, exitCode);
+    }
+
+    @Test
+    void generatedImportsAreSyntacticallyValidAndResolvable() throws IOException {
+        int n = 10;
+        double fraction = 0.2; // 10 * 9 * 0.2 = 18 edges
+        long seed = 42L;
+        Random random = new Random(seed);
+
+        List<String> fileNames = IntStream.range(0, n)
+                .mapToObj(i -> String.format("File%05d", i))
+                .toList();
+
+        // Simulate the sampling logic used in PageRankBenchmark
+        List<Long> allPossibleEdges = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            for (int j = 0; j < n; j++) {
+                if (i == j) continue;
+                allPossibleEdges.add(((long) i << 32) | (j & 0xffffffffL));
+            }
+        }
+        java.util.Collections.shuffle(allPossibleEdges, random);
+        int targetEdges = (int) Math.round((n * (n - 1)) * fraction);
+        java.util.Map<Integer, List<Integer>> adjacency = new java.util.HashMap<>();
+        allPossibleEdges.stream().limit(targetEdges).forEach(edge -> {
+            int src = (int) (edge >> 32);
+            int dst = (int) (edge.longValue());
+            adjacency.computeIfAbsent(src, k -> new ArrayList<>()).add(dst);
+        });
+
+        String firstContent = PageRankBenchmark.generateFileContent(0, fileNames, adjacency.getOrDefault(0, List.of()));
+        var builder = InlineTestProjectCreator.code(firstContent, "File00000.java");
+
+        for (int i = 1; i < n; i++) {
+            String content = PageRankBenchmark.generateFileContent(i, fileNames, adjacency.getOrDefault(i, List.of()));
+            builder.addFileContents(content, String.format("File%05d.java", i));
+        }
+
+        try (var project = builder.build()) {
+            var analyzer = createTreeSitterAnalyzer(project);
+            Set<ProjectFile> files = project.getAllFiles();
+
+            for (ProjectFile file : files) {
+                // a) Fetch raw imports
+                List<String> rawImports = analyzer.importStatementsOf(file);
+
+                for (String importLine : rawImports) {
+                    // b) Assert each import statement matches expected explicit import syntax
+                    assertTrue(
+                            importLine.matches("^import p\\d+\\.File\\d{5};$"),
+                            "Import statement '" + importLine + "' in " + file.getFileName() + " has invalid syntax");
+                }
+
+                // c) Fetch resolved imports
+                Set<CodeUnit> resolvedImports = analyzer.importedCodeUnitsOf(file);
+
+                // d) Assert resolved import count equals raw import count
+                assertEquals(
+                        rawImports.size(),
+                        resolvedImports.size(),
+                        "Resolved import count mismatch in " + file.getFileName());
+
+                // e) Assert each imported FQN is present in the resolved set
+                Set<String> resolvedFqns =
+                        resolvedImports.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
+
+                for (String importLine : rawImports) {
+                    String fqn = importLine.substring("import ".length(), importLine.length() - 1);
+                    assertTrue(
+                            resolvedFqns.contains(fqn),
+                            "FQN " + fqn + " from import statement not found in resolved imports of "
+                                    + file.getFileName());
+                }
+            }
+        }
+    }
+}

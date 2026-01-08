@@ -17,6 +17,11 @@
       "message_border_user": "#5E7DAF",
       "custom_message_background": "#F5F5F5",
       "custom_message_foreground": "#1E1E1E",
+      "icon_primary": "#000000",
+      "icon_secondary": "#3D3D3D",
+      "icon_light": "#E3E3E3",
+      "icon_accent": "#00B104",
+      "icon_accent_light": "#00D61B",
 
       "code_block_background": "#F0F0F0",
       "code_block_border": "#808080",

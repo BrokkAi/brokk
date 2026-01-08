@@ -38,6 +38,11 @@ public record TaskEntry(
         this(sequence, log, summary, null);
     }
 
+    public static TaskEntry from(ContextManager cm, List<ChatMessage> messages) {
+        var fragment = new ContextFragments.TaskFragment(cm, messages, "");
+        return new TaskEntry(-1, fragment, null, null);
+    }
+
     /**
      * Returns a copy with the given non-empty summary attached. Preserves sequence, log and meta.
      * If the summary is unchanged, returns this.

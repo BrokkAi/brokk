@@ -6,7 +6,6 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.IProject;
 import java.io.IOException;
@@ -15,18 +14,26 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 
 /** Lightweight IProject implementation for unit-testing Tree-sitter analyzers. */
 public class TestProject implements IProject {
     private final Path root;
     private final Language language;
+
+    private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
+            CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
     private BuildAgent.BuildDetails buildDetails = BuildAgent.BuildDetails.EMPTY;
+    private boolean buildDetailsExplicitlySet = false;
+
     private IProject.CodeAgentTestScope codeAgentTestScope = IProject.CodeAgentTestScope.WORKSPACE;
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
     private boolean hasGit = false;
+    private @Nullable String jdk;
 
     public TestProject(Path root) {
         this(root, Languages.NONE);
@@ -41,6 +48,29 @@ public class TestProject implements IProject {
 
     public void setBuildDetails(BuildAgent.BuildDetails buildDetails) {
         this.buildDetails = buildDetails;
+        this.buildDetailsExplicitlySet = true;
+
+        if (!detailsFuture.isDone()) {
+            detailsFuture.complete(buildDetails);
+            return;
+        }
+
+        detailsFuture = CompletableFuture.completedFuture(buildDetails);
+    }
+
+    @Override
+    public boolean hasBuildDetails() {
+        return buildDetailsExplicitlySet;
+    }
+
+    @Override
+    public CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
+        return detailsFuture;
+    }
+
+    @Override
+    public void saveBuildDetails(BuildAgent.BuildDetails details) {
+        setBuildDetails(details);
     }
 
     @Override
@@ -50,7 +80,7 @@ public class TestProject implements IProject {
 
     @Override
     public BuildAgent.BuildDetails awaitBuildDetails() {
-        return this.buildDetails;
+        return detailsFuture.join();
     }
 
     @Override
@@ -91,6 +121,26 @@ public class TestProject implements IProject {
     }
 
     @Override
+    public @Nullable String getJdk() {
+        return jdk;
+    }
+
+    @Override
+    public void setJdk(@Nullable String jdkHome) {
+        this.jdk = jdkHome;
+    }
+
+    @Override
+    public boolean hasJdkOverride() {
+        return jdk != null;
+    }
+
+    public TestProject withJdk(@Nullable String jdkHome) {
+        setJdk(jdkHome);
+        return this;
+    }
+
+    @Override
     public McpConfig getMcpConfig() {
         return McpConfig.EMPTY;
     }
@@ -127,11 +177,6 @@ public class TestProject implements IProject {
     }
 
     @Override
-    public IGitRepo getRepo() {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public Set<ProjectFile> getAllFiles() {
         try (Stream<Path> stream = Files.walk(root)) {
             return stream.filter(Files::isRegularFile)
@@ -145,5 +190,17 @@ public class TestProject implements IProject {
             }
             return Collections.emptySet();
         }
+    }
+
+    /**
+     * Returns true if this test project contains no analyzable source files.
+     */
+    public boolean isEmptyProject() {
+        Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
+                .filter(lang -> lang != Languages.NONE)
+                .flatMap(lang -> lang.getExtensions().stream())
+                .collect(Collectors.toSet());
+
+        return getAllFiles().stream().map(ProjectFile::extension).noneMatch(analyzableExtensions::contains);
     }
 }

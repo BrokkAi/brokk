@@ -6,12 +6,14 @@ import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
+import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.gui.util.GitRepoIdUtil;
-import ai.brokk.prompts.CodePrompts;
+import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -248,15 +250,15 @@ public final class JobRunner {
                                     }
                                     case LUTZ -> {
                                         // Phase 1: Use SearchAgent to generate a task list from the initial task
-                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
-                                            var searchAgent = new SearchAgent(
+                                            var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
                                                             architectPlannerModel,
                                                             "plannerModel required for LUTZ jobs"),
-                                                    SearchAgent.Objective.TASKS_ONLY,
+                                                    SearchPrompts.Objective.TASKS_ONLY,
                                                     scope);
                                             var taskListResult = searchAgent.execute();
                                             scope.append(taskListResult);
@@ -323,7 +325,7 @@ public final class JobRunner {
                                                 cm,
                                                 Objects.requireNonNull(
                                                         codeModeModel, "code model unavailable for CODE jobs"));
-                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var result = agent.execute(spec.taskInput(), Set.of());
                                             scope.append(result);
                                         }
@@ -334,20 +336,20 @@ public final class JobRunner {
                                         // and the current Workspace. Do NOT invoke SearchAgent.execute() or
                                         // any tools that could modify the workspace. Append the answer to the
                                         // task scope and continue.
-                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
-
-                                            // Construct SearchAgent only for potential pre-scan usage (no execute).
-                                            var searchAgent = new SearchAgent(
-                                                    context,
-                                                    spec.taskInput(),
-                                                    Objects.requireNonNull(
-                                                            askPlannerModel, "plannerModel required for ASK jobs"),
-                                                    SearchAgent.Objective.ANSWER_ONLY,
-                                                    scope);
 
                                             // Optional pre-scan: resolve scan model similarly to SEARCH mode.
                                             if (spec.preScan()) {
+                                                // Construct agent only for potential pre-scan usage (no execute).
+                                                var searchAgent = new LutzAgent(
+                                                        context,
+                                                        spec.taskInput(),
+                                                        Objects.requireNonNull(
+                                                                askPlannerModel, "plannerModel required for ASK jobs"),
+                                                        SearchPrompts.Objective.ANSWER_ONLY,
+                                                        scope);
+
                                                 String rawScanModel = spec.scanModel();
                                                 String trimmedScanModel =
                                                         rawScanModel == null ? "" : rawScanModel.trim();
@@ -380,14 +382,12 @@ public final class JobRunner {
                                                             "Pre-scan model unavailable for job {}: {}",
                                                             jobId,
                                                             iae.getMessage());
-                                                    scanModelToUse = null;
                                                 } catch (Exception e) {
                                                     logger.warn(
                                                             "Unexpected error during pre-scan model resolution for job {}: {}",
                                                             jobId,
                                                             e.getMessage(),
                                                             e);
-                                                    scanModelToUse = null;
                                                 }
 
                                                 if (scanModelToUse == null) {
@@ -401,7 +401,7 @@ public final class JobRunner {
                                                     // Attempt the pre-scan, but do not allow failures to abort the
                                                     // job.
                                                     try {
-                                                        searchAgent.scanInitialContext(scanModelToUse);
+                                                        context = searchAgent.scanContext();
                                                     } catch (InterruptedException ie) {
                                                         // Preserve interruption status but continue with the job.
                                                         Thread.currentThread().interrupt();
@@ -448,8 +448,10 @@ public final class JobRunner {
                                             try {
                                                 // Use helper that builds a workspace-only prompt and calls the
                                                 // planner model.
-                                                TaskResult askResult =
-                                                        askUsingPlannerModel(askPlannerModel, spec.taskInput());
+                                                TaskResult askResult = askUsingPlannerModel(
+                                                        context,
+                                                        Objects.requireNonNull(askPlannerModel),
+                                                        spec.taskInput());
                                                 scope.append(askResult);
                                             } catch (Throwable t) {
                                                 // Do not allow a planner-model failure to abort the entire job.
@@ -511,7 +513,7 @@ public final class JobRunner {
                                     case SEARCH -> {
                                         // Read-only repository search using a scan model (spec.scanModel preferred,
                                         // otherwise project default)
-                                        try (var scope = cm.beginTask(spec.taskInput(), false)) {
+                                        try (var scope = cm.beginTaskUngrouped(spec.taskInput())) {
                                             var context = cm.liveContext();
 
                                             // Determine scan model: prefer explicit spec.scanModel() if provided,
@@ -523,13 +525,17 @@ public final class JobRunner {
                                                             ? resolveModelOrThrow(trimmedScanModel)
                                                             : cm.getService().getScanModel();
 
-                                            var searchAgent = new SearchAgent(
+                                            // SearchAgent now handles scanning internally via execute()
+                                            var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
+                                            var searchAgent = new LutzAgent(
                                                     context,
                                                     spec.taskInput(),
                                                     Objects.requireNonNull(
                                                             scanModelToUse, "scan model unavailable for SEARCH jobs"),
-                                                    SearchAgent.Objective.ANSWER_ONLY,
-                                                    scope);
+                                                    SearchPrompts.Objective.ANSWER_ONLY,
+                                                    scope,
+                                                    cm.getIo(),
+                                                    scanConfig);
                                             var result = searchAgent.execute();
                                             scope.append(result);
                                         }
@@ -550,7 +556,7 @@ public final class JobRunner {
                                                         "plannel model unavailable for REVIEW jobs"));
 
                                         TaskResult result;
-                                        try (var scope = cm.beginTask("Review", false)) {
+                                        try (var scope = cm.beginTaskUngrouped("Review")) {
                                             result = agent.execute(reviewPrompt, Set.of());
                                             scope.append(result);
                                         }
@@ -586,7 +592,7 @@ public final class JobRunner {
                 // - For ARCHITECT/LUTZ: per-task compression already honored via spec.autoCompress().
                 if (mode != Mode.ARCHITECT && mode != Mode.LUTZ && spec.autoCompress()) {
                     logger.info("Job {} auto-compressing history", jobId);
-                    cm.compressHistory();
+                    cm.compressGlobalHistory();
                 }
 
                 // Determine final status: completed or cancelled
@@ -725,22 +731,12 @@ public final class JobRunner {
      * @param question the user's question / task text
      * @return a TaskResult suitable for appending to a TaskScope
      */
-    private TaskResult askUsingPlannerModel(StreamingChatModel model, String question) {
+    private TaskResult askUsingPlannerModel(Context ctx, StreamingChatModel model, String question) {
         var svc = cm.getService();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
         List<ChatMessage> messages;
-        try {
-            messages = CodePrompts.instance.collectAskMessages(cm, question);
-        } catch (InterruptedException e) {
-            return new TaskResult(
-                    cm,
-                    "Ask: " + question,
-                    cm.getIo().getLlmRawMessages(),
-                    cm.liveContext(),
-                    new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED),
-                    meta);
-        }
+        messages = SearchPrompts.instance.buildAskPrompt(ctx, question);
         // Create an LLM instance for the planner model and route output to the ContextManager IO
         var llm = cm.getLlm(new Llm.Options(model, "Answer: " + question).withEcho());
         llm.setOutput(cm.getIo());
@@ -760,12 +756,11 @@ public final class JobRunner {
 
         // construct TaskResult
         Objects.requireNonNull(stop);
-        var resultingCtx = cm.liveContext();
         return new TaskResult(
                 cm,
                 "Ask: " + question,
                 List.copyOf(cm.getIo().getLlmRawMessages()),
-                resultingCtx, // Ask never changes files; use current live context
+                ctx, // Ask never changes files; use current live context
                 stop,
                 meta);
     }

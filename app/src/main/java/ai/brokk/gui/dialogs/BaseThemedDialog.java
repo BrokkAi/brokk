@@ -2,6 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.theme.ThemeTitleBarManager;
+import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -45,6 +46,8 @@ public class BaseThemedDialog extends JDialog {
 
         // FIXME: invokeLater works around a bug in JDK 21; it seems to be unnecessary in 25
         SwingUtilities.invokeLater(() -> applyThemedTitleBar(title));
+
+        KeyboardShortcutUtil.registerDialogEscapeKey(getRootPane(), this::dispose);
 
         addWindowListener(new WindowAdapter() {
             @Override

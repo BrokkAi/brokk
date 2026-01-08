@@ -14,7 +14,6 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.Constants;
 import ai.brokk.gui.DeferredUpdateHelper;
-import ai.brokk.gui.DiffWindowManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ResponsiveButtonPanel;
@@ -650,37 +649,10 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 }
 
                 SwingUtilities.invokeLater(() -> {
-                    // Create normalized sources for window raising check (use all files in consistent order)
-                    var normalizedFiles = allFiles.stream()
-                            .sorted((f1, f2) -> f1.getFileName().compareToIgnoreCase(f2.getFileName()))
-                            .toList();
-
-                    var leftSources = new ArrayList<BufferSource>();
-                    var rightSources = new ArrayList<BufferSource>();
-
-                    for (var file : normalizedFiles) {
-                        var rightSource = new BufferSource.FileSource(file);
-                        String headContent = "";
-                        try {
-                            var repo = contextManager.getProject().getRepo();
-                            headContent = repo.getFileContent("HEAD", file);
-                        } catch (Exception ex) {
-                            headContent = "";
-                        }
-                        var leftSource = new BufferSource.StringSource(headContent, "HEAD", file.toString(), "HEAD");
-                        leftSources.add(leftSource);
-                        rightSources.add(rightSource);
-                    }
-
-                    // Check if we already have a window showing this diff
-                    if (DiffWindowManager.tryRaiseExistingWindow(leftSources, rightSources)) {
-                        return; // Existing window raised, don't create new one
-                    }
-
                     // Callers must not enforce unified/side-by-side globally; BrokkDiffPanel reads and persists the
-                    // user's choice when they toggle view (Fixes #1679)
-                    var panel = builder.build();
-                    panel.showInFrame("Uncommitted Changes Diff");
+                    // user's choice when they toggle view (Fixes #1679).
+                    // Delegation to showInTab handles window raising/deduplication.
+                    builder.build().showInTab(chrome.getPreviewManager(), "Uncommitted Changes Diff");
                 });
             } catch (Exception ex) {
                 chrome.toolError("Error opening diff for all uncommitted files: " + ex.getMessage());
@@ -691,6 +663,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
     /**
      * Rollback selected files to their HEAD state with undo support via ContextHistory. Snapshots the workspace before
      * rollback to enable undo.
+     *
+     * FIXME: this is mostly broken, we shouldn't be adding arbitrary shit to Context like this
      */
     private void rollbackChangesWithUndo(List<ProjectFile> selectedFiles) {
         if (selectedFiles.isEmpty()) {
@@ -762,10 +736,7 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 }
 
                 // 7. Create a new context history entry for the rollback action.
-                String fileList = GitDiffUiUtil.formatFileList(selectedFiles);
-                var rollbackDescription =
-                        otherFiles.isEmpty() ? "Deleted " + fileList : "Rollback " + fileList + " to HEAD";
-                contextManager.pushContext(ctx -> ctx.withParsedOutput(null, rollbackDescription));
+                contextManager.pushContext(ctx -> ctx.withParsedOutput(null));
 
                 // 8. Now that the context is pushed, add the EntryInfo for the deleted files.
                 if (!deletedFilesInfo.isEmpty()) {
@@ -796,6 +767,8 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                 }
 
                 // 10. Update UI on EDT.
+                var fileList =
+                        selectedFiles.stream().map(pf -> pf.getFileName()).collect(Collectors.joining(", "));
                 SwingUtilities.invokeLater(() -> {
                     String successMessage = "Rolled back " + fileList + " to HEAD state. Use Ctrl+Z to undo.";
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, successMessage);
@@ -1061,7 +1034,7 @@ Would you like to resolve these conflicts with the Merge Agent?
                 var planningModel = chrome.getInstructionsPanel().getSelectedModel();
                 var codeModel = contextManager.getCodeModel();
 
-                try (var scope = contextManager.beginTask("AI Merge", false)) {
+                try (var scope = contextManager.beginTask(customInstructions, true, "AI Merge")) {
                     var agent = new MergeAgent(
                             contextManager, planningModel, codeModel, conflict, scope, customInstructions);
                     var result = agent.execute();

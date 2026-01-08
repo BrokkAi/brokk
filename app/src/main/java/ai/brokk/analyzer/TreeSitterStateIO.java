@@ -1,6 +1,8 @@
 package ai.brokk.analyzer;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
@@ -21,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipException;
@@ -219,14 +222,40 @@ public final class TreeSitterStateIO {
             Map<String, List<CodeUnitDto>> symbolIndex,
             List<CodeUnitEntryDto> codeUnitState,
             List<FileStateEntryDto> fileState,
+            List<ImportEntryDto> imports,
+            List<ReverseImportEntryDto> reverseImports,
+            @Nullable List<SupertypeEntryDto> supertypes,
+            @Nullable List<SubtypeEntryDto> subtypes,
             List<String> symbolKeys,
             long snapshotEpochNanos) {}
+
+    /**
+     * DTO for CodeUnitProperties that can be easily serialized.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CodeUnitPropertiesDto(
+            List<CodeUnitDto> children,
+            List<String> signatures,
+            List<IAnalyzer.Range> ranges,
+            List<String> rawSupertypes,
+            @Nullable List<CodeUnitDto> supertypes,
+            boolean supertypesComputed,
+            boolean hasBody) {
+
+        /**
+         * Note on serialization: `supertypesComputed` is the discriminator for {@link TreeSitterAnalyzer.SuperTypeInfo}.
+         * If true, we deserialize as {@link TreeSitterAnalyzer.SuperTypeInfo.Computed} using the `supertypes` list
+         * (which must be non-null, though potentially empty).
+         * If false, we deserialize as {@link TreeSitterAnalyzer.SuperTypeInfo.Uncomputed}.
+         */
+        public CodeUnitPropertiesDto {}
+    }
 
     /**
      * DTO entry for CodeUnit -> CodeUnitProperties maps.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record CodeUnitEntryDto(CodeUnitDto key, TreeSitterAnalyzer.CodeUnitProperties value) {}
+    public record CodeUnitEntryDto(CodeUnitDto key, CodeUnitPropertiesDto value) {}
 
     /**
      * DTO entry for ProjectFile -> FileProperties maps.
@@ -240,7 +269,41 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record FilePropertiesDto(
-            List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, Set<CodeUnitDto> resolvedImports) {}
+            List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, boolean containsTests) {
+        @JsonCreator
+        public FilePropertiesDto(
+                @JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
+                @JsonProperty("importStatements") List<String> importStatements,
+                @JsonProperty(value = "containsTests", required = true) boolean containsTests) {
+            this.topLevelCodeUnits = topLevelCodeUnits;
+            this.importStatements = importStatements;
+            this.containsTests = containsTests;
+        }
+    }
+
+    /**
+     * DTO entry for ProjectFile -> Set<CodeUnit> (imports).
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ImportEntryDto(ProjectFileDto key, List<CodeUnitDto> value) {}
+
+    /**
+     * DTO entry for ProjectFile -> Set<ProjectFile> (reverse imports).
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ReverseImportEntryDto(ProjectFileDto key, List<ProjectFileDto> value) {}
+
+    /**
+     * DTO entry for CodeUnit -> List<CodeUnit> (supertypes).
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SupertypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
+
+    /**
+     * DTO entry for CodeUnit -> Set<CodeUnit> (subtypes).
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SubtypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
@@ -334,7 +397,28 @@ public final class TreeSitterStateIO {
         // codeUnitState -> entries list
         List<CodeUnitEntryDto> cuEntries = new ArrayList<>(state.codeUnitState().size());
         for (var e : state.codeUnitState().entrySet()) {
-            cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), e.getValue()));
+            var props = e.getValue();
+            var childrenDtos =
+                    props.children().stream().map(TreeSitterStateIO::toDto).toList();
+
+            var superTypeInfo = props.superTypes();
+            boolean computed = superTypeInfo instanceof TreeSitterAnalyzer.SuperTypeInfo.Computed;
+            List<CodeUnitDto> supertypesDto = null;
+            if (computed) {
+                var list = ((TreeSitterAnalyzer.SuperTypeInfo.Computed) superTypeInfo).supertypes();
+                supertypesDto = list.stream().map(TreeSitterStateIO::toDto).toList();
+            }
+
+            var propsDto = new CodeUnitPropertiesDto(
+                    childrenDtos,
+                    props.signatures(),
+                    props.ranges(),
+                    props.rawSupertypes(),
+                    supertypesDto,
+                    computed,
+                    props.hasBody());
+
+            cuEntries.add(new CodeUnitEntryDto(toDto(e.getKey()), propsDto));
         }
 
         // fileState -> entries list (omit parsed tree)
@@ -346,21 +430,70 @@ public final class TreeSitterStateIO {
                     new ArrayList<CodeUnitDto>(fileProps.topLevelCodeUnits().size());
             for (var cu : fileProps.topLevelCodeUnits()) topLevelDtos.add(toDto(cu));
 
-            var resolvedDtos = new LinkedHashSet<CodeUnitDto>(
-                    Math.max(16, fileProps.resolvedImports().size()));
-            for (var cu : fileProps.resolvedImports()) resolvedDtos.add(toDto(cu));
-
-            var fpDto = new FilePropertiesDto(topLevelDtos, fileProps.importStatements(), resolvedDtos);
+            var fpDto = new FilePropertiesDto(topLevelDtos, fileProps.importStatements(), fileProps.containsTests());
             fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
         }
 
+        // imports -> entries list from ImportGraph
+        var forwardImports = state.importGraph().imports();
+        List<ImportEntryDto> importEntries = new ArrayList<>(forwardImports.size());
+        for (var e : forwardImports.entrySet()) {
+            importEntries.add(new ImportEntryDto(
+                    toDto(e.getKey()),
+                    e.getValue().stream()
+                            .map(TreeSitterStateIO::toDto)
+                            .sorted(Comparator.comparing(CodeUnitDto::packageName)
+                                    .thenComparing(CodeUnitDto::shortName))
+                            .toList()));
+        }
+
+        // reverseImports -> entries list from ImportGraph
+        var reverseImports = state.importGraph().reverseImports();
+        List<ReverseImportEntryDto> reverseImportEntries = new ArrayList<>(reverseImports.size());
+        for (var e : reverseImports.entrySet()) {
+            reverseImportEntries.add(new ReverseImportEntryDto(
+                    toDto(e.getKey()),
+                    e.getValue().stream()
+                            .map(TreeSitterStateIO::toDto)
+                            .sorted(Comparator.comparing(ProjectFileDto::relPath))
+                            .toList()));
+        }
+
+        // typeHierarchy -> DTO from TypeHierarchyGraph
+        List<SupertypeEntryDto> supertypeEntries =
+                new ArrayList<>(state.typeHierarchyGraph().supertypes().size());
+        for (var e : state.typeHierarchyGraph().supertypes().entrySet()) {
+            supertypeEntries.add(new SupertypeEntryDto(
+                    toDto(e.getKey()),
+                    e.getValue().stream().map(TreeSitterStateIO::toDto).toList()));
+        }
+        List<SubtypeEntryDto> subtypeEntries =
+                new ArrayList<>(state.typeHierarchyGraph().subtypes().size());
+        for (var e : state.typeHierarchyGraph().subtypes().entrySet()) {
+            subtypeEntries.add(new SubtypeEntryDto(
+                    toDto(e.getKey()),
+                    e.getValue().stream()
+                            .map(TreeSitterStateIO::toDto)
+                            .sorted(Comparator.comparing(CodeUnitDto::packageName)
+                                    .thenComparing(CodeUnitDto::shortName))
+                            .toList()));
+        }
         // Symbol keys for the index
         List<String> symbolKeys = new ArrayList<>();
         for (String key : state.symbolKeyIndex().all()) {
             symbolKeys.add(key);
         }
 
-        return new AnalyzerStateDto(symbolIndexCopy, cuEntries, fileEntries, symbolKeys, state.snapshotEpochNanos());
+        return new AnalyzerStateDto(
+                symbolIndexCopy,
+                cuEntries,
+                fileEntries,
+                importEntries,
+                reverseImportEntries,
+                supertypeEntries,
+                subtypeEntries,
+                symbolKeys,
+                state.snapshotEpochNanos());
     }
 
     /**
@@ -379,7 +512,28 @@ public final class TreeSitterStateIO {
         // Rebuild codeUnitState PMap
         Map<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> cuState = new HashMap<>();
         for (var entry : dto.codeUnitState()) {
-            cuState.put(fromDto(entry.key()), entry.value());
+            var v = entry.value();
+
+            TreeSitterAnalyzer.SuperTypeInfo superTypeInfo;
+            if (v.supertypesComputed()) {
+                var listDto = v.supertypes();
+                List<CodeUnit> list = (listDto == null)
+                        ? List.of()
+                        : listDto.stream().map(TreeSitterStateIO::fromDto).toList();
+                superTypeInfo = new TreeSitterAnalyzer.SuperTypeInfo.Computed(list);
+            } else {
+                superTypeInfo = new TreeSitterAnalyzer.SuperTypeInfo.Uncomputed();
+            }
+
+            var props = new TreeSitterAnalyzer.CodeUnitProperties(
+                    v.children().stream().map(TreeSitterStateIO::fromDto).toList(),
+                    v.signatures(),
+                    v.ranges(),
+                    v.rawSupertypes(),
+                    superTypeInfo,
+                    v.hasBody());
+
+            cuState.put(fromDto(entry.key()), props);
         }
         PMap<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties> codeUnitState = HashTreePMap.from(cuState);
 
@@ -391,18 +545,48 @@ public final class TreeSitterStateIO {
             var topLevel = new ArrayList<CodeUnit>(v.topLevelCodeUnits().size());
             for (var cuDto : v.topLevelCodeUnits()) topLevel.add(fromDto(cuDto));
 
-            var resolved =
-                    new LinkedHashSet<CodeUnit>(Math.max(16, v.resolvedImports().size()));
-            for (var cuDto : v.resolvedImports()) resolved.add(fromDto(cuDto));
-
             var fp = new TreeSitterAnalyzer.FileProperties(
                     topLevel,
                     null, // parsedTree intentionally omitted
                     v.importStatements(),
-                    resolved);
+                    v.containsTests());
             fileStateMap.put(fromDto(entry.key()), fp);
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);
+
+        // Rebuild forward imports Map for ImportGraph
+        Map<ProjectFile, Set<CodeUnit>> importsMap = new HashMap<>();
+        for (var entry : dto.imports()) {
+            importsMap.put(
+                    fromDto(entry.key()),
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
+        }
+
+        // Rebuild reverse imports Map for ImportGraph
+        Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
+        for (var entry : dto.reverseImports()) {
+            reverseImportsMap.put(
+                    fromDto(entry.key()),
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
+        }
+
+        // Rebuild TypeHierarchyGraph
+        Map<CodeUnit, List<CodeUnit>> supertypesMap = new HashMap<>();
+        Map<CodeUnit, Set<CodeUnit>> subtypesMap = new HashMap<>();
+
+        var supertypeEntries = dto.supertypes() != null ? dto.supertypes() : List.<SupertypeEntryDto>of();
+        for (var entry : supertypeEntries) {
+            supertypesMap.put(
+                    fromDto(entry.key()),
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
+        }
+
+        var subtypeEntries = dto.subtypes() != null ? dto.subtypes() : List.<SubtypeEntryDto>of();
+        for (var entry : subtypeEntries) {
+            subtypesMap.put(
+                    fromDto(entry.key()),
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
+        }
 
         // Rebuild SymbolKeyIndex
         var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
@@ -412,7 +596,13 @@ public final class TreeSitterStateIO {
 
         // Construct new immutable AnalyzerState
         return new TreeSitterAnalyzer.AnalyzerState(
-                symbolIndex, codeUnitState, fileState, symbolKeyIndex, dto.snapshotEpochNanos());
+                symbolIndex,
+                codeUnitState,
+                fileState,
+                ImportGraph.from(importsMap, reverseImportsMap),
+                TypeHierarchyGraph.from(supertypesMap, subtypesMap),
+                symbolKeyIndex,
+                dto.snapshotEpochNanos());
     }
 
     /* ================= Helpers ================= */

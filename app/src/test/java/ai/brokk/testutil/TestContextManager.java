@@ -84,6 +84,10 @@ public final class TestContextManager implements IContextManager {
         };
     }
 
+    public TestContextManager(IProject project) {
+        this(project, new TestConsoleIO(), Set.of(), new TestAnalyzer());
+    }
+
     public TestContextManager(Path projectRoot, Set<String> editableFiles) {
         this(
                 new TestProject(projectRoot, Languages.JAVA),
@@ -181,12 +185,12 @@ public final class TestContextManager implements IContextManager {
                 tasks.stream().map(String::strip).filter(s -> !s.isEmpty()).toList();
         if (cleaned.isEmpty()) {
             // Clear task list when nothing valid is provided
-            return context.withTaskList(new TaskList.TaskListData(List.of()), "Task list cleared");
+            return context.withTaskList(new TaskList.TaskListData(List.of()));
         }
         var items = cleaned.stream()
                 .map(t -> new TaskList.TaskItem(t, t, false)) // title=text, done=false
                 .toList();
-        return context.withTaskList(new TaskList.TaskListData(items), "Task list replaced");
+        return context.withTaskList(new TaskList.TaskListData(items));
     }
 
     private final ExecutorService backgroundTasks = Executors.newCachedThreadPool();
