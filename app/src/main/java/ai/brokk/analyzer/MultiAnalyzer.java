@@ -313,4 +313,11 @@ public class MultiAnalyzer
                 .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
                 .toList();
     }
+
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.getDirectDescendants(cu).stream())
+                .collect(Collectors.toSet());
+    }
 }
