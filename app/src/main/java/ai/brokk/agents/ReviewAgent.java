@@ -96,12 +96,6 @@ public class ReviewAgent {
 
     @Blocking
     public ReviewResult execute(boolean quickMode) throws InterruptedException, ReviewGenerationException {
-        String goal =
-                """
-                Identify all code locations relevant to the provided diff to perform a comprehensive code review,
-                focusing on design, correctness, and simplicity.
-                """;
-
         // Prepare the initial context with the diff pinned
         var diff = changes.perFileChanges().stream()
                 .map(de -> "File: " + de.title() + "\n" + de.diff())
@@ -430,36 +424,37 @@ public class ReviewAgent {
         String mergedResponseText = buildMergedResponseText(turn1Result.text(), validPathExcerpts);
 
         // Stage 2: Text Resolution (Validate excerpts match file content)
-        Map<Integer, CodeExcerpt> matchedExcerpts = new HashMap<>();
+        Map<Integer, CodeExcerpt> matchedExcerpts = new java.util.concurrent.ConcurrentHashMap<>();
         List<ChatMessage> textResolutionMessages = new ArrayList<>();
         attempts = 0;
         while (true) {
-            Map<Integer, String> textResolutionErrors = new HashMap<>();
-            for (var entry : validPathExcerpts.entrySet()) {
-                int id = entry.getKey();
-                if (matchedExcerpts.containsKey(id)) continue;
+            Map<Integer, String> textResolutionErrors = validPathExcerpts.entrySet().parallelStream()
+                    .filter(entry -> !matchedExcerpts.containsKey(entry.getKey()))
+                    .map(entry -> {
+                        int id = entry.getKey();
+                        RawExcerpt excerpt = entry.getValue();
+                        FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
+                        if (fileInfo == null) {
+                            return Map.entry(id, "File not in diff: " + excerpt.file());
+                        }
 
-                RawExcerpt excerpt = entry.getValue();
-                FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
-                if (fileInfo == null) {
-                    textResolutionErrors.put(id, "File not in diff: " + excerpt.file());
-                    continue;
-                }
-
-                ExcerptMatch match = matchExcerptInFile(excerpt, fileInfo);
-                if (match == null) {
-                    textResolutionErrors.put(id, "Excerpt text not found in " + excerpt.file());
-                } else {
-                    var file = cm.toFile(excerpt.file());
-                    int lineCount = (int) match.matchedText().lines().count();
-                    CodeUnit unit = cm.getAnalyzerUninterrupted()
-                            .enclosingCodeUnit(file, match.line(), match.line() + Math.max(0, lineCount - 1))
-                            .orElse(null);
-                    logger.debug("Enclosing CodeUnit for excerpt {} is {}", id, unit);
-                    matchedExcerpts.put(
-                            id, new CodeExcerpt(file, unit, match.line(), match.side(), match.matchedText()));
-                }
-            }
+                        ExcerptMatch match = matchExcerptInFile(excerpt, fileInfo);
+                        if (match == null) {
+                            return Map.entry(id, "Excerpt text not found in " + excerpt.file());
+                        } else {
+                            var file = cm.toFile(excerpt.file());
+                            int lineCount = (int) match.matchedText().lines().count();
+                            CodeUnit unit = cm.getAnalyzerUninterrupted()
+                                    .enclosingCodeUnit(file, match.line(), match.line() + Math.max(0, lineCount - 1))
+                                    .orElse(null);
+                            logger.debug("Enclosing CodeUnit for excerpt {} is {}", id, unit);
+                            matchedExcerpts.put(
+                                    id, new CodeExcerpt(file, unit, match.line(), match.side(), match.matchedText()));
+                            return null;
+                        }
+                    })
+                    .filter(java.util.Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
             if (textResolutionErrors.isEmpty() || attempts++ == 2) break;
 
