@@ -77,6 +77,17 @@ public class ReviewParser {
         return Map.copyOf(results);
     }
 
+    private String cleanMetadata(String text) {
+        return text.lines()
+                .filter(line -> {
+                    String trimmed = line.trim();
+                    return !(trimmed.startsWith("BRK_EXCERPT_")
+                            && !trimmed.contains(" ")
+                            && trimmed.length() > "BRK_EXCERPT_".length());
+                })
+                .collect(Collectors.joining("\n"));
+    }
+
     public List<Segment> parseToSegments(String text) {
         List<Segment> segments = new ArrayList<>();
         String[] lines = text.split("\\R", -1);
@@ -243,21 +254,21 @@ public class ReviewParser {
             List<DesignFeedback> designNotes = rawReview.designNotes().stream()
                     .map(raw -> new DesignFeedback(
                             raw.title(),
-                            raw.description(),
+                            instance.cleanMetadata(raw.description()),
                             raw.excerptIds().stream()
                                     .map(resolvedExcerpts::get)
                                     .filter(java.util.Objects::nonNull)
                                     .toList(),
-                            raw.recommendation()))
+                            instance.cleanMetadata(raw.recommendation())))
                     .toList();
 
             List<TacticalFeedback> tacticalNotes = rawReview.tacticalNotes().stream()
                     .filter(raw -> resolvedExcerpts.containsKey(raw.excerptId()))
                     .map(raw -> new TacticalFeedback(
                             raw.title(),
-                            raw.description(),
+                            instance.cleanMetadata(raw.description()),
                             java.util.Objects.requireNonNull(resolvedExcerpts.get(raw.excerptId())),
-                            raw.recommendation()))
+                            instance.cleanMetadata(raw.recommendation())))
                     .toList();
 
             return new GuidedReview(rawReview.overview(), designNotes, tacticalNotes, rawReview.additionalTests());

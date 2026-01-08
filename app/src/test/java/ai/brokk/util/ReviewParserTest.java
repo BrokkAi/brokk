@@ -341,4 +341,27 @@ class ReviewParserTest {
         // depending on how the input was formatted.
         assertEquals(input.trim(), serialized.trim());
     }
+
+    @Test
+    void testFromRawCleansExcerptsFromFields() {
+        var rawDesign = new ReviewParser.RawDesignFeedback(
+                "Title",
+                "Description with\nBRK_EXCERPT_1\nand more text.",
+                List.of(1),
+                "Recommendation with\nBRK_EXCERPT_2");
+
+        var rawReview = new ReviewParser.RawReview("Overview", List.of(rawDesign), List.of(), List.of());
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var resolvedExcerpts = Map.of(
+                1,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "File.java"), null, 1, ReviewParser.DiffSide.NEW, "code"));
+
+        ReviewParser.GuidedReview guided = ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
+        ReviewParser.DesignFeedback design = guided.designNotes().getFirst();
+
+        assertEquals("Description with\nand more text.", design.description());
+        assertEquals("Recommendation with", design.recommendation());
+    }
 }
