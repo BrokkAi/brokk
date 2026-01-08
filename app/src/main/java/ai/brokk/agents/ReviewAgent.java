@@ -11,14 +11,12 @@ import ai.brokk.Llm;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
-import ai.brokk.git.GitDistance;
 import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
@@ -41,8 +39,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Stream;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -76,7 +72,11 @@ public class ReviewAgent {
     private final IConsoleIO io;
     private final List<FileComparisonInfo> fileComparisons;
 
-    public ReviewAgent(DiffService.CumulativeChanges changes, IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
+    public ReviewAgent(
+            DiffService.CumulativeChanges changes,
+            IContextManager cm,
+            IConsoleIO io,
+            List<FileComparisonInfo> fileComparisons) {
         this.changes = changes;
         this.cm = cm;
         this.io = io;
@@ -169,12 +169,14 @@ public class ReviewAgent {
                 if (turn1Result.error() instanceof dev.langchain4j.exception.ContextTooLargeException) {
                     // Get non-diff fragments and their files
                     Context currentContext = reviewContext;
-                    var nonDiffFragments = currentContext.allFragments()
+                    var nonDiffFragments = currentContext
+                            .allFragments()
                             .filter(f -> !currentContext.isPinned(f))
                             .toList();
 
                     if (nonDiffFragments.isEmpty()) {
-                        throw new ReviewGenerationException("Context too large even with no additional fragments", turn1Result.error());
+                        throw new ReviewGenerationException(
+                                "Context too large even with no additional fragments", turn1Result.error());
                     }
 
                     // Collect files from non-diff fragments
@@ -205,8 +207,12 @@ public class ReviewAgent {
                             .withPinned(diffFragment, true)
                             .addFragments(fragmentsToKeep);
 
-                    logger.info("Context too large, reduced non-diff fragments from {} to {} (files: {} -> {})",
-                            nonDiffFragments.size(), fragmentsToKeep.size(), filesFromFragments.size(), filesToKeep.size());
+                    logger.info(
+                            "Context too large, reduced non-diff fragments from {} to {} (files: {} -> {})",
+                            nonDiffFragments.size(),
+                            fragmentsToKeep.size(),
+                            filesFromFragments.size(),
+                            filesToKeep.size());
                     continue;
                 }
 
@@ -284,11 +290,19 @@ public class ReviewAgent {
         }
     }
 
-    private @NotNull Context setupContext(Context initialContext, String goal, StreamingChatModel architectModel, ContextManager.TaskScope scope, SearchAgent.ScanConfig searchScanConfig, boolean quickMode) throws ReviewGenerationException {
+    private @NotNull Context setupContext(
+            Context initialContext,
+            String goal,
+            StreamingChatModel architectModel,
+            ContextManager.TaskScope scope,
+            SearchAgent.ScanConfig searchScanConfig,
+            boolean quickMode)
+            throws ReviewGenerationException {
         if (quickMode) {
             var filesToContext = changes.perFileChanges().stream()
                     .filter(de -> !de.oldContent().isEmpty() && !de.newContent().isEmpty())
-                    .filter(de -> de.diff().split("@@").length > 3) // > 2 hunks (split by @@ results in [preamble, hunk1, hunk2, hunk3...])
+                    .filter(de -> de.diff().split("@@").length
+                            > 3) // > 2 hunks (split by @@ results in [preamble, hunk1, hunk2, hunk3...])
                     .map(de -> de.fragment())
                     .toList();
             return initialContext.addFragments(filesToContext);
