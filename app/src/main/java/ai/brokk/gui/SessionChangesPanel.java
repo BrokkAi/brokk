@@ -548,10 +548,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             logger.debug("Unable to determine uncommitted changes state", e);
         }
 
+        boolean isSession = baselineMode == BaselineMode.SESSION;
+
         SwingUtil.applyPrimaryButtonStyle(commitBtn);
         for (var al : commitBtn.getActionListeners()) commitBtn.removeActionListener(al);
         commitBtn.addActionListener(e -> showCommitDialog());
-        commitBtn.setVisible(hasUncommittedChanges);
+        commitBtn.setVisible(!isSession && hasUncommittedChanges);
         buttonPanel.add(commitBtn);
 
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
@@ -573,17 +575,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
         for (var al : pullBtn.getActionListeners()) pullBtn.removeActionListener(al);
         pullBtn.addActionListener(e -> performPull());
-        pullBtn.setVisible(true);
+        pullBtn.setVisible(!isSession);
         buttonPanel.add(pullBtn);
 
         pushBtn.setEnabled(!hasUncommittedChanges);
         for (var al : pushBtn.getActionListeners()) pushBtn.removeActionListener(al);
         pushBtn.addActionListener(e -> performPush());
-        pushBtn.setVisible(pushPull != null && pushPull.canPush());
+        pushBtn.setVisible(!isSession && pushPull != null && pushPull.canPush());
         buttonPanel.add(pushBtn);
 
-        boolean showPR = baselineMode == BaselineMode.NON_DEFAULT_BRANCH
-                || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
+        boolean showPR = !isSession
+                && (baselineMode == BaselineMode.NON_DEFAULT_BRANCH
+                        || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0));
 
         boolean prBtnEnabled = !hasUncommittedChanges;
         String prBtnTooltip = null;
