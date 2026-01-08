@@ -3,7 +3,6 @@ package ai.brokk.ranking;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.TreeSitterAnalyzer;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -264,10 +263,11 @@ public final class ImportPageRanker {
             return cached;
         }
 
+        Set<CodeUnit> importedUnits = analyzer.importedCodeUnitsOf(file);
         Set<ProjectFile> resolved;
-        // Prefer TreeSitterAnalyzer if available for accurate resolution
-        if (analyzer instanceof TreeSitterAnalyzer tsa) {
-            resolved = toFiles(tsa.importedCodeUnitsOf(file));
+
+        if (!importedUnits.isEmpty()) {
+            resolved = toFiles(importedUnits);
         } else {
             // Fallback using import statements + definition lookup
             resolved = new LinkedHashSet<>();
@@ -309,14 +309,7 @@ public final class ImportPageRanker {
             return cached;
         }
 
-        Set<ProjectFile> resolved;
-        if (analyzer instanceof TreeSitterAnalyzer tsa) {
-            resolved = tsa.referencingFilesOf(file);
-        } else {
-            // Fallback: we don't have an efficient reverse lookup for generic analyzers
-            resolved = Set.of();
-        }
-
+        Set<ProjectFile> resolved = analyzer.referencingFilesOf(file);
         cache.put(file, resolved);
         return resolved;
     }
