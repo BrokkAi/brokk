@@ -1,6 +1,5 @@
 package ai.brokk.analyzer;
 
-import ai.brokk.context.Context;
 import ai.brokk.project.IProject;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -438,7 +437,9 @@ public interface IAnalyzer {
             String name = indent == 0 ? cu.fqName() : cu.identifier();
             sb.append(prefix).append("- ").append(name);
 
-            var children = getDirectChildren(cu).stream().filter(child -> types.contains(child.kind())).toList();
+            var children = getDirectChildren(cu).stream()
+                    .filter(child -> types.contains(child.kind()))
+                    .toList();
             if (!children.isEmpty()) {
                 sb.append("\n");
                 sb.append(this.buildRelatedIdentifiers(children, types, indent + 1));

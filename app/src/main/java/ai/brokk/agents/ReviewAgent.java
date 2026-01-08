@@ -4,7 +4,6 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 import ai.brokk.AbstractService;
-import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
@@ -16,10 +15,10 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.difftool.ui.FileComparisonInfo;
-import ai.brokk.git.GitDistance;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.ToolExecutionResult;
+import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.RawExcerpt;
@@ -30,12 +29,10 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -71,6 +68,7 @@ public class ReviewAgent {
     private final IContextManager cm;
     private final IConsoleIO io;
     private final List<FileComparisonInfo> fileComparisons;
+    private @Nullable Context contextBeingBuilt;
 
     public ReviewAgent(
             DiffService.CumulativeChanges changes,
@@ -111,14 +109,13 @@ public class ReviewAgent {
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        // Configure SearchAgent with ARCHITECT model and noAppend scan config
+        // Configure model types
         var architectModel = cm.getService().getModel(ModelType.ARCHITECT);
         var scanModel = cm.getService().getModel(ModelType.SCAN);
-        var searchScanConfig = SearchAgent.ScanConfig.noAppend();
 
         try (var scope = cm.anonymousScope()) {
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
-            var reviewContext = setupContext(initialContext, goal, architectModel, scope, searchScanConfig, quickMode);
+            var reviewContext = setupContext(initialContext, quickMode);
             var turn1Model = quickMode ? scanModel : architectModel;
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
             turn1Llm.setOutput(io);
@@ -174,27 +171,9 @@ public class ReviewAgent {
                                 "Context too large even with no additional fragments", turn1Result.error());
                     }
 
-                    // Collect files from non-diff fragments
-                    var filesFromFragments = nonDiffFragments.stream()
-                            .flatMap(f -> f.files().join().stream())
-                            .distinct()
-                            .toList();
-
-                    // Sort by importance and keep the top half
-                    var sortedFiles = GitDistance.sortByImportance(filesFromFragments, cm.getRepo());
-                    int halfSize = Math.max(1, sortedFiles.size() / 2);
-                    var filesToKeep = new HashSet<>(sortedFiles.subList(0, halfSize));
-
-                    // Retain only fragments whose files are in the kept set
-                    var fragmentsToKeep = nonDiffFragments.stream()
-                            .filter(f -> {
-                                var fragFiles = f.files().join();
-                                if (fragFiles == null || fragFiles.isEmpty()) {
-                                    return false;
-                                }
-                                return fragFiles.stream().anyMatch(filesToKeep::contains);
-                            })
-                            .toList();
+                    // Reduce context by dropping the second half of additional fragments
+                    int halfSize = Math.max(1, nonDiffFragments.size() / 2);
+                    var fragmentsToKeep = nonDiffFragments.subList(0, halfSize);
 
                     // Rebuild context: start fresh, add diff fragment pinned, then add kept fragments
                     reviewContext = new Context(cm)
@@ -203,11 +182,9 @@ public class ReviewAgent {
                             .addFragments(fragmentsToKeep);
 
                     logger.info(
-                            "Context too large, reduced non-diff fragments from {} to {} (files: {} -> {})",
+                            "Context too large, reduced non-diff fragments from {} to {}",
                             nonDiffFragments.size(),
-                            fragmentsToKeep.size(),
-                            filesFromFragments.size(),
-                            filesToKeep.size());
+                            fragmentsToKeep.size());
                     continue;
                 }
 
@@ -285,49 +262,58 @@ public class ReviewAgent {
         }
     }
 
-    private @NotNull Context setupContext(
-            Context initialContext,
-            String goal,
-            StreamingChatModel architectModel,
-            ContextManager.TaskScope scope,
-            SearchAgent.ScanConfig searchScanConfig,
-            boolean quickMode)
-            throws ReviewGenerationException {
-        if (quickMode) {
-            var filesToContext = changes.perFileChanges().stream()
-                    .filter(de -> !de.oldContent().isEmpty() && !de.newContent().isEmpty())
-                    .filter(de -> de.diff().split("@@").length
-                            > 3) // > 2 hunks (split by @@ results in [preamble, hunk1, hunk2, hunk3...])
-                    .map(de -> de.fragment())
-                    .toList();
-            return initialContext.addFragments(filesToContext);
+    private @NotNull Context setupContext(Context initialContext, boolean quickMode) throws InterruptedException {
+        if (!quickMode) {
+            var scanModel = cm.getService().getModel(ModelType.SCAN);
+            var llm = cm.getLlm(new Llm.Options(scanModel, "Review Context Selection"));
+            llm.setOutput(io);
+
+            var messages = new ArrayList<ChatMessage>();
+            messages.add(buildSystemMessage());
+            messages.addAll(
+                    WorkspacePrompts.getMessagesInAddedOrder(initialContext, EnumSet.noneOf(SpecialTextType.class)));
+            messages.add(
+                    new UserMessage(
+                            """
+                    Examine the proposed diff and identify additional context needed for a thorough code review.
+
+                    Add files, summaries, classes, or methods that are:
+                    1. Referenced in or closely related to the changes
+                    2. Important for understanding correctness and design implications
+                    3. Difficult to infer from the diff alone
+
+                    Space is limited, so prioritize:
+                    - Use `filesForFullSource` only when you need complete implementation details
+                    - Use `filesForSummaries` when you only need API signatures
+                    - Use `classNames` for full class implementations
+                    - Use `methodNames` for specific method implementations (narrowest scope)
+
+                    Call addFragments once with all needed context.
+                    """));
+
+            var tr = cm.getToolRegistry().builder().register(this).build();
+            var toolSpecs = tr.getTools(List.of("addFragments"));
+
+            this.contextBeingBuilt = initialContext;
+            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+
+            if (result.error() == null && !result.toolRequests().isEmpty()) {
+                var toolRequest = result.toolRequests().getFirst();
+                tr.executeTool(toolRequest);
+                return requireNonNull(contextBeingBuilt).withHistory(List.of());
+            }
         }
 
-        var searchTools = List.of(
-                "addSymbolUsagesToWorkspace",
-                "addClassesToWorkspace",
-                "addClassSummariesToWorkspace",
-                "addMethodsToWorkspace",
-                "addFileSummariesToWorkspace",
-                "addFilesToWorkspace");
-        SearchAgent agent =
-                new SearchAgent(initialContext, goal, architectModel, scope, io, searchScanConfig, searchTools);
-        AtomicInteger searchTurnCount = new AtomicInteger(0);
-        agent.setTurnListener(() -> {
-            int turns = searchTurnCount.incrementAndGet();
-            updateProgress(Math.min(10, turns * 2));
-        });
-
-        // Phase 1: Establish context using SearchAgent
-        TaskResult searchResult = agent.execute();
-
-        if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-            throw new ReviewGenerationException("Review context gathering failed", searchResult.stopDetails());
-        }
-
-        // Phase 2: Two-turn review process
-        var reviewContext = searchResult.context().withHistory(List.of());
-        return reviewContext;
+        // Fallback or Quick Mode
+        var testFiles = cm.getTestFiles();
+        var filesToContext = changes.perFileChanges().stream()
+                .filter(de -> !testFiles.contains(
+                        de.fragment().files().join().iterator().next()))
+                .filter(de -> !de.oldContent().isEmpty() && !de.newContent().isEmpty())
+                .filter(de -> de.diff().split("@@").length > 3) // > 2 hunks
+                .map(DiffService.DiffEntry::fragment)
+                .toList();
+        return initialContext.addFragments(filesToContext);
     }
 
     private void updateProgress(int min) {
@@ -667,6 +653,29 @@ public class ReviewAgent {
 
                 Now call createReview.
                 """);
+    }
+
+    @Tool(
+            "Add context fragments to help perform a thorough code review. Call this once with all the files, summaries, classes, and methods needed.")
+    public String addFragments(
+            @P("Full project paths for files where you need to see complete implementation details")
+                    List<String> filesForFullSource,
+            @P("Full project paths for files where you only need to see API signatures/skeletons")
+                    List<String> filesForSummaries,
+            @P(
+                            "Fully qualified class names (e.g., 'com.example.MyClass') for classes where you need implementation details")
+                    List<String> classNames,
+            @P(
+                            "Fully qualified method names (e.g., 'com.example.MyClass.myMethod') for specific methods you need to examine")
+                    List<String> methodNames) {
+        var wst = new WorkspaceTools(requireNonNull(contextBeingBuilt));
+        wst.addFilesToWorkspace(filesForFullSource);
+        wst.addFileSummariesToWorkspace(filesForSummaries);
+        wst.addClassesToWorkspace(classNames);
+        wst.addMethodsToWorkspace(methodNames);
+
+        this.contextBeingBuilt = wst.getContext();
+        return "Context updated with requested fragments.";
     }
 
     @Tool("Create a structured code review of the current changes or proposal.")
