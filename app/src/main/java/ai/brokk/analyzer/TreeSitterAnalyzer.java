@@ -168,6 +168,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         private final ConcurrentHashMap<ProjectFile, Set<CodeUnit>> forwardCache = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<ProjectFile, Set<ProjectFile>> reverseCache = new ConcurrentHashMap<>();
         private final ThreadLocal<Set<ProjectFile>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
+        private volatile boolean isReversePopulated = false;
 
         @Nullable
         Set<CodeUnit> getImportedCodeUnits(ProjectFile file) {
@@ -827,7 +828,35 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
-        return this.state.importGraph().referencingFilesOf(file);
+        // 1. Check lazy cache first
+        Set<ProjectFile> cached = lazyImports.getReferencingFiles(file);
+        if (cached != null && !cached.isEmpty()) {
+            return cached;
+        }
+
+        // 2. Check persistent ImportGraph state
+        Set<ProjectFile> persisted = this.state.importGraph().referencingFilesOf(file);
+        if (!persisted.isEmpty()) {
+            return persisted;
+        }
+
+        // 3. If not cached, we need to ensure all forward imports are resolved to populate the reverse cache
+        if (!lazyImports.isReversePopulated) {
+            synchronized (lazyImports) {
+                if (!lazyImports.isReversePopulated) {
+                    for (ProjectFile f : this.state.fileState().keySet()) {
+                        // Calling importedCodeUnitsOf ensures forward imports are computed and cached,
+                        // which also populates lazyImports.reverseCache.
+                        importedCodeUnitsOf(f);
+                    }
+                    lazyImports.isReversePopulated = true;
+                }
+            }
+        }
+
+        return lazyImports.getReferencingFiles(file) != null
+                ? Objects.requireNonNull(lazyImports.getReferencingFiles(file))
+                : Collections.emptySet();
     }
 
     protected @Nullable TSTree treeOf(ProjectFile file) {
