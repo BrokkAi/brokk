@@ -618,6 +618,7 @@ public class PreviewManager {
         if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
             var markdownPanel = MarkdownOutputPool.instance().borrow();
             markdownPanel.updateTheme(MainProject.getTheme());
+            markdownPanel.withContextForLookups(cm, chrome);
             markdownPanel.setStaticDocument(text);
             panel = createSearchableContentPanel(List.of(markdownPanel), null, false);
         } else {
@@ -727,6 +728,7 @@ public class PreviewManager {
     private JPanel renderMarkdownContent(String text) {
         var markdownPanel = MarkdownOutputPool.instance().borrow();
         markdownPanel.updateTheme(MainProject.getTheme());
+        markdownPanel.withContextForLookups(cm, chrome);
         markdownPanel.setStaticDocument(text);
         return createSearchableContentPanel(List.of(markdownPanel), null, false);
     }
