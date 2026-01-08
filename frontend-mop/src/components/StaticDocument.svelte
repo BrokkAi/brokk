@@ -12,7 +12,7 @@
 
 <style>
   .static-document {
-    padding: 16px;
+    padding: 2rem;
     color: var(--chat-text);
     line-height: 1.5;
     font-size: 14px;

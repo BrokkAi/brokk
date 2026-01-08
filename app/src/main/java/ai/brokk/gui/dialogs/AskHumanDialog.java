@@ -1,12 +1,10 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
-import dev.langchain4j.data.message.AiMessage;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
