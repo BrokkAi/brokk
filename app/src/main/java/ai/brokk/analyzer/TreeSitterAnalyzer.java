@@ -93,6 +93,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // Discarding the cache ensures we re-compute ancestors against the new state.
     private final LazySupertypeCache lazySupertypes = new LazySupertypeCache();
 
+    /**
+     * Helper util for lazy import resolution and recursion guarding.
+     * Follows the same instance-lifecycle pattern as LazySupertypeCache.
+     */
+    private final LazyImportCache lazyImports = new LazyImportCache();
+
     // Comparator for sorting CodeUnit definitions by priority
     private final Comparator<CodeUnit> DEFINITION_COMPARATOR = Comparator.comparingInt(
                     (CodeUnit cu) -> firstStartByteForSelection(cu))
@@ -153,6 +159,61 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         record Computed(List<CodeUnit> supertypes) implements SuperTypeInfo {}
 
         record Uncomputed() implements SuperTypeInfo {}
+    }
+
+    /**
+     * Helper class to encapsulate lazy import resolution caching and circularity detection.
+     */
+    private static final class LazyImportCache {
+        private final ConcurrentHashMap<ProjectFile, Set<CodeUnit>> forwardCache = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<ProjectFile, Set<ProjectFile>> reverseCache = new ConcurrentHashMap<>();
+        private final ThreadLocal<Set<ProjectFile>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
+
+        @Nullable
+        Set<CodeUnit> getImportedCodeUnits(ProjectFile file) {
+            return forwardCache.get(file);
+        }
+
+        @Nullable
+        Set<ProjectFile> getReferencingFiles(ProjectFile file) {
+            return reverseCache.get(file);
+        }
+
+        Set<CodeUnit> computeIfAbsent(ProjectFile file, Function<ProjectFile, Set<CodeUnit>> computer) {
+            return forwardCache.computeIfAbsent(file, f -> {
+                var visiting = recursionGuard.get();
+                if (!visiting.add(f)) {
+                    log.trace("Circular import detection triggered for {}", f);
+                    return Collections.emptySet();
+                }
+                try {
+                    Set<CodeUnit> resolved = computer.apply(f);
+                    // Update reverse cache based on resolved imports
+                    for (CodeUnit cu : resolved) {
+                        reverseCache.computeIfAbsent(cu.source(), k -> ConcurrentHashMap.newKeySet()).add(f);
+                    }
+                    return Collections.unmodifiableSet(resolved);
+                } finally {
+                    visiting.remove(f);
+                }
+            });
+        }
+
+        boolean isEmpty() {
+            return forwardCache.isEmpty();
+        }
+
+        int size() {
+            return forwardCache.size();
+        }
+
+        void forEachForward(BiConsumer<? super ProjectFile, ? super Set<CodeUnit>> action) {
+            forwardCache.forEach(action);
+        }
+
+        void forEachReverse(BiConsumer<? super ProjectFile, ? super Set<ProjectFile>> action) {
+            reverseCache.forEach(action);
+        }
     }
 
     /**
