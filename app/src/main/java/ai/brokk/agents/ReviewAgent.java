@@ -11,10 +11,13 @@ import ai.brokk.Llm;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.git.GitDistance;
 import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
@@ -34,9 +37,12 @@ import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Stream;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -126,34 +132,85 @@ public class ReviewAgent {
             turn2Llm.setOutput(io);
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
+            Llm.StreamingResult turn1Result;
             var turn1Messages = new ArrayList<ChatMessage>();
-            turn1Messages.add(buildSystemMessage());
-            turn1Messages.addAll(
-                    WorkspacePrompts.getMessagesInAddedOrder(reviewContext, EnumSet.noneOf(SpecialTextType.class)));
-            turn1Messages.add(buildAnalysisRequestMessage());
+            while (true) {
+                turn1Messages.clear();
+                turn1Messages.add(buildSystemMessage());
+                turn1Messages.addAll(
+                        WorkspacePrompts.getMessagesInAddedOrder(reviewContext, EnumSet.noneOf(SpecialTextType.class)));
+                turn1Messages.add(buildAnalysisRequestMessage());
 
-            int turn1Floor = progressOf100;
-            AtomicInteger linesSeen = new AtomicInteger(0);
-            ai.brokk.cli.MemoryConsole progressConsole = new ai.brokk.cli.MemoryConsole() {
-                @Override
-                public void llmOutput(
-                        String token,
-                        dev.langchain4j.data.message.ChatMessageType type,
-                        boolean explicitNewMessage,
-                        boolean isReasoning) {
-                    super.llmOutput(token, type, explicitNewMessage, isReasoning);
-                    if (token.contains("\n")) {
-                        int lines = linesSeen.addAndGet(
-                                (int) token.chars().filter(ch -> ch == '\n').count());
-                        int p = turn1Floor + (lines / 10);
-                        updateProgress(Math.min(75, p));
+                int turn1Floor = progressOf100;
+                AtomicInteger linesSeen = new AtomicInteger(0);
+                ai.brokk.cli.MemoryConsole progressConsole = new ai.brokk.cli.MemoryConsole() {
+                    @Override
+                    public void llmOutput(
+                            String token,
+                            dev.langchain4j.data.message.ChatMessageType type,
+                            boolean explicitNewMessage,
+                            boolean isReasoning) {
+                        super.llmOutput(token, type, explicitNewMessage, isReasoning);
+                        if (token.contains("\n")) {
+                            int lines = linesSeen.addAndGet(
+                                    (int) token.chars().filter(ch -> ch == '\n').count());
+                            int p = turn1Floor + (lines / 10);
+                            updateProgress(Math.min(75, p));
+                        }
                     }
-                }
-            };
+                };
 
-            turn1Llm.setOutput(progressConsole);
-            var turn1Result = turn1Llm.sendRequest(turn1Messages);
-            if (turn1Result.error() != null) {
+                turn1Llm.setOutput(progressConsole);
+                turn1Result = turn1Llm.sendRequest(turn1Messages);
+                if (turn1Result.error() == null) {
+                    break;
+                }
+
+                if (turn1Result.error() instanceof dev.langchain4j.exception.ContextTooLargeException) {
+                    // Get non-diff fragments and their files
+                    Context currentContext = reviewContext;
+                    var nonDiffFragments = currentContext.allFragments()
+                            .filter(f -> !currentContext.isPinned(f))
+                            .toList();
+
+                    if (nonDiffFragments.isEmpty()) {
+                        throw new ReviewGenerationException("Context too large even with no additional fragments", turn1Result.error());
+                    }
+
+                    // Collect files from non-diff fragments
+                    var filesFromFragments = nonDiffFragments.stream()
+                            .flatMap(f -> f.files().join().stream())
+                            .distinct()
+                            .toList();
+
+                    // Sort by importance and keep the top half
+                    var sortedFiles = GitDistance.sortByImportance(filesFromFragments, cm.getRepo());
+                    int halfSize = Math.max(1, sortedFiles.size() / 2);
+                    var filesToKeep = new HashSet<>(sortedFiles.subList(0, halfSize));
+
+                    // Retain only fragments whose files are in the kept set
+                    var fragmentsToKeep = nonDiffFragments.stream()
+                            .filter(f -> {
+                                var fragFiles = f.files().join();
+                                if (fragFiles == null || fragFiles.isEmpty()) {
+                                    return false;
+                                }
+                                return fragFiles.stream().anyMatch(filesToKeep::contains);
+                            })
+                            .toList();
+
+                    // Rebuild context: start fresh, add diff fragment pinned, then add kept fragments
+                    reviewContext = new Context(cm)
+                            .addFragments(diffFragment)
+                            .withPinned(diffFragment, true)
+                            .addFragments(fragmentsToKeep);
+
+                    logger.info("Context too large, reduced non-diff fragments from {} to {} (files: {} -> {})",
+                            nonDiffFragments.size(), fragmentsToKeep.size(), filesFromFragments.size(), filesToKeep.size());
+                    continue;
+                }
+
+                // unrecoverable error
                 throw new ReviewGenerationException("Failed to analyze diff for review", turn1Result.error());
             }
 
