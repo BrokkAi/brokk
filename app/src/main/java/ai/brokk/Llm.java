@@ -42,7 +42,6 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
-import dev.langchain4j.model.openai.internal.Json;
 import dev.langchain4j.model.openai.internal.OpenAiUtils;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.shared.StreamOptions;
@@ -292,8 +291,15 @@ public class Llm {
                     .stream(true)
                     .streamOptions(StreamOptions.builder().includeUsage(true).build())
                     .build();
-            return Json.toJson(
-                    ChatCompletionRequest.builder().from(openAiRequest).build());
+            try {
+                return objectMapper
+                        .writerWithDefaultPrettyPrinter()
+                        .writeValueAsString(ChatCompletionRequest.builder()
+                                .from(openAiRequest)
+                                .build());
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
         }
         try {
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
@@ -1718,8 +1724,12 @@ public class Llm {
                        """
                         .formatted(formatThrowable(error), contentToShow);
             }
-            // If no error, originalResponse is guaranteed to be non-null by the record's invariant.
-            return castNonNull(originalResponse()).toString();
+
+            try {
+                return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(originalResponse());
+            } catch (JsonProcessingException e) {
+                return String.valueOf(originalResponse());
+            }
         }
 
         private String formatThrowable(Throwable th) {
