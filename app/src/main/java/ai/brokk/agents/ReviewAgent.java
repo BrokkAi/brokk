@@ -587,9 +587,10 @@ public class ReviewAgent {
 
                 Your job is ONLY to convert that existing Markdown review into a single createReview tool call.
                 Do NOT editorialize, expand, paraphrase, add new findings, remove findings, or change priorities.
-                Preserve the wording and intent of the provided review as closely as possible.
+                Preserve the wording and intent of the provided review exactly.
 
-                Where the Markdown review contains excerpt references like BRK_EXCERPT_3, use the numeric IDs (e.g., 3) in the tool call.
+                The only exception: where the Markdown review contains excerpt blocks like BRK_EXCERPT_3,
+                remove block (including the BRK_EXCERPT_ marker) and supply the numeric IDs (e.g., 3) in the tool call excerpts fields.
                 """);
     }
 
