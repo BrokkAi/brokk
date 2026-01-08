@@ -8,11 +8,8 @@ import ai.brokk.analyzer.LintingProvider;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.project.IProject;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.SequencedSet;
-import java.util.Set;
+
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -25,9 +22,9 @@ import org.jetbrains.annotations.Nullable;
 public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvider {
     private final List<CodeUnit> allClasses;
     private final Map<String, List<CodeUnit>> methodsMap;
-    private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new java.util.HashMap<>();
-    private final Map<CodeUnit, String> skeletons = new java.util.HashMap<>();
-    private final Map<CodeUnit, String> sources = new java.util.HashMap<>();
+    private final Map<CodeUnit, List<CodeUnit>> ancestorsMap = new HashMap<>();
+    private final Map<CodeUnit, String> skeletons = new HashMap<>();
+    private final Map<CodeUnit, String> sources = new HashMap<>();
     private Function<List<ProjectFile>, LintResult> lintBehavior = files -> new LintResult(List.of());
     private @Nullable IProject testProject;
 
@@ -43,7 +40,7 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     public TestAnalyzer() {
-        this(new java.util.ArrayList<>(), Map.of());
+        this(new ArrayList<>(), Map.of());
     }
 
     public void addDeclaration(CodeUnit cu) {
@@ -135,7 +132,7 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
         var matches = Stream.concat(
                         allClasses.stream(), methodsMap.values().stream().flatMap(List::stream))
                 .filter(cu -> cu.fqName().equals(fqName) || cu.identifier().equals(fqName))
-                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+                .collect(Collectors.toCollection(LinkedHashSet::new));
         return sortDefinitions(matches);
     }
 
