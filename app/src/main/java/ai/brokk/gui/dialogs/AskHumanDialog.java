@@ -1,12 +1,10 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
-import dev.langchain4j.data.message.AiMessage;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -53,9 +51,7 @@ public final class AskHumanDialog {
             // Question (Markdown)
             var questionPanel = new MarkdownOutputPanel(true);
             questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
-            var fragment = new ContextFragments.TaskFragment(
-                    chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
-            questionPanel.setText(fragment);
+            questionPanel.setStaticDocument(question);
             questionPanel.applyTheme(chrome.getTheme());
 
             var questionScroll = new JScrollPane(questionPanel);
@@ -195,9 +191,7 @@ public final class AskHumanDialog {
             // Question (Markdown)
             var questionPanel = new MarkdownOutputPanel(true);
             questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
-            var fragment = new ContextFragments.TaskFragment(
-                    chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
-            questionPanel.setText(fragment);
+            questionPanel.setStaticDocument(question);
             questionPanel.applyTheme(chrome.getTheme());
 
             var questionScroll = new JScrollPane(questionPanel);
