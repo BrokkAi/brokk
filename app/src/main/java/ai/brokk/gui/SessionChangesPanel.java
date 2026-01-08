@@ -25,6 +25,9 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.event.ActionEvent;
+import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.HashMap;
@@ -34,6 +37,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import javax.swing.*;
+import javax.swing.AbstractAction;
+import javax.swing.KeyStroke;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
@@ -154,6 +159,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
         this.diffCore = new ai.brokk.difftool.ui.DiffDisplayCore(
                 initialDummyPanel, contextManager, chrome.getTheme(), List.of(), false, 0);
+
+        registerPasteAction();
     }
 
     public void requestUpdate() {
@@ -969,6 +976,108 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 });
             }
         });
+    }
+
+    private void registerPasteAction() {
+        var inputMap = getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+        var actionMap = getActionMap();
+
+        KeyStroke pasteKey = KeyStroke.getKeyStroke(
+                KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
+        inputMap.put(pasteKey, "pasteReview");
+        actionMap.put("pasteReview", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                handlePasteReview();
+            }
+        });
+    }
+
+    private void handlePasteReview() {
+        try {
+            var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+            if (!clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
+                return;
+            }
+            String clipboardData = (String) clipboard.getData(DataFlavor.stringFlavor);
+            if (clipboardData == null || clipboardData.isBlank()) {
+                return;
+            }
+
+            // Extract JSON from ToolExecutionRequest wrapper if present
+            String json = extractReviewJson(clipboardData);
+            if (json == null) {
+                return;
+            }
+
+            // Parse and display
+            var rawReview = ReviewParser.RawReview.fromJson(json);
+            var guidedReview = ReviewParser.GuidedReview.fromRaw(rawReview, Map.of());
+
+            SwingUtilities.invokeLater(() -> {
+                hasGeneratedReview = true;
+                updateReviewPanelVisibility(true);
+                codeReviewPanel.displayReview(guidedReview, ai.brokk.context.Context.EMPTY);
+                codeReviewPanel.getListPanel().setStalenessNotice(null);
+                revalidate();
+                repaint();
+            });
+        } catch (Exception ex) {
+            logger.debug("Failed to parse pasted review: {}", ex.getMessage());
+        }
+    }
+
+    private @Nullable String extractReviewJson(String text) {
+        String trimmed = text.trim();
+
+        // Check for ToolExecutionRequest wrapper format
+        // Format: ToolExecutionRequest { id = "...", name = "createReview", arguments = "..." }
+        if (trimmed.startsWith("ToolExecutionRequest")) {
+            // Find arguments = " and extract the JSON string
+            int argsStart = trimmed.indexOf("arguments = \"");
+            if (argsStart == -1) {
+                return null;
+            }
+            argsStart += "arguments = \"".length();
+
+            // Find the closing quote, handling escaped quotes
+            int argsEnd = findClosingQuote(trimmed, argsStart);
+            if (argsEnd == -1) {
+                return null;
+            }
+
+            String escaped = trimmed.substring(argsStart, argsEnd);
+            // Unescape the JSON string (it's double-escaped in the wrapper)
+            return unescapeJson(escaped);
+        }
+
+        // Try parsing as raw JSON (starts with { and contains expected fields)
+        if (trimmed.startsWith("{") && trimmed.contains("\"overview\"")) {
+            return trimmed;
+        }
+
+        return null;
+    }
+
+    private int findClosingQuote(String text, int startIndex) {
+        for (int i = startIndex; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\\' && i + 1 < text.length()) {
+                i++; // Skip escaped character
+            } else if (c == '"') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private String unescapeJson(String escaped) {
+        // Handle common escape sequences in JSON strings
+        return escaped.replace("\\\"", "\"")
+                .replace("\\\\", "\\")
+                .replace("\\n", "\n")
+                .replace("\\r", "\r")
+                .replace("\\t", "\t");
     }
 
     @Override
