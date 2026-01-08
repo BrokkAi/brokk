@@ -574,13 +574,15 @@ public final class TreeSitterStateIO {
         Map<CodeUnit, List<CodeUnit>> supertypesMap = new HashMap<>();
         Map<CodeUnit, Set<CodeUnit>> subtypesMap = new HashMap<>();
 
-        for (var entry : dto.supertypes()) {
+        var supertypeEntries = dto.supertypes() != null ? dto.supertypes() : List.<SupertypeEntryDto>of();
+        for (var entry : supertypeEntries) {
             supertypesMap.put(
                     fromDto(entry.key()),
                     entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
         }
 
-        for (var entry : dto.subtypes()) {
+        var subtypeEntries = dto.subtypes() != null ? dto.subtypes() : List.<SubtypeEntryDto>of();
+        for (var entry : subtypeEntries) {
             subtypesMap.put(
                     fromDto(entry.key()),
                     entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
