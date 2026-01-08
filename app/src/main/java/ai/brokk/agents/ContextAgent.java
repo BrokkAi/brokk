@@ -503,7 +503,7 @@ public class ContextAgent {
         return candidates.parallelStream()
                 .distinct()
                 .map(f -> Map.entry(
-                        f, identifiersByFile.computeIfAbsent(f, pf -> Context.buildRelatedIdentifiers(analyzer, pf))))
+                        f, identifiersByFile.computeIfAbsent(f, pf -> analyzer.buildRelatedIdentifiers(pf))))
                 .filter(entry -> !entry.getValue().isEmpty())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }
