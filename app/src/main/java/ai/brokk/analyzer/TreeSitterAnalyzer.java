@@ -743,6 +743,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * @param file the project file
      * @return an unmodifiable set of resolved CodeUnits from import statements
      */
+    @Override
     public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
         return this.state.importGraph().importedCodeUnitsOf(file);
     }
@@ -750,6 +751,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /**
      * Returns the set of files that import the given file.
      */
+    @Override
     public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
         return this.state.importGraph().referencingFilesOf(file);
     }

@@ -79,6 +79,20 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.importedCodeUnitsOf(file).stream())
+                .collect(Collectors.toSet());
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.referencingFilesOf(file).stream())
+                .collect(Collectors.toSet());
+    }
+
+    @Override
     public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.enclosingCodeUnit(file, range).stream())

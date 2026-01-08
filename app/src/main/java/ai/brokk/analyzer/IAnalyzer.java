@@ -161,6 +161,23 @@ public interface IAnalyzer {
     List<String> importStatementsOf(ProjectFile file);
 
     /**
+     * Retrieves the resolved import CodeUnits for a given file.
+     *
+     * @param file the project file
+     * @return an unmodifiable set of resolved CodeUnits from import statements
+     */
+    default Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return Set.of();
+    }
+
+    /**
+     * Returns the set of files that import the given file.
+     */
+    default Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return Set.of();
+    }
+
+    /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
      * invalid.
      */
