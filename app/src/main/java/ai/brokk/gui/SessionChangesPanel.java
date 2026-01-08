@@ -912,7 +912,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                 var agent = new ReviewAgent(changes, contextManager, chrome, fileComparisons);
 
-                var result = agent.execute(false);
+                var result = agent.execute();
 
                 String currentHash = repo.getCurrentCommitId();
                 long now = System.currentTimeMillis();

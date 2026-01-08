@@ -69,6 +69,9 @@ public class ReviewAgent {
     private final IConsoleIO io;
     private final List<FileComparisonInfo> fileComparisons;
     private @Nullable Context contextBeingBuilt;
+    private boolean isComplex = false;
+
+    private record ContextSetupResult(Context context, boolean isComplex) {}
 
     public ReviewAgent(
             DiffService.CumulativeChanges changes,
@@ -95,7 +98,7 @@ public class ReviewAgent {
     }
 
     @Blocking
-    public ReviewResult execute(boolean quickMode) throws InterruptedException, ReviewGenerationException {
+    public ReviewResult execute() throws InterruptedException, ReviewGenerationException {
         long startTime = System.currentTimeMillis();
 
         // Prepare the initial context with the diff pinned
@@ -110,13 +113,15 @@ public class ReviewAgent {
         var scanModel = cm.getService().getModel(ModelType.SCAN);
 
         try (var scope = cm.anonymousScope()) {
+            // Turn 0: Context setup and determine complexity
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
 
             long contextStart = System.currentTimeMillis();
-            var reviewContext = setupContext(initialContext, quickMode);
+            var setupResult = setupContext(initialContext);
+            var reviewContext = setupResult.context();
             logPhaseTime("Context selection", contextStart);
 
-            var turn1Model = quickMode ? scanModel : architectModel;
+            var turn1Model = setupResult.isComplex() ? architectModel : scanModel;
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
             turn1Llm.setOutput(io);
 
@@ -275,49 +280,55 @@ public class ReviewAgent {
         logger.info("{} completed in {}s", phaseName, String.format("%.1f", seconds));
     }
 
-    private @NotNull Context setupContext(Context initialContext, boolean quickMode) throws InterruptedException {
-        if (!quickMode) {
-            var scanModel = cm.getService().getModel(ModelType.SCAN);
-            var llm = cm.getLlm(new Llm.Options(scanModel, "Review Context Selection"));
-            llm.setOutput(io);
+    private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
+        var scanModel = cm.getService().getModel(ModelType.SCAN);
+        var llm = cm.getLlm(new Llm.Options(scanModel, "Review Context Selection"));
+        llm.setOutput(io);
 
-            var messages = new ArrayList<ChatMessage>();
-            messages.add(buildSystemMessage());
-            messages.addAll(
-                    WorkspacePrompts.getMessagesInAddedOrder(initialContext, EnumSet.noneOf(SpecialTextType.class)));
-            messages.add(
-                    new UserMessage(
-                            """
-                    Examine the proposed diff and identify additional context needed for a thorough code review.
+        var messages = new ArrayList<ChatMessage>();
+        messages.add(buildSystemMessage());
+        messages.addAll(
+                WorkspacePrompts.getMessagesInAddedOrder(initialContext, EnumSet.noneOf(SpecialTextType.class)));
+        messages.add(
+                new UserMessage(
+                        """
+                Examine the proposed diff and identify additional context needed for a thorough code review.
 
-                    Add files, summaries, classes, or methods that are:
-                    1. Referenced in or closely related to the changes
-                    2. Important for understanding correctness and design implications
-                    3. Difficult to infer from the diff alone
+                Examine the proposed diff and determine:
+                1. Is this a complex change requiring deep architectural analysis, or a straightforward change?
+                   - Complex: changes spanning multiple subsystems, introducing new abstractions, or with subtle correctness concerns
+                   - Straightforward: localized changes, simple refactors, or changes with obvious correctness
 
-                    Space is limited, so prioritize:
-                    - Use `filesForFullSource` only when you need complete implementation details
-                    - Use `filesForSummaries` when you only need API signatures
-                    - Use `classNames` for full class implementations
-                    - Use `methodNames` for specific method implementations (narrowest scope)
+                Then identify additional context needed for a thorough code review.
 
-                    Call addFragments once with all needed context.
-                    """));
+                Add files, summaries, classes, or methods that are:
+                1. Referenced in or closely related to the changes
+                2. Important for understanding correctness and design implications
+                3. Difficult to infer from the diff alone
 
-            var tr = cm.getToolRegistry().builder().register(this).build();
-            var toolSpecs = tr.getTools(List.of("addFragments"));
+                Space is limited, so prioritize:
+                - Use `filesForFullSource` only when you need complete implementation details
+                - Use `filesForSummaries` when you only need API signatures
+                - Use `classNames` for full class implementations
+                - Use `methodNames` for specific method implementations (narrowest scope)
 
-            this.contextBeingBuilt = initialContext;
-            var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+                Call addFragments once with all needed context.
+                """));
 
-            if (result.error() == null && !result.toolRequests().isEmpty()) {
-                var toolRequest = result.toolRequests().getFirst();
-                tr.executeTool(toolRequest);
-                return requireNonNull(contextBeingBuilt).withHistory(List.of());
-            }
+        var tr = cm.getToolRegistry().builder().register(this).build();
+        var toolSpecs = tr.getTools(List.of("addFragments"));
+
+        this.contextBeingBuilt = initialContext;
+        this.isComplex = false;
+        var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
+
+        if (result.error() == null && !result.toolRequests().isEmpty()) {
+            var toolRequest = result.toolRequests().getFirst();
+            tr.executeTool(toolRequest);
+            return new ContextSetupResult(requireNonNull(contextBeingBuilt).withHistory(List.of()), isComplex);
         }
 
-        // Fallback or Quick Mode
+        // Fallback
         var testFiles = cm.getTestFiles();
         var filesToContext = changes.perFileChanges().stream()
                 .filter(de -> !testFiles.contains(
@@ -326,7 +337,7 @@ public class ReviewAgent {
                 .filter(de -> de.diff().split("@@").length > 3) // > 2 hunks
                 .map(DiffService.DiffEntry::fragment)
                 .toList();
-        return initialContext.addFragments(filesToContext);
+        return new ContextSetupResult(initialContext.addFragments(filesToContext), false);
     }
 
     private void updateProgress(int min) {
@@ -672,6 +683,9 @@ public class ReviewAgent {
     @Tool(
             "Add context fragments to help perform a thorough code review. Call this once with all the files, summaries, classes, and methods needed.")
     public String addFragments(
+            @P(
+                            "True if this is a complex change requiring deep architectural analysis; false for straightforward changes")
+                    boolean isComplex,
             @P("Full project paths for files where you need to see complete implementation details")
                     List<String> filesForFullSource,
             @P("Full project paths for files where you only need to see API signatures/skeletons")
@@ -682,6 +696,7 @@ public class ReviewAgent {
             @P(
                             "Fully qualified method names (e.g., 'com.example.MyClass.myMethod') for specific methods you need to examine")
                     List<String> methodNames) {
+        this.isComplex = isComplex;
         var wst = new WorkspaceTools(requireNonNull(contextBeingBuilt));
         wst.addFilesToWorkspace(filesForFullSource);
         wst.addFileSummariesToWorkspace(filesForSummaries);
@@ -703,9 +718,7 @@ public class ReviewAgent {
                     Remember that you can give multiple excerpts per RawDesignNote!
                     """)
                     List<ReviewParser.RawDesignFeedback> designNotes,
-            @P(
-                            "A list of local bugs or problems.")
-                    List<ReviewParser.RawTacticalFeedback> tacticalNotes,
+            @P("A list of local bugs or problems.") List<ReviewParser.RawTacticalFeedback> tacticalNotes,
             @P(
                             "A list of additional tests that would add significant value. Each string should describe a test to add, referencing specific methods or classes.")
                     List<String> additionalTests) {
