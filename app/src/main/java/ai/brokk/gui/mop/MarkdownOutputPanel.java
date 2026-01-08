@@ -38,6 +38,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     private final MOPWebViewHost webHost;
     private boolean taskInProgress = false;
+    private boolean showEmptyState = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
     private @Nullable String staticMarkdown = null;
@@ -390,6 +391,15 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         currentContextManager = contextManager;
         webHost.setContextManager(contextManager);
         webHost.setSymbolRightClickHandler(chrome);
+    }
+
+    public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
+        webHost.setShowEmptyState(show);
+    }
+
+    public boolean isShowEmptyState() {
+        return showEmptyState;
     }
 
     @Override

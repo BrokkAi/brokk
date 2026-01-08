@@ -55,6 +55,7 @@ public final class MOPBridge {
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable Chrome chrome;
     private volatile @Nullable Component hostComponent;
+    private volatile boolean showEmptyState = false;
 
     public MOPBridge(WebEngine engine) {
         this.engine = engine;
@@ -390,6 +391,14 @@ public final class MOPBridge {
 
     public void setHostComponent(@Nullable Component hostComponent) {
         this.hostComponent = hostComponent;
+    }
+
+    public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
+        var cm = contextManager;
+        if (cm != null) {
+            sendEnvironmentInfo(cm.isAnalyzerReady());
+        }
     }
 
     public void lookupSymbolsAsync(String symbolNamesJson, int seq, String contextId) {
@@ -765,6 +774,7 @@ public final class MOPBridge {
             payload.put("projectName", projectName);
             payload.put("totalFileCount", totalFileCount);
             payload.put("analyzerReady", analyzerReady);
+            payload.put("showEmptyState", showEmptyState);
             if (!analyzerLanguagesInfo.isEmpty()) {
                 payload.put("analyzerLanguages", analyzerLanguagesInfo);
             }

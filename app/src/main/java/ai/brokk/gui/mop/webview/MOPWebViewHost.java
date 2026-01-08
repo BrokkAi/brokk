@@ -46,6 +46,7 @@ public final class MOPWebViewHost extends JPanel {
     private final List<Consumer<MOPBridge.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable Chrome chrome;
+    private volatile boolean showEmptyState = false;
 
     // Bridge readiness tracking
     private final CompletableFuture<Void> bridgeReadyFuture = new CompletableFuture<>();
@@ -398,6 +399,18 @@ public final class MOPWebViewHost extends JPanel {
 
     public void sendStaticDocument(@Nullable String markdown) {
         sendOrQueue(new HostCommand.StaticDocument(markdown), bridge -> bridge.sendStaticDocument(markdown));
+    }
+
+    public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setShowEmptyState(show);
+        }
+    }
+
+    public boolean isShowEmptyState() {
+        return showEmptyState;
     }
 
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {

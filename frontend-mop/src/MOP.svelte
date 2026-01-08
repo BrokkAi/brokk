@@ -18,6 +18,7 @@
   import Icon from '@iconify/svelte';
   import { summaryStore } from './stores/summaryStore';
   import { getCurrentLiveThreadId } from './stores/bubblesStore';
+  import { envStore } from './stores/envStore';
 
   export let bubblesStore: Writable<BubbleState[]>;
 
@@ -279,7 +280,7 @@
         />
       {/if}
     {:else}
-      {#if !$transientStore.visible}
+      {#if !$transientStore.visible && $envStore.showEmptyState}
         <!-- Empty state when no history or live bubbles -->
         <EmptyState />
       {/if}
