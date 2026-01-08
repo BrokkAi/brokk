@@ -1374,20 +1374,29 @@ public class ContextFragments {
 
         private static ContentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
             String text = new String(bytes, StandardCharsets.UTF_8);
-            Set<CodeUnit> units = Set.of();
-            Set<ProjectFile> files = Set.of();
+            Set<CodeUnit> units = new LinkedHashSet<>();
+            Set<ProjectFile> files = new LinkedHashSet<>();
             try {
                 var unit = analyzer.getDefinitions(fullyQualifiedName).stream()
                         .findFirst()
                         .orElseThrow();
-                units = Set.of(unit);
-                var file = unit.source();
-                files = Set.of(file);
+                units.add(unit);
+                files.add(unit.source());
+
+                if (unit.isClass()) {
+                    var ancestors = analyzer.getDirectAncestors(unit);
+                    for (CodeUnit anc : ancestors) {
+                        if (!anc.isAnonymous()) {
+                            units.add(anc);
+                            files.add(anc.source());
+                        }
+                    }
+                }
             } catch (Exception e) {
                 logger.warn("Unable to resolve CodeUnit for fqName: {}", fullyQualifiedName);
             }
 
-            return ContentSnapshot.textSnapshot(text, units, files);
+            return ContentSnapshot.textSnapshot(text, Set.copyOf(units), Set.copyOf(files));
         }
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
