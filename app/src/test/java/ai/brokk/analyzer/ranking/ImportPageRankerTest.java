@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
@@ -407,6 +408,77 @@ public class ImportPageRankerTest {
 
             assertTrue(reverseResults.contains(downstream), "reversed=true should include files that import the seed");
             assertFalse(reverseResults.contains(upstream), "reversed=true should NOT include files the seed imports");
+        }
+    }
+
+    @Test
+    public void multiAnalyzerWithMultipleLanguages_usesCorrectDelegates() throws Exception {
+        // Create a project with Java and Python
+        try (var project = InlineTestProjectCreator.code(
+                        """
+                        package test;
+                        import test.Target;
+                        public class Source { }
+                        """,
+                        "test/Source.java")
+                .addFileContents("package test; public class Target { }", "test/Target.java")
+                .addFileContents(
+                        """
+                        from other_module import other_fn
+                        def py_source_fn():
+                            other_fn()
+                        """,
+                        "py_source.py")
+                .addFileContents(
+                        """
+                        def other_fn():
+                            pass
+                        """,
+                        "other_module.py")
+                .build()) {
+
+            // Manually construct MultiAnalyzer to ensure we are testing the delegation logic
+            // without relying on AnalyzerCreator's multi-language detection logic.
+            ai.brokk.analyzer.IAnalyzer javaAnalyzer = ai.brokk.analyzer.Languages.JAVA.createAnalyzer(project);
+            ai.brokk.analyzer.IAnalyzer pyAnalyzer = ai.brokk.analyzer.Languages.PYTHON.createAnalyzer(project);
+            
+            ai.brokk.analyzer.IAnalyzer multi = new ai.brokk.analyzer.MultiAnalyzer(Map.of(
+                    ai.brokk.analyzer.Languages.JAVA, javaAnalyzer,
+                    ai.brokk.analyzer.Languages.PYTHON, pyAnalyzer
+            ));
+
+            Map<String, ProjectFile> filesByRelPath = multi.getAllDeclarations().stream()
+                    .map(CodeUnit::source)
+                    .distinct()
+                    .collect(Collectors.toMap(
+                            f -> project.getRoot().relativize(f.absPath()).toString().replace('\\', '/'),
+                            f -> f));
+
+            ProjectFile javaSource = filesByRelPath.get("test/Source.java");
+            ProjectFile javaTarget = filesByRelPath.get("test/Target.java");
+            ProjectFile pySource = filesByRelPath.get("py_source.py");
+            ProjectFile pyTarget = filesByRelPath.get("other_module.py");
+
+            // Force update with files to ensure ImportGraph is populated for both languages
+            ai.brokk.analyzer.IAnalyzer analyzer = multi.update(Set.copyOf(filesByRelPath.values()));
+
+            // 1. Test Java branch of MultiAnalyzer
+            List<IAnalyzer.FileRelevance> javaResults =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, Map.of(javaSource, 1.0), 10, false);
+            Set<ProjectFile> javaResultFiles =
+                    javaResults.stream().map(IAnalyzer.FileRelevance::file).collect(Collectors.toSet());
+
+            assertTrue(javaResultFiles.contains(javaTarget), "MultiAnalyzer should delegate Java import lookup");
+            assertFalse(javaResultFiles.contains(pyTarget), "Java source should not link to Python target");
+
+            // 2. Test Python branch of MultiAnalyzer
+            List<IAnalyzer.FileRelevance> pyResults =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, Map.of(pySource, 1.0), 10, false);
+            Set<ProjectFile> pyResultFiles =
+                    pyResults.stream().map(IAnalyzer.FileRelevance::file).collect(Collectors.toSet());
+
+            assertTrue(pyResultFiles.contains(pyTarget), "MultiAnalyzer should delegate Python import lookup");
+            assertFalse(pyResultFiles.contains(javaTarget), "Python source should not link to Java target");
         }
     }
 }
