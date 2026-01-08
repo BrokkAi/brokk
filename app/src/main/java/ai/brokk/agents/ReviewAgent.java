@@ -96,6 +96,8 @@ public class ReviewAgent {
 
     @Blocking
     public ReviewResult execute(boolean quickMode) throws InterruptedException, ReviewGenerationException {
+        long startTime = System.currentTimeMillis();
+
         // Prepare the initial context with the diff pinned
         var diff = changes.perFileChanges().stream()
                 .map(de -> "File: " + de.title() + "\n" + de.diff())
@@ -104,12 +106,16 @@ public class ReviewAgent {
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
 
         // Configure model types
-        var architectModel = cm.getService().getModel(ModelType.ARCHITECT);
+        var architectModel = requireNonNull(cm.getService().getModel(ModelType.ARCHITECT.defaultConfig()));
         var scanModel = cm.getService().getModel(ModelType.SCAN);
 
         try (var scope = cm.anonymousScope()) {
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
+
+            long contextStart = System.currentTimeMillis();
             var reviewContext = setupContext(initialContext, quickMode);
+            logPhaseTime("Context selection", contextStart);
+
             var turn1Model = quickMode ? scanModel : architectModel;
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
             turn1Llm.setOutput(io);
@@ -118,6 +124,7 @@ public class ReviewAgent {
             turn2Llm.setOutput(io);
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
+            long turn1Start = System.currentTimeMillis();
             Llm.StreamingResult turn1Result;
             var turn1Messages = new ArrayList<ChatMessage>();
             while (true) {
@@ -185,13 +192,17 @@ public class ReviewAgent {
                 // unrecoverable error
                 throw new ReviewGenerationException("Failed to analyze diff for review", turn1Result.error());
             }
+            logPhaseTime("Analysis (Turn 1)", turn1Start);
 
             // --- Turn 1.5: Retry for missing files and non-matching excerpts ---
             // Returns fully resolved excerpts with line numbers and sides
+            long retryStart = System.currentTimeMillis();
             RetryResult retryResult = retryInStages(turn1Llm, turn1Messages, turn1Result);
             Map<Integer, CodeExcerpt> resolvedExcerpts = retryResult.resolvedExcerpts();
+            logPhaseTime("Excerpt resolution (Turn 1.5)", retryStart);
 
             // --- Turn 2: Convert Markdown review into structured tool call (fresh context) ---
+            long turn2Start = System.currentTimeMillis();
             String mergedReviewText = retryResult.mergedResponseText();
             String mergedReasoning = requireNonNullElse(
                     requireNonNull(turn1Result.chatResponse()).reasoningContent(), "");
@@ -252,8 +263,16 @@ public class ReviewAgent {
             var rawReview = ReviewParser.RawReview.fromJson(executionResult.resultText());
             var review = ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
 
+            logPhaseTime("Structuring (Turn 2)", turn2Start);
+            logPhaseTime("Total review generation", startTime);
+
             return new ReviewResult(review, reviewContext);
         }
+    }
+
+    private void logPhaseTime(String phaseName, long startTimeMs) {
+        double seconds = (System.currentTimeMillis() - startTimeMs) / 1000.0;
+        logger.info("{} completed in {}s", phaseName, String.format("%.1f", seconds));
     }
 
     private @NotNull Context setupContext(Context initialContext, boolean quickMode) throws InterruptedException {
@@ -602,13 +621,13 @@ public class ReviewAgent {
                 ### [Title]
                 [Description with multiple inline BRK_EXCERPT blocks]
 
-                **Recommendation:** [What to change, if anything]
+                **Recommendation:** [What to change, if anything. If included, recommendation must be detailed enough to give to Code Agent as a task, without needing to refer to this diff.]
 
                 ## Tactical Notes
                 ### [Title]
                 [Description with a single inline BRK_EXCERPT block]
 
-                **Recommendation:** [What to fix]
+                **Recommendation:** [What to fix. Must be detailed enough to give to Code Agent as a task, without needing to refer to this diff]
 
                 ## Additional Tests
                 - [Test descriptions in a bulleted list]
@@ -685,10 +704,10 @@ public class ReviewAgent {
                     """)
                     List<ReviewParser.RawDesignFeedback> designNotes,
             @P(
-                            "A list of local bugs or problems. `recommendation` should be detailed enough to give to Code Agent for remediation.")
+                            "A list of local bugs or problems.")
                     List<ReviewParser.RawTacticalFeedback> tacticalNotes,
             @P(
-                            "A list of additional tests that would add significant value. Each string should describe a test to add.")
+                            "A list of additional tests that would add significant value. Each string should describe a test to add, referencing specific methods or classes.")
                     List<String> additionalTests) {
         var review = new ReviewParser.RawReview(overview, designNotes, tacticalNotes, additionalTests);
         return review.toJson();
