@@ -343,7 +343,9 @@ public class ReviewAgent {
                 .filter(de -> de.diff().split("@@").length > 3) // > 2 hunks
                 .map(DiffService.DiffEntry::fragment)
                 .toList();
-        return new ContextSetupResult(initialContext.addFragments(filesToContext), false);
+        var ctx = initialContext.addFragments(filesToContext);
+        ctx = ctx.addFragments(ctx.buildAutoContext(10));
+        return new ContextSetupResult(ctx, false);
     }
 
     private void updateProgress(String stage, int progress) {
