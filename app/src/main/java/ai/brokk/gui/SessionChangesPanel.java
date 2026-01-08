@@ -33,7 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
@@ -53,7 +52,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private final GitRepo repo;
     private final DeferredUpdateHelper deferredUpdateHelper;
     private final TabTitleUpdater tabTitleUpdater;
-    private final AtomicBoolean refreshInProgress = new AtomicBoolean(false);
 
     @Nullable
     private DiffService.CumulativeChanges lastCumulativeChanges = null;
@@ -82,8 +80,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private JPanel diffContainer;
 
     private JComboBox<ComparisonTarget> baselineDropdown;
-
-    private @Nullable ComparisonTarget lastSelectedTarget = null;
 
     private final MaterialButton commitBtn;
 
@@ -134,15 +130,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         // Initialize components to satisfy NullAway and avoid redundant null checks
         this.baselineDropdown = new JComboBox<>(ComparisonTarget.values());
-        this.lastSelectedTarget = (ComparisonTarget) baselineDropdown.getSelectedItem();
         this.baselineDropdown.setOpaque(false);
-        this.baselineDropdown.addActionListener(e -> {
-            var selected = (ComparisonTarget) baselineDropdown.getSelectedItem();
-            if (selected != null && selected != lastSelectedTarget) {
-                lastSelectedTarget = selected;
-                requestUpdate();
-            }
-        });
+        this.baselineDropdown.addActionListener(e -> requestUpdate());
 
         this.commitBtn = new MaterialButton("Changes to Commit");
         this.pullBtn = new MaterialButton("Pull");
@@ -262,10 +251,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void performRefresh() {
-        if (!refreshInProgress.compareAndSet(false, true)) {
-            return;
-        }
-
         tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Refreshing from upstream...");
 
         contextManager
@@ -329,11 +314,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                                 codeReviewPanel.getListPanel().setStalenessNotice(null);
                             }
                         }
-                        refreshInProgress.set(false);
                     });
                 })
                 .exceptionally(ex -> {
-                    refreshInProgress.set(false);
                     logger.warn("Failed to compute cumulative changes", ex);
                     SwingUtilities.invokeLater(() -> {
                         tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes");
