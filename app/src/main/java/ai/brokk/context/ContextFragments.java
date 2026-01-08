@@ -1377,21 +1377,16 @@ public class ContextFragments {
             Set<CodeUnit> units = new LinkedHashSet<>();
             Set<ProjectFile> files = new LinkedHashSet<>();
             try {
-                var unit = analyzer.getDefinitions(fullyQualifiedName).stream()
-                        .findFirst()
-                        .orElseThrow();
-                units.add(unit);
-                files.add(unit.source());
+                analyzer.getDefinitions(fullyQualifiedName).stream().findFirst().ifPresent(unit -> {
+                    units.add(unit);
+                    files.add(unit.source());
 
-                if (unit.isClass()) {
-                    var ancestors = analyzer.getDirectAncestors(unit);
-                    for (CodeUnit anc : ancestors) {
-                        if (!anc.isAnonymous()) {
-                            units.add(anc);
-                            files.add(anc.source());
-                        }
+                    if (unit.isClass()) {
+                        Map<CodeUnit, String> ancestors = resolveAncestorSkeletons(unit, analyzer);
+                        units.addAll(ancestors.keySet());
+                        ancestors.keySet().forEach(anc -> files.add(anc.source()));
                     }
-                }
+                });
             } catch (Exception e) {
                 logger.warn("Unable to resolve CodeUnit for fqName: {}", fullyQualifiedName);
             }
@@ -1462,7 +1457,12 @@ public class ContextFragments {
             if (unit.isClass()) {
                 Map<CodeUnit, String> ancestorSkeletons = resolveAncestorSkeletons(unit, analyzer);
                 if (!ancestorSkeletons.isEmpty()) {
-                    String formattedAncestors = new SkeletonFragmentFormatter().formatSkeletonsByPackage(ancestorSkeletons);
+                    String formattedAncestors = new SkeletonFragmentFormatter()
+                            .format(new SkeletonFragmentFormatter.Request(
+                                    unit,
+                                    analyzer.getDirectAncestors(unit),
+                                    ancestorSkeletons,
+                                    SummaryType.CODEUNIT_SKELETON));
                     if (!formattedAncestors.isEmpty()) {
                         sb.append("\n\n").append(formattedAncestors);
                         sources.addAll(ancestorSkeletons.keySet());
