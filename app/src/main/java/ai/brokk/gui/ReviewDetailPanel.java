@@ -4,9 +4,9 @@ import ai.brokk.ContextManager;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.context.Context;
 import ai.brokk.gui.components.MaterialChip;
-import ai.brokk.gui.components.SimpleHtmlPanel;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.AskHumanDialog;
+import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.tasks.TaskList;
@@ -15,16 +15,11 @@ import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.ReviewFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
-import com.vladsch.flexmark.html.HtmlRenderer;
-import com.vladsch.flexmark.parser.Parser;
-import com.vladsch.flexmark.util.data.MutableDataSet;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -35,11 +30,9 @@ import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
-import javax.swing.JTextPane;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
-import javax.swing.text.DefaultCaret;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
@@ -48,19 +41,10 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private static final String CARD_PLACEHOLDER = "placeholder";
     private static final String CARD_CONTENT = "content";
 
-    private static final Parser PARSER;
-    private static final HtmlRenderer RENDERER;
-
-    static {
-        var options = new MutableDataSet();
-        PARSER = Parser.builder(options).build();
-        RENDERER = HtmlRenderer.builder(options).build();
-    }
-
     private final ContextManager contextManager;
     private final Runnable onNext;
 
-    private final WrappingTextPane contentPane;
+    private final MarkdownOutputPanel markdownPanel;
     private final JScrollPane scrollPane;
 
     private final JPanel excerptsPanel;
@@ -70,7 +54,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final CardLayout cardLayout;
 
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
-    private final List<String> htmlChunks = new ArrayList<>();
+    private final List<String> markdownChunks = new ArrayList<>();
 
     @Nullable
     private Context reviewContext = null;
@@ -91,16 +75,9 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         placeholderArea.setFont(placeholderArea.getFont().deriveFont(Font.ITALIC, 14f));
         placeholderArea.setBorder(new EmptyBorder(40, 40, 40, 40));
 
-        contentPane = new WrappingTextPane();
-        contentPane.setEditorKit(new AutoScalingHtmlPane.ScalingHTMLEditorKit());
-        contentPane.setEditable(false);
-        contentPane.setContentType("text/html");
-        contentPane.setBorder(new EmptyBorder(10, 10, 10, 10));
+        markdownPanel = new MarkdownOutputPanel();
 
-        var caret = (DefaultCaret) contentPane.getCaret();
-        caret.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
-
-        scrollPane = new JScrollPane(contentPane);
+        scrollPane = new JScrollPane(markdownPanel);
         scrollPane.setBorder(null);
         scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 
@@ -122,21 +99,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
         add(placeholderArea, CARD_PLACEHOLDER);
         add(contentCard, CARD_CONTENT);
-
-        // Listen for resize events to re-layout HTML content at new width
-        scrollPane.addComponentListener(new ComponentAdapter() {
-            @Override
-            public void componentResized(ComponentEvent e) {
-                var viewport = scrollPane.getViewport();
-                if (viewport != null && viewport.getWidth() > 0) {
-                    int width = viewport.getWidth();
-                    contentPane.setSize(width, Short.MAX_VALUE);
-                    if (!htmlChunks.isEmpty()) {
-                        flushContent();
-                    }
-                }
-            }
-        });
 
         showPlaceholder();
     }
@@ -160,7 +122,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         clearContent();
 
         if (item instanceof String overview) {
-            addMarkdownPanel(overview);
+            markdownChunks.add(overview);
             // Add capture button for overview
             buttonPanel.removeAll();
             buttonPanel.setVisible(true);
@@ -180,8 +142,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             });
             buttonPanel.add(captureBtn);
         } else if (item instanceof DesignFeedback design) {
-            addMarkdownPanel("### " + design.title());
-            addMarkdownPanel(design.description());
+            markdownChunks.add("### " + design.title());
+            markdownChunks.add(design.description());
             if (!excerpts.isEmpty()) {
                 addExcerptsTable(excerpts);
             }
@@ -189,8 +151,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 addRecommendationSection(design.recommendation());
             }
         } else if (item instanceof TacticalFeedback tactical) {
-            addMarkdownPanel("### " + tactical.title());
-            addMarkdownPanel(tactical.description());
+            markdownChunks.add("### " + tactical.title());
+            markdownChunks.add(tactical.description());
             if (!excerpts.isEmpty()) {
                 addExcerptsTable(excerpts);
             }
@@ -198,8 +160,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 addRecommendationSection(tactical.recommendation());
             }
         } else if (item instanceof ReviewFeedback feedback) {
-            addMarkdownPanel("### " + feedback.title());
-            addMarkdownPanel(feedback.description());
+            markdownChunks.add("### " + feedback.title());
+            markdownChunks.add(feedback.description());
             if (!feedback.recommendation().isBlank()) {
                 addRecommendationSection(feedback.recommendation());
             }
@@ -214,47 +176,25 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     }
 
     private void clearContent() {
-        htmlChunks.clear();
+        markdownChunks.clear();
         excerptsPanel.removeAll();
         excerptsPanel.setVisible(false);
         buttonPanel.removeAll();
         buttonPanel.setVisible(false);
-        contentPane.setText("<html><body></body></html>");
-    }
-
-    private void addMarkdownPanel(String markdown) {
-        var document = PARSER.parse(markdown);
-        var html = RENDERER.render(document);
-        htmlChunks.add(html);
+        markdownPanel.clear();
     }
 
     private void flushContent() {
-        String css = buildCss();
-        String combined = String.join("\n", htmlChunks);
-        String sanitized = SimpleHtmlPanel.sanitizeForSwing(combined);
+        // (Chrome isn't ready when RDP is constructed)
+        markdownPanel.withContextForLookups(contextManager, (Chrome) contextManager.getIo());
 
-        String fullHtml =
-                """
-                <html>
-                  <head>
-                    <style>%s</style>
-                  </head>
-                  <body>%s</body>
-                </html>
-                """
-                        .stripIndent()
-                        .formatted(css, sanitized);
-
-        contentPane.setText(fullHtml);
-        contentPane.setCaretPosition(0);
-    }
-
-    private String buildCss() {
-        return SimpleHtmlPanel.buildThemeCss(UIManager.getBoolean("laf.dark"));
+        // send the Markdown
+        String combined = String.join("\n\n", markdownChunks);
+        markdownPanel.setText(List.of(new dev.langchain4j.data.message.AiMessage(combined)));
     }
 
     private void addRecommendationSection(String recommendation) {
-        addMarkdownPanel("**Recommendation:**\n" + recommendation);
+        markdownChunks.add("**Recommendation:**\n" + recommendation);
 
         buttonPanel.removeAll();
         buttonPanel.setVisible(true);
@@ -377,11 +317,9 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                         ? ai.brokk.gui.mop.ThemeColors.getPanelBackground()
                         : javax.swing.UIManager.getColor("Panel.background"));
 
-        var isDark = UIManager.getBoolean("laf.dark");
-        var messageBg = ai.brokk.gui.mop.ThemeColors.getColor(isDark, ai.brokk.gui.mop.ThemeColors.MESSAGE_BACKGROUND);
+        markdownPanel.applyTheme(guiTheme);
 
-        contentPane.setBackground(messageBg);
-        scrollPane.getViewport().setBackground(messageBg);
+        var isDark = UIManager.getBoolean("laf.dark");
         placeholderArea.setForeground(javax.swing.UIManager.getColor("Label.disabledForeground"));
 
         for (var c : excerptsPanel.getComponents()) {
@@ -393,44 +331,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             }
         }
 
-        if (!htmlChunks.isEmpty()) {
+        if (!markdownChunks.isEmpty()) {
             flushContent();
-        }
-    }
-
-    /**
-     * A JTextPane that always tracks the viewport width, forcing HTML content to wrap.
-     */
-    private static class WrappingTextPane extends JTextPane {
-        @Override
-        public void setSize(Dimension d) {
-            super.setSize(d);
-            super.setSize(d.width, super.getPreferredSize().height);
-        }
-
-        @Override
-        public boolean getScrollableTracksViewportWidth() {
-            return true;
-        }
-
-        @Override
-        public Dimension getMaximumSize() {
-            var parent = getParent();
-            if (parent != null && parent.getWidth() > 0) {
-                return new Dimension(parent.getWidth(), Integer.MAX_VALUE);
-            }
-            return super.getMaximumSize();
-        }
-
-        @Override
-        public Dimension getPreferredSize() {
-            var parent = getParent();
-            if (parent != null && parent.getWidth() > 0) {
-                super.setSize(parent.getWidth(), Short.MAX_VALUE);
-                var pref = super.getPreferredSize();
-                return new Dimension(parent.getWidth(), pref.height);
-            }
-            return super.getPreferredSize();
         }
     }
 }

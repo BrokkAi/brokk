@@ -4,12 +4,10 @@ import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
-import ai.brokk.AbstractService;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskEntry;
-import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
