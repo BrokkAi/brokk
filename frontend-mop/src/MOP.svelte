@@ -212,14 +212,10 @@
 <!-- Debug panels -->
 <CacheStatsDebug />
 
-{#if $staticDocStore}
-  <StaticDocument />
-{:else}
-  <div
-    class="chat-container"
-    id="chat-container"
-    style="--zoom-level: {$zoomStore}"
-  >
+<div class="chat-container" id="chat-container" style="--zoom-level: {$zoomStore}">
+  {#if $staticDocStore}
+    <StaticDocument />
+  {:else}
     {#if hasHistory || hasLiveOrTransient}
       <!-- History tasks (expanded) OR a single-line summary (collapsed) -->
       {#if hasHistory}
@@ -287,5 +283,5 @@
     {/if}
     <TransientMessage />
     <Spinner />
-  </div>
-{/if}
+  {/if}
+</div>
