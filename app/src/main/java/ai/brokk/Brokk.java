@@ -243,44 +243,71 @@ public class Brokk {
     }
 
     private static KeyValidationResult performKeyValidationLoop(boolean noKeyFlag) {
-        boolean keyIsValid = false;
+        @Nullable String errorMessage = null;
 
         // 1 – silent validation for an already-persisted key (unless --no-key).
         if (!noKeyFlag) {
             var existingKey = MainProject.getBrokkKey();
             if (!existingKey.isEmpty()) {
-                try {
-                    Service.validateKey(existingKey);
-                    keyIsValid = true;
-                } catch (IOException e) {
-                    logger.warn("Network error validating existing Brokk key; assuming valid for now.", e);
-                    keyIsValid = true; // allow offline use
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(
-                            null,
-                            "Network error validating Brokk key. AI services may be unavailable.",
-                            "Network Validation Warning",
-                            JOptionPane.WARNING_MESSAGE));
-                } catch (IllegalArgumentException e) {
-                    logger.warn("Existing Brokk key is invalid: {}", e.getMessage());
+                var outcome = blockingValidateKey(existingKey);
+                if (outcome == ValidationOutcome.VALID) {
+                    return new KeyValidationResult(true, null);
                 }
+                errorMessage = outcome.message;
             }
         }
 
         // 2 – interactive loop until we have a valid key.
-        while (!keyIsValid) {
+        while (true) {
             SwingUtil.runOnEdt(Brokk::hideSplashScreen);
 
-            String newKey = SwingUtil.runOnEdt(() -> BrokkKeyDialog.showDialog(null, MainProject.getBrokkKey()), null);
+            var key = MainProject.getBrokkKey();
+            var error = errorMessage;
+            String newKey = SwingUtil.runOnEdt(() -> BrokkKeyDialog.showDialog(null, key, error), null);
             if (newKey == null) { // user cancelled
                 logger.info("Key entry dialog cancelled; shutting down.");
                 return new KeyValidationResult(false, null);
             }
 
             // BrokkKeyDialog has already validated and persisted the key.
-            keyIsValid = true;
+            return new KeyValidationResult(true, null);
         }
+    }
 
-        return new KeyValidationResult(true, null);
+    /**
+     * Validates the key in a background thread to keep the EDT responsive.
+     * Blocks the calling thread until validation completes.
+     */
+    private static ValidationOutcome blockingValidateKey(String key) {
+        var future = CompletableFuture.supplyAsync(() -> {
+            try {
+                Service.validateKey(key);
+                return ValidationOutcome.VALID;
+            } catch (IOException e) {
+                logger.warn("Network error validating existing Brokk key.", e);
+                return ValidationOutcome.NETWORK_ERROR;
+            } catch (IllegalArgumentException e) {
+                logger.warn("Existing Brokk key is invalid: {}", e.getMessage());
+                return ValidationOutcome.INVALID;
+            } catch (Throwable t) {
+                logger.error("Unexpected error validating Brokk key.", t);
+                return new ValidationOutcome("Unexpected error: " + t.getMessage());
+            }
+        });
+
+        return future.join();
+    }
+
+    private static class ValidationOutcome {
+        static final ValidationOutcome VALID = new ValidationOutcome(null);
+        static final ValidationOutcome INVALID = new ValidationOutcome(BrokkKeyDialog.ERROR_INVALID_KEY);
+        static final ValidationOutcome NETWORK_ERROR = new ValidationOutcome(BrokkKeyDialog.ERROR_NETWORK);
+
+        final @Nullable String message;
+
+        ValidationOutcome(@Nullable String message) {
+            this.message = message;
+        }
     }
 
     private static List<Path> determineInitialProjectsToOpen(

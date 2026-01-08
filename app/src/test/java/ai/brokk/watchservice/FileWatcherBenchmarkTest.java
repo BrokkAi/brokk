@@ -1,5 +1,6 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
+import ai.brokk.TestProjectGenerator;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.*;

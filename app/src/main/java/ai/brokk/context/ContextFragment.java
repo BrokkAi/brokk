@@ -94,10 +94,6 @@ public interface ContextFragment {
         }
     }
 
-    static String describe(Collection<ContextFragment> fragments) {
-        return describe(fragments.stream());
-    }
-
     @Blocking
     static String describe(Stream<ContextFragment> fragments) {
         return fragments
