@@ -105,8 +105,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private static final long TASKLIST_MIGRATION_CUTOFF_MS =
             Instant.parse("2025-11-30T00:00:00Z").toEpochMilli();
 
-    public static boolean isTestFile(ProjectFile file) {
+    /**
+     * Identifies if a file contains tests. Uses the analyzer's semantic knowledge if available,
+     * otherwise falls back to filename-based heuristics.
+     */
+    public static boolean isTestFile(ProjectFile file, @Nullable IAnalyzer analyzer) {
+        // 1. If analyzer knows, trust it
+        if (analyzer != null && !analyzer.isEmpty()) {
+            if (analyzer.containsTests(file)) {
+                return true;
+            }
+            // Analyzer exists but says no tests — could still fall through
+            // to heuristics for languages where analyzer doesn't implement this
+        }
 
+        // 2. Filename/path heuristics as fallback
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 

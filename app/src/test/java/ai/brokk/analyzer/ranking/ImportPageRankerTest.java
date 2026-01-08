@@ -5,9 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IContextManager;
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.*;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -22,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
@@ -323,6 +322,157 @@ public class ImportPageRankerTest {
             assertFalse(results.stream().anyMatch(fr -> fr.file().equals(a)), "Seed A should be excluded");
             // Since there are no project-internal imports, B should not be reached/ranked via imports.
             assertTrue(results.isEmpty(), "Expected no related files when no project-internal imports exist");
+        }
+    }
+
+    @Test
+    public void testReverseImportTraversal() throws Exception {
+        // Importer -> Imported. Seed is Imported.
+        // Even though Imported has no outgoing imports, it should find Importer via reverse traversal.
+        try (var project = InlineTestProjectCreator.code(
+                        "package test; import test.Imported; public class Importer {}", "test/Importer.java")
+                .addFileContents("package test; public class Imported {}", "test/Imported.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
+                    .map(CodeUnit::source)
+                    .distinct()
+                    .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
+
+            ProjectFile importer = files.get("Importer.java");
+            ProjectFile imported = files.get("Imported.java");
+
+            assert importer != null : "Importer.java not found in project";
+            assert imported != null : "Imported.java not found in project";
+
+            // Seed with Imported (the file being imported)
+            Map<ProjectFile, Double> seeds = Map.of(imported, 1.0);
+
+            // reversed=true means we are looking for files that import our seeds
+            List<IAnalyzer.FileRelevance> results =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, true);
+
+            List<ProjectFile> resultFiles =
+                    results.stream().map(IAnalyzer.FileRelevance::file).toList();
+
+            assertTrue(
+                    resultFiles.contains(importer),
+                    "Importer.java should be found from Imported.java via reverse reference traversal");
+        }
+    }
+
+    /**
+     * Verifies the semantic distinction between reversed=false and reversed=true:
+     * - reversed=false: ranks files that the seed IMPORTS (outgoing edges)
+     * - reversed=true: ranks files that IMPORT the seed (incoming edges)
+     */
+    @Test
+    public void testDirectionalityOfReversedFlag() throws Exception {
+        // Setup: Upstream <- Middle <- Downstream
+        try (var project = InlineTestProjectCreator.code("package test; public class Upstream {}", "test/Upstream.java")
+                .addFileContents("package test; import test.Upstream; public class Middle {}", "test/Middle.java")
+                .addFileContents("package test; import test.Middle; public class Downstream {}", "test/Downstream.java")
+                .build()) {
+
+            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
+            Map<String, ProjectFile> files = analyzer.getAllDeclarations().stream()
+                    .map(CodeUnit::source)
+                    .distinct()
+                    .collect(Collectors.toMap(f -> f.getFileName().toString(), f -> f));
+
+            ProjectFile upstream = files.get("Upstream.java");
+            ProjectFile middle = files.get("Middle.java");
+            ProjectFile downstream = files.get("Downstream.java");
+
+            Map<ProjectFile, Double> seeds = Map.of(middle, 1.0);
+
+            // 1. reversed=false (outgoing: what does Middle import?)
+            List<ProjectFile> forwardResults =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, false).stream()
+                            .map(IAnalyzer.FileRelevance::file)
+                            .toList();
+
+            assertTrue(forwardResults.contains(upstream), "reversed=false should include files the seed imports");
+            assertFalse(
+                    forwardResults.contains(downstream),
+                    "reversed=false should NOT include files that import the seed");
+
+            // 2. reversed=true (incoming: what imports Middle?)
+            List<ProjectFile> reverseResults =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, seeds, 10, true).stream()
+                            .map(IAnalyzer.FileRelevance::file)
+                            .toList();
+
+            assertTrue(reverseResults.contains(downstream), "reversed=true should include files that import the seed");
+            assertFalse(reverseResults.contains(upstream), "reversed=true should NOT include files the seed imports");
+        }
+    }
+
+    @Test
+    public void multiAnalyzerWithMultipleLanguages_usesCorrectDelegates() throws Exception {
+        // Create a project with Java and Python
+        try (var project = InlineTestProjectCreator.code(
+                        """
+                        package test;
+                        import test.Target;
+                        public class Source { }
+                        """,
+                        "test/Source.java")
+                .addFileContents("package test; public class Target { }", "test/Target.java")
+                .addFileContents(
+                        """
+                        from other_module import other_fn
+                        def py_source_fn():
+                            other_fn()
+                        """,
+                        "py_source.py")
+                .addFileContents(
+                        """
+                        def other_fn():
+                            pass
+                        """,
+                        "other_module.py")
+                .build()) {
+
+            // Use the convenience API to create a MultiAnalyzer with Java and Python delegates
+            IAnalyzer analyzer = AnalyzerCreator.createMultiAnalyzer(project, Languages.JAVA, Languages.PYTHON);
+
+            Map<String, ProjectFile> filesByRelPath = analyzer.getAllDeclarations().stream()
+                    .map(CodeUnit::source)
+                    .distinct()
+                    .collect(Collectors.toMap(
+                            f -> project.getRoot()
+                                    .relativize(f.absPath())
+                                    .toString()
+                                    .replace('\\', '/'),
+                            f -> f));
+
+            ProjectFile javaSource = filesByRelPath.get("test/Source.java");
+            ProjectFile javaTarget = filesByRelPath.get("test/Target.java");
+            ProjectFile pySource = filesByRelPath.get("py_source.py");
+            ProjectFile pyTarget = filesByRelPath.get("other_module.py");
+
+            // Force update with files to ensure ImportGraph is populated for both languages
+            analyzer = analyzer.update(Set.copyOf(filesByRelPath.values()));
+
+            // 1. Test Java branch of MultiAnalyzer
+            List<IAnalyzer.FileRelevance> javaResults =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, Map.of(javaSource, 1.0), 10, false);
+            Set<ProjectFile> javaResultFiles =
+                    javaResults.stream().map(IAnalyzer.FileRelevance::file).collect(Collectors.toSet());
+
+            assertTrue(javaResultFiles.contains(javaTarget), "MultiAnalyzer should delegate Java import lookup");
+            assertFalse(javaResultFiles.contains(pyTarget), "Java source should not link to Python target");
+
+            // 2. Test Python branch of MultiAnalyzer
+            List<IAnalyzer.FileRelevance> pyResults =
+                    ImportPageRanker.getRelatedFilesByImports(analyzer, Map.of(pySource, 1.0), 10, false);
+            Set<ProjectFile> pyResultFiles =
+                    pyResults.stream().map(IAnalyzer.FileRelevance::file).collect(Collectors.toSet());
+
+            assertTrue(pyResultFiles.contains(pyTarget), "MultiAnalyzer should delegate Python import lookup");
+            assertFalse(pyResultFiles.contains(javaTarget), "Python source should not link to Java target");
         }
     }
 }

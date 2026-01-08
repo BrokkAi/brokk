@@ -66,18 +66,18 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
-    private PhpAnalyzer(IProject project, Language language, AnalyzerState state, ProgressListener listener) {
-        super(project, language, state, listener);
+    private PhpAnalyzer(IProject project, AnalyzerState state, ProgressListener listener) {
+        super(project, Languages.PHP, state, listener);
         this.phpNamespaceQuery = createPhpNamespaceQuery();
     }
 
     public static PhpAnalyzer fromState(IProject project, AnalyzerState state, ProgressListener listener) {
-        return new PhpAnalyzer(project, Languages.PHP, state, listener);
+        return new PhpAnalyzer(project, state, listener);
     }
 
     @Override
     protected IAnalyzer newSnapshot(AnalyzerState state, ProgressListener listener) {
-        return new PhpAnalyzer(getProject(), Languages.PHP, state, listener);
+        return new PhpAnalyzer(getProject(), state, listener);
     }
 
     @Override
@@ -349,6 +349,74 @@ public final class PhpAnalyzer extends TreeSitterAnalyzer {
         // as namespace processing is now handled by computeFilePackageName.
         // attribute.definition is handled by decorator logic in base class.
         return Set.of(CaptureNames.NAMESPACE_DEFINITION, "namespace.name", CaptureNames.ATTRIBUTE_DEFINITION);
+    }
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        TSQuery query = getThreadLocalQuery();
+        TSQueryCursor cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+        TSQueryMatch match = new TSQueryMatch();
+
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String captureName = query.getCaptureNameForId(capture.getIndex());
+                if (!TEST_MARKER.equals(captureName)) {
+                    continue;
+                }
+
+                TSNode node = capture.getNode();
+                if (node == null || node.isNull()) {
+                    continue;
+                }
+
+                String nodeType = node.getType();
+
+                // Name-based detection: @test_marker is captured on the function/method name node.
+                if (NAME.equals(nodeType)) {
+                    TSNode parent = node.getParent();
+                    if (parent == null || parent.isNull()) {
+                        continue;
+                    }
+
+                    String parentType = parent.getType();
+                    if (!FUNCTION_DEFINITION.equals(parentType) && !METHOD_DECLARATION.equals(parentType)) {
+                        continue;
+                    }
+
+                    String nameText = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                    if (nameText.toLowerCase(Locale.ROOT).startsWith("test")) {
+                        return true;
+                    }
+                    continue;
+                }
+
+                // Docblock/Comment-based detection: @test_marker is also captured on comment nodes.
+                if (COMMENT.equals(nodeType)) {
+                    String commentText = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                    if (!commentText.contains(TEST_TAG_AT_TEST)) {
+                        continue;
+                    }
+
+                    // Prefer AST adjacency: treat the comment as "belonging to" the next declaration sibling.
+                    TSNode next = node.getNextSibling();
+                    while (next != null && !next.isNull() && isWhitespaceOnlyNode(next)) {
+                        next = next.getNextSibling();
+                    }
+
+                    if (next == null || next.isNull()) {
+                        continue;
+                    }
+
+                    String nextType = next.getType();
+                    if (FUNCTION_DEFINITION.equals(nextType) || METHOD_DECLARATION.equals(nextType)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     @Override
