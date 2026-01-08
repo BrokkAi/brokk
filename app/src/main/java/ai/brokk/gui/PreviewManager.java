@@ -15,7 +15,6 @@ import ai.brokk.gui.dialogs.PreviewFrame;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
-import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.search.GenericSearchBar;
 import ai.brokk.gui.search.MarkdownSearchableComponent;
@@ -559,7 +558,7 @@ public class PreviewManager {
             }
         }
 
-        var markdownPanel = MarkdownOutputPool.instance().borrow();
+        var markdownPanel = new MarkdownOutputPanel();
         markdownPanel.withContextForLookups(cm, chrome);
         markdownPanel.setMessages(combinedMessages);
 
@@ -616,7 +615,7 @@ public class PreviewManager {
 
         JComponent panel;
         if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
-            var markdownPanel = MarkdownOutputPool.instance().borrow();
+            var markdownPanel = new MarkdownOutputPanel();
             markdownPanel.updateTheme(MainProject.getTheme());
             markdownPanel.withContextForLookups(cm, chrome);
             markdownPanel.setStaticDocument(text);
@@ -726,7 +725,7 @@ public class PreviewManager {
      * Renders markdown content and wraps it in a searchable preview panel.
      */
     private JPanel renderMarkdownContent(String text) {
-        var markdownPanel = MarkdownOutputPool.instance().borrow();
+        var markdownPanel = new MarkdownOutputPanel();
         markdownPanel.updateTheme(MainProject.getTheme());
         markdownPanel.withContextForLookups(cm, chrome);
         markdownPanel.setStaticDocument(text);
