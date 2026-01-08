@@ -479,6 +479,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private void updateDropdownLabels() {
         String branchLabel = resolvedBaselineBranch != null ? resolvedBaselineBranch : "branch";
+        
+        // Remove action listeners temporarily to avoid triggering updates while rebuilding
+        var listeners = baselineDropdown.getActionListeners();
+        for (var al : listeners) {
+            baselineDropdown.removeActionListener(al);
+        }
+        
+        ComparisonTarget currentSelection = (ComparisonTarget) baselineDropdown.getSelectedItem();
+        
         baselineDropdown.removeAllItems();
         baselineDropdown.setRenderer(new DefaultListCellRenderer() {
             @Override
@@ -495,6 +504,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
         baselineDropdown.addItem(ComparisonTarget.CUMULATIVE);
         baselineDropdown.addItem(ComparisonTarget.SESSION);
+        
+        // Restore selection without triggering listeners
+        if (currentSelection != null) {
+            baselineDropdown.setSelectedItem(currentSelection);
+        }
+        
+        // Re-add action listeners
+        for (var al : listeners) {
+            baselineDropdown.addActionListener(al);
+        }
     }
 
     private void rebuildUI(
