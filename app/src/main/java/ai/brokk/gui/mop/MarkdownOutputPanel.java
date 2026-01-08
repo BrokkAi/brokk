@@ -205,6 +205,18 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
+    public void setStaticDocument(String markdown) {
+        resetAll();
+        webHost.sendStaticDocument(markdown);
+        textChangeListeners.forEach(Runnable::run);
+    }
+
+    public void clearStaticDocument() {
+        resetAll();
+        webHost.sendStaticDocument("");
+        textChangeListeners.forEach(Runnable::run);
+    }
+
     public void append(String text, ChatMessageType type, boolean isNewMessage) {
         append(text, type, isNewMessage, false);
     }
