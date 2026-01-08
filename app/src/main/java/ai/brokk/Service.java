@@ -263,10 +263,6 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                         modelInfoNode.path("litellm_params").path("model").asText();
 
                 JsonNode modelInfoData = modelInfoNode.path("model_info");
-                if (modelLocation.startsWith("openai/")) {
-                    System.out.println("Model: " + modelName + " raw model_info keys: " + modelInfoData.fieldNames());
-                    System.out.println("Model: " + modelName + " raw JSON: " + modelInfoData.toPrettyString());
-                }
 
                 if (!modelName.isBlank() && !modelLocation.isBlank()) {
                     Map<String, Object> modelInfo = new HashMap<>();
@@ -310,13 +306,13 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                                     try {
                                         var pricingTiers = objectMapper.convertValue(value, PricingTiers.class);
                                         modelInfo.put(key, pricingTiers);
-                                        System.out.println("Model: " + modelName + " pricing_tiers: " + pricingTiers);
                                     } catch (IllegalArgumentException e) {
-                                        System.out.println("Failed to parse pricing_tiers for " + modelName + ": " + e.getMessage());
-                                        e.printStackTrace();
                                         LogManager.getLogger(Service.class)
-                                                .warn("Could not parse pricing_tiers for model {}: {}",
-                                                      modelName, value.toString(), e);
+                                                .warn(
+                                                        "Could not parse pricing_tiers for model {}: {}",
+                                                        modelName,
+                                                        value.toString(),
+                                                        e);
                                     }
                                 } else {
                                     modelInfo.put(key, value.toString());

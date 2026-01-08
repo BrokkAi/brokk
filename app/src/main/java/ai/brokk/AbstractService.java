@@ -138,7 +138,6 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                     + cachedTokens * band.cachedInputCostPerToken()
                     + outputTokens * band.outputCostPerToken();
         }
-
     }
 
     public enum ProcessingTier {
@@ -171,15 +170,15 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record TierPricing(double input_cost_per_token,
-                              double output_cost_per_token,
-                              double cache_read_input_token_cost) {}
+    public record TierPricing(
+            double input_cost_per_token, double output_cost_per_token, double cache_read_input_token_cost) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record PricingTiers(@Nullable TierPricing standard,
-                               @Nullable TierPricing priority,
-                               @Nullable TierPricing flex,
-                               @Nullable TierPricing batch) {
+    public record PricingTiers(
+            @Nullable TierPricing standard,
+            @Nullable TierPricing priority,
+            @Nullable TierPricing flex,
+            @Nullable TierPricing batch) {
         public boolean supportsPriority() {
             return priority != null;
         }
@@ -314,10 +313,12 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         if (pricingTiers instanceof PricingTiers pt) {
             var tp = pt.getTierPricing(tier);
             if (tp != null) {
-                var band = new PriceBand(0, Long.MAX_VALUE,
-                                         tp.input_cost_per_token(),
-                                         tp.cache_read_input_token_cost(),
-                                         tp.output_cost_per_token());
+                var band = new PriceBand(
+                        0,
+                        Long.MAX_VALUE,
+                        tp.input_cost_per_token(),
+                        tp.cache_read_input_token_cost(),
+                        tp.output_cost_per_token());
                 return new ModelPricing(List.of(band));
             }
         }
