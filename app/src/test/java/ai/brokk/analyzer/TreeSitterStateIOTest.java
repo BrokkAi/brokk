@@ -138,7 +138,8 @@ public class TreeSitterStateIOTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                new TreeSitterStateIO.TypeHierarchyGraphDto(List.of(), List.of()),
+                List.of(),
+                List.of(),
                 List.of(),
                 1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
@@ -212,7 +213,8 @@ public class TreeSitterStateIOTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                new TreeSitterStateIO.TypeHierarchyGraphDto(List.of(), List.of()),
+                List.of(),
+                List.of(),
                 List.of("KeyA", "keyb"),
                 99L);
         var original = TreeSitterStateIO.fromDto(dto);
@@ -247,7 +249,8 @@ public class TreeSitterStateIOTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                new TreeSitterStateIO.TypeHierarchyGraphDto(List.of(), List.of()),
+                List.of(),
+                List.of(),
                 List.of("A"),
                 1L);
         var state = TreeSitterStateIO.fromDto(dto);
@@ -278,7 +281,8 @@ public class TreeSitterStateIOTest {
                 List.of(),
                 List.of(),
                 List.of(),
-                new TreeSitterStateIO.TypeHierarchyGraphDto(List.of(), List.of()),
+                List.of(),
+                List.of(),
                 List.of("win"),
                 42L);
         var original = TreeSitterStateIO.fromDto(dto);
@@ -341,7 +345,8 @@ public class TreeSitterStateIOTest {
                 List.of(entryDto),
                 List.of(),
                 List.of(),
-                TreeSitterStateIO.TypeHierarchyGraphDto.EMPTY,
+                List.of(),
+                List.of(),
                 List.of(),
                 555L);
         var state = TreeSitterStateIO.fromDto(originalDto);

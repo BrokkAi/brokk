@@ -224,7 +224,8 @@ public final class TreeSitterStateIO {
             List<FileStateEntryDto> fileState,
             List<ImportEntryDto> imports,
             List<ReverseImportEntryDto> reverseImports,
-            TypeHierarchyGraphDto typeHierarchy,
+            @Nullable List<SupertypeEntryDto> supertypes,
+            @Nullable List<SubtypeEntryDto> subtypes,
             List<String> symbolKeys,
             long snapshotEpochNanos) {}
 
@@ -291,14 +292,6 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReverseImportEntryDto(ProjectFileDto key, List<ProjectFileDto> value) {}
-
-    /**
-     * DTO for TypeHierarchyGraph.
-     */
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public record TypeHierarchyGraphDto(List<SupertypeEntryDto> supertypes, List<SubtypeEntryDto> subtypes) {
-        public static TypeHierarchyGraphDto EMPTY = new TypeHierarchyGraphDto(List.of(), List.of());
-    }
 
     /**
      * DTO entry for CodeUnit -> List<CodeUnit> (supertypes).
@@ -485,8 +478,6 @@ public final class TreeSitterStateIO {
                                     .thenComparing(CodeUnitDto::shortName))
                             .toList()));
         }
-        var typeHierarchyDto = new TypeHierarchyGraphDto(supertypeEntries, subtypeEntries);
-
         // Symbol keys for the index
         List<String> symbolKeys = new ArrayList<>();
         for (String key : state.symbolKeyIndex().all()) {
@@ -499,7 +490,8 @@ public final class TreeSitterStateIO {
                 fileEntries,
                 importEntries,
                 reverseImportEntries,
-                typeHierarchyDto,
+                supertypeEntries,
+                subtypeEntries,
                 symbolKeys,
                 state.snapshotEpochNanos());
     }
@@ -581,14 +573,16 @@ public final class TreeSitterStateIO {
         // Rebuild TypeHierarchyGraph
         Map<CodeUnit, List<CodeUnit>> supertypesMap = new HashMap<>();
         Map<CodeUnit, Set<CodeUnit>> subtypesMap = new HashMap<>();
-        var typeHierarchyDto = dto.typeHierarchy();
-        if (typeHierarchyDto != null) {
-            for (var entry : typeHierarchyDto.supertypes()) {
+
+        if (dto.supertypes() != null) {
+            for (var entry : dto.supertypes()) {
                 supertypesMap.put(
                         fromDto(entry.key()),
                         entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
             }
-            for (var entry : typeHierarchyDto.subtypes()) {
+        }
+        if (dto.subtypes() != null) {
+            for (var entry : dto.subtypes()) {
                 subtypesMap.put(
                         fromDto(entry.key()),
                         entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
