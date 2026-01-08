@@ -18,7 +18,8 @@ import { envStore } from './stores/envStore';
 import { setSummaryEntry, deleteSummaryEntry, getSummaryEntry, updateSummaryTree, summaryStore } from './stores/summaryStore';
 import { register, unregister, isRegistered } from './worker/parseRouter';
 import { parse } from './worker/worker-bridge';
-import { allocSummarySeq } from './shared/seq';
+import { allocSummarySeq, STATIC_DOC_SEQ } from './shared/seq';
+import { staticDocStore } from './stores/staticDocStore';
 
 const mainLog = createLogger('main');
 
@@ -127,8 +128,11 @@ async function handleEvent(payload: any): Promise<void> {
         onHistoryEvent(payload);
     } else if (payload.type === 'live-summary') {
         onLiveSummary(payload);
+    } else if (payload.type === 'static-document') {
+        onStaticDocument(payload);
     } else {
-        onBrokkEvent(payload); // updates store & talks to worker
+        // live-streaming
+        onBrokkEvent(payload);
     }
 
     // Wait until Svelte updated *and* browser painted
@@ -170,6 +174,27 @@ function onLiveSummary(payload: any): void {
     parse(summary, summarySeq, false, false);
 }
 
+function onStaticDocument(payload: any): void {
+    const markdown = payload.markdown;
+    const seq = STATIC_DOC_SEQ;
+
+    // Always clean up any existing handler first
+    unregister(seq);
+
+    // Null/empty markdown means exit static mode
+    if (markdown == null || markdown === '') {
+        staticDocStore.set(null);
+        return;
+    }
+
+    register(seq, (msg: any) => {
+        staticDocStore.set({seq, text: markdown, tree: msg.tree});
+    });
+
+    parse(markdown, seq, false, false);
+    staticDocStore.set({seq, text: markdown});
+}
+
 function getCurrentSelection(): string {
     return window.getSelection()?.toString() ?? '';
 }
@@ -177,6 +202,7 @@ function getCurrentSelection(): string {
 function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
     onHistoryEvent({type: 'history-reset', epoch: 0});
+    onStaticDocument({type: 'static-document', markdown: null, epoch: 0});
 }
 
 function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {

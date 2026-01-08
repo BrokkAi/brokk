@@ -23,7 +23,6 @@ import ai.brokk.gui.git.GitLogTab;
 import ai.brokk.gui.git.GitPullRequestsTab;
 import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
-import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.tests.FileBasedTestRunsStore;
 import ai.brokk.gui.tests.TestRunnerPanel;
@@ -344,8 +343,6 @@ public class Chrome
 
         // Now show the window with complete layout
         frame.setVisible(true);
-
-        SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
 
         // Defer .gitignore check until initialization completes
         scheduleGitConfigurationAfterInit();
