@@ -806,7 +806,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      */
     @Override
     public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
-        return this.state.importGraph().importedCodeUnitsOf(file);
+        // 1. Check lazy cache first
+        Set<CodeUnit> cached = lazyImports.getImportedCodeUnits(file);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Check persistent ImportGraph state
+        Set<CodeUnit> persisted = this.state.importGraph().importedCodeUnitsOf(file);
+        if (!persisted.isEmpty()) {
+            return persisted;
+        }
+
+        // 3. Compute lazily via resolveImports and cache the result
+        return lazyImports.computeIfAbsent(file, f -> resolveImports(f, importStatementsOf(f)));
     }
 
     /**
