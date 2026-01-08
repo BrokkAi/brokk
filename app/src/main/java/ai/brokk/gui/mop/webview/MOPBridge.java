@@ -209,6 +209,12 @@ public final class MOPBridge {
         scheduleSend();
     }
 
+    public void sendStaticDocument(String markdown) {
+        var e = epoch.incrementAndGet();
+        eventQueue.add(new BrokkEvent.StaticDocument(e, markdown));
+        scheduleSend();
+    }
+
     /** Enqueue a single task from the conversation history to the WebView. */
     public void sendHistoryTask(TaskEntry entry) {
         var e = epoch.incrementAndGet();

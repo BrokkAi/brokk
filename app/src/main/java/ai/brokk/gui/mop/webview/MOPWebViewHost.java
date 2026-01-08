@@ -87,6 +87,8 @@ public final class MOPWebViewHost extends JPanel {
         record HistoryTask(TaskEntry entry) implements HostCommand {}
 
         record LiveSummary(int taskSequence, boolean compressed, String summary) implements HostCommand {}
+
+        record StaticDocument(String markdown) implements HostCommand {}
     }
 
     public MOPWebViewHost() {
@@ -394,6 +396,10 @@ public final class MOPWebViewHost extends JPanel {
                 bridge -> bridge.sendLiveSummary(taskSequence, compressed, summary));
     }
 
+    public void sendStaticDocument(String markdown) {
+        sendOrQueue(new HostCommand.StaticDocument(markdown), bridge -> bridge.sendStaticDocument(markdown));
+    }
+
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
         searchListeners.add(l);
         var bridge = bridgeRef.get();
@@ -556,6 +562,7 @@ public final class MOPWebViewHost extends JPanel {
                     case HostCommand.HistoryTask ht -> bridge.sendHistoryTask(ht.entry());
                     case HostCommand.LiveSummary ls ->
                         bridge.sendLiveSummary(ls.taskSequence(), ls.compressed(), ls.summary());
+                    case HostCommand.StaticDocument sd -> bridge.sendStaticDocument(sd.markdown());
                 }
             });
             pendingCommands.clear();
