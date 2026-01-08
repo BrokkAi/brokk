@@ -222,6 +222,7 @@ public final class TreeSitterStateIO {
             List<FileStateEntryDto> fileState,
             List<ImportEntryDto> imports,
             List<ReverseImportEntryDto> reverseImports,
+            TypeHierarchyGraphDto typeHierarchy,
             List<String> symbolKeys,
             long snapshotEpochNanos) {}
 
@@ -277,6 +278,24 @@ public final class TreeSitterStateIO {
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ReverseImportEntryDto(ProjectFileDto key, List<ProjectFileDto> value) {}
+
+    /**
+     * DTO for TypeHierarchyGraph.
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record TypeHierarchyGraphDto(List<SupertypeEntryDto> supertypes, List<SubtypeEntryDto> subtypes) {}
+
+    /**
+     * DTO entry for CodeUnit -> List<CodeUnit> (supertypes).
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SupertypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
+
+    /**
+     * DTO entry for CodeUnit -> Set<CodeUnit> (subtypes).
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SubtypeEntryDto(CodeUnitDto key, List<CodeUnitDto> value) {}
 
     @Blocking
     public static void save(TreeSitterAnalyzer.AnalyzerState state, Path file) {
@@ -432,6 +451,25 @@ public final class TreeSitterStateIO {
                             .toList()));
         }
 
+        // typeHierarchy -> DTO from TypeHierarchyGraph
+        List<SupertypeEntryDto> supertypeEntries = new ArrayList<>(state.typeHierarchyGraph().supertypes().size());
+        for (var e : state.typeHierarchyGraph().supertypes().entrySet()) {
+            supertypeEntries.add(new SupertypeEntryDto(
+                    toDto(e.getKey()),
+                    e.getValue().stream().map(TreeSitterStateIO::toDto).toList()));
+        }
+        List<SubtypeEntryDto> subtypeEntries = new ArrayList<>(state.typeHierarchyGraph().subtypes().size());
+        for (var e : state.typeHierarchyGraph().subtypes().entrySet()) {
+            subtypeEntries.add(new SubtypeEntryDto(
+                    toDto(e.getKey()),
+                    e.getValue().stream()
+                            .map(TreeSitterStateIO::toDto)
+                            .sorted(Comparator.comparing(CodeUnitDto::packageName)
+                                    .thenComparing(CodeUnitDto::shortName))
+                            .toList()));
+        }
+        var typeHierarchyDto = new TypeHierarchyGraphDto(supertypeEntries, subtypeEntries);
+
         // Symbol keys for the index
         List<String> symbolKeys = new ArrayList<>();
         for (String key : state.symbolKeyIndex().all()) {
@@ -444,6 +482,7 @@ public final class TreeSitterStateIO {
                 fileEntries,
                 importEntries,
                 reverseImportEntries,
+                typeHierarchyDto,
                 symbolKeys,
                 state.snapshotEpochNanos());
     }
@@ -521,6 +560,22 @@ public final class TreeSitterStateIO {
                     entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
         }
 
+        // Rebuild TypeHierarchyGraph
+        Map<CodeUnit, List<CodeUnit>> supertypesMap = new HashMap<>();
+        Map<CodeUnit, Set<CodeUnit>> subtypesMap = new HashMap<>();
+        if (dto.typeHierarchy() != null) {
+            for (var entry : dto.typeHierarchy().supertypes()) {
+                supertypesMap.put(
+                        fromDto(entry.key()),
+                        entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
+            }
+            for (var entry : dto.typeHierarchy().subtypes()) {
+                subtypesMap.put(
+                        fromDto(entry.key()),
+                        entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
+            }
+        }
+
         // Rebuild SymbolKeyIndex
         var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         keySet.addAll(dto.symbolKeys());
@@ -533,7 +588,7 @@ public final class TreeSitterStateIO {
                 codeUnitState,
                 fileState,
                 ImportGraph.from(importsMap, reverseImportsMap),
-                TypeHierarchyGraph.empty(),
+                TypeHierarchyGraph.from(supertypesMap, subtypesMap),
                 symbolKeyIndex,
                 dto.snapshotEpochNanos());
     }

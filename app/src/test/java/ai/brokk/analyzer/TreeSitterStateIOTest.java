@@ -129,7 +129,15 @@ public class TreeSitterStateIOTest {
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
         AnalyzerStateDto emptyDto =
-                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1L);
+                new AnalyzerStateDto(
+                        Map.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        new TreeSitterStateIO.TypeHierarchyGraphDto(List.of(), List.of()),
+                        List.of(),
+                        1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
         Path out = tempDir.resolve("state.smile.gz");
@@ -196,7 +204,14 @@ public class TreeSitterStateIOTest {
     @Test
     void saveLoadRoundTripUnchanged(@TempDir Path tempDir) throws Exception {
         AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of("KeyA", "keyb"), 99L);
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                new TreeSitterStateIO.TypeHierarchyGraphDto(List.of(), List.of()),
+                List.of("KeyA", "keyb"),
+                99L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         Path out = tempDir.resolve("roundtrip.smile.gz");
@@ -223,8 +238,15 @@ public class TreeSitterStateIOTest {
         var loaded = TreeSitterStateIO.load(out);
         assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
 
-        AnalyzerStateDto dto =
-                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), List.of(), List.of("A"), 1L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                new TreeSitterStateIO.TypeHierarchyGraphDto(List.of(), List.of()),
+                List.of("A"),
+                1L);
         var state = TreeSitterStateIO.fromDto(dto);
         TreeSitterStateIO.save(state, out);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
@@ -247,8 +269,15 @@ public class TreeSitterStateIOTest {
 
         Files.writeString(out, "this is corrupt gzip content");
 
-        AnalyzerStateDto dto =
-                new AnalyzerStateDto(Map.of(), List.of(), List.of(), List.of(), List.of(), List.of("win"), 42L);
+        AnalyzerStateDto dto = new AnalyzerStateDto(
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                new TreeSitterStateIO.TypeHierarchyGraphDto(List.of(), List.of()),
+                List.of("win"),
+                42L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         TreeSitterStateIO.save(original, out);
