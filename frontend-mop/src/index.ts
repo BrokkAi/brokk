@@ -180,14 +180,14 @@ function onStaticDocument(payload: any): void {
     const markdown = payload.markdown;
     const seq = STATIC_DOC_SEQ;
 
+    // Always clean up any existing handler first
+    unregister(seq);
+
     // Null/empty markdown means exit static mode
     if (markdown == null || markdown === '') {
-        unregister(seq);
         staticDocStore.set(null);
         return;
     }
-
-    unregister(seq);
 
     register(seq, (msg: any) => {
         staticDocStore.set({seq, text: markdown, tree: msg.tree});
