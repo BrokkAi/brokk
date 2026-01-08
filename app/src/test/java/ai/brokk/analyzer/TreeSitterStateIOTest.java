@@ -133,15 +133,7 @@ public class TreeSitterStateIOTest {
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
         AnalyzerStateDto emptyDto = new AnalyzerStateDto(
-                Map.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                1L);
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
         Path out = tempDir.resolve("state.smile.gz");
@@ -244,15 +236,7 @@ public class TreeSitterStateIOTest {
         assertTrue(loaded.isEmpty(), "Expected load to return empty on corrupt gzip");
 
         AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of("A"),
-                1L);
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("A"), 1L);
         var state = TreeSitterStateIO.fromDto(dto);
         TreeSitterStateIO.save(state, out);
         assertTrue(Files.exists(out), "Expected analyzer state file to exist after save");
@@ -276,15 +260,7 @@ public class TreeSitterStateIOTest {
         Files.writeString(out, "this is corrupt gzip content");
 
         AnalyzerStateDto dto = new AnalyzerStateDto(
-                Map.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of("win"),
-                42L);
+                Map.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of("win"), 42L);
         var original = TreeSitterStateIO.fromDto(dto);
 
         TreeSitterStateIO.save(original, out);
@@ -340,15 +316,7 @@ public class TreeSitterStateIOTest {
         var entryDto = new FileStateEntryDto(fileDto, propsDto);
 
         var originalDto = new AnalyzerStateDto(
-                Map.of(),
-                List.of(),
-                List.of(entryDto),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                555L);
+                Map.of(), List.of(), List.of(entryDto), List.of(), List.of(), List.of(), List.of(), List.of(), 555L);
         var state = TreeSitterStateIO.fromDto(originalDto);
 
         Path out = tempDir.resolve("test_props.smile.gz");

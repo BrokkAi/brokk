@@ -224,8 +224,8 @@ public final class TreeSitterStateIO {
             List<FileStateEntryDto> fileState,
             List<ImportEntryDto> imports,
             List<ReverseImportEntryDto> reverseImports,
-            @Nullable List<SupertypeEntryDto> supertypes,
-            @Nullable List<SubtypeEntryDto> subtypes,
+            List<SupertypeEntryDto> supertypes,
+            List<SubtypeEntryDto> subtypes,
             List<String> symbolKeys,
             long snapshotEpochNanos) {}
 
@@ -574,19 +574,18 @@ public final class TreeSitterStateIO {
         Map<CodeUnit, List<CodeUnit>> supertypesMap = new HashMap<>();
         Map<CodeUnit, Set<CodeUnit>> subtypesMap = new HashMap<>();
 
-        if (dto.supertypes() != null) {
-            for (var entry : dto.supertypes()) {
-                supertypesMap.put(
-                        fromDto(entry.key()),
-                        entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
-            }
+        var supertypeEntries = dto.supertypes() != null ? dto.supertypes() : List.<SupertypeEntryDto>of();
+        for (var entry : supertypeEntries) {
+            supertypesMap.put(
+                    fromDto(entry.key()),
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
         }
-        if (dto.subtypes() != null) {
-            for (var entry : dto.subtypes()) {
-                subtypesMap.put(
-                        fromDto(entry.key()),
-                        entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
-            }
+
+        var subtypeEntries = dto.subtypes() != null ? dto.subtypes() : List.<SubtypeEntryDto>of();
+        for (var entry : subtypeEntries) {
+            subtypesMap.put(
+                    fromDto(entry.key()),
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
         }
 
         // Rebuild SymbolKeyIndex
