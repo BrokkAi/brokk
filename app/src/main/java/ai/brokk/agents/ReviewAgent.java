@@ -711,6 +711,10 @@ public class ReviewAgent {
         return "Context updated with requested fragments.";
     }
 
+    private static String fixEscapedNewlines(String s) {
+        return s.replace("\\n", "\n");
+    }
+
     @Tool("Create a structured code review of the current changes or proposal.")
     public String createReview(
             @P(
@@ -726,7 +730,25 @@ public class ReviewAgent {
             @P(
                             "A list of additional tests that would add significant value. Each string should describe a test to add, referencing specific methods or classes.")
                     List<String> additionalTests) {
-        var review = new ReviewParser.RawReview(overview, designNotes, tacticalNotes, additionalTests);
+        var fixedDesignNotes = designNotes.stream()
+                .map(d -> new ReviewParser.RawDesignFeedback(
+                        fixEscapedNewlines(d.title()),
+                        fixEscapedNewlines(d.description()),
+                        d.excerptIds(),
+                        fixEscapedNewlines(d.recommendation())))
+                .toList();
+        var fixedTacticalNotes = tacticalNotes.stream()
+                .map(t -> new ReviewParser.RawTacticalFeedback(
+                        fixEscapedNewlines(t.title()),
+                        fixEscapedNewlines(t.description()),
+                        t.excerptId(),
+                        fixEscapedNewlines(t.recommendation())))
+                .toList();
+        var fixedAdditionalTests =
+                additionalTests.stream().map(ReviewAgent::fixEscapedNewlines).toList();
+
+        var review = new ReviewParser.RawReview(
+                fixEscapedNewlines(overview), fixedDesignNotes, fixedTacticalNotes, fixedAdditionalTests);
         return review.toJson();
     }
 }
