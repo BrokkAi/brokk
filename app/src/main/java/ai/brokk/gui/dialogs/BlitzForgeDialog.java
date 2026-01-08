@@ -1662,7 +1662,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 // Run the task
                 if (engineAction == Action.ASK) {
                     var ctx = new Context(cm)
-                            .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages)))
+                            .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages, instructions)))
                             .addFragments(cm.toPathFragments(List.of(file)));
                     var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions);
                     var llm = cm.getLlm(model, "Ask", true);

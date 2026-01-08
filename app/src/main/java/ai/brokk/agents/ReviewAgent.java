@@ -259,9 +259,7 @@ public class ReviewAgent {
                     requireNonNullElse(
                             requireNonNull(turn2Result.chatResponse()).reasoningContent(), "")));
             // clunky way to get a context but that's what it looks like I guess
-            var tf = new ContextFragments.TaskFragment(cm, turn2Messages, "Guided Review");
-            var cf = AbstractService.ModelConfig.from(scanModel, cm.getService());
-            var te = new TaskEntry(0, tf, null, new TaskResult.TaskMeta(TaskResult.Type.REVIEW, cf));
+            var te = TaskEntry.from(cm, turn2Messages, "Guided Description");
             reviewContext = reviewContext.addHistoryEntry(te, null);
 
             var reviewCall = turn2Result.toolRequests().getFirst();
