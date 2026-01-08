@@ -43,7 +43,11 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     public TestAnalyzer() {
-        this(List.of(), Map.of());
+        this(new java.util.ArrayList<>(), Map.of());
+    }
+
+    public void addDeclaration(CodeUnit cu) {
+        this.allClasses.add(cu);
     }
 
     public void setLintBehavior(Function<List<ProjectFile>, LintResult> behavior) {
@@ -137,7 +141,9 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public Set<CodeUnit> getDeclarations(ProjectFile file) {
-        return Set.of(); // Return empty set for test purposes
+        return allClasses.stream()
+                .filter(cu -> cu.source().equals(file))
+                .collect(Collectors.toSet());
     }
 
     @Override
