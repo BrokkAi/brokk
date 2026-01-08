@@ -188,11 +188,19 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         return result;
     }
 
-    public void clear() {
+    private void resetLocalState() {
         messages.clear();
         lastHistorySignature = null;
         transientMessageVisible = false;
+    }
+
+    private void resetAll() {
+        resetLocalState();
         webHost.clear();
+    }
+
+    public void clear() {
+        resetAll();
         webHost.historyReset();
         textChangeListeners.forEach(Runnable::run);
     }
@@ -240,9 +248,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
     }
 
     public void setText(List<? extends ChatMessage> newMessages) {
-        messages.clear();
+        resetAll();
         messages.addAll(newMessages);
-        webHost.clear();
         for (var message : newMessages) {
             var isReasoning = isReasoningMessage(message);
             webHost.append(Messages.getText(message), true, message.type(), false, isReasoning);
