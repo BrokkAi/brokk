@@ -201,18 +201,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private @Nullable BaselineState resolveBaselineState() {
+    private BaselineState resolveBaselineState() {
         try {
             ComparisonTarget target = (ComparisonTarget) baselineDropdown.getSelectedItem();
             if (target == ComparisonTarget.SESSION) {
-                var history = contextManager.getContextHistoryList();
-                if (!history.isEmpty()) {
-                    var firstContext = history.get(0);
-                    var gitState = contextManager.getContextHistory().getGitState(firstContext.id());
-                    if (gitState.isPresent()) {
-                        return new BaselineState(
-                                BaselineMode.SESSION, gitState.get().commitHash());
-                    }
+                var firstSessionCommit = contextManager.getContextHistory().getFirstGitState();
+                if (firstSessionCommit.isPresent()) {
+                    return new BaselineState(BaselineMode.SESSION, firstSessionCommit.get().commitHash());
                 }
                 return new BaselineState(BaselineMode.NO_BASELINE, "No session start found");
             }
