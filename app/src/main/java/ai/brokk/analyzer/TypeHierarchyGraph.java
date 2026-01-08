@@ -12,8 +12,7 @@ import org.pcollections.PMap;
  * <p>The forward map (supertypes) tracks the direct ancestors of a given CodeUnit.
  * The reverse map (subtypes) tracks the direct descendants of a given CodeUnit.
  */
-public record TypeHierarchyGraph(
-        PMap<CodeUnit, List<CodeUnit>> supertypes, PMap<CodeUnit, Set<CodeUnit>> subtypes) {
+public record TypeHierarchyGraph(PMap<CodeUnit, List<CodeUnit>> supertypes, PMap<CodeUnit, Set<CodeUnit>> subtypes) {
 
     public static TypeHierarchyGraph empty() {
         return new TypeHierarchyGraph(HashTreePMap.empty(), HashTreePMap.empty());

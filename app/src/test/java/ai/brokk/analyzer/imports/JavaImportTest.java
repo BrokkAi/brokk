@@ -371,14 +371,12 @@ public class JavaImportTest {
                         """
                 import B;
                 public class A {}
-                """,
-                        "A.java")
+                """, "A.java")
                 .addFileContents(
                         """
                 import A;
                 public class B {}
-                """,
-                        "B.java");
+                """, "B.java");
 
         try (var testProject = builder.build()) {
             var analyzer = createTreeSitterAnalyzer(testProject);

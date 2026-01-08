@@ -191,7 +191,9 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     Set<CodeUnit> resolved = computer.apply(f);
                     // Update reverse cache based on resolved imports
                     for (CodeUnit cu : resolved) {
-                        reverseCache.computeIfAbsent(cu.source(), k -> ConcurrentHashMap.newKeySet()).add(f);
+                        reverseCache
+                                .computeIfAbsent(cu.source(), k -> ConcurrentHashMap.newKeySet())
+                                .add(f);
                     }
                     return Collections.unmodifiableSet(resolved);
                 } finally {
@@ -804,8 +806,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         TypeHierarchyGraph nextTypeHierarchyGraph = this.state.typeHierarchyGraph();
         if (!lazyHierarchy.isEmpty()) {
-            Map<CodeUnit, List<CodeUnit>> superUpdates = new HashMap<>(this.state.typeHierarchyGraph().supertypes());
-            Map<CodeUnit, Set<CodeUnit>> subUpdates = new HashMap<>(this.state.typeHierarchyGraph().subtypes());
+            Map<CodeUnit, List<CodeUnit>> superUpdates =
+                    new HashMap<>(this.state.typeHierarchyGraph().supertypes());
+            Map<CodeUnit, Set<CodeUnit>> subUpdates =
+                    new HashMap<>(this.state.typeHierarchyGraph().subtypes());
 
             lazyHierarchy.forEachSupertype(superUpdates::put);
             lazyHierarchy.forEachSubtype(subUpdates::put);
@@ -815,7 +819,8 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         ImportGraph nextImportGraph = this.state.importGraph();
         if (!lazyImports.isEmpty()) {
-            Map<ProjectFile, Set<CodeUnit>> forwardUpdates = new HashMap<>(this.state.importGraph().imports());
+            Map<ProjectFile, Set<CodeUnit>> forwardUpdates =
+                    new HashMap<>(this.state.importGraph().imports());
             Map<ProjectFile, Set<ProjectFile>> reverseUpdates =
                     new HashMap<>(this.state.importGraph().reverseImports());
 
@@ -3367,18 +3372,19 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             synchronized (lazyHierarchy) {
                 if (!lazyHierarchy.isSubtypesPopulated) {
                     // To compute subtypes accurately for any unit, we must have computed supertypes for all classes
-                    getAllDeclarations().stream()
-                            .filter(CodeUnit::isClass)
-                            .forEach(this::getDirectAncestors);
-                    
+                    getAllDeclarations().stream().filter(CodeUnit::isClass).forEach(this::getDirectAncestors);
+
                     // Now populate the subtype cache from supertype info
                     for (var entry : this.state.codeUnitState().entrySet()) {
                         CodeUnit sub = entry.getKey();
                         if (!sub.isClass()) continue;
-                        
+
                         List<CodeUnit> supers = getDirectAncestors(sub);
                         for (CodeUnit sup : supers) {
-                            lazyHierarchy.subtypeCache.computeIfAbsent(sup, k -> ConcurrentHashMap.newKeySet()).add(sub);
+                            lazyHierarchy
+                                    .subtypeCache
+                                    .computeIfAbsent(sup, k -> ConcurrentHashMap.newKeySet())
+                                    .add(sub);
                         }
                     }
                     lazyHierarchy.isSubtypesPopulated = true;

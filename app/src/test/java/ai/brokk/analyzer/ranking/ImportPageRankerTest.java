@@ -5,9 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.IContextManager;
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.analyzer.*;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
@@ -437,21 +435,17 @@ public class ImportPageRankerTest {
                         "other_module.py")
                 .build()) {
 
-            // Manually construct MultiAnalyzer to ensure we are testing the delegation logic
-            // without relying on AnalyzerCreator's multi-language detection logic.
-            ai.brokk.analyzer.IAnalyzer javaAnalyzer = ai.brokk.analyzer.Languages.JAVA.createAnalyzer(project);
-            ai.brokk.analyzer.IAnalyzer pyAnalyzer = ai.brokk.analyzer.Languages.PYTHON.createAnalyzer(project);
-            
-            ai.brokk.analyzer.IAnalyzer multi = new ai.brokk.analyzer.MultiAnalyzer(Map.of(
-                    ai.brokk.analyzer.Languages.JAVA, javaAnalyzer,
-                    ai.brokk.analyzer.Languages.PYTHON, pyAnalyzer
-            ));
+            // Use the convenience API to create a MultiAnalyzer with Java and Python delegates
+            IAnalyzer analyzer = AnalyzerCreator.createMultiAnalyzer(project, Languages.JAVA, Languages.PYTHON);
 
-            Map<String, ProjectFile> filesByRelPath = multi.getAllDeclarations().stream()
+            Map<String, ProjectFile> filesByRelPath = analyzer.getAllDeclarations().stream()
                     .map(CodeUnit::source)
                     .distinct()
                     .collect(Collectors.toMap(
-                            f -> project.getRoot().relativize(f.absPath()).toString().replace('\\', '/'),
+                            f -> project.getRoot()
+                                    .relativize(f.absPath())
+                                    .toString()
+                                    .replace('\\', '/'),
                             f -> f));
 
             ProjectFile javaSource = filesByRelPath.get("test/Source.java");
@@ -460,7 +454,7 @@ public class ImportPageRankerTest {
             ProjectFile pyTarget = filesByRelPath.get("other_module.py");
 
             // Force update with files to ensure ImportGraph is populated for both languages
-            ai.brokk.analyzer.IAnalyzer analyzer = multi.update(Set.copyOf(filesByRelPath.values()));
+            analyzer = analyzer.update(Set.copyOf(filesByRelPath.values()));
 
             // 1. Test Java branch of MultiAnalyzer
             List<IAnalyzer.FileRelevance> javaResults =

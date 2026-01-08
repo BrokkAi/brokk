@@ -452,13 +452,15 @@ public final class TreeSitterStateIO {
         }
 
         // typeHierarchy -> DTO from TypeHierarchyGraph
-        List<SupertypeEntryDto> supertypeEntries = new ArrayList<>(state.typeHierarchyGraph().supertypes().size());
+        List<SupertypeEntryDto> supertypeEntries =
+                new ArrayList<>(state.typeHierarchyGraph().supertypes().size());
         for (var e : state.typeHierarchyGraph().supertypes().entrySet()) {
             supertypeEntries.add(new SupertypeEntryDto(
                     toDto(e.getKey()),
                     e.getValue().stream().map(TreeSitterStateIO::toDto).toList()));
         }
-        List<SubtypeEntryDto> subtypeEntries = new ArrayList<>(state.typeHierarchyGraph().subtypes().size());
+        List<SubtypeEntryDto> subtypeEntries =
+                new ArrayList<>(state.typeHierarchyGraph().subtypes().size());
         for (var e : state.typeHierarchyGraph().subtypes().entrySet()) {
             subtypeEntries.add(new SubtypeEntryDto(
                     toDto(e.getKey()),

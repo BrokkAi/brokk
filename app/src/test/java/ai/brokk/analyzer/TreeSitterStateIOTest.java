@@ -128,16 +128,15 @@ public class TreeSitterStateIOTest {
 
     @Test
     void saveIsAtomicAndLeavesNoTempFiles(@TempDir Path tempDir) throws Exception {
-        AnalyzerStateDto emptyDto =
-                new AnalyzerStateDto(
-                        Map.of(),
-                        List.of(),
-                        List.of(),
-                        List.of(),
-                        List.of(),
-                        new TreeSitterStateIO.TypeHierarchyGraphDto(List.of(), List.of()),
-                        List.of(),
-                        1L);
+        AnalyzerStateDto emptyDto = new AnalyzerStateDto(
+                Map.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                new TreeSitterStateIO.TypeHierarchyGraphDto(List.of(), List.of()),
+                List.of(),
+                1L);
         var state = TreeSitterStateIO.fromDto(emptyDto);
 
         Path out = tempDir.resolve("state.smile.gz");
