@@ -128,7 +128,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         setOpaque(false);
 
-        // Initialize components to satisfy NullAway and avoid redundant null checks
         this.baselineDropdown = new JComboBox<>(ComparisonTarget.values());
         this.baselineDropdown.setOpaque(false);
         this.baselineDropdown.addActionListener(e -> requestUpdate());
@@ -169,7 +168,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         contextManager
                 .submitBackgroundTask("Refreshing review title", () -> {
                     var state = resolveBaselineState();
-                    if (state == null) return null;
 
                     var result = computeCumulativeChanges(state.baselineLabel(), state.baselineMode());
                     SwingUtilities.invokeLater(() -> updateTitleAndTooltipFromResult(result, state.baselineLabel()));
@@ -208,17 +206,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             String currentBranch = repo.getCurrentBranch();
 
             String remoteName = repo.remote().getOriginRemoteNameWithFallback();
-            String upstreamRef = remoteName != null ? remoteName + "/" + defaultBranch : null;
+            String upstreamRefCandidate = remoteName != null ? remoteName + "/" + defaultBranch : null;
             boolean hasUpstream =
-                    upstreamRef != null && repo.listRemoteBranches().contains(upstreamRef);
+                    upstreamRefCandidate != null && repo.listRemoteBranches().contains(upstreamRefCandidate);
 
             String baseline = defaultBranch;
-            if (hasUpstream) {
+            if (hasUpstream && upstreamRefCandidate != null) {
                 // If upstream is ahead of our local default branch, use upstream as the baseline
-                String mergeBase = repo.getMergeBase(defaultBranch, upstreamRef);
+                String mergeBase = repo.getMergeBase(defaultBranch, upstreamRefCandidate);
                 if (mergeBase != null
-                        && !mergeBase.equals(repo.resolveToCommit(upstreamRef).name())) {
-                    baseline = upstreamRef;
+                        && !mergeBase.equals(
+                                repo.resolveToCommit(upstreamRefCandidate).name())) {
+                    baseline = upstreamRefCandidate;
                 }
             }
 
@@ -228,14 +227,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 return new BaselineState(BaselineMode.NON_DEFAULT_BRANCH, baseline);
             }
 
-            if (hasUpstream) {
-                return new BaselineState(BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRef);
+            if (hasUpstream && upstreamRefCandidate != null) {
+                return new BaselineState(BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRefCandidate);
             }
 
             return new BaselineState(BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD");
         } catch (Exception e) {
             logger.warn("Failed to compute baseline for changes", e);
-            return new BaselineState(BaselineMode.NO_BASELINE, "Error: " + e.getMessage());
+            String errorLabel = e.getMessage();
+            return new BaselineState(BaselineMode.NO_BASELINE, errorLabel != null ? errorLabel : "Unknown Error");
         }
     }
 
@@ -243,10 +243,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
 
         contextManager
-                .submitBackgroundTask("Computing review changes", () -> resolveBaselineState())
+                .submitBackgroundTask("Computing review changes", this::resolveBaselineState)
                 .thenCompose(state -> {
-                    if (state == null) return CompletableFuture.completedFuture(null);
-
                     lastBaselineLabel = state.baselineLabel();
                     lastBaselineMode = state.baselineMode();
 
@@ -267,11 +265,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     }
 
                     final StalenessInfo finalStaleness = staleness;
-                    final String label = lastBaselineLabel;
-                    final BaselineMode mode = lastBaselineMode;
+                    final String label = lastBaselineLabel != null ? lastBaselineLabel : "";
+                    final BaselineMode mode = lastBaselineMode != null ? lastBaselineMode : BaselineMode.NO_BASELINE;
 
                     SwingUtilities.invokeLater(() -> {
-                        updateTitleAndTooltipFromResult(result, label != null ? label : "");
+                        updateTitleAndTooltipFromResult(result, label);
                         updateContent(result, prepared, label, mode);
 
                         if (finalStaleness != null) {
@@ -431,15 +429,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        boolean hadChanges = !fileComparisons.isEmpty();
-        boolean hasChanges = res.filesChanged() > 0;
-
         // Always rebuild UI to keep structure; empty state handled inside rebuildUI
-        if (hadChanges != hasChanges || hasChanges || baselineMode == BaselineMode.NO_BASELINE) {
-            rebuildUI(res, prepared, baselineLabel, baselineMode);
-        } else {
-            rebuildUI(res, prepared, baselineLabel, baselineMode);
-        }
+        rebuildUI(res, prepared, baselineMode);
     }
 
     private String getEmptyStateMessage() {
@@ -452,16 +443,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         } else {
             return "No changes to review.";
         }
-    }
-
-    private void updateEmptyState() {
-        removeAll();
-        var none = new JLabel(getEmptyStateMessage(), SwingConstants.CENTER);
-        none.setBorder(new EmptyBorder(20, 0, 20, 0));
-        setLayout(new BorderLayout());
-        add(none, BorderLayout.CENTER);
-        revalidate();
-        repaint();
     }
 
     private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, DiffService.DiffEntry> entry) {
@@ -479,15 +460,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private void updateDropdownLabels() {
         String branchLabel = resolvedBaselineBranch != null ? resolvedBaselineBranch : "branch";
-        
+
         // Remove action listeners temporarily to avoid triggering updates while rebuilding
         var listeners = baselineDropdown.getActionListeners();
         for (var al : listeners) {
             baselineDropdown.removeActionListener(al);
         }
-        
+
         ComparisonTarget currentSelection = (ComparisonTarget) baselineDropdown.getSelectedItem();
-        
+
         baselineDropdown.removeAllItems();
         baselineDropdown.setRenderer(new DefaultListCellRenderer() {
             @Override
@@ -504,12 +485,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
         baselineDropdown.addItem(ComparisonTarget.CUMULATIVE);
         baselineDropdown.addItem(ComparisonTarget.SESSION);
-        
+
         // Restore selection without triggering listeners
         if (currentSelection != null) {
             baselineDropdown.setSelectedItem(currentSelection);
         }
-        
+
         // Re-add action listeners
         for (var al : listeners) {
             baselineDropdown.addActionListener(al);
@@ -519,7 +500,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void rebuildUI(
             DiffService.CumulativeChanges res,
             List<Map.Entry<String, DiffService.DiffEntry>> prepared,
-            @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
         diffCore.clearCache();
