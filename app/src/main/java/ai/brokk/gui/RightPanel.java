@@ -764,6 +764,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     public void requestReviewUpdate() {
         if (reviewTabComponent instanceof SessionChangesPanel scp) {
+            scp.refreshTitleAsync();
             scp.requestUpdate();
         }
     }
