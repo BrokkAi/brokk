@@ -169,7 +169,10 @@ public interface IContextManager {
 
     default Set<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
-        return allFiles.stream().filter(ContextManager::isTestFile).collect(Collectors.toSet());
+        var analyzer = getAnalyzerWrapper().getNonBlocking();
+        return allFiles.stream()
+                .filter(f -> ContextManager.isTestFile(f, analyzer))
+                .collect(Collectors.toSet());
     }
 
     default IAnalyzerWrapper getAnalyzerWrapper() {
