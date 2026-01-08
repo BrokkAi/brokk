@@ -77,6 +77,24 @@ public class ContextFragments {
 
     public static final LoggingExecutorService FRAGMENT_EXECUTOR = createFragmentExecutor();
 
+    /**
+     * Resolves skeletons for the direct ancestors of the given unit.
+     * Filters out anonymous units.
+     */
+    public static Map<CodeUnit, String> resolveAncestorSkeletons(CodeUnit unit, IAnalyzer analyzer) {
+        var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
+        if (skeletonProviderOpt.isEmpty()) {
+            return Map.of();
+        }
+
+        SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
+        Map<CodeUnit, String> skeletons = new LinkedHashMap<>();
+        analyzer.getDirectAncestors(unit).stream()
+                .filter(anc -> !anc.isAnonymous())
+                .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletons.put(anc, s)));
+        return skeletons;
+    }
+
     public static byte @Nullable [] convertToByteArray(@Nullable List<Byte> imageBytes) {
         if (imageBytes == null) {
             return null;
@@ -1672,15 +1690,14 @@ public class ContextFragments {
 
             if (skeletonProviderOpt.isPresent()) {
                 var skeletonProvider = skeletonProviderOpt.get();
+                Map<CodeUnit, String> ancestorSkeletons = new LinkedHashMap<>();
                 for (CodeUnit cu : primaryTargets) {
                     skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
+                    if (cu.isClass()) {
+                        ancestorSkeletons.putAll(resolveAncestorSkeletons(cu, analyzer));
+                    }
                 }
-                var seenAncestors = new HashSet<String>();
-                primaryTargets.stream()
-                        .filter(CodeUnit::isClass)
-                        .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
-                        .filter(anc -> seenAncestors.add(anc.fqName()))
-                        .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
+                skeletonsMap.putAll(ancestorSkeletons);
             }
 
             String text;
