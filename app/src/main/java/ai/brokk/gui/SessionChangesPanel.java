@@ -432,8 +432,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
-        // Always rebuild UI to keep structure; empty state handled inside rebuildUI
-        rebuildUI(res, prepared, baselineMode);
+        refreshUI(res, prepared, baselineMode);
     }
 
     private String getEmptyStateMessage() {
@@ -500,7 +499,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void rebuildUI(
+    private void refreshUI(
             DiffService.CumulativeChanges res,
             List<Map.Entry<String, DiffService.DiffEntry>> prepared,
             @Nullable BaselineMode baselineMode) {
@@ -620,7 +619,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         for (var al : pasteBtn.getActionListeners()) pasteBtn.removeActionListener(al);
         pasteBtn.addActionListener(e -> handlePasteReview());
-        buttonPanel.add(pasteBtn);
+        // uncomment to enable paste-for-debugging
+        // buttonPanel.add(pasteBtn);
 
         buttonPanel.add(guidedReviewBtn);
 
