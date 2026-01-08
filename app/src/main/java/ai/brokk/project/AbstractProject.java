@@ -15,7 +15,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.awt.Rectangle;
 import java.io.IOException;
-import java.nio.file.AccessDeniedException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -737,17 +736,25 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
      * Used as a fallback when Git repo exists but has no tracked files.
      * Excludes .git directory to avoid picking up Git internal files.
      */
+    @org.jetbrains.annotations.Blocking
     private Set<ProjectFile> getFilesystemFiles() {
         var filesystemFiles = new HashSet<ProjectFile>();
         try {
             Files.walkFileTree(root, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                    // Skip .git directory
-                    if (dir.getFileName() != null
-                            && dir.getFileName().toString().equals(".git")) {
-                        return FileVisitResult.SKIP_SUBTREE;
+                    if (dir.getFileName() != null) {
+                        var name = dir.getFileName().toString();
+                        // Skip Git metadata
+                        if (name.equals(".git")) {
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
+                        // Skip Brokk metadata
+                        if (name.equals(".brokk")) {
+                            return FileVisitResult.SKIP_SUBTREE;
+                        }
                     }
+                    // Skip unreadable directories
                     if (!Files.isReadable(dir)) {
                         logger.warn("Skipping inaccessible directory: {}", dir);
                         return FileVisitResult.SKIP_SUBTREE;
@@ -757,7 +764,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    if (Files.isRegularFile(file)) {
+                    // Use attrs.isRegularFile() - more efficient and consistent
+                    // BasicFileAttributes already resolved by walkFileTree (follows symlinks by default)
+                    if (attrs.isRegularFile()) {
                         var relPath = root.relativize(file);
                         filesystemFiles.add(new ProjectFile(root, relPath));
                     }
@@ -766,15 +775,10 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
 
                 @Override
                 public FileVisitResult visitFileFailed(Path file, IOException exc) {
-                    if (exc instanceof AccessDeniedException) {
-                        logger.warn("Skipping inaccessible file/directory: {}", file, exc);
-                        if (Files.isDirectory(file)) {
-                            return FileVisitResult.SKIP_SUBTREE;
-                        }
-                        return FileVisitResult.CONTINUE;
-                    }
-                    logger.error("Error visiting file: {}", file, exc);
-                    return FileVisitResult.CONTINUE;
+                    // Log and skip - don't make additional I/O calls in error handler
+                    logger.warn("Failed to access path: {}", file, exc);
+                    // Return SKIP_SUBTREE for safety (works for both files and directories)
+                    return FileVisitResult.SKIP_SUBTREE;
                 }
             });
         } catch (IOException e) {
