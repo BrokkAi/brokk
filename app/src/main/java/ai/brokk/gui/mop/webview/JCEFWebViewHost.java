@@ -1,6 +1,7 @@
 package ai.brokk.gui.mop.webview;
 
 import ai.brokk.ContextManager;
+import ai.brokk.DependencyException;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.ThemeColors;
@@ -196,7 +197,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                               Arch:          sudo pacman -S nss atk gtk3 mesa
                             """
                                     .formatted(libName);
-                    return new RuntimeException(instructions, ule);
+                    return new DependencyException(instructions, ule);
                 }
             }
             cause = cause.getCause();

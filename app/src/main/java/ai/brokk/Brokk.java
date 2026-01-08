@@ -849,15 +849,24 @@ public class Brokk {
                 .exceptionally(ex -> {
                     logger.error(
                             "Exception during project opening pipeline for {}: {}", projectPath, ex.getMessage(), ex);
-                    Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
-                    String errorMessage =
-                            """
-                                          A critical error occurred while trying to open the project:
-                                          %s
+                    // Walk the cause chain to find the most informative message
+                    // (e.g., our friendly Linux library error messages)
+                    var userMessage = findUserFriendlyMessage(ex);
+                    String errorMessage;
+                    if (userMessage != null) {
+                        // Use the friendly message directly without extra wrapper
+                        errorMessage = userMessage;
+                    } else {
+                        Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                        errorMessage =
+                                """
+                                A critical error occurred while trying to open the project:
+                                %s
 
-                                          Please check the logs at ~/.brokk/debug.log and consider filing a bug report.
-                                          """
-                                    .formatted(cause.getMessage());
+                                Please check the logs at ~/.brokk/debug.log and consider filing a bug report.
+                                """
+                                        .formatted(cause.getMessage());
+                    }
                     SwingUtil.runOnEdt(() -> {
                         hideSplashScreen(); // Hide splash before showing error dialog
                         JOptionPane.showMessageDialog(
@@ -868,6 +877,20 @@ public class Brokk {
                 });
 
         return openCompletionFuture;
+    }
+
+    /**
+     * Walk the exception cause chain looking for DependencyException.
+     */
+    private static @Nullable String findUserFriendlyMessage(Throwable ex) {
+        Throwable current = ex;
+        while (current != null) {
+            if (current instanceof DependencyException) {
+                return current.getMessage();
+            }
+            current = current.getCause();
+        }
+        return null;
     }
 
     private static void performWindowClose(Path projectPath) {
