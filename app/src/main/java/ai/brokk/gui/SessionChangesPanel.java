@@ -26,8 +26,6 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
-import java.awt.event.ActionEvent;
-import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.HashMap;
@@ -37,8 +35,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import javax.swing.*;
-import javax.swing.AbstractAction;
-import javax.swing.KeyStroke;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.LineBorder;
@@ -96,6 +92,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialProgressButton guidedReviewBtn;
 
+    private final MaterialButton pasteBtn;
+
     private boolean guidedReviewBusy = false;
 
     private boolean hasGeneratedReview = false;
@@ -142,6 +140,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.pushBtn = new MaterialButton("Push");
         this.prBtn = new MaterialButton("Create PR");
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
+        this.pasteBtn = new MaterialButton("Paste Review");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -159,8 +158,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
         this.diffCore = new ai.brokk.difftool.ui.DiffDisplayCore(
                 initialDummyPanel, contextManager, chrome.getTheme(), List.of(), false, 0);
-
-        registerPasteAction();
     }
 
     public void requestUpdate() {
@@ -621,6 +618,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         prBtn.setVisible(showPR);
         buttonPanel.add(prBtn);
 
+        for (var al : pasteBtn.getActionListeners()) pasteBtn.removeActionListener(al);
+        pasteBtn.addActionListener(e -> handlePasteReview());
+        buttonPanel.add(pasteBtn);
+
         buttonPanel.add(guidedReviewBtn);
 
         headerPanel.add(buttonPanel, BorderLayout.EAST);
@@ -978,21 +979,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private void registerPasteAction() {
-        var inputMap = getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
-        var actionMap = getActionMap();
-
-        KeyStroke pasteKey = KeyStroke.getKeyStroke(
-                KeyEvent.VK_V, Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx());
-        inputMap.put(pasteKey, "pasteReview");
-        actionMap.put("pasteReview", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                handlePasteReview();
-            }
-        });
-    }
-
     private void handlePasteReview() {
         try {
             var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
@@ -1030,9 +1016,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private @Nullable String extractReviewJson(String text) {
         String trimmed = text.trim();
 
-        // Check for ToolExecutionRequest wrapper format
-        // Format: ToolExecutionRequest { id = "...", name = "createReview", arguments = "..." }
-        if (trimmed.startsWith("ToolExecutionRequest")) {
+        // Check for ToolExecutionRequest toString() format
+        // Format: { id = "...", name = "createReview", arguments = "{...}" }
+        // The outer braces use = instead of : and the arguments value is an escaped JSON string
+        if (trimmed.startsWith("{") && trimmed.contains("name = \"createReview\"")) {
             // Find arguments = " and extract the JSON string
             int argsStart = trimmed.indexOf("arguments = \"");
             if (argsStart == -1) {
@@ -1040,15 +1027,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
             argsStart += "arguments = \"".length();
 
-            // Find the closing quote, handling escaped quotes
-            int argsEnd = findClosingQuote(trimmed, argsStart);
-            if (argsEnd == -1) {
-                return null;
+            // Find the closing quote - it's the last " before the final " }"
+            // The arguments string ends with "}" so we look for "}" }
+            int argsEnd = trimmed.lastIndexOf("\" }");
+            if (argsEnd == -1 || argsEnd <= argsStart) {
+                // Try just finding the last quote before end
+                argsEnd = trimmed.lastIndexOf("\"");
+                if (argsEnd <= argsStart) {
+                    return null;
+                }
             }
 
             String escaped = trimmed.substring(argsStart, argsEnd);
-            // Unescape the JSON string (it's double-escaped in the wrapper)
-            return unescapeJson(escaped);
+            return unescapeToolCallJson(escaped);
         }
 
         // Try parsing as raw JSON (starts with { and contains expected fields)
@@ -1059,25 +1050,55 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         return null;
     }
 
-    private int findClosingQuote(String text, int startIndex) {
-        for (int i = startIndex; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == '\\' && i + 1 < text.length()) {
-                i++; // Skip escaped character
-            } else if (c == '"') {
-                return i;
+    private String unescapeToolCallJson(String escaped) {
+        var sb = new StringBuilder(escaped.length());
+        for (int i = 0; i < escaped.length(); i++) {
+            char c = escaped.charAt(i);
+            if (c == '\\' && i + 1 < escaped.length()) {
+                char next = escaped.charAt(i + 1);
+                switch (next) {
+                    case '"' -> {
+                        sb.append('"');
+                        i++;
+                    }
+                    case '\\' -> {
+                        sb.append('\\');
+                        i++;
+                    }
+                    case 'n' -> {
+                        sb.append('\n');
+                        i++;
+                    }
+                    case 'r' -> {
+                        sb.append('\r');
+                        i++;
+                    }
+                    case 't' -> {
+                        sb.append('\t');
+                        i++;
+                    }
+                    case 'u' -> {
+                        // Unicode escape sequence
+                        if (i + 5 < escaped.length()) {
+                            String hex = escaped.substring(i + 2, i + 6);
+                            try {
+                                int codePoint = Integer.parseInt(hex, 16);
+                                sb.append((char) codePoint);
+                                i += 5;
+                            } catch (NumberFormatException e) {
+                                sb.append(c);
+                            }
+                        } else {
+                            sb.append(c);
+                        }
+                    }
+                    default -> sb.append(c);
+                }
+            } else {
+                sb.append(c);
             }
         }
-        return -1;
-    }
-
-    private String unescapeJson(String escaped) {
-        // Handle common escape sequences in JSON strings
-        return escaped.replace("\\\"", "\"")
-                .replace("\\\\", "\\")
-                .replace("\\n", "\n")
-                .replace("\\r", "\r")
-                .replace("\\t", "\t");
+        return sb.toString();
     }
 
     @Override
