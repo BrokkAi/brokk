@@ -3876,22 +3876,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Combined post-processing pipeline. Delegates to runTypeAnalysis to pre-compute 
-     * hierarchies if the analyzer supports them.
+     * Combined post-processing pipeline. Performs type analysis to pre-compute hierarchies
+     * and build the subtype graph.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        return runTypeAnalysis(baseState);
-    }
-
-
-    /**
-     * Performs type analysis (direct supertypes) as a standalone step. Produces a new AnalyzerState with updated codeUnitState.supertypes.
-     */
-    protected AnalyzerState runTypeAnalysis(AnalyzerState baseState) {
         // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
         TreeSitterAnalyzer delegateForTypes = (TreeSitterAnalyzer) newSnapshot(baseState);
 
         Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new ConcurrentHashMap<>(baseState.codeUnitState());
+        Map<CodeUnit, List<CodeUnit>> supertypeMap = new ConcurrentHashMap<>();
+        Map<CodeUnit, Set<CodeUnit>> subtypeMap = new ConcurrentHashMap<>();
 
         // Count total classes to process
         int totalClasses = (int) baseState.codeUnitState().keySet().stream()
@@ -3908,6 +3902,16 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                                     CodeUnit cu = entry.getKey();
                                     CodeUnitProperties props = entry.getValue();
                                     List<CodeUnit> supers = delegateForTypes.computeSupertypes(cu);
+
+                                    if (!supers.isEmpty()) {
+                                        supertypeMap.put(cu, supers);
+                                        for (CodeUnit sup : supers) {
+                                            subtypeMap
+                                                    .computeIfAbsent(sup, k -> ConcurrentHashMap.newKeySet())
+                                                    .add(cu);
+                                        }
+                                    }
+
                                     SuperTypeInfo info = new SuperTypeInfo.Computed(supers);
                                     if (!Objects.equals(props.superTypes(), info)) {
                                         updatedCodeUnitState.put(
@@ -3934,7 +3938,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 HashTreePMap.from(updatedCodeUnitState),
                 baseState.fileState(),
                 baseState.importGraph(),
-                baseState.typeHierarchyGraph(),
+                TypeHierarchyGraph.from(supertypeMap, subtypeMap),
                 baseState.symbolKeyIndex(),
                 baseState.snapshotEpochNanos());
     }
