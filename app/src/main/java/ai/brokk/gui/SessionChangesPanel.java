@@ -186,20 +186,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private record BaselineState(BaselineMode baselineMode, String baselineLabel) {}
 
     private enum ComparisonTarget {
-        CUMULATIVE("Cumulative Changes"),
-        SESSION("Changes this Session");
-
-        private final String label;
-
-        ComparisonTarget(String label) {
-            this.label = label;
-        }
-
-        @Override
-        public String toString() {
-            return label;
-        }
+        CUMULATIVE,
+        SESSION;
     }
+
+    private @Nullable String resolvedBaselineBranch = null;
 
     private BaselineState resolveBaselineState() {
         try {
@@ -207,7 +198,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             if (target == ComparisonTarget.SESSION) {
                 var firstSessionCommit = contextManager.getContextHistory().getFirstGitState();
                 if (firstSessionCommit.isPresent()) {
-                    return new BaselineState(BaselineMode.SESSION, firstSessionCommit.get().commitHash());
+                    return new BaselineState(
+                            BaselineMode.SESSION, firstSessionCommit.get().commitHash());
                 }
                 return new BaselineState(BaselineMode.NO_BASELINE, "No session start found");
             }
@@ -229,6 +221,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     baseline = upstreamRef;
                 }
             }
+
+            resolvedBaselineBranch = baseline;
 
             if (!currentBranch.equals(defaultBranch)) {
                 return new BaselineState(BaselineMode.NON_DEFAULT_BRANCH, baseline);
@@ -440,26 +434,29 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         boolean hadChanges = !fileComparisons.isEmpty();
         boolean hasChanges = res.filesChanged() > 0;
 
-        if (hadChanges != hasChanges || hasChanges) {
+        // Always rebuild UI to keep structure; empty state handled inside rebuildUI
+        if (hadChanges != hasChanges || hasChanges || baselineMode == BaselineMode.NO_BASELINE) {
             rebuildUI(res, prepared, baselineLabel, baselineMode);
         } else {
-            updateEmptyState();
+            rebuildUI(res, prepared, baselineLabel, baselineMode);
+        }
+    }
+
+    private String getEmptyStateMessage() {
+        if (BaselineMode.NO_BASELINE == lastBaselineMode) {
+            return "No baseline to compare";
+        } else if ("HEAD".equals(lastBaselineLabel)) {
+            return "Working tree is clean (no uncommitted changes).";
+        } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
+            return "No changes vs " + lastBaselineLabel + ".";
+        } else {
+            return "No changes to review.";
         }
     }
 
     private void updateEmptyState() {
         removeAll();
-        String message;
-        if (BaselineMode.NO_BASELINE == lastBaselineMode) {
-            message = "No baseline to compare";
-        } else if ("HEAD".equals(lastBaselineLabel)) {
-            message = "Working tree is clean (no uncommitted changes).";
-        } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
-            message = "No changes vs " + lastBaselineLabel + ".";
-        } else {
-            message = "No changes to review.";
-        }
-        var none = new JLabel(message, SwingConstants.CENTER);
+        var none = new JLabel(getEmptyStateMessage(), SwingConstants.CENTER);
         none.setBorder(new EmptyBorder(20, 0, 20, 0));
         setLayout(new BorderLayout());
         add(none, BorderLayout.CENTER);
@@ -480,6 +477,26 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null));
     }
 
+    private void updateDropdownLabels() {
+        String branchLabel = resolvedBaselineBranch != null ? resolvedBaselineBranch : "branch";
+        baselineDropdown.removeAllItems();
+        baselineDropdown.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value == ComparisonTarget.CUMULATIVE) {
+                    setText("Changes vs " + branchLabel);
+                } else if (value == ComparisonTarget.SESSION) {
+                    setText("Changes this Session");
+                }
+                return this;
+            }
+        });
+        baselineDropdown.addItem(ComparisonTarget.CUMULATIVE);
+        baselineDropdown.addItem(ComparisonTarget.SESSION);
+    }
+
     private void rebuildUI(
             DiffService.CumulativeChanges res,
             List<Map.Entry<String, DiffService.DiffEntry>> prepared,
@@ -489,10 +506,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         diffCore.clearCache();
         removeAll();
 
-        if (res.filesChanged() == 0) {
-            updateEmptyState();
-            return;
-        }
+        updateDropdownLabels();
 
         var headerPanel = new JPanel(new BorderLayout(8, 0));
         headerPanel.setOpaque(false);
@@ -500,17 +514,31 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         var leftHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         leftHeader.setOpaque(false);
 
-        JLabel compareLabel = new JLabel("Changes:");
-        compareLabel.setFont(compareLabel.getFont().deriveFont(Font.BOLD));
-        leftHeader.add(compareLabel);
         leftHeader.add(baselineDropdown);
 
-        String baselineInfo = (baselineLabel != null && !baselineLabel.isEmpty()) ? " (vs " + baselineLabel + ")" : "";
-        JLabel infoLabel = new JLabel(baselineInfo);
-        infoLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
-        leftHeader.add(infoLabel);
-
         headerPanel.add(leftHeader, BorderLayout.WEST);
+
+        if (res.filesChanged() == 0 || baselineMode == BaselineMode.NO_BASELINE) {
+            var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+            buttonPanel.setOpaque(false);
+            headerPanel.add(buttonPanel, BorderLayout.EAST);
+
+            var topContainer = new JPanel(new BorderLayout(0, 6));
+            topContainer.setOpaque(false);
+            topContainer.add(headerPanel, BorderLayout.NORTH);
+
+            var emptyLabel = new JLabel(getEmptyStateMessage(), SwingConstants.CENTER);
+            emptyLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
+            topContainer.add(emptyLabel, BorderLayout.CENTER);
+
+            setBorder(new CompoundBorder(
+                    new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
+            add(topContainer, BorderLayout.CENTER);
+
+            revalidate();
+            repaint();
+            return;
+        }
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         buttonPanel.setOpaque(false);
