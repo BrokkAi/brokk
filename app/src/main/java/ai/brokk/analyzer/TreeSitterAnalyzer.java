@@ -3792,69 +3792,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Combined post-processing pipeline: delegates to runImportResolution
-     * without rebinding this.state. Each step returns a new AnalyzerState snapshot.
+     * Combined post-processing pipeline. Delegates to runTypeAnalysis to pre-compute 
+     * hierarchies if the analyzer supports them.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        return runImportResolution(baseState);
+        return runTypeAnalysis(baseState);
     }
 
-    /**
-     * Performs import resolution as a standalone step. Produces a new AnalyzerState with updated forward
-     * and reverse import maps.
-     */
-    protected AnalyzerState runImportResolution(AnalyzerState baseState) {
-        // Create a delegate snapshot to use for resolution (provides access to symbol indexes, etc.)
-        TreeSitterAnalyzer delegateForImports = (TreeSitterAnalyzer) newSnapshot(baseState);
-
-        Map<ProjectFile, Set<CodeUnit>> resolvedImportsMap = new ConcurrentHashMap<>();
-
-        int totalFiles = baseState.fileState().size();
-        var progressReporter = new DebouncedProgressReporter(totalFiles, "Resolving imports", 100);
-
-        int parallelism = Runtime.getRuntime().availableProcessors();
-        try (var fjp = new java.util.concurrent.ForkJoinPool(parallelism)) {
-            fjp.submit(() -> {
-                        baseState.fileState().entrySet().parallelStream().forEach(entry -> {
-                            ProjectFile file = entry.getKey();
-                            FileProperties fileProps = entry.getValue();
-                            Set<CodeUnit> resolved =
-                                    delegateForImports.resolveImports(file, fileProps.importStatements());
-                            if (!resolved.isEmpty()) {
-                                resolvedImportsMap.put(file, Collections.unmodifiableSet(new HashSet<>(resolved)));
-                            }
-                            progressReporter.increment();
-                        });
-                    })
-                    .join();
-
-            // Final progress update
-            progressReporter.reportFinal();
-        }
-
-        // Compute reverse imports (files -> set of files that import them)
-        Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
-        resolvedImportsMap.forEach((importer, importedCUs) -> {
-            for (CodeUnit cu : importedCUs) {
-                reverseImportsMap
-                        .computeIfAbsent(cu.source(), k -> new HashSet<>())
-                        .add(importer);
-            }
-        });
-
-        // Convert to immutable maps
-        Map<ProjectFile, Set<CodeUnit>> immutableForward = new HashMap<>(resolvedImportsMap);
-        Map<ProjectFile, Set<ProjectFile>> immutableReverse = new HashMap<>();
-        reverseImportsMap.forEach((k, v) -> immutableReverse.put(k, Collections.unmodifiableSet(v)));
-
-        return new AnalyzerState(
-                baseState.symbolIndex(),
-                baseState.codeUnitState(),
-                baseState.fileState(),
-                ImportGraph.from(immutableForward, immutableReverse),
-                baseState.symbolKeyIndex(),
-                baseState.snapshotEpochNanos());
-    }
 
     /**
      * Performs type analysis (direct supertypes) as a standalone step. Produces a new AnalyzerState with updated codeUnitState.supertypes.
