@@ -1,6 +1,5 @@
 package ai.brokk.project;
 
-import ai.brokk.ExceptionReporter;
 import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;

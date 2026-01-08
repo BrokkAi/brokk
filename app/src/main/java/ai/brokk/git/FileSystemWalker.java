@@ -35,7 +35,8 @@ public class FileSystemWalker {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
                     // Skip directories in the exclusion list
-                    if (dir.getFileName() != null && skipDirs.contains(dir.getFileName().toString())) {
+                    if (dir.getFileName() != null
+                            && skipDirs.contains(dir.getFileName().toString())) {
                         return FileVisitResult.SKIP_SUBTREE;
                     }
                     // Skip unreadable directories

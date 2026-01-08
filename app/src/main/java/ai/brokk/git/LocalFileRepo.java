@@ -6,13 +6,10 @@ import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Set;
 import javax.annotation.Nullable;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 
 /** Implements portions of the IGitRepo for a project directory that is not git-enabled. */
 public class LocalFileRepo implements IGitRepo {
-    private static final Logger logger = LogManager.getLogger(LocalFileRepo.class);
     private final Path root;
 
     @Nullable
