@@ -34,6 +34,8 @@
     <button id="toggle-wrap-btn" onclick="toggleCodeWrap()">Toggle Code Wrap</button>
     <span id="wrap-mode-status" style="margin-left:6px; color:#666;">(scroll)</span>
     <button onclick="showAllCodeblockCases()">Show All Code Block Cases</button>
+    <button onclick="showStaticDocument()">Show Static Document</button>
+    <button onclick="clearStaticDocument()">Clear Static Document</button>
     <h3>Search Tools</h3>
     <input type="text" id="search-query-input" placeholder="Search query" style="width: 200px; margin-right: 5px;">
     <label><input type="checkbox" id="search-case-sensitive"> Case Sensitive</label>
@@ -332,6 +334,38 @@ Both approaches:
         simulateEvent('chunk', {text: "Just a little bit of reasoning...\nNow I am finished!", msgType: 'AI', streaming: false, reasoning: true})
         simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false, reasoning: false})
         simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false, reasoning: false})
+    }
+
+    function showStaticDocument() {
+        const staticContent = `# Static Document Demo
+
+This is a **static document** that replaces the chat view.
+
+## Features
+- Displays read-only markdown content
+- Replaces the normal chat bubbles
+- Can be cleared to return to chat view
+
+## Code Example
+\`\`\`java
+public class StaticDemo {
+    public static void main(String[] args) {
+        System.out.println("Hello from static document!");
+    }
+}
+\`\`\`
+
+## Symbol Test
+Try clicking these: \`String\`, \`List\`, \`HashMap\`
+
+---
+*Click "Clear Static Document" to return to normal chat view.*`;
+
+        simulateEvent('static-document', { markdown: staticContent });
+    }
+
+    function clearStaticDocument() {
+        simulateEvent('static-document', { markdown: null });
     }
 
 
