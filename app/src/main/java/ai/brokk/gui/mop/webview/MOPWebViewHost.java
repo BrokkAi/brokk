@@ -184,7 +184,7 @@ public final class MOPWebViewHost extends JPanel {
             webViewRef.set(view); // Store reference for later theme updates
             var scene = new Scene(view);
             requireNonNull(fxPanel).setScene(scene);
-            var bridge = new MOPBridge(view.getEngine());
+            var bridge = new MOPBridge(view.getEngine(), this.showEmptyState);
             if (contextManager != null) {
                 bridge.setContextManager(contextManager);
             }

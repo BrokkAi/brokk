@@ -58,7 +58,12 @@ public final class MOPBridge {
     private volatile boolean showEmptyState = false;
 
     public MOPBridge(WebEngine engine) {
+        this(engine, false);
+    }
+
+    public MOPBridge(WebEngine engine, boolean showEmptyState) {
         this.engine = engine;
+        this.showEmptyState = showEmptyState;
         this.xmit = Executors.newSingleThreadScheduledExecutor(r -> {
             var t = new Thread(r, "MOPBridge-" + this.hashCode());
             t.setDaemon(true);
