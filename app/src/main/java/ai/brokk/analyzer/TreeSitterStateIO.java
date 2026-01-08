@@ -565,17 +565,15 @@ public final class TreeSitterStateIO {
         // Rebuild TypeHierarchyGraph
         Map<CodeUnit, List<CodeUnit>> supertypesMap = new HashMap<>();
         Map<CodeUnit, Set<CodeUnit>> subtypesMap = new HashMap<>();
-        if (dto.typeHierarchy() != null) {
-            for (var entry : dto.typeHierarchy().supertypes()) {
-                supertypesMap.put(
-                        fromDto(entry.key()),
-                        entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
-            }
-            for (var entry : dto.typeHierarchy().subtypes()) {
-                subtypesMap.put(
-                        fromDto(entry.key()),
-                        entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
-            }
+        for (var entry : dto.typeHierarchy().supertypes()) {
+            supertypesMap.put(
+                    fromDto(entry.key()),
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
+        }
+        for (var entry : dto.typeHierarchy().subtypes()) {
+            subtypesMap.put(
+                    fromDto(entry.key()),
+                    entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
         }
 
         // Rebuild SymbolKeyIndex

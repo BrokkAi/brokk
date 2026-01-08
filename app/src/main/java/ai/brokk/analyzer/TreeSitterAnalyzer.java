@@ -132,7 +132,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     private final AnalyzerState state;
 
     // Stage timing captured during construction
-    private volatile @Nullable StageTiming stageTiming;
+    private final @Nullable StageTiming stageTiming;
 
     /**
      * Properties for a given {@link ProjectFile} for {@link TreeSitterAnalyzer}.
@@ -204,10 +204,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         boolean isEmpty() {
             return forwardCache.isEmpty();
-        }
-
-        int size() {
-            return forwardCache.size();
         }
 
         void forEachForward(BiConsumer<? super ProjectFile, ? super Set<CodeUnit>> action) {
