@@ -1,6 +1,7 @@
 package ai.brokk;
 
 import static ai.brokk.SessionManager.SessionInfo;
+import static ai.brokk.context.ContextHistory.SNAPSHOT_AWAIT_TIMEOUT;
 import static java.lang.Math.max;
 import static java.util.Objects.requireNonNull;
 
@@ -1621,8 +1622,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Set<ProjectFile> allReferenced = new HashSet<>();
         for (var f : fragments) {
             try {
-                var files =
-                        f.files().await(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
+                var files = f.files().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
                 allReferenced.addAll(files);
             } catch (TimeoutException te) {
                 logger.warn("Timed out waiting for files() of fragment {}", f.id());
@@ -1893,6 +1893,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
         analyzerWrapper.pause();
+        try {
+            liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         try {
             return callable.call();
         } catch (Exception e) {
@@ -2175,6 +2180,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
             taskScopeInProgress.set(true);
 
             analyzerWrapper.pause();
+            try {
+                liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
 
         /**

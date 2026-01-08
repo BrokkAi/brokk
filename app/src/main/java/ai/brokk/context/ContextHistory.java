@@ -177,7 +177,7 @@ public class ContextHistory {
                     if (Objects.equals(snapshot, updated)) {
                         return snapshot;
                     }
-                    pushContextInternal(updated, true);
+                    pushContextInternal(updated);
                     return liveContext();
                 }
             }
@@ -208,7 +208,7 @@ public class ContextHistory {
      * Push {@code ctx}, select it, and clear redo stack.
      */
     public synchronized void pushContext(Context ctx) {
-        pushContextInternal(ctx, true);
+        pushContextInternal(ctx);
     }
 
     @Blocking
@@ -234,7 +234,7 @@ public class ContextHistory {
         if (isContinuation) {
             replaceTopInternal(updatedLive);
         } else {
-            pushContextInternal(updatedLive, false);
+            pushContextInternal(updatedLive);
         }
         lastExternalChangeId = updatedLive.id();
         return updatedLive;
@@ -427,25 +427,11 @@ public class ContextHistory {
     /**
      * Internal helper to push a context with control over whether to capture a snapshot immediately.
      */
-    private synchronized void pushContextInternal(Context ctx, boolean snapshotNow) {
+    private synchronized void pushContextInternal(Context ctx) {
         history.addLast(ctx);
-        if (snapshotNow) {
-            snapshotContext(ctx);
-        }
         truncateHistory();
         redo.clear();
         selected = ctx;
-    }
-
-    /**
-     * Performs synchronous snapshotting of the given context to ensure stable, historical restoration.
-     */
-    private void snapshotContext(Context ctx) {
-        try {
-            ctx.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     private Set<UUID> getContextIds() {
