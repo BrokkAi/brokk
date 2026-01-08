@@ -7,8 +7,9 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.mop.webview.IWebViewHost;
+import ai.brokk.gui.mop.webview.JCEFWebViewHost;
 import ai.brokk.gui.mop.webview.MOPBridge;
-import ai.brokk.gui.mop.webview.MOPWebViewHost;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
@@ -37,7 +38,7 @@ import org.jetbrains.annotations.Nullable;
 public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollable, IContextManager.AnalyzerCallback {
     private static final Logger logger = LogManager.getLogger(MarkdownOutputPanel.class);
 
-    private final MOPWebViewHost webHost;
+    private final IWebViewHost webHost;
     private boolean taskInProgress = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
@@ -72,9 +73,23 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public MarkdownOutputPanel(boolean escapeHtml) {
         super(new BorderLayout());
-        logger.info("Initializing WebView-based MarkdownOutputPanel");
-        this.webHost = new MOPWebViewHost();
-        add(webHost, BorderLayout.CENTER);
+        String javaVersion = System.getProperty("java.version");
+        String javaVendor = System.getProperty("java.vendor");
+        boolean isJBR = javaVendor != null && javaVendor.contains("JetBrains");
+
+        System.out.printf(
+                "*** MarkdownOutputPanel using JCEF (%s %s%s) ***%n",
+                isJBR ? "JBR" : "JDK", javaVersion, isJBR ? "" : " - requires JBR for full JCEF support");
+        logger.info("Initializing JCEF-based MarkdownOutputPanel (Java {}, vendor: {})", javaVersion, javaVendor);
+
+        // Set background to match theme to avoid white flash while JCEF loads
+        String themeName = MainProject.getTheme();
+        boolean isDark = !"BrokkLight".equals(themeName) && !"BrokkLightPlus".equals(themeName);
+        setOpaque(true);
+        setBackground(ThemeColors.getColor(isDark, ThemeColors.CHAT_BACKGROUND));
+
+        this.webHost = new JCEFWebViewHost();
+        add(webHost.getComponent(), BorderLayout.CENTER);
     }
 
     public MarkdownOutputPanel() {

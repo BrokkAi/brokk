@@ -188,22 +188,30 @@ public class Brokk {
             }
         }
 
-        // Initialize JavaFX platform to prevent deadlocks during MOPWebViewHost creation
-        // See: https://docs.oracle.com/javase/8/javafx/interoperability-tutorial/swing-fx-interoperability.htm
-        try {
-            Platform.startup(() -> {});
-            // Prevent JavaFX thread from dying when JFXPanels are removed/hidden
-            Platform.setImplicitExit(false);
-            logger.debug("JavaFX platform initialized at startup");
-        } catch (IllegalStateException e) {
-            var message = e.getMessage();
-            if (message != null && message.contains("Toolkit already initialized")) {
-                logger.debug("JavaFX platform already initialized");
-                // Still set implicit exit to false even if already initialized
+        // JavaFX initialization handled conditionally by initializeJavaFxIfNeeded()
+    }
+
+    /**
+     * Initializes JavaFX Platform if needed based on brokk.webview.impl system property.
+     * Must be called before any GUI creation.
+     */
+    private static void initializeJavaFxIfNeeded() {
+        var webviewImpl = System.getProperty("brokk.webview.impl", "jcef");
+        if ("javafx".equalsIgnoreCase(webviewImpl)) {
+            try {
+                Platform.startup(() -> {});
                 Platform.setImplicitExit(false);
-            } else {
-                logger.warn("Failed to initialize JavaFX platform: {}", message);
+                logger.info("JavaFX Platform initialized (brokk.webview.impl=javafx)");
+            } catch (IllegalStateException e) {
+                var msg = e.getMessage();
+                if (msg == null || !msg.contains("Toolkit already initialized")) {
+                    throw e;
+                }
+                // Platform already initialized - this is fine
+                logger.debug("JavaFX Platform was already initialized");
             }
+        } else {
+            logger.debug("Using JCEF WebView (brokk.webview.impl={})", webviewImpl);
         }
     }
 
@@ -437,6 +445,7 @@ public class Brokk {
         BrokkConfigPaths.attemptMigration();
 
         setupSystemPropertiesAndIcon();
+        initializeJavaFxIfNeeded();
 
         if (MainProject.initializeOomFlag()) {
             logger.warn("Detected OutOfMemoryError from last session, clearing active sessions.");

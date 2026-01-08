@@ -100,4 +100,19 @@ public sealed interface BrokkEvent {
             return epoch;
         }
     }
+
+    /**
+     * Sets the theme for the frontend.
+     */
+    record Theme(int epoch, String themeName, boolean isDevMode, boolean wrapMode) implements BrokkEvent {
+        @Override
+        public String getType() {
+            return "theme";
+        }
+
+        @Override
+        public Integer getEpoch() {
+            return epoch;
+        }
+    }
 }

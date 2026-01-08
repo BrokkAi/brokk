@@ -96,7 +96,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // Output components
     private final MarkdownOutputPanel llmStreamArea;
-    private final JScrollPane llmScrollPane;
 
     @SuppressWarnings("NullAway.Init") // Initialized in constructor
     private JTabbedPane activityTabs;
@@ -188,7 +187,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Build combined Output + Instructions panel (Center)
         this.llmStreamArea = new MarkdownOutputPanel();
         this.llmStreamArea.withContextForLookups(contextManager, chrome);
-        this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
+        // Add text change listener to update capture buttons
+        this.llmStreamArea.addTextChangeListener(chrome::updateCaptureButtons);
         this.copyButton = new MaterialButton();
         this.clearButton = new MaterialButton();
         this.captureButton = new MaterialButton();
@@ -199,7 +199,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         this.compressButton = new MaterialButton();
         this.notificationAreaPanel = buildNotificationAreaPanel();
 
-        var centerPanel = buildCombinedOutputInstructionsPanel(this.llmScrollPane, this.copyButton);
+        var centerPanel = buildCombinedOutputInstructionsPanel(this.llmStreamArea, this.copyButton);
 
         // Initialize notification persistence and load saved notifications
         this.notificationsFile = computeNotificationsFile();
@@ -279,7 +279,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         sessionSwitchPanel.add(contentPanel, BorderLayout.NORTH);
     }
 
-    private JPanel buildCombinedOutputInstructionsPanel(JScrollPane llmScrollPane, MaterialButton copyButton) {
+    private JPanel buildCombinedOutputInstructionsPanel(MarkdownOutputPanel llmStreamArea, MaterialButton copyButton) {
         assert SwingUtilities.isEventDispatchThread() : "buildCombinedOutputInstructionsPanel must be called on EDT";
 
         // Build capture output panel (copyButton is passed in)
@@ -289,11 +289,17 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         var outputPanel = new JPanel(new BorderLayout());
         outputPanel.setBorder(BorderFactory.createEtchedBorder());
 
-        outputPanel.add(llmScrollPane, BorderLayout.CENTER);
+        // Set backgrounds to match theme to avoid white flash
+        var bg = llmStreamArea.getBackground();
+        outputPanel.setBackground(bg);
+
+        // Add MarkdownOutputPanel directly (JCEF handles its own scrolling)
+        outputPanel.add(llmStreamArea, BorderLayout.CENTER);
         outputPanel.add(capturePanel, BorderLayout.SOUTH); // Add capture panel below LLM output
 
         // Container for the output area
         var centerContainer = new JPanel(new BorderLayout());
+        centerContainer.setBackground(bg);
         centerContainer.add(outputPanel, BorderLayout.CENTER);
         centerContainer.setMinimumSize(new Dimension(480, 0)); // Minimum width for output area
         llmOutputContainer = centerContainer;
@@ -833,26 +839,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     public JPanel getLlmOutputContainer() {
         return llmOutputContainer;
     }
-
-    /**
-     * Builds the LLM streaming area where markdown output is displayed
-     */
-    private JScrollPane buildLLMStreamScrollPane(MarkdownOutputPanel llmStreamArea) {
-        // Wrap it in a scroll pane for layout purposes, but disable scrollbars
-        // as scrolling is handled by the WebView inside MarkdownOutputPanel.
-        var jsp = new JScrollPane(
-                llmStreamArea, JScrollPane.VERTICAL_SCROLLBAR_NEVER, JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-        jsp.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-
-        // Add a text change listener to update capture buttons
-        llmStreamArea.addTextChangeListener(chrome::updateCaptureButtons);
-
-        return jsp;
-    }
-
-    // buildSystemMessagesArea removed
-
-    // buildCommandResultLabel removed
 
     /**
      * Builds the "Capture Output" panel with a horizontal layout: [Capture Text]
@@ -1780,13 +1766,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 sessionSwitchPanel.repaint();
             }
         });
-    }
-
-    /**
-     * Gets the LLM scroll pane
-     */
-    public JScrollPane getLlmScrollPane() {
-        return llmScrollPane;
     }
 
     public MarkdownOutputPanel getLlmStreamArea() {

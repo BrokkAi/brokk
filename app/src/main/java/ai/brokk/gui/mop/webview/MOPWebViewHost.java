@@ -34,7 +34,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
-public final class MOPWebViewHost extends JPanel {
+public final class MOPWebViewHost extends JPanel implements IWebViewHost {
     private static final Logger logger = LogManager.getLogger(MOPWebViewHost.class);
 
     @Nullable
@@ -94,6 +94,11 @@ public final class MOPWebViewHost extends JPanel {
 
         // Defer JFXPanel creation to avoid EDT event pumping during construction
         SwingUtilities.invokeLater(this::initializeFxPanel);
+    }
+
+    @Override
+    public JComponent getComponent() {
+        return this;
     }
 
     /**
@@ -267,6 +272,7 @@ public final class MOPWebViewHost extends JPanel {
         });
     }
 
+    @Override
     public void append(
             String text, boolean isNewMessage, ChatMessageType msgType, boolean streaming, boolean reasoning) {
         sendOrQueue(
@@ -278,6 +284,7 @@ public final class MOPWebViewHost extends JPanel {
      * Initial theme setup used while the WebView is still boot-strapping. The command is queued until the JS bridge
      * reports it is ready.
      */
+    @Override
     public void setInitialTheme(String themeName, boolean isDevMode, boolean wrapMode) {
         boolean isDark = !GuiTheme.THEME_LIGHT.equals(themeName);
         double zoom = MainProject.getMopZoom();
@@ -291,6 +298,7 @@ public final class MOPWebViewHost extends JPanel {
      * Runtime theme switch triggered from the settings panel. Executes immediately if the bridge exists; otherwise the
      * command is queued so that the frontend is updated once the bridge appears.
      */
+    @Override
     public void setRuntimeTheme(String themeName, boolean isDevMode, boolean wrapMode) {
         boolean isDark = !GuiTheme.THEME_LIGHT.equals(themeName);
         double zoom = MainProject.getMopZoom();
@@ -305,6 +313,7 @@ public final class MOPWebViewHost extends JPanel {
 
     @SuppressWarnings({"removal"})
     private static void exposeJavaBridge(WebView view, MOPBridge bridge) {
+        // Requires JDK 21 or earlier (JDK 25+ removed jdk.jsobject module)
         var window = (netscape.javascript.JSObject) view.getEngine().executeScript("window");
         window.setMember("javaBridge", bridge);
     }
@@ -342,34 +351,42 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    @Override
     public void clear() {
         sendOrQueue(new HostCommand.Clear(), MOPBridge::clear);
     }
 
+    @Override
     public void historyReset() {
         sendOrQueue(new HostCommand.HistoryReset(), MOPBridge::sendHistoryReset);
     }
 
+    @Override
     public void historyTask(TaskEntry entry) {
         sendOrQueue(new HostCommand.HistoryTask(entry), bridge -> bridge.sendHistoryTask(entry));
     }
 
+    @Override
     public void showSpinner(String message) {
         sendOrQueue(new HostCommand.ShowSpinner(message), bridge -> bridge.showSpinner(message));
     }
 
+    @Override
     public void hideSpinner() {
         sendOrQueue(new HostCommand.HideSpinner(), bridge -> bridge.hideSpinner());
     }
 
+    @Override
     public void showTransientMessage(String message) {
         sendOrQueue(new HostCommand.ShowTransientMessage(message), bridge -> bridge.showTransientMessage(message));
     }
 
+    @Override
     public void hideTransientMessage() {
         sendOrQueue(new HostCommand.HideTransientMessage(), MOPBridge::hideTransientMessage);
     }
 
+    @Override
     public void setTaskInProgress(boolean inProgress) {
         sendOrQueue(new HostCommand.SetTaskInProgress(inProgress), bridge -> bridge.setTaskInProgress(inProgress));
     }
@@ -379,6 +396,7 @@ public final class MOPWebViewHost extends JPanel {
      *
      * @param analyzerReady whether the analyzer is ready
      */
+    @Override
     public void sendEnvironmentInfo(boolean analyzerReady) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -388,12 +406,14 @@ public final class MOPWebViewHost extends JPanel {
         bridge.sendEnvironmentInfo(analyzerReady);
     }
 
+    @Override
     public void sendLiveSummary(int taskSequence, boolean compressed, String summary) {
         sendOrQueue(
                 new HostCommand.LiveSummary(taskSequence, compressed, summary),
                 bridge -> bridge.sendLiveSummary(taskSequence, compressed, summary));
     }
 
+    @Override
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
         searchListeners.add(l);
         var bridge = bridgeRef.get();
@@ -402,6 +422,7 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    @Override
     public void removeSearchStateListener(Consumer<MOPBridge.SearchState> l) {
         searchListeners.remove(l);
         var bridge = bridgeRef.get();
@@ -410,6 +431,7 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    @Override
     public void setSearch(String query, boolean caseSensitive) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -419,6 +441,7 @@ public final class MOPWebViewHost extends JPanel {
         bridge.setSearch(query, caseSensitive);
     }
 
+    @Override
     public void clearSearch() {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -428,6 +451,7 @@ public final class MOPWebViewHost extends JPanel {
         bridge.clearSearch();
     }
 
+    @Override
     public void nextMatch() {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -437,6 +461,7 @@ public final class MOPWebViewHost extends JPanel {
         bridge.nextMatch();
     }
 
+    @Override
     public void prevMatch() {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -446,6 +471,7 @@ public final class MOPWebViewHost extends JPanel {
         bridge.prevMatch();
     }
 
+    @Override
     public void scrollToCurrent() {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -455,6 +481,7 @@ public final class MOPWebViewHost extends JPanel {
         bridge.scrollToCurrent();
     }
 
+    @Override
     public void zoomIn() {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -464,6 +491,7 @@ public final class MOPWebViewHost extends JPanel {
         bridge.zoomIn();
     }
 
+    @Override
     public void zoomOut() {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -473,6 +501,7 @@ public final class MOPWebViewHost extends JPanel {
         bridge.zoomOut();
     }
 
+    @Override
     public void resetZoom() {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -482,10 +511,12 @@ public final class MOPWebViewHost extends JPanel {
         bridge.resetZoom();
     }
 
+    @Override
     public void setZoom(double zoom) {
         sendOrQueue(new HostCommand.SetZoom(zoom), bridge -> bridge.setZoom(zoom));
     }
 
+    @Override
     public void onAnalyzerReadyResponse(String contextId) {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -495,6 +526,7 @@ public final class MOPWebViewHost extends JPanel {
         bridge.onAnalyzerReadyResponse(contextId);
     }
 
+    @Override
     public String getContextCacheId() {
         var bridge = bridgeRef.get();
         if (bridge == null) {
@@ -519,6 +551,7 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    @Override
     public CompletableFuture<Void> flushAsync() {
         var bridge = bridgeRef.get();
         if (bridge != null) {
@@ -527,6 +560,7 @@ public final class MOPWebViewHost extends JPanel {
         return CompletableFuture.completedFuture(null);
     }
 
+    @Override
     public CompletableFuture<String> getSelectedText() {
         var bridge = bridgeRef.get();
         if (bridge != null) {
@@ -568,6 +602,7 @@ public final class MOPWebViewHost extends JPanel {
         flushBufferedCommands();
     }
 
+    @Override
     public void setContextManager(@Nullable ContextManager contextManager) {
         this.contextManager = contextManager;
         var bridge = bridgeRef.get();
@@ -576,6 +611,7 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    @Override
     public void setSymbolRightClickHandler(@Nullable Chrome chrome) {
         this.chrome = chrome;
         var bridge = bridgeRef.get();
@@ -584,6 +620,7 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    @Override
     public void setHostComponent(@Nullable Component hostComponent) {
         var bridge = bridgeRef.get();
         if (bridge != null) {
@@ -591,6 +628,7 @@ public final class MOPWebViewHost extends JPanel {
         }
     }
 
+    @Override
     public void dispose() {
         var bridge = bridgeRef.getAndSet(null);
         if (bridge != null) {

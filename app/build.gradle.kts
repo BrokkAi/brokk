@@ -28,11 +28,11 @@ application {
         add("-Dbrokk.servicetiers=true")
         add("-Dbrokk.architectshell=true")
         add("-Dwatch.service.polling=true")
-        // JDK 24+ requires explicit flags for unsafe memory access and native access
-        if (java.toolchain.languageVersion.get().asInt() >= 24) {
-            add("--sun-misc-unsafe-memory-access=allow")
-            add("--enable-native-access=javafx.graphics,javafx.media,javafx.web,ALL-UNNAMED")
-        }
+        // JCEF requires these flags for native Chromium integration on macOS
+        add("--add-opens=java.desktop/sun.awt=ALL-UNNAMED")
+        add("--add-opens=java.desktop/java.awt.peer=ALL-UNNAMED")
+        add("--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED")
+        add("--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED")
     }
 }
 
@@ -137,6 +137,9 @@ dependencies {
 
     // File watching - native recursive directory watching
     implementation("io.methvin:directory-watcher:0.18.0")
+
+    // JCEF for Chromium embedded browser
+    implementation("me.friwi:jcefmaven:122.1.10")
 
     // Testing
     testImplementation(platform(libs.junit.bom))
@@ -320,6 +323,15 @@ val jdwpDebugArgsProvider = object : CommandLineArgumentProvider {
     }
 }
 
+val webviewImplArgsProvider = object : CommandLineArgumentProvider {
+    override fun asArguments(): Iterable<String> {
+        // Allow switching WebView implementation: javafx (default) or jcef
+        // Usage: ./gradlew run -Pwebview=jcef
+        val impl = (project.findProperty("webview") as String?) ?: return emptyList()
+        return listOf("-Dbrokk.webview.impl=$impl")
+    }
+}
+
 // Configure main source compilation without ErrorProne (fast incremental)
 tasks.named<JavaCompile>("compileJava") {
     options.isIncremental = true
@@ -447,6 +459,7 @@ tasks.withType<JavaExec>().configureEach {
     // Baseline JVM args provided lazily; composes with applicationDefaultJvmArgs and other plugins
     jvmArgumentProviders.add(baselineJvmArgsProvider)
     jvmArgumentProviders.add(jdwpDebugArgsProvider)
+    jvmArgumentProviders.add(webviewImplArgsProvider)
 }
 
 // Static analysis task without tests (fast, for git hooks)
@@ -686,6 +699,20 @@ tasks.named("processResources") {
 
 tasks.named("clean") {
     dependsOn("frontendClean")
+}
+
+// JcefDemo task - minimal JCEF test
+tasks.register<JavaExec>("runJcefDemo") {
+    group = "application"
+    description = "Run minimal JCEF demo with jcefmaven"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("ai.brokk.JcefDemo")
+
+    jvmArgs = listOf(
+        "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
+        "--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED",
+        "--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED"
+    )
 }
 
 // Disable script and distribution generation since we don't need them
