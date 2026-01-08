@@ -63,9 +63,6 @@ public class Brokk {
             ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝
             """;
 
-    private static final String ERROR_INVALID_KEY = "Invalid Brokk Key";
-    private static final String ERROR_NETWORK = "Network error - please check your connection";
-
     private static void logBanner() {
         var lines = Splitter.on('\n').split(BANNER);
         for (String line : lines) {
@@ -252,7 +249,7 @@ public class Brokk {
         if (!noKeyFlag) {
             var existingKey = MainProject.getBrokkKey();
             if (!existingKey.isEmpty()) {
-                var outcome = validateKeyInBackground(existingKey);
+                var outcome = blockingValidateKey(existingKey);
                 if (outcome == ValidationOutcome.VALID) {
                     return new KeyValidationResult(true, null);
                 }
@@ -281,7 +278,7 @@ public class Brokk {
      * Validates the key in a background thread to keep the EDT responsive.
      * Blocks the calling thread until validation completes.
      */
-    private static ValidationOutcome validateKeyInBackground(String key) {
+    private static ValidationOutcome blockingValidateKey(String key) {
         var future = CompletableFuture.supplyAsync(() -> {
             try {
                 Service.validateKey(key);
@@ -303,8 +300,8 @@ public class Brokk {
 
     private static class ValidationOutcome {
         static final ValidationOutcome VALID = new ValidationOutcome(null);
-        static final ValidationOutcome INVALID = new ValidationOutcome(ERROR_INVALID_KEY);
-        static final ValidationOutcome NETWORK_ERROR = new ValidationOutcome(ERROR_NETWORK);
+        static final ValidationOutcome INVALID = new ValidationOutcome(BrokkKeyDialog.ERROR_INVALID_KEY);
+        static final ValidationOutcome NETWORK_ERROR = new ValidationOutcome(BrokkKeyDialog.ERROR_NETWORK);
 
         final @Nullable String message;
 

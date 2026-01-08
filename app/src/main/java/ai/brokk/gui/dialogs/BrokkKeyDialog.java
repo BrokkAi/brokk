@@ -22,9 +22,9 @@ import org.jetbrains.annotations.Nullable;
 /** Modal dialog that prompts the user for a Brokk Key and validates it before closing. */
 public class BrokkKeyDialog extends BaseThemedDialog {
     private static final Logger logger = LogManager.getLogger(BrokkKeyDialog.class);
-    private static final String ERROR_INVALID_KEY = "Invalid Brokk Key";
-    private static final String ERROR_NETWORK = "Network error - please check your connection";
-    private static final String ERROR_SSL = "SSL/TLS connection error - check proxy/firewall settings";
+    public static final String ERROR_INVALID_KEY = "Invalid Brokk Key";
+    public static final String ERROR_NETWORK = "Network error - please check your connection";
+    public static final String ERROR_SSL = "SSL/TLS connection error - check proxy/firewall settings";
 
     private final JTextField keyField = new JTextField(30);
     private @Nullable String validatedKey = null;
@@ -156,12 +156,7 @@ public class BrokkKeyDialog extends BaseThemedDialog {
                         dispose();
                     } else {
                         logger.debug("Validation error", error);
-                        var cause = error;
-                        while ((cause instanceof CompletionException || cause instanceof ExecutionException)
-                                && cause.getCause() != null) {
-                            cause = cause.getCause();
-                        }
-                        handleValidationError(cause);
+                        handleValidationError(error);
                         setInputEnabled(true);
                     }
                 }));
@@ -175,7 +170,10 @@ public class BrokkKeyDialog extends BaseThemedDialog {
 
     private void handleValidationError(Throwable ex) {
         var root = ex;
-        while (root.getCause() != null && root instanceof RuntimeException) {
+        while (root.getCause() != null
+                && (root instanceof CompletionException
+                        || root instanceof ExecutionException
+                        || root instanceof RuntimeException)) {
             root = root.getCause();
         }
 
