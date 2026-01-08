@@ -413,14 +413,27 @@ public class ContextFragments {
         private static ContentSnapshot decodeFrozen(ProjectFile file, IContextManager contextManager, byte[] bytes) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String name = file.getFileName();
-            Set<CodeUnit> sources;
+            Set<CodeUnit> sources = new LinkedHashSet<>();
+            Set<ProjectFile> files = new LinkedHashSet<>();
+            files.add(file);
+
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
             try {
-                sources = contextManager.getAnalyzerUninterrupted().getDeclarations(file);
+                Set<CodeUnit> declarations = analyzer.getDeclarations(file);
+                sources.addAll(declarations);
+
+                declarations.stream()
+                        .filter(CodeUnit::isClass)
+                        .flatMap(cls -> analyzer.getDirectAncestors(cls).stream())
+                        .filter(anc -> !anc.isAnonymous())
+                        .forEach(anc -> {
+                            sources.add(anc);
+                            files.add(anc.source());
+                        });
             } catch (Throwable t) {
                 logger.error("Failed to analyze declarations for file {}, sources will be empty", name, t);
-                sources = Set.of();
             }
-            return new ContentSnapshot(text, sources, Set.of(file), (List<Byte>) null, true);
+            return new ContentSnapshot(text, Set.copyOf(sources), Set.copyOf(files), (List<Byte>) null, true);
         }
 
         private static ContentSnapshot computeSnapshotFor(ProjectFile file, IContextManager contextManager) {
