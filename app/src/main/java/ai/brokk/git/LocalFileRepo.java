@@ -1,16 +1,9 @@
 package ai.brokk.git;
 
-import ai.brokk.ExceptionReporter;
 import ai.brokk.analyzer.ProjectFile;
-import java.io.IOException;
-import java.nio.file.AccessDeniedException;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nullable;
 import org.apache.logging.log4j.LogManager;
@@ -57,47 +50,8 @@ public class LocalFileRepo implements IGitRepo {
         if (trackedFilesCache != null) {
             return trackedFilesCache;
         }
-        var trackedFiles = new HashSet<ProjectFile>();
-        try {
-            Files.walkFileTree(root, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                    // Skip directories we can't read to avoid AccessDeniedException later
-                    if (!Files.isReadable(dir)) {
-                        logger.warn("Skipping inaccessible directory: {}", dir);
-                        return FileVisitResult.SKIP_SUBTREE;
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    if (Files.isRegularFile(file)) {
-                        var relPath = root.relativize(file);
-                        trackedFiles.add(new ProjectFile(root, relPath));
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFileFailed(Path file, IOException exc) {
-                    if (exc instanceof AccessDeniedException) {
-                        logger.warn("Skipping inaccessible file/directory: {}", file, exc);
-                        if (Files.isDirectory(file)) {
-                            return FileVisitResult.SKIP_SUBTREE;
-                        }
-                        return FileVisitResult.CONTINUE;
-                    }
-                    logger.error("Error visiting file: {}", file, exc);
-                    return FileVisitResult.CONTINUE;
-                }
-            });
-        } catch (IOException e) {
-            logger.error("Unexpected error walking directory tree starting at {}", root, e);
-            ExceptionReporter.tryReportException(e);
-            return Set.of();
-        }
-        trackedFilesCache = trackedFiles;
+        // LocalFileRepo walks all files without skipping specific directories
+        trackedFilesCache = FileSystemWalker.walk(root, Set.of());
         return trackedFilesCache;
     }
 }

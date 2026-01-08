@@ -15,11 +15,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.awt.Rectangle;
 import java.io.IOException;
-import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.SimpleFileVisitor;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -731,72 +728,9 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Nullable
     private volatile Set<ProjectFile> allFilesCache;
 
-    /**
-     * Performs a filesystem walk to discover all regular files in the project root.
-     * Used as a fallback when Git repo exists but has no tracked files.
-     * Excludes .git directory to avoid picking up Git internal files.
-     */
-    @org.jetbrains.annotations.Blocking
-    private Set<ProjectFile> getFilesystemFiles() {
-        var filesystemFiles = new HashSet<ProjectFile>();
-        try {
-            Files.walkFileTree(root, new SimpleFileVisitor<>() {
-                @Override
-                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                    if (dir.getFileName() != null) {
-                        var name = dir.getFileName().toString();
-                        // Skip Git metadata
-                        if (name.equals(".git")) {
-                            return FileVisitResult.SKIP_SUBTREE;
-                        }
-                        // Skip Brokk metadata
-                        if (name.equals(".brokk")) {
-                            return FileVisitResult.SKIP_SUBTREE;
-                        }
-                    }
-                    // Skip unreadable directories
-                    if (!Files.isReadable(dir)) {
-                        logger.warn("Skipping inaccessible directory: {}", dir);
-                        return FileVisitResult.SKIP_SUBTREE;
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    // Use attrs.isRegularFile() - more efficient and consistent
-                    // BasicFileAttributes already resolved by walkFileTree (follows symlinks by default)
-                    if (attrs.isRegularFile()) {
-                        var relPath = root.relativize(file);
-                        filesystemFiles.add(new ProjectFile(root, relPath));
-                    }
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFileFailed(Path file, IOException exc) {
-                    // Log and skip - don't make additional I/O calls in error handler
-                    logger.warn("Failed to access path: {}", file, exc);
-                    // Return SKIP_SUBTREE for safety (works for both files and directories)
-                    return FileVisitResult.SKIP_SUBTREE;
-                }
-            });
-        } catch (IOException e) {
-            logger.error("Unexpected error walking directory tree starting at {}", root, e);
-            ExceptionReporter.tryReportException(e);
-            return Set.of();
-        }
-        return filesystemFiles;
-    }
-
     private Set<ProjectFile> getAllFilesRaw() {
-        var trackedFiles = repo.getTrackedFiles();
-
-        // Fallback for Git repos with no tracked files
-        if (trackedFiles.isEmpty() && repo instanceof GitRepo) {
-            logger.info("No Git-tracked files found in {}, using filesystem scan", root);
-            trackedFiles = getFilesystemFiles();
-        }
+        // Use getFilesForAnalysis() which handles fallback to filesystem scan for empty Git repos
+        var trackedFiles = repo.getFilesForAnalysis();
 
         var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
