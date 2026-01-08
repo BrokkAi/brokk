@@ -79,6 +79,20 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return delegateFor(file)
+                .map(delegate -> delegate.importedCodeUnitsOf(file))
+                .orElse(Set.of());
+    }
+
+    @Override
+    public Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.referencingFilesOf(file).stream())
+                .collect(Collectors.toSet());
+    }
+
+    @Override
     public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.enclosingCodeUnit(file, range).stream())
@@ -297,11 +311,19 @@ public class MultiAnalyzer
     public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
+                .distinct()
                 .toList();
     }
 
     @Override
     public boolean containsTests(ProjectFile file) {
         return delegateFor(file).map(delegate -> delegate.containsTests(file)).orElse(false);
+    }
+
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.getDirectDescendants(cu).stream())
+                .collect(Collectors.toSet());
     }
 }
