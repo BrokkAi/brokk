@@ -11,6 +11,7 @@ import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
@@ -82,6 +83,38 @@ class JavaAnalyzerUpdateTest {
         // call update with empty set – no change expected
         analyzer = analyzer.update(Set.of());
         assertTrue(analyzer.getDefinitions("A.method3").stream().findFirst().isEmpty());
+    }
+
+    @Test
+    void verifySupertypeUpdate() throws IOException {
+        // Create B and C so they are resolvable
+        new ProjectFile(project.getRoot(), "B.java").write("public class B {}");
+        new ProjectFile(project.getRoot(), "C.java").write("public class C {}");
+
+        // Initial state: A extends B
+        new ProjectFile(project.getRoot(), "A.java").write("public class A extends B {}");
+
+        analyzer = analyzer.update();
+
+        CodeUnit unitA = analyzer.getDefinitions("A").stream().findFirst().orElseThrow();
+
+        // Resolve ancestors to populate the lazy cache in TreeSitterAnalyzer
+        List<CodeUnit> ancestorsInitial = analyzer.getDirectAncestors(unitA);
+        assertEquals(1, ancestorsInitial.size());
+        assertEquals("B", ancestorsInitial.getFirst().shortName());
+
+        // Mutate A to extend C instead
+        new ProjectFile(project.getRoot(), "A.java").write("public class A extends C {}");
+
+        // Update the analyzer. This returns a fresh instance, which should result in a fresh cache.
+        analyzer = analyzer.update();
+
+        CodeUnit unitAUpdated =
+                analyzer.getDefinitions("A").stream().findFirst().orElseThrow();
+        List<CodeUnit> ancestorsUpdated = analyzer.getDirectAncestors(unitAUpdated);
+
+        assertEquals(1, ancestorsUpdated.size());
+        assertEquals("C", ancestorsUpdated.getFirst().shortName(), "Supertype should be updated to C");
     }
 
     @Test

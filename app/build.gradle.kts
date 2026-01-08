@@ -63,6 +63,7 @@ repositories {
     mavenLocal()
 
     mavenCentral()
+    google()
 
     // Additional repositories for dependencies
     maven {

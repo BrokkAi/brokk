@@ -1,5 +1,6 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
+import ai.brokk.TestProjectGenerator;
 import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.nio.file.Files;
@@ -17,13 +18,13 @@ import java.util.List;
  * <p>Usage:
  * <pre>
  * // Run all benchmarks
- * java ai.brokk.FileWatcherBenchmarkRunner
+ * java ai.brokk.watchservice.FileWatcherBenchmarkRunner
  *
  * // Run specific benchmark
- * java ai.brokk.FileWatcherBenchmarkRunner latency-small
+ * java ai.brokk.watchservice.FileWatcherBenchmarkRunner latency-small
  *
  * // Specify output directory
- * java ai.brokk.FileWatcherBenchmarkRunner --output=./benchmark-results
+ * java ai.brokk.watchservice.FileWatcherBenchmarkRunner --output=./benchmark-results
  * </pre>
  */
 public class FileWatcherBenchmarkRunner {

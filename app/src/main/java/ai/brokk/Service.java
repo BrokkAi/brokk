@@ -24,6 +24,7 @@ import java.util.zip.GZIPOutputStream;
 import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -101,6 +102,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     /**
      * Fetches the user's balance for the given Brokk API key.
      */
+    @Blocking
     public static float getUserBalance(String key) throws IOException {
         parseKey(key); // Throws IllegalArgumentException if key is malformed
 
@@ -182,6 +184,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         }
     }
 
+    @Blocking
     public static void validateKey(String key) throws IOException {
         parseKey(key);
         getUserBalance(key);

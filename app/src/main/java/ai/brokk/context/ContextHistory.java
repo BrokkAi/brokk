@@ -29,7 +29,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public class ContextHistory {
     private static final Logger logger = LogManager.getLogger(ContextHistory.class);
-    private static final int MAX_DEPTH = 100;
+    private static final int MAX_DEPTH = 200;
     public static final Duration SNAPSHOT_AWAIT_TIMEOUT = Duration.ofSeconds(5);
 
     public record ResetEdge(UUID sourceId, UUID targetId) {}
@@ -45,6 +45,8 @@ public class ContextHistory {
     private final List<ResetEdge> resetEdges = new ArrayList<>();
     private final Map<UUID, GitState> gitStates = new HashMap<>();
     private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
+    private final Map<UUID, UUID> contextToGroupId = new HashMap<>();
+    private final Map<UUID, String> groupLabels = new HashMap<>();
 
     /**
      * Tracks the ID of the last context created by an external file change to handle continuations.
@@ -68,23 +70,26 @@ public class ContextHistory {
         this.diffService = new DiffService(this);
     }
 
-    public ContextHistory(List<Context> contexts) {
-        this(contexts, List.of(), Map.of(), Map.of());
+    ContextHistory(List<Context> contexts) {
+        this(contexts, List.of(), Map.of(), Map.of(), Map.of(), Map.of());
     }
 
-    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges) {
-        this(contexts, resetEdges, Map.of(), Map.of());
-    }
-
-    public ContextHistory(List<Context> contexts, List<ResetEdge> resetEdges, Map<UUID, GitState> gitStates) {
-        this(contexts, resetEdges, gitStates, Map.of());
+    // for v3 migration
+    public ContextHistory(
+            List<Context> contexts,
+            List<ResetEdge> resetEdges,
+            Map<UUID, GitState> gitStates,
+            Map<UUID, ContextHistoryEntryInfo> entryInfos) {
+        this(contexts, resetEdges, gitStates, entryInfos, Map.of(), Map.of());
     }
 
     public ContextHistory(
             List<Context> contexts,
             List<ResetEdge> resetEdges,
             Map<UUID, GitState> gitStates,
-            Map<UUID, ContextHistoryEntryInfo> entryInfos) {
+            Map<UUID, ContextHistoryEntryInfo> entryInfos,
+            Map<UUID, UUID> contextToGroupId,
+            Map<UUID, String> groupLabels) {
         if (contexts.isEmpty()) {
             throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
         }
@@ -92,60 +97,19 @@ public class ContextHistory {
         this.resetEdges.addAll(resetEdges);
         this.gitStates.putAll(gitStates);
         this.entryInfos.putAll(entryInfos);
+        this.contextToGroupId.putAll(contextToGroupId);
+        this.groupLabels.putAll(groupLabels);
         selected = history.peekLast();
         this.diffService = new DiffService(this);
     }
 
-    public static boolean areDiverged(ContextHistory history1, ContextHistory history2) {
-        var list1 = history1.getHistory();
-        var list2 = history2.getHistory();
-        int minSize = Math.min(list1.size(), list2.size());
-
-        for (int i = 0; i < minSize; i++) {
-            if (!Objects.equals(list1.get(i), list2.get(i))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    public static ContextHistory merge(ContextHistory older, ContextHistory newer) {
-        var oldList = older.getHistory();
-        var newList = newer.getHistory();
-        int minSize = Math.min(oldList.size(), newList.size());
-        int commonPrefixLength = 0;
-
-        for (int i = 0; i < minSize; i++) {
-            if (!Objects.equals(oldList.get(i), newList.get(i))) {
-                break;
-            }
-            commonPrefixLength++;
-        }
-
-        List<Context> mergedList = new ArrayList<>(oldList.subList(0, commonPrefixLength));
-        // Add remaining from older (diverged part)
-        mergedList.addAll(oldList.subList(commonPrefixLength, oldList.size()));
-        // Add remaining from newer (diverged part)
-        mergedList.addAll(newList.subList(commonPrefixLength, newList.size()));
-
-        // Merge auxiliary data
-        List<ResetEdge> mergedResetEdges = new ArrayList<>();
-        mergedResetEdges.addAll(older.resetEdges);
-        mergedResetEdges.addAll(newer.resetEdges);
-
-        Map<UUID, GitState> mergedGitStates = new HashMap<>();
-        mergedGitStates.putAll(older.gitStates);
-        mergedGitStates.putAll(newer.gitStates);
-
-        Map<UUID, ContextHistoryEntryInfo> mergedEntryInfos = new HashMap<>();
-        mergedEntryInfos.putAll(older.entryInfos);
-        mergedEntryInfos.putAll(newer.entryInfos);
-
-        ContextHistory mergedHistory =
-                new ContextHistory(mergedList, mergedResetEdges, mergedGitStates, mergedEntryInfos);
-        mergedHistory.redo.addAll(newer.redo);
-
-        return mergedHistory;
+    private synchronized Context replaceTopInternal(Context newLive) {
+        assert !history.isEmpty() : "Cannot replace top context in empty history";
+        history.removeLast();
+        history.addLast(newLive);
+        redo.clear();
+        selected = newLive;
+        return newLive;
     }
 
     /* ───────────────────────── public API ─────────────────────────── */
@@ -202,16 +166,42 @@ public class ContextHistory {
         return false;
     }
 
-    public synchronized Context push(Function<Context, Context> contextGenerator) {
-        var updatedLiveContext = contextGenerator.apply(liveContext());
-        // we deliberately do NOT use a deep equals() here, since we don't want to block for dynamic fragments to
-        // materialize
-        if (Objects.equals(liveContext(), updatedLiveContext)) {
-            return liveContext();
-        }
+    public Context push(Function<Context, Context> contextGenerator) {
+        while (true) {
+            Context snapshot = liveContext();
+            Context updated = contextGenerator.apply(snapshot);
 
-        pushContext(updatedLiveContext);
-        return liveContext();
+            synchronized (this) {
+                // Verify the context hasn't changed since we started computing 'updated'
+                if (liveContext().equals(snapshot)) {
+                    if (Objects.equals(snapshot, updated)) {
+                        return snapshot;
+                    }
+                    pushContextInternal(updated, true);
+                    return liveContext();
+                }
+            }
+            // If we're here, context changed; loop and retry with the new liveContext
+        }
+    }
+
+    /**
+     * Inherently not undo-able, use with care!
+     */
+    public Context replaceTop(Function<Context, Context> contextGenerator) {
+        while (true) {
+            Context snapshot = liveContext();
+            Context updated = contextGenerator.apply(snapshot);
+
+            synchronized (this) {
+                if (liveContext().equals(snapshot)) {
+                    if (Objects.equals(snapshot, updated)) {
+                        return snapshot;
+                    }
+                    return replaceTopInternal(updated);
+                }
+            }
+        }
     }
 
     /**
@@ -422,12 +412,16 @@ public class ContextHistory {
             var removed = history.removeFirst();
             gitStates.remove(removed.id());
             entryInfos.remove(removed.id());
+            contextToGroupId.remove(removed.id());
             var historyIds = getContextIds();
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             if (logger.isDebugEnabled()) {
                 logger.debug("Truncated history (removed oldest context: {})", removed);
             }
         }
+        // Clean up orphaned group labels (groups no longer referenced by any context)
+        var referencedGroupIds = new HashSet<>(contextToGroupId.values());
+        groupLabels.keySet().removeIf(groupId -> !referencedGroupIds.contains(groupId));
     }
 
     /**
@@ -441,17 +435,6 @@ public class ContextHistory {
         truncateHistory();
         redo.clear();
         selected = ctx;
-    }
-
-    /**
-     * Internal helper to replace the top of the history with control over immediate snapshotting.
-     */
-    private synchronized void replaceTopInternal(Context newLive) {
-        assert !history.isEmpty() : "Cannot replace top context in empty history";
-        history.removeLast();
-        history.addLast(newLive);
-        redo.clear();
-        selected = newLive;
     }
 
     /**
@@ -484,6 +467,30 @@ public class ContextHistory {
 
     public synchronized List<ResetEdge> getResetEdges() {
         return List.copyOf(resetEdges);
+    }
+
+    /**
+     * Registers a context as belonging to a specific UI group.
+     */
+    public synchronized void addContextToGroup(UUID contextId, UUID groupId, String groupLabel) {
+        contextToGroupId.put(contextId, groupId);
+        // Store label only on first context added to this group
+        groupLabels.putIfAbsent(groupId, groupLabel);
+    }
+
+    /**
+     * Returns the group ID associated with a context, or null if none.
+     */
+    public synchronized @Nullable UUID getGroupId(UUID contextId) {
+        return contextToGroupId.get(contextId);
+    }
+
+    public synchronized Map<UUID, UUID> getContextToGroupId() {
+        return Map.copyOf(contextToGroupId);
+    }
+
+    public synchronized Map<UUID, String> getGroupLabels() {
+        return Map.copyOf(groupLabels);
     }
 
     public synchronized void addGitState(UUID contextId, GitState gitState) {

@@ -95,6 +95,7 @@ allprojects {
 
     repositories {
         mavenCentral()
+        google()
         maven("https://packages.jetbrains.team/maven/p/ij/intellij-dependencies/")
         maven("https://repo.eclipse.org/content/groups/releases/")
     }
@@ -147,6 +148,7 @@ subprojects {
 
     repositories {
         mavenCentral()
+        google()
         // Additional repositories for dependencies
         maven {
             url = uri("https://repo.gradle.org/gradle/libs-releases")

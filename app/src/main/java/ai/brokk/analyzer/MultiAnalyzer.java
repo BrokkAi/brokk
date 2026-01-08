@@ -40,7 +40,7 @@ public class MultiAnalyzer
     private Optional<IAnalyzer> delegateFor(CodeUnit cu) {
         var lang = Languages.fromExtension(cu.source().extension());
         var delegate = delegates.get(lang);
-        if (delegate == null) {
+        if (delegate == null && !lang.equals(Languages.NONE)) {
             log.debug("No delegate found for language {} (from file {})", lang, cu.source());
         }
         return Optional.ofNullable(delegate);
@@ -298,5 +298,10 @@ public class MultiAnalyzer
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
                 .toList();
+    }
+
+    @Override
+    public boolean containsTests(ProjectFile file) {
+        return delegateFor(file).map(delegate -> delegate.containsTests(file)).orElse(false);
     }
 }

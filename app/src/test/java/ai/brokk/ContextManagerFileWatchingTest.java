@@ -2,11 +2,12 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.FileUtil;
+import ai.brokk.watchservice.AbstractWatchService;
+import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -241,12 +242,12 @@ class ContextManagerFileWatchingTest {
         ioField.set(contextManager, testIO);
 
         // Create listener directly
-        IWatchService.Listener listener = contextManager.createFileWatchListener();
+        AbstractWatchService.Listener listener = contextManager.createFileWatchListener();
         assertNotNull(listener, "createFileWatchListener should return a listener");
 
         // Create an event batch with git metadata changes
         EventBatch gitBatch = new EventBatch();
-        gitBatch.files.add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
+        gitBatch.getFiles().add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
 
         // Trigger the listener
         listener.onFilesChanged(gitBatch);
@@ -270,11 +271,11 @@ class ContextManagerFileWatchingTest {
         ioField.set(contextManager, testIO);
 
         // Create listener directly
-        IWatchService.Listener listener = contextManager.createFileWatchListener();
+        AbstractWatchService.Listener listener = contextManager.createFileWatchListener();
 
         // Create an event batch with tracked file changes
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
 
         // Trigger the listener
         listener.onFilesChanged(batch);
@@ -295,12 +296,12 @@ class ContextManagerFileWatchingTest {
         ioField.set(contextManager, testIO);
 
         // Create listener directly
-        IWatchService.Listener listener = contextManager.createFileWatchListener();
+        AbstractWatchService.Listener listener = contextManager.createFileWatchListener();
 
         // Create an event batch with both types of changes
         EventBatch batch = new EventBatch();
-        batch.files.add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
-        batch.files.add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of(".git/HEAD")));
+        batch.getFiles().add(new ProjectFile(projectRoot, Path.of("src/Main.java")));
 
         // Trigger the listener
         listener.onFilesChanged(batch);

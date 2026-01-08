@@ -4,9 +4,9 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
+import ai.brokk.project.IProject;
 import ai.brokk.util.ContentDiffUtils;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -14,7 +14,6 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -83,8 +82,11 @@ public final class DiffService {
             if (k.prev() == null) {
                 return CompletableFuture.completedFuture(List.of());
             }
+            var revision = history.getGitState(k.prev().id())
+                    .map(ContextHistory.GitState::commitHash)
+                    .orElse("HEAD");
             return CompletableFuture.supplyAsync(
-                    () -> computeDiff(k.curr(), castNonNull(k.prev())), cm.getBackgroundTasks());
+                    () -> computeDiff(k.curr(), castNonNull(k.prev()), revision), cm.getBackgroundTasks());
         });
     }
 
@@ -97,14 +99,19 @@ public final class DiffService {
     }
 
     @Blocking
-    private static boolean isNewInGit(ContextFragment fragment, IGitRepo repo) {
+    private static boolean isNewFragmentInteresting(ContextFragment fragment, IProject project, String revision) {
+        var interestingFiles = project.filterExcludedFiles(fragment.files().join());
+        if (interestingFiles.isEmpty()) {
+            return false;
+        }
+
         return fragment.files().join().stream().anyMatch(file -> {
             try {
-                // If getFileContent returns an empty string for HEAD, the file is not yet committed.
-                return repo.getFileContent("HEAD", file).isEmpty();
+                // If getFileContent returns an empty string for the revision, the file is not yet committed.
+                return project.getRepo().getFileContent(revision, file).isEmpty();
             } catch (Exception e) {
-                // If an error occurs (e.g. GitAPIException), we treat it as not committed to HEAD.
-                logger.debug("Failed to get content from HEAD for file {}: {}", file, e.getMessage());
+                // If an error occurs (e.g. GitAPIException), we treat it as not committed.
+                logger.warn("Failed to get content from {} for file {}: {}", revision, file, e.getMessage());
                 return true;
             }
         });
@@ -115,7 +122,7 @@ public final class DiffService {
      * Triggers async computations and awaits their completion.
      */
     @Blocking
-    public static List<DiffEntry> computeDiff(Context ctx, Context other) {
+    private List<DiffEntry> computeDiff(Context ctx, Context other, String revision) {
         // Candidates:
         // - Editable fragments
         // - Image fragments (non-text), including pasted images and image files.
@@ -125,8 +132,9 @@ public final class DiffService {
         var imageFragments = ctx.allFragments().filter(f -> !f.isText());
 
         var candidates = Stream.concat(editableFragments, imageFragments);
-        var diffFutures =
-                candidates.map(cf -> computeDiffForFragment(ctx, cf, other)).toList();
+        var diffFutures = candidates
+                .map(cf -> computeDiffForFragment(ctx, cf, other, revision))
+                .toList();
 
         return diffFutures.stream()
                 .map(CompletableFuture::join)
@@ -146,8 +154,8 @@ public final class DiffService {
      * The DiffEntry returned is Nullable!
      */
     @Blocking
-    private static CompletableFuture<DiffEntry> computeDiffForFragment(
-            Context curr, ContextFragment thisFragment, Context other) {
+    private CompletableFuture<DiffEntry> computeDiffForFragment(
+            Context curr, ContextFragment thisFragment, Context other, String revision) {
         var otherFragment = other.allFragments()
                 .filter(thisFragment::hasSameSource)
                 .findFirst()
@@ -161,8 +169,8 @@ public final class DiffService {
                 return CompletableFuture.completedFuture(null);
             }
 
-            var repo = curr.getContextManager().getRepo();
-            if (!isNewInGit(thisFragment, repo)) {
+            var project = curr.getContextManager().getProject();
+            if (!isNewFragmentInteresting(thisFragment, project, revision)) {
                 return CompletableFuture.completedFuture(null);
             }
         }
@@ -306,17 +314,6 @@ public final class DiffService {
         }
         String diff = "[Image changed]";
         return new DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
-    }
-
-    /**
-     * Compute the set of ProjectFile objects that differ between curr (new/right) and other (old/left).
-     */
-    @Blocking
-    public static Set<ProjectFile> getChangedFiles(Context curr, Context other) {
-        var diffs = computeDiff(curr, other);
-        return diffs.stream()
-                .flatMap(de -> de.fragment().files().join().stream())
-                .collect(Collectors.toSet());
     }
 
     /**

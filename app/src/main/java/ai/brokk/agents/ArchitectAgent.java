@@ -11,9 +11,8 @@ import ai.brokk.Llm;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.DiffService;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
@@ -185,16 +184,19 @@ public class ArchitectAgent {
         // Update local context with the CodeAgent's resulting context
         var initialContext = context;
         context = scope.append(result);
-        var changedFiles = DiffService.getChangedFiles(context, initialContext);
+        var changedFragments =
+                ContextDelta.between(initialContext, context).join().getChangedFragments();
 
         if (result.stopDetails().reason() == StopReason.SUCCESS) {
             var resultString = deferBuild ? "CodeAgent finished." : "CodeAgent finished with a successful build.";
-            var fileList =
-                    changedFiles.stream().map(ProjectFile::toString).sorted().collect(Collectors.joining(", "));
-            resultString += " Changed files: " + (fileList.isEmpty() ? "None" : fileList);
+            var fileList = changedFragments.stream()
+                    .map(cf -> cf.shortDescription().join())
+                    .sorted()
+                    .collect(Collectors.joining(", "));
+            resultString += " Changed fragments: " + (fileList.isEmpty() ? "None" : fileList);
 
             logger.debug("callCodeAgent finished successfully");
-            codeAgentJustSucceeded = !deferBuild && !changedFiles.isEmpty();
+            codeAgentJustSucceeded = !deferBuild && !changedFragments.isEmpty();
             return resultString;
         }
 
@@ -215,7 +217,7 @@ public class ArchitectAgent {
         logger.debug("CodeAgent failed with reason {}: {}", reason, stopDetails.explanation());
 
         // Offer undo if the CodeAgent failed and left changes behind
-        if (!changedFiles.isEmpty()) {
+        if (!changedFragments.isEmpty()) {
             this.offerUndoToolNext = true;
         }
 
@@ -389,12 +391,11 @@ public class ArchitectAgent {
     }
 
     /**
-     * A tool that invokes the SearchAgent to perform searches and analysis based on a query. The SearchAgent will
-     * decide which specific search/analysis tools to use (e.g., searchSymbols, getFileContents). The results are added
-     * as a context fragment.
+     * A tool that invokes the Search Agent to perform deep repository analysis based on a query. The Search Agent
+     * uses specialized tools (symbols, usages, grep) to find relevant code and documentation, adding them to the Workspace.
      */
     @Tool(
-            "Invoke the Search Agent to find information relevant to the given query. The Workspace is visible to the Search Agent. Searching is much slower than adding content to the Workspace directly if you know what you are looking for, but the Agent can find things that you don't know the exact name of. ")
+            "Invoke the Search Agent to find information relevant to the given query. The Search Agent explores the codebase to find relevant identifiers and files. Searching is slower than adding known files directly, but useful when you don't know exact names or locations. ")
     public String callSearchAgent(
             @P("The search query or question for the SearchAgent. Query in English (not just keywords)") String query)
             throws ToolRegistry.FatalLlmException, InterruptedException {
@@ -412,14 +413,8 @@ public class ArchitectAgent {
             }
 
             // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
-            var searchAgent = new SearchAgent(
-                    context,
-                    query,
-                    planningModel,
-                    SearchAgent.Objective.WORKSPACE_ONLY,
-                    scope,
-                    saIo,
-                    SearchAgent.ScanConfig.noAppend());
+            var searchAgent =
+                    new SearchAgent(context, query, planningModel, scope, saIo, SearchAgent.ScanConfig.noAppend());
             var result = searchAgent.execute();
             // DO NOT set this.context here, it is not threadsafe; the main agent loop will update it via the
             // thread-local
@@ -475,7 +470,7 @@ public class ArchitectAgent {
     public TaskResult executeWithScan() throws InterruptedException {
         // ContextAgent Scan
         var scanModel = cm.getService().getScanModel();
-        var searchAgent = new SearchAgent(context, goal, scanModel, SearchAgent.Objective.WORKSPACE_ONLY, this.scope);
+        var searchAgent = new SearchAgent(context, goal, scanModel, this.scope);
         searchAgent.pruneContext();
         context = searchAgent.scanContext();
 

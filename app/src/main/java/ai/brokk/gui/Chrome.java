@@ -1050,9 +1050,6 @@ public class Chrome
             }
         });
 
-        // 3. UI Component Listeners
-        dependenciesPanel.addDependencyStateChangeListener(this::updateProjectFilesTabBadge);
-
         // 4. Focus and Action State Management
         KeyboardFocusManager.getCurrentKeyboardFocusManager().addPropertyChangeListener("focusOwner", evt -> {
             Component oldFocusOwner = (Component) evt.getOldValue();
@@ -1893,7 +1890,17 @@ public class Chrome
                     JOptionPane.QUESTION_MESSAGE);
 
             if (confirm == JOptionPane.YES_OPTION) {
-                mainProject.performStyleMdToAgentsMdMigration(this);
+                new ExceptionAwareSwingWorker<Boolean, Void>(this) {
+                    @Override
+                    protected Boolean doInBackground() throws Exception {
+                        return mainProject.performStyleMdToAgentsMdMigration(io());
+                    }
+
+                    @Override
+                    protected void done() {
+                        super.done(); // handles exceptions via GlobalExceptionHandler
+                    }
+                }.execute();
             } else {
                 mainProject.setMigrationDeclined(true);
                 logger.info("User declined style.md to AGENTS.md migration. Decision stored.");
@@ -2418,19 +2425,6 @@ public class Chrome
     public void updateGitTabBadge(int modifiedCount) {
         assert SwingUtilities.isEventDispatchThread() : "updateGitTabBadge(int) must be called on EDT";
         toolsPane.updateGitTabBadge(modifiedCount);
-    }
-
-    /**
-     * Updates the Project Files tab badge with the current number of live dependencies. Should be called whenever
-     * the dependency count changes or on startup to initialize the badge. EDT-safe.
-     */
-    @SuppressWarnings("RedundantNullCheck")
-    public void updateProjectFilesTabBadge(int dependencyCount) {
-        SwingUtil.runOnEdt(() -> {
-            if (toolsPane != null) {
-                toolsPane.updateProjectFilesTabBadge(dependencyCount);
-            }
-        });
     }
 
     public void refreshBranchUi(@Nullable String branchName) {

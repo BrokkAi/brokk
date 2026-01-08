@@ -6,7 +6,6 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.IProject;
 import java.io.IOException;
@@ -18,6 +17,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.jetbrains.annotations.Nullable;
 
 /** Lightweight IProject implementation for unit-testing Tree-sitter analyzers. */
 public class TestProject implements IProject {
@@ -33,6 +33,7 @@ public class TestProject implements IProject {
     private String styleGuide = "";
     private Set<String> exclusionPatterns = Set.of();
     private boolean hasGit = false;
+    private @Nullable String jdk;
 
     public TestProject(Path root) {
         this(root, Languages.NONE);
@@ -120,6 +121,26 @@ public class TestProject implements IProject {
     }
 
     @Override
+    public @Nullable String getJdk() {
+        return jdk;
+    }
+
+    @Override
+    public void setJdk(@Nullable String jdkHome) {
+        this.jdk = jdkHome;
+    }
+
+    @Override
+    public boolean hasJdkOverride() {
+        return jdk != null;
+    }
+
+    public TestProject withJdk(@Nullable String jdkHome) {
+        setJdk(jdkHome);
+        return this;
+    }
+
+    @Override
     public McpConfig getMcpConfig() {
         return McpConfig.EMPTY;
     }
@@ -153,11 +174,6 @@ public class TestProject implements IProject {
     @Override
     public Path getMasterRootPathForConfig() {
         return getRoot();
-    }
-
-    @Override
-    public IGitRepo getRepo() {
-        throw new UnsupportedOperationException();
     }
 
     @Override

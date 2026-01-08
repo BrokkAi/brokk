@@ -2,7 +2,6 @@ package ai.brokk;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
@@ -11,6 +10,8 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
 import ai.brokk.util.LoggingExecutorService;
+import ai.brokk.watchservice.AbstractWatchService;
+import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,7 +30,7 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper {
+public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzerWrapper {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
     private final AnalyzerListener listener; // can be null if no one is listening
@@ -40,7 +41,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     private final Path gitRepoRoot;
 
     private final IProject project;
-    private final IWatchService watchService;
+    private final AbstractWatchService watchService;
 
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
 
@@ -64,7 +65,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * @param analyzerListener Listener for analyzer lifecycle events (can be null for headless mode)
      * @param watchService The watch service to use (can be null for headless mode or testing)
      */
-    public AnalyzerWrapper(IProject project, AnalyzerListener analyzerListener, @NotNull IWatchService watchService) {
+    public AnalyzerWrapper(
+            IProject project, AnalyzerListener analyzerListener, @NotNull AbstractWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
         this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
@@ -157,12 +159,12 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
         logger.trace(
                 "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}, gitMetaDir={}",
-                batch.files.size(),
-                batch.isOverflowed,
-                batch.untrackedGitignoreChanged);
+                batch.getFiles().size(),
+                batch.isOverflowed(),
+                batch.isUntrackedGitignoreChanged());
 
         // 1) Handle untracked gitignore file changes by invalidating project cache
-        if (batch.untrackedGitignoreChanged) {
+        if (batch.isUntrackedGitignoreChanged()) {
             logger.debug("Untracked gitignore files changed, invalidating project file cache");
             project.invalidateAllFiles();
         }
@@ -171,8 +173,8 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         if (gitRepoRoot != null) {
             Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
             boolean gitMetaTouched =
-                    batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
-            if (batch.isOverflowed || gitMetaTouched) {
+                    batch.getFiles().stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
+            if (batch.isOverflowed() || gitMetaTouched) {
                 logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
                 listener.onRepoChange();
                 listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
@@ -180,7 +182,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         // 1) Handle overflow - trigger full analyzer rebuild
-        if (batch.isOverflowed) {
+        if (batch.isOverflowed()) {
             logger.debug("Event batch overflowed, triggering full analyzer rebuild");
             refresh(prev -> {
                 long startTime = System.currentTimeMillis();
@@ -197,7 +199,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         var projectLanguages = requireNonNull(currentAnalyzer).languages();
 
         // Only consider tracked files that match our analyzer's language extensions
-        var relevantFiles = batch.files.stream()
+        var relevantFiles = batch.getFiles().stream()
                 .filter(trackedFiles::contains) // Must be tracked by git
                 .filter(pf -> projectLanguages.stream()
                         .anyMatch(L -> L.getExtensions().contains(pf.extension())))
@@ -217,7 +219,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         } else {
             logger.trace(
                     "No analyzer-relevant files changed (batch contained {} files); skipping analyzer rebuild",
-                    batch.files.size());
+                    batch.getFiles().size());
         }
     }
 
@@ -530,7 +532,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     }
 
     @Override
-    public IWatchService getWatchService() {
+    public AbstractWatchService getWatchService() {
         return watchService;
     }
 

@@ -15,8 +15,8 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
@@ -1458,13 +1458,11 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         });
 
         // Kick off background execution
-        var analyzerWrapper = cm.getAnalyzerWrapper();
         cm.submitLlmAction(() -> {
             logger.debug(
                     "BlitzForge parallel processing started (Tools path) on thread {}",
                     Thread.currentThread().getName());
-            analyzerWrapper.pause();
-            try (var scope = cm.beginTask(instructions, false)) {
+            try (var scope = cm.beginTask(instructions, true, "BlitzForge")) {
                 var parallelResult = runParallel(
                         runCfg,
                         progressDialog,
@@ -1563,8 +1561,6 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     TaskResult postProcessResult = agent.executeWithScan();
                     scope.append(postProcessResult);
                 }
-            } finally {
-                analyzerWrapper.resume();
             }
         });
         // Show the progress dialog (modeless)
@@ -1703,7 +1699,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             }
 
             boolean edited =
-                    !DiffService.getChangedFiles(tr.context(), initialContext).isEmpty();
+                    !ContextDelta.between(initialContext, tr.context()).join().isEmpty();
             String llmOutput = dialogIo.getLlmOutput();
 
             // Optional context filtering

@@ -688,8 +688,9 @@ public class MergeAgent {
             theirsChanged = changedFilesFromParent(otherCommitId);
         }
 
+        var analyzer = cm.getAnalyzerUninterrupted();
         return Stream.concat(oursChanged.stream(), theirsChanged.stream())
-                .filter(ContextManager::isTestFile)
+                .filter(f -> ContextManager.isTestFile(f, analyzer))
                 .collect(Collectors.toSet());
     }
 

@@ -1,4 +1,4 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -19,7 +19,7 @@ class WatchServiceFactoryTest {
 
         assertNotNull(service);
         assertTrue(
-                service instanceof LegacyProjectWatchService,
+                service instanceof JavaProjectWatchService,
                 "Should create LegacyProjectWatchService when configured as 'legacy'");
     }
 
@@ -37,7 +37,7 @@ class WatchServiceFactoryTest {
     void testConfigurationCaseInsensitive() throws Exception {
         var legacyService = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "LEGACY", "linux");
         assertTrue(
-                legacyService instanceof LegacyProjectWatchService,
+                legacyService instanceof JavaProjectWatchService,
                 "Should handle case-insensitive configuration values");
 
         var nativeService = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "NATIVE", "linux");
@@ -59,7 +59,9 @@ class WatchServiceFactoryTest {
         var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "linux");
 
         assertNotNull(service);
-        assertTrue(service instanceof NativeProjectWatchService, "Should create NativeProjectWatchService for Linux");
+        assertTrue(
+                service instanceof JavaProjectWatchService,
+                "Should create JavaProjectWatchService for Linux by default");
     }
 
     @Test
@@ -67,7 +69,9 @@ class WatchServiceFactoryTest {
         var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "unknown", "windows 10");
 
         assertNotNull(service);
-        assertTrue(service instanceof NativeProjectWatchService, "Should create NativeProjectWatchService for Windows");
+        assertTrue(
+                service instanceof JavaProjectWatchService,
+                "Should create JavaProjectWatchService for Windows by default");
     }
 
     @Test
@@ -83,13 +87,13 @@ class WatchServiceFactoryTest {
 
     @Test
     void testDefaultBehaviorNoConfiguration() throws Exception {
-        // When configuration defaults to "legacy" (as per current implementation)
-        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "linux");
+        // When configuration defaults to "default", it should follow platform logic
+        var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "default", "linux");
 
         assertNotNull(service);
         assertTrue(
-                service instanceof LegacyProjectWatchService,
-                "Should use legacy when default configuration is 'legacy'");
+                service instanceof JavaProjectWatchService,
+                "Should use legacy on Linux when configuration is 'default'");
     }
 
     @Test
@@ -106,7 +110,7 @@ class WatchServiceFactoryTest {
                 WatchServiceFactory.createInternal(gitRepo, gitRepo, globalGitignore, List.of(), "legacy", "linux");
 
         assertNotNull(service);
-        assertTrue(service instanceof LegacyProjectWatchService);
+        assertTrue(service instanceof JavaProjectWatchService);
     }
 
     @Test
@@ -126,7 +130,7 @@ class WatchServiceFactoryTest {
         var service = WatchServiceFactory.createInternal(tempDir, null, null, List.of(), "legacy", "linux");
 
         assertNotNull(service);
-        assertTrue(service instanceof LegacyProjectWatchService);
+        assertTrue(service instanceof JavaProjectWatchService);
     }
 
     @Test
@@ -147,15 +151,15 @@ class WatchServiceFactoryTest {
 
         assertNotNull(service);
         assertTrue(
-                service instanceof LegacyProjectWatchService, "Configuration should override platform-based selection");
+                service instanceof JavaProjectWatchService, "Configuration should override platform-based selection");
     }
 
     /**
      * Test listener implementation for testing purposes
      */
-    private static class TestListener implements IWatchService.Listener {
+    private static class TestListener implements AbstractWatchService.Listener {
         @Override
-        public void onFilesChanged(IWatchService.EventBatch batch) {
+        public void onFilesChanged(AbstractWatchService.EventBatch batch) {
             // No-op for testing
         }
 

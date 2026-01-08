@@ -505,7 +505,8 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             contextMenu.addSeparator();
             // Add "Run Tests in Shell" item
             JMenuItem runTestsItem = new JMenuItem("Run Tests");
-            boolean hasTestFiles = targetFiles.stream().allMatch(ContextManager::isTestFile);
+            var currentAnalyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+            boolean hasTestFiles = targetFiles.stream().allMatch(f -> ContextManager.isTestFile(f, currentAnalyzer));
             runTestsItem.setEnabled(hasTestFiles);
             if (!hasTestFiles) {
                 runTestsItem.setToolTipText("Non-test files in selection");
@@ -513,8 +514,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
             runTestsItem.addActionListener(ev -> {
                 contextManager.submitLlmAction(() -> {
+                    var innerAnalyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
                     var testProjectFiles = targetFiles.stream()
-                            .filter(ContextManager::isTestFile)
+                            .filter(f -> ContextManager.isTestFile(f, innerAnalyzer))
                             .collect(Collectors.toSet());
 
                     if (testProjectFiles.isEmpty()) {

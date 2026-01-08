@@ -640,13 +640,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
             // Diff warm-up is deferred; request diffs only for visible rows and current selection.
             var diffService = contextManager.getContextHistory().getDiffService();
-            var resetEdges = contextManager.getContextHistory().getResetEdges();
+            var history = contextManager.getContextHistory();
+            var resetEdges = history.getResetEdges();
             var resetTargetIds = resetEdges.stream()
                     .map(ai.brokk.context.ContextHistory.ResetEdge::targetId)
                     .collect(java.util.stream.Collectors.toSet());
 
-            var descriptors =
-                    HistoryGrouping.GroupingBuilder.discoverGroups(contexts, this::isGroupingBoundary, resetTargetIds);
+            var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, history);
             latestDescriptors = descriptors;
 
             for (var descriptor : descriptors) {
@@ -2532,33 +2532,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         public int getIconHeight() {
             return size;
         }
-    }
-
-    private boolean isGroupingBoundary(Context ctx) {
-        // Grouping boundaries are independent of diff presence.
-        // Boundary when this is an AI result WITHOUT a groupId, or a state reset (empty fragments or history cleared).
-        // Note: AI results that carry a groupId are NOT boundaries and may merge into a single GROUP_BY_ID run.
-        if (ctx.isAiResult() && ctx.getGroupId() == null) {
-            return true;
-        }
-
-        Context prev = contextManager.getContextHistory().previousOf(ctx);
-        if (prev == null) {
-            return false;
-        }
-
-        // Dropped all context: fragments became empty
-        if (prev.allFragments().findAny().isPresent()
-                && ctx.allFragments().findAny().isEmpty()) {
-            return true;
-        }
-
-        // Cleared task history: history became empty
-        if (!prev.getTaskHistory().isEmpty() && ctx.getTaskHistory().isEmpty()) {
-            return true;
-        }
-
-        return false;
     }
 
     private void toggleGroupRow(int row) {

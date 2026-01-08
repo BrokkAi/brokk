@@ -92,6 +92,10 @@ public interface IProject extends AutoCloseable {
                 .collect(Collectors.toSet());
     }
 
+    default Set<ProjectFile> filterExcludedFiles(Set<ProjectFile> files) {
+        return files;
+    }
+
     default void invalidateAllFiles() {}
 
     /**
@@ -186,6 +190,11 @@ public interface IProject extends AutoCloseable {
     // JDK configuration: project-scoped JAVA_HOME setting (path or sentinel)
     default @Nullable String getJdk() {
         return null;
+    }
+
+    /** Returns true if the user has explicitly configured a JDK override in this workspace. */
+    default boolean hasJdkOverride() {
+        return false;
     }
 
     default void setJdk(@Nullable String jdkHome) {}

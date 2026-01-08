@@ -1,4 +1,4 @@
-package ai.brokk;
+package ai.brokk.watchservice;
 
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
@@ -45,11 +45,11 @@ public class WatchServiceFactory {
      * @param listeners Listeners to notify of file changes
      * @return An appropriate IWatchService implementation
      */
-    public static IWatchService create(
+    public static AbstractWatchService create(
             Path root,
             @Nullable Path gitRepoRoot,
             @Nullable Path globalGitignorePath,
-            List<IWatchService.Listener> listeners) {
+            List<AbstractWatchService.Listener> listeners) {
         String implProp = getImplementationPreference();
         String os = getOsName();
         return createInternal(root, gitRepoRoot, globalGitignorePath, listeners, implProp, os);
@@ -83,8 +83,8 @@ public class WatchServiceFactory {
             logger.debug("Unable to read MainProject watch service preference: {}", t.getMessage());
         }
 
-        // 4) Default to native to preserve previous behavior
-        return WATCH_SERVICE_IMPL_LEGACY;
+        // 4) Default to "default" to allow platform-specific logic in createInternal
+        return "default";
     }
 
     /**
@@ -106,17 +106,17 @@ public class WatchServiceFactory {
      * Internal creation method that can be tested without modifying global state.
      * Package-private for testing.
      */
-    static IWatchService createInternal(
+    static AbstractWatchService createInternal(
             Path root,
             @Nullable Path gitRepoRoot,
             @Nullable Path globalGitignorePath,
-            List<IWatchService.Listener> listeners,
+            List<AbstractWatchService.Listener> listeners,
             String implProp,
             String os) {
 
         if (WATCH_SERVICE_IMPL_LEGACY.equalsIgnoreCase(implProp)) {
             logger.debug("Using legacy watch service (forced by configuration)");
-            return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
+            return new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
         if (WATCH_SERVICE_IMPL_NATIVE.equalsIgnoreCase(implProp)) {
             logger.debug("Using native watch service (forced by configuration)");
@@ -129,16 +129,16 @@ public class WatchServiceFactory {
             logger.debug("Detected macOS, using native watch service (FSEvents)");
             return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
         } else if (os.contains("linux")) {
-            // Linux: native implementation provides optimizations
-            logger.debug("Detected Linux, using native watch service (inotify optimized)");
-            return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
+            // Linux: Java WatchService is more stable across distributions
+            logger.debug("Detected Linux, using java watch service (default)");
+            return new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         } else if (os.contains("win")) {
-            // Windows: both implementations work well, prefer native for consistency
-            logger.debug("Detected Windows, using native watch service");
-            return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
+            // Windows: Java WatchService is the standard default
+            logger.debug("Detected Windows, using java watch service (default)");
+            return new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
 
-        // Default to native with fallback
+        // Default to native with fallback for unknown platforms
         logger.debug("Using native watch service (default)");
         return createNativeWithFallback(root, gitRepoRoot, globalGitignorePath, listeners);
     }
@@ -146,16 +146,16 @@ public class WatchServiceFactory {
     /**
      * Try to create native implementation, fall back to legacy on error.
      */
-    private static IWatchService createNativeWithFallback(
+    private static AbstractWatchService createNativeWithFallback(
             Path root,
             @Nullable Path gitRepoRoot,
             @Nullable Path globalGitignorePath,
-            List<IWatchService.Listener> listeners) {
+            List<AbstractWatchService.Listener> listeners) {
         try {
             return new NativeProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         } catch (Exception e) {
             logger.error("Failed to create native watch service, falling back to legacy", e);
-            return new LegacyProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
+            return new JavaProjectWatchService(root, gitRepoRoot, globalGitignorePath, listeners);
         }
     }
 }

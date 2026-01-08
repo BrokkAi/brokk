@@ -61,8 +61,6 @@ public class ContextSerializationTest {
                 Map.of("com.example.MyClass.myMethod", List.of(codeFragmentTargetMthd)),
                 project);
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO(), testAnalyzer);
-        // Reset fragment ID counter for test isolation
-        ContextFragments.setMinimumId(1);
 
         // Clean .brokk/sessions directory for session tests
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
@@ -408,74 +406,59 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testFragmentIdContinuityAfterLoad() throws IOException {
+    void testFragmentIdPersistenceAndUniquenessAfterLoad() throws IOException {
         var projectFile = new ProjectFile(tempDir, "dummy.txt");
         Files.createDirectories(projectFile.absPath().getParent()); // Ensure parent directory exists
         Files.writeString(projectFile.absPath(), "content");
 
-        // ID of ctxFragment will be "1" (String)
+        // Create fragments
         var ctxFragment = new ContextFragments.ProjectPathFragment(projectFile, mockContextManager);
-        // ID of strFragment will be a hash string
         var strFragment = new ContextFragments.StringFragment(
                 mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        String originalCtxId = ctxFragment.id();
+        String originalStrId = strFragment.id();
 
         var context = new Context(mockContextManager)
                 .addFragments(List.of(ctxFragment))
                 .addFragments(strFragment);
         var history = new ContextHistory(context);
 
-        Path zipFile = tempDir.resolve("id_continuity_history.zip");
+        Path zipFile = tempDir.resolve("id_persistence_uniqueness.zip");
         HistoryIo.writeZip(history, zipFile);
 
-        // Save the next available numeric ID *before* loading, then load.
-        // Loading process (fragment constructors) will update ContextFragment.nextId.
-        // For this test, we want to see what the next available numeric ID *was* before any new fragment creations
-        // post-load.
-        // ContextFragment.getCurrentMaxId() gives the *next* ID to be used.
-        // After loading, ContextFragment.getCurrentMaxId() should be correctly set based on the max numeric ID found.
+        // Load history
         ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+        Context loadedContext = loadedHistory.getHistory().get(0);
 
-        int maxNumericIdInLoadedHistory = 0;
-        for (Context loadedCtx : loadedHistory.getHistory()) {
-            for (ContextFragment frag : loadedCtx.allFragments().toList()) {
-                try {
-                    // Only consider numeric IDs from dynamic fragments
-                    int numericId = Integer.parseInt(frag.id());
-                    if (numericId > maxNumericIdInLoadedHistory) {
-                        maxNumericIdInLoadedHistory = numericId;
-                    }
-                } catch (NumberFormatException e) {
-                    // Non-numeric ID (hash), ignore for max numeric ID calculation
-                }
-            }
-        }
+        // Verify Persistence
+        var loadedCtxFragment = loadedContext
+                .allFragments()
+                .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Loaded ProjectPathFragment not found"));
 
-        // The nextId counter should be at least maxNumericIdInLoadedHistory + 1.
-        // If no numeric IDs were found (e.g. all fragments were content-hashed or history was empty),
-        // then getCurrentMaxId() would be whatever it was set to initially (e.g. 1, or higher if other tests ran before
-        // without reset)
-        // or what it became after loading any initial numeric IDs from other fragments.
-        int nextAvailableNumericId = ContextFragment.getCurrentMaxId();
-        if (maxNumericIdInLoadedHistory > 0) {
-            assertTrue(
-                    nextAvailableNumericId > maxNumericIdInLoadedHistory,
-                    "ContextFragment.nextId (numeric counter) should be greater than the max numeric ID found in loaded fragments.");
-        } else {
-            // If no numeric IDs, nextAvailableNumericId should be at least 1 (or whatever it was reset to)
-            assertTrue(nextAvailableNumericId >= 1, "ContextFragment.nextId should be at least 1.");
-        }
+        var loadedStrFragment = loadedContext
+                .allFragments()
+                .filter(f -> f instanceof ContextFragments.StringFragment)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Loaded StringFragment not found"));
 
-        // Create a new *dynamic* fragment; it should get a string representation of `nextAvailableNumericId`
+        assertEquals(originalCtxId, loadedCtxFragment.id(), "ProjectPathFragment ID should be preserved exactly.");
+        assertEquals(originalStrId, loadedStrFragment.id(), "StringFragment ID should be preserved exactly.");
+
+        // Verify Uniqueness for new fragment
         var newDynamicFragment = new ContextFragments.ProjectPathFragment(
                 new ProjectFile(tempDir, "new_dynamic.txt"), mockContextManager);
-        assertEquals(
-                String.valueOf(nextAvailableNumericId),
+
+        assertNotEquals(
+                originalCtxId,
                 newDynamicFragment.id(),
-                "New dynamic fragment should get the expected next numeric ID as a string.");
-        assertEquals(
-                nextAvailableNumericId + 1,
-                ContextFragment.getCurrentMaxId(),
-                "ContextFragment.nextId (numeric counter) should increment after new dynamic fragment creation.");
+                "New dynamic fragment ID should not collide with loaded dynamic fragment ID.");
+        assertNotEquals(
+                originalStrId,
+                newDynamicFragment.id(),
+                "New dynamic fragment ID should not collide with loaded static fragment ID.");
     }
 
     @Test
@@ -2183,5 +2166,176 @@ public class ContextSerializationTest {
 
         assertEquals(Set.of(file), fragment.files().join());
         assertEquals("Paste of text content", fragment.description().join());
+    }
+
+    @Test
+    void testRoundTripGroupingMetadata() throws IOException {
+        var ctx1 = new Context(mockContextManager);
+        var ctx2 = new Context(mockContextManager);
+        var ctx3 = new Context(mockContextManager);
+
+        var history = new ContextHistory(List.of(ctx1, ctx2, ctx3));
+
+        var groupId = UUID.randomUUID();
+        var groupLabel = "Test Group Label";
+        history.addContextToGroup(ctx1.id(), groupId, groupLabel);
+        history.addContextToGroup(ctx2.id(), groupId, "ignored because group already exists");
+
+        var zip = tempDir.resolve("grouping_test.zip");
+        HistoryIo.writeZip(history, zip);
+
+        var loaded = HistoryIo.readZip(zip, mockContextManager);
+
+        // Verify groupId mappings
+        assertEquals(groupId, loaded.getGroupId(ctx1.id()));
+        assertEquals(groupId, loaded.getGroupId(ctx2.id()));
+        assertNull(loaded.getGroupId(ctx3.id()));
+
+        // Verify group label (keyed by groupId, first label wins)
+        var loadedLabels = loaded.getGroupLabels();
+        assertEquals(groupLabel, loadedLabels.get(groupId));
+        assertEquals(1, loadedLabels.size(), "Should have exactly one group label");
+    }
+
+    @Test
+    void testRoundTripGroupingWithFileBackedFragments() throws Exception {
+        // Setup file-backed fragments like real usage
+        var projectFile = new ProjectFile(tempDir, "src/GroupedFile.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "public class GroupedFile {}");
+
+        var frag1 = new ContextFragments.ProjectPathFragment(projectFile, mockContextManager);
+        var ctx1 = new Context(mockContextManager).addFragments(List.of(frag1));
+
+        // Second context with modified file
+        Files.writeString(projectFile.absPath(), "public class GroupedFile { int x; }");
+        var frag2 = new ContextFragments.ProjectPathFragment(projectFile, mockContextManager);
+        var ctx2 = new Context(mockContextManager).addFragments(List.of(frag2));
+
+        var history = new ContextHistory(List.of(ctx1, ctx2));
+
+        // Add group metadata (like TaskScope.append does)
+        var groupId = UUID.randomUUID();
+        var groupLabel = "File-backed Group";
+        history.addContextToGroup(ctx1.id(), groupId, groupLabel);
+        history.addContextToGroup(ctx2.id(), groupId, "ignored");
+
+        // Capture IDs before serialization
+        UUID ctx1Id = ctx1.id();
+        UUID ctx2Id = ctx2.id();
+
+        var zip = tempDir.resolve("filebacked_grouping_test.zip");
+        HistoryIo.writeZip(history, zip);
+
+        var loaded = HistoryIo.readZip(zip, mockContextManager);
+
+        // Verify context IDs are preserved
+        assertEquals(2, loaded.getHistory().size());
+        assertEquals(ctx1Id, loaded.getHistory().get(0).id(), "Context 1 ID should be preserved");
+        assertEquals(ctx2Id, loaded.getHistory().get(1).id(), "Context 2 ID should be preserved");
+
+        // Verify group mappings are preserved
+        assertEquals(groupId, loaded.getGroupId(ctx1Id), "Group ID for ctx1 should be preserved");
+        assertEquals(groupId, loaded.getGroupId(ctx2Id), "Group ID for ctx2 should be preserved");
+        assertEquals(groupLabel, loaded.getGroupLabels().get(groupId), "Group label should be preserved");
+    }
+
+    @Test
+    void testRoundTripGroupingWithTaskHistory() throws Exception {
+        // Create context with task history like TaskScope.append creates
+        var messages = List.<ChatMessage>of(UserMessage.from("Test query"), AiMessage.from("Test response"));
+        var taskFragment = new ContextFragments.TaskFragment(mockContextManager, messages, "Test Task");
+        var taskEntry = new TaskEntry(1, taskFragment, null);
+
+        var ctx1 = new Context(mockContextManager);
+        var ctx2 = ctx1.addHistoryEntry(taskEntry, taskFragment);
+
+        var history = new ContextHistory(List.of(ctx1, ctx2));
+
+        // Add group like TaskScope does after pushContext
+        var groupId = UUID.randomUUID();
+        history.addContextToGroup(ctx2.id(), groupId, "Task Group");
+
+        UUID ctx2Id = ctx2.id();
+
+        var zip = tempDir.resolve("taskhistory_grouping_test.zip");
+        HistoryIo.writeZip(history, zip);
+
+        var loaded = HistoryIo.readZip(zip, mockContextManager);
+
+        // Verify context ID preserved
+        assertEquals(ctx2Id, loaded.getHistory().get(1).id(), "Context ID should be preserved");
+
+        // Verify group mapping
+        assertEquals(
+                groupId, loaded.getGroupId(ctx2Id), "Group ID should be preserved after round-trip with task history");
+        assertEquals("Task Group", loaded.getGroupLabels().get(groupId));
+    }
+
+    @Test
+    void testRoundTripMultipleGroupsWithMixedFragments() throws Exception {
+        // Setup various fragment types
+        var projectFile = new ProjectFile(tempDir, "src/MultiGroup.java");
+        Files.createDirectories(projectFile.absPath().getParent());
+        Files.writeString(projectFile.absPath(), "class MultiGroup {}");
+
+        // Context 1: ProjectPathFragment, Group A
+        var frag1 = new ContextFragments.ProjectPathFragment(projectFile, mockContextManager);
+        var ctx1 = new Context(mockContextManager).addFragments(List.of(frag1));
+
+        // Context 2: StringFragment, Group A (same group as ctx1)
+        var stringFrag = new ContextFragments.StringFragment(
+                mockContextManager, "Some text", "Description", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var ctx2 = new Context(mockContextManager).addFragments(stringFrag);
+
+        // Context 3: Task history, Group B (different group)
+        var messages = List.<ChatMessage>of(UserMessage.from("Query"), AiMessage.from("Response"));
+        var taskFragment = new ContextFragments.TaskFragment(mockContextManager, messages, "Task");
+        var taskEntry = new TaskEntry(1, taskFragment, null);
+        var ctx3 = new Context(mockContextManager).addHistoryEntry(taskEntry, taskFragment);
+
+        // Context 4: No group
+        var ctx4 = new Context(mockContextManager);
+
+        var history = new ContextHistory(List.of(ctx1, ctx2, ctx3, ctx4));
+
+        // Setup two different groups
+        var groupA = UUID.randomUUID();
+        var groupB = UUID.randomUUID();
+
+        history.addContextToGroup(ctx1.id(), groupA, "Group A Label");
+        history.addContextToGroup(ctx2.id(), groupA, "ignored");
+        history.addContextToGroup(ctx3.id(), groupB, "Group B Label");
+        // ctx4 intentionally not in any group
+
+        // Capture IDs
+        UUID ctx1Id = ctx1.id();
+        UUID ctx2Id = ctx2.id();
+        UUID ctx3Id = ctx3.id();
+        UUID ctx4Id = ctx4.id();
+
+        var zip = tempDir.resolve("multigroup_test.zip");
+        HistoryIo.writeZip(history, zip);
+
+        var loaded = HistoryIo.readZip(zip, mockContextManager);
+
+        // Verify all context IDs preserved
+        assertEquals(4, loaded.getHistory().size());
+        assertEquals(ctx1Id, loaded.getHistory().get(0).id());
+        assertEquals(ctx2Id, loaded.getHistory().get(1).id());
+        assertEquals(ctx3Id, loaded.getHistory().get(2).id());
+        assertEquals(ctx4Id, loaded.getHistory().get(3).id());
+
+        // Verify group mappings
+        assertEquals(groupA, loaded.getGroupId(ctx1Id), "ctx1 should be in Group A");
+        assertEquals(groupA, loaded.getGroupId(ctx2Id), "ctx2 should be in Group A");
+        assertEquals(groupB, loaded.getGroupId(ctx3Id), "ctx3 should be in Group B");
+        assertNull(loaded.getGroupId(ctx4Id), "ctx4 should not be in any group");
+
+        // Verify both group labels
+        var loadedLabels = loaded.getGroupLabels();
+        assertEquals(2, loadedLabels.size(), "Should have exactly 2 group labels");
+        assertEquals("Group A Label", loadedLabels.get(groupA));
+        assertEquals("Group B Label", loadedLabels.get(groupB));
     }
 }

@@ -502,6 +502,10 @@ public class CodePrompts {
         // Uncompressed messages: process for S/R block redaction
         taskHistory.stream().filter(e -> !e.isCompressed()).forEach(e -> {
             var entryRawMessages = castNonNull(e.log()).messages();
+            if (entryRawMessages.isEmpty()) {
+                return;
+            }
+
             // Determine the messages to include from the entry
             var relevantEntryMessages = entryRawMessages.getLast() instanceof AiMessage
                     ? entryRawMessages

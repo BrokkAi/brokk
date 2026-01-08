@@ -105,9 +105,7 @@ public class ProjectFilesPanel extends JPanel {
         // Deferred update helper for ProjectFilesPanel (defers refresh when not visible)
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::refreshProjectFiles);
 
-        // Initialize badge with current dependency count (also updates border title)
-        int liveCount = chrome.getProject().getLiveDependencies().size();
-        chrome.updateProjectFilesTabBadge(liveCount);
+        updateBorderTitle();
     }
 
     private void toggleDependenciesPanel() {

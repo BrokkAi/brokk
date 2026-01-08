@@ -1,7 +1,6 @@
 package ai.brokk.prompts;
 
 import ai.brokk.agents.BuildAgent;
-import ai.brokk.agents.SearchAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.context.Context;
 import ai.brokk.context.SpecialTextType;
@@ -14,6 +13,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -23,6 +23,35 @@ public class SearchPrompts {
     public static final SearchPrompts instance = new SearchPrompts();
 
     private static final double WORKSPACE_CRITICAL = 0.80;
+
+    public enum Objective {
+        ANSWER_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER);
+            }
+        },
+        TASKS_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.TASK_LIST);
+            }
+        },
+        LUTZ {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.ANSWER, Terminal.CODE, Terminal.TASK_LIST);
+            }
+        },
+        WORKSPACE_ONLY {
+            @Override
+            public Set<Terminal> terminals() {
+                return EnumSet.of(Terminal.WORKSPACE);
+            }
+        };
+
+        public abstract Set<Terminal> terminals();
+    }
 
     /**
      * Result of building a prompt, including messages and whether beast mode should be engaged.
@@ -95,7 +124,7 @@ public class SearchPrompts {
                 %s
 
                 Critical rules:
-                  1) PRUNE FIRST at every turn.
+                  1) PRUNE the Workspace at every turn in parallel with your next steps.
                      - Remove fragments that are not directly useful for the goal (add a reason).
                      - Prefer concise, goal-focused summaries over full files when possible.
                      - When you pull information from a long fragment, first add your extraction/summary, then drop the original from workspace.
@@ -104,8 +133,7 @@ public class SearchPrompts {
                   3) The symbol-based tools only have visibility into the following file types: %s
                      Use text-based tools if you need to search other file types.
                   4) Group related lookups into a single tool call when possible.
-                  5) Make multiple tool calls at once when searching for different types of code.
-                  6) Your responsibility ends at providing context.
+                  5) Your responsibility ends at providing context.
                      Do not attempt to write the solution or pseudocode for the solution.
                      Your job is to *gather* the materials; the Code Agent's job is to *use* them.
                      Where code changes are needed, add the *target files* to the workspace using `addFilesToWorkspace`
@@ -114,9 +142,11 @@ public class SearchPrompts {
                      Note: Code Agent will also take care of creating new files, you only need to add existing files
                      to the Workspace.
 
-                Output discipline:
-                  - Start each turn by pruning and summarizing before any new exploration.
+                Working efficiently:
                   - Think before calling tools.
+                  - Make multiple tool calls at once when searching for different types of code. Dropping
+                    fragments should always be done in conjunction with other tools, since you will gain
+                    no new information from the drop result.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
                 </instructions>
                 """
@@ -193,7 +223,7 @@ public class SearchPrompts {
             Context context,
             StreamingChatModel model,
             String goal,
-            SearchAgent.Objective objective,
+            SearchPrompts.Objective objective,
             List<McpPrompts.McpTool> mcpTools,
             List<ChatMessage> sessionMessages)
             throws InterruptedException {
@@ -202,7 +232,7 @@ public class SearchPrompts {
         var inputLimit = cm.getService().getMaxInputTokens(model);
 
         // Determine viewing policy based on search objective
-        boolean useTaskList = objective == SearchAgent.Objective.LUTZ || objective == SearchAgent.Objective.TASKS_ONLY;
+        boolean useTaskList = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
         var suppressed = useTaskList ? EnumSet.noneOf(SpecialTextType.class) : EnumSet.of(SpecialTextType.TASK_LIST);
 
         // Build workspace messages in insertion order with viewing policy applied
@@ -268,15 +298,14 @@ public class SearchPrompts {
             }
         }
 
-        var allowedTerminals = objective.terminals();
         var finals = new ArrayList<String>();
-        if (allowedTerminals.contains(Terminal.ANSWER)) {
+        if (objective.terminals().contains(Terminal.ANSWER)) {
             finals.add(
                     "- Use answer(String) when the request is purely informational and you have enough information to answer. The answer needs to be Markdown-formatted (see <persistence>).");
             finals.add(
                     "- Use askForClarification(String queryForUser) when the goal is unclear or you cannot find the necessary information; this will ask the user directly and stop.");
         }
-        if (allowedTerminals.contains(Terminal.TASK_LIST)) {
+        if (objective.terminals().contains(Terminal.TASK_LIST)) {
             finals.add(
                     """
                     - Use createOrReplaceTaskList(String explanation, List<String> tasks) to replace the entire task list when the request involves code changes. Titles are summarized automatically from task text; pass task texts only. Completed tasks from the previous list are implicitly dropped. Produce a clear, minimal, incremental, and testable sequence of tasks that a Code Agent can execute, once you understand where all the necessary pieces live.
@@ -288,11 +317,11 @@ public class SearchPrompts {
                         - Each task needs to be Markdown-formatted, use `inline code` (for file, directory, function, class names and other symbols).
                     """);
         }
-        if (allowedTerminals.contains(Terminal.WORKSPACE)) {
+        if (objective.terminals().contains(Terminal.WORKSPACE)) {
             finals.add(
                     "- Use workspaceComplete() when the Workspace contains all the information necessary to accomplish the goal.");
         }
-        if (allowedTerminals.contains(Terminal.CODE)) {
+        if (objective.terminals().contains(Terminal.CODE)) {
             finals.add(
                     "- Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
         }
@@ -302,18 +331,17 @@ public class SearchPrompts {
         String finalsStr = String.join("\n", finals);
 
         String testsGuidance = "";
-        if (allowedTerminals.contains(Terminal.WORKSPACE)) {
-            var toolHint =
-                    "- To locate tests, prefer getUsages to find tests referencing relevant classes and methods.";
+        if (objective.terminals().contains(Terminal.WORKSPACE)) {
             testsGuidance =
                     """
                     Tests:
                       - Code Agent will run the tests in the Workspace to validate its changes.
                         These can be full files (if it also needs to edit or understand test implementation details),
-                        or simple summaries if they just need to be run for validation.
+                        or simple summaries if they just need to be run for validation. Thus, you should
+                        convert tests whose full source you don't need to summaries by dropping the file and
+                        adding the summary. In general, you should avoid dropping test summaries.
                       %s
-                    """
-                            .formatted(toolHint);
+                    """;
         }
 
         var terminalObjective = buildTerminalObjective(objective);
@@ -333,8 +361,7 @@ public class SearchPrompts {
         }
 
         String buildSetupTaskGuidance = "";
-        boolean tasksObjective =
-                objective == SearchAgent.Objective.LUTZ || objective == SearchAgent.Objective.TASKS_ONLY;
+        boolean tasksObjective = objective == Objective.LUTZ || objective == Objective.TASKS_ONLY;
         if (tasksObjective && cm.getProject().loadBuildDetails().equals(BuildAgent.BuildDetails.EMPTY)) {
             buildSetupTaskGuidance =
                     """
@@ -361,9 +388,10 @@ public class SearchPrompts {
                         Decide the next tool action(s) to make progress toward the objective in service of the goal.
 
                         Pruning mandate:
-                          - Before any new exploration, prune the Workspace.
-                          - Replace full text with concise, goal-focused summaries and drop the originals.
-                          - Expand the Workspace only after pruning; avoid re-adding irrelevant content.
+                          - In parallel with new exploration, prune the Workspace by dropping less-relevant fragments.
+                          - Replace large file fragments with concise, goal-focused summaries (or targeted class/method fragments) and drop the originals.
+                          - The Discarded Context fragment provides a record of fragments you have seen and dropped;
+                            avoid re-adding this content unnecessarily.
 
                         %s
 
@@ -422,7 +450,7 @@ public class SearchPrompts {
 
     private record TerminalObjective(String type, String text) {}
 
-    private TerminalObjective buildTerminalObjective(SearchAgent.Objective objective) {
+    private TerminalObjective buildTerminalObjective(SearchPrompts.Objective objective) {
         return switch (objective) {
             case ANSWER_ONLY ->
                 new TerminalObjective(
