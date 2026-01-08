@@ -48,10 +48,10 @@ public final class ImportPageRanker {
      * Builds a candidate set and the associated import graph by starting from the seed files
      * and expanding via import relationships (both directions) up to IMPORT_DEPTH.
      */
-    private static Graph buildGraph(
-            IAnalyzer analyzer, Set<ProjectFile> seeds, Map<ProjectFile, Set<ProjectFile>> cache) {
+    private static Graph buildGraph(IAnalyzer analyzer, Set<ProjectFile> seeds) {
         Map<ProjectFile, Set<ProjectFile>> forward = new HashMap<>();
         Map<ProjectFile, Set<ProjectFile>> reverse = new HashMap<>();
+        Map<ProjectFile, Set<ProjectFile>> importCache = new HashMap<>();
         Map<ProjectFile, Set<ProjectFile>> reverseCache = new HashMap<>();
         ArrayDeque<ProjectFile> frontier = new ArrayDeque<>();
 
@@ -70,7 +70,7 @@ public final class ImportPageRanker {
                 ProjectFile pf = frontier.removeFirst();
 
                 // 1. Outgoing edges: pf -> target (pf imports target)
-                for (ProjectFile target : importedFilesFor(analyzer, pf, cache)) {
+                for (ProjectFile target : importedFilesFor(analyzer, pf, importCache)) {
                     if (!forward.containsKey(target)) {
                         forward.put(target, new LinkedHashSet<>());
                         reverse.put(target, new LinkedHashSet<>());
@@ -123,11 +123,8 @@ public final class ImportPageRanker {
             return List.of();
         }
 
-        // Local cache for import resolution during this ranking run
-        Map<ProjectFile, Set<ProjectFile>> importCache = new HashMap<>();
-
         // Build the localized graph from seeds
-        Graph graph = buildGraph(analyzer, positiveSeeds.keySet(), importCache);
+        Graph graph = buildGraph(analyzer, positiveSeeds.keySet());
 
         // The PageRank 'flow' direction is determined by the 'reversed' flag:
         // - Normal (reversed=false): Rank flows from Importer to Imported (Forward).
