@@ -295,6 +295,40 @@ public class TreeSitterStateIOTest {
     }
 
     @Test
+    void roundTripTypeHierarchy(@TempDir Path tempDir) throws Exception {
+        var builder = InlineTestProjectCreator.code(
+                """
+                package com.example;
+                interface Base {}
+                class Derived implements Base {}
+                """,
+                "src/main/java/com/example/Hierarchy.java");
+
+        try (IProject project = builder.build()) {
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+            CodeUnit baseCu = analyzer.getDefinitions("com.example.Base").getFirst();
+            CodeUnit derivedCu = analyzer.getDefinitions("com.example.Derived").getFirst();
+
+            // Trigger hierarchy computation (lazily populates the internal TypeHierarchyGraph)
+            Set<CodeUnit> descendants = analyzer.getDirectDescendants(baseCu);
+            assertTrue(descendants.contains(derivedCu), "Base should have Derived as descendant");
+
+            // Save state - this serializes the populated TypeHierarchyGraph
+            Path storage = Languages.JAVA.getStoragePath(project);
+            TreeSitterStateIO.save(analyzer.snapshotState(), storage);
+
+            // Load state into a fresh analyzer instance
+            IAnalyzer loaded = Languages.JAVA.loadAnalyzer(project);
+
+            // Verify descendants from loaded state without re-triggering full analysis
+            Set<CodeUnit> loadedDescendants = loaded.getDirectDescendants(baseCu);
+            assertTrue(loadedDescendants.contains(derivedCu), "Loaded analyzer should retain descendants");
+            assertEquals(descendants.size(), loadedDescendants.size());
+        }
+    }
+
+    @Test
     void roundTripImportsAndReverseImports(@TempDir Path tempDir) throws Exception {
         var root = tempDir.resolve("root");
         Files.createDirectories(root);
