@@ -195,7 +195,7 @@ public class Brokk {
      * Initializes JavaFX Platform if needed based on brokk.webview.impl system property.
      * Must be called before any GUI creation.
      */
-    private static void initializeJavaFxIfNeeded() {
+    public static void initializeJavaFxIfNeeded() {
         var webviewImpl = System.getProperty("brokk.webview.impl", "jcef");
         if ("javafx".equalsIgnoreCase(webviewImpl)) {
             try {
@@ -445,7 +445,7 @@ public class Brokk {
         BrokkConfigPaths.attemptMigration();
 
         setupSystemPropertiesAndIcon();
-        initializeJavaFxIfNeeded();
+        // initializeJavaFxIfNeeded();
 
         if (MainProject.initializeOomFlag()) {
             logger.warn("Detected OutOfMemoryError from last session, clearing active sessions.");

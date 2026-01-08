@@ -3,10 +3,10 @@ package ai.brokk.gui.mop.webview;
 import ai.brokk.ContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
-import ai.brokk.util.Environment;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.Environment;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.util.List;
@@ -173,8 +173,35 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             logger.error("Failed to initialize JCEF via jcefmaven", e);
             System.err.println("*** JCEF initialization failed: " + e.getMessage() + " ***");
             e.printStackTrace(System.err);
-            throw new RuntimeException("JCEF initialization failed via jcefmaven", e);
+            throw wrapWithLinuxLibraryHint(e);
         }
+    }
+
+    private static RuntimeException wrapWithLinuxLibraryHint(Throwable e) {
+        // Check for missing Linux system libraries
+        Throwable cause = e;
+        while (cause != null) {
+            if (cause instanceof UnsatisfiedLinkError ule && Environment.isLinux()) {
+                var msg = ule.getMessage();
+                if (msg != null && msg.contains(".so:")) {
+                    var libName = extractMissingLibrary(msg);
+                    var instructions =
+                            """
+                            JCEF requires system libraries that are not installed.
+                            Missing: %s
+
+                            Install with:
+                              Debian/Ubuntu: sudo apt install libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1
+                              Fedora/RHEL:   sudo dnf install nss atk gtk3 mesa-libgbm
+                              Arch:          sudo pacman -S nss atk gtk3 mesa
+                            """
+                                    .formatted(libName);
+                    return new RuntimeException(instructions, ule);
+                }
+            }
+            cause = cause.getCause();
+        }
+        return new RuntimeException("JCEF initialization failed", e);
     }
 
     private static CefApp getOrCreateCefApp() {
@@ -212,28 +239,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             try {
                 app = builder.build();
             } catch (Exception e) {
-                // Check for missing Linux system libraries
-                Throwable cause = e;
-                while (cause != null) {
-                    if (cause instanceof UnsatisfiedLinkError ule && Environment.isLinux()) {
-                        var msg = ule.getMessage();
-                        if (msg != null && msg.contains(".so:")) {
-                            var libName = extractMissingLibrary(msg);
-                            var instructions = """
-                                JCEF requires system libraries that are not installed.
-                                Missing: %s
-
-                                Install with:
-                                  Debian/Ubuntu: sudo apt install libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1
-                                  Fedora/RHEL:   sudo dnf install nss atk gtk3 mesa-libgbm
-                                  Arch:          sudo pacman -S nss atk gtk3 mesa
-                                """.formatted(libName);
-                            throw new RuntimeException(instructions, ule);
-                        }
-                    }
-                    cause = cause.getCause();
-                }
-                throw new RuntimeException("Failed to build JCEF CefApp", e);
+                throw wrapWithLinuxLibraryHint(e);
             }
             cefAppRef.set(app);
 
