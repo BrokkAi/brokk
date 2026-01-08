@@ -427,14 +427,34 @@ public class ContextFragments {
             boolean valid = file.exists();
             String text = file.read().orElse("");
             String name = file.getFileName();
-            Set<CodeUnit> sources = Set.of();
+
+            Set<CodeUnit> sources = new LinkedHashSet<>();
+            Set<ProjectFile> files = new LinkedHashSet<>();
+            files.add(file);
+
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
             try {
-                sources = contextManager.getAnalyzerUninterrupted().getDeclarations(file);
+                sources.addAll(analyzer.getDeclarations(file));
+
+                Map<CodeUnit, String> ancestorSkeletons = new LinkedHashMap<>();
+                analyzer.getTopLevelDeclarations(file).stream()
+                        .filter(CodeUnit::isClass)
+                        .forEach(cls -> ancestorSkeletons.putAll(resolveAncestorSkeletons(cls, analyzer)));
+
+                if (!ancestorSkeletons.isEmpty()) {
+                    String formatted = new SkeletonFragmentFormatter().format(new SkeletonFragmentFormatter.Request(
+                            null, List.of(), ancestorSkeletons, SummaryType.FILE_SKELETONS));
+                    if (!formatted.isEmpty()) {
+                        text = text + "\n\n" + formatted;
+                        sources.addAll(ancestorSkeletons.keySet());
+                        ancestorSkeletons.keySet().forEach(anc -> files.add(anc.source()));
+                    }
+                }
             } catch (Exception e) {
                 logger.error("Failed to analyze declarations for file {}, sources will be empty", name, e);
             }
 
-            return new ContentSnapshot(text, sources, Set.of(file), (List<Byte>) null, valid);
+            return new ContentSnapshot(text, Set.copyOf(sources), Set.copyOf(files), (List<Byte>) null, valid);
         }
 
         private ProjectPathFragment(
