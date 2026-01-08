@@ -325,6 +325,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             PMap<CodeUnit, CodeUnitProperties> codeUnitState,
             PMap<ProjectFile, FileProperties> fileState,
             ImportGraph importGraph,
+            TypeHierarchyGraph typeHierarchyGraph,
             SymbolKeyIndex symbolKeyIndex,
             long snapshotEpochNanos) {}
 
@@ -578,6 +579,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 HashTreePMap.from(localCodeUnitState),
                 HashTreePMap.from(localFileState),
                 ImportGraph.empty(),
+                TypeHierarchyGraph.empty(),
                 symbolKeyIndex,
                 snapshotNanos);
 
@@ -798,6 +800,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 nextCodeUnitState,
                 this.state.fileState(),
                 nextImportGraph,
+                this.state.typeHierarchyGraph(),
                 this.state.symbolKeyIndex(),
                 this.state.snapshotEpochNanos());
     }
@@ -3658,6 +3661,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 HashTreePMap.from(newCodeUnitState),
                 HashTreePMap.from(newFileState),
                 ImportGraph.empty(),
+                TypeHierarchyGraph.empty(),
                 nextSymbolKeyIndex,
                 snapshotNanos);
 
@@ -3850,6 +3854,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 HashTreePMap.from(updatedCodeUnitState),
                 baseState.fileState(),
                 baseState.importGraph(),
+                baseState.typeHierarchyGraph(),
                 baseState.symbolKeyIndex(),
                 baseState.snapshotEpochNanos());
     }

@@ -168,10 +168,11 @@ public class TreeSitterStateIOTest {
 
         var stateMap = Map.of(cu, props);
         var originalState = new TreeSitterAnalyzer.AnalyzerState(
-                HashTreePMap.empty(),
-                HashTreePMap.from(stateMap),
-                HashTreePMap.empty(),
+                HashTreePMap.<String, Set<CodeUnit>>empty(),
+                HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>from(stateMap),
+                HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>empty(),
                 ImportGraph.empty(),
+                TypeHierarchyGraph.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 
@@ -275,10 +276,11 @@ public class TreeSitterStateIOTest {
         var importGraph = ImportGraph.from(Map.of(fileA, Set.of(cuB)), Map.of(fileB, Set.of(fileA)));
 
         var state = new TreeSitterAnalyzer.AnalyzerState(
-                HashTreePMap.empty(),
-                HashTreePMap.empty(),
-                HashTreePMap.empty(),
+                HashTreePMap.<String, Set<CodeUnit>>empty(),
+                HashTreePMap.<CodeUnit, TreeSitterAnalyzer.CodeUnitProperties>empty(),
+                HashTreePMap.<ProjectFile, TreeSitterAnalyzer.FileProperties>empty(),
                 importGraph,
+                TypeHierarchyGraph.empty(),
                 new TreeSitterAnalyzer.SymbolKeyIndex(new TreeSet<>()),
                 System.nanoTime());
 

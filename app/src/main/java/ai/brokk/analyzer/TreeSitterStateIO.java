@@ -533,6 +533,7 @@ public final class TreeSitterStateIO {
                 codeUnitState,
                 fileState,
                 ImportGraph.from(importsMap, reverseImportsMap),
+                TypeHierarchyGraph.empty(),
                 symbolKeyIndex,
                 dto.snapshotEpochNanos());
     }
