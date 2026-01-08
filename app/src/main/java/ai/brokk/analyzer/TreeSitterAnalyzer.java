@@ -76,22 +76,22 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     // Progress listeners for reporting parsing progress to UI
     private final ProgressListener progressListener;
 
-    // Helper util for lazy supertype computation and recursion guarding.
+    // Helper util for lazy supertype and subtype computation and recursion guarding.
     //
     // DESIGN NOTE: This cache is transient and specific to this analyzer instance.
     // It is NOT invalidated when files change because update() returns a fresh Analyzer instance
     // and discards the current one (along with this cache).
     // The new analyzer is initialized from 'this.state' (which contains the immutable state
     // from the start of this instance's lifecycle), effectively resetting any lazy computations.
-    // This prevents stale supertypes from persisting across updates when inheritance hierarchies change.
+    // This prevents stale hierarchy data from persisting across updates when inheritance hierarchies change.
     //
     // The only time this cache is merged into the persistent state is during snapshotState(),
     // which allows saving the work to disk.
     //
     // NOTE: update() does NOT merge this cache into the new state. This is intentional:
-    // when source files change, previous supertype relationships may be invalid.
-    // Discarding the cache ensures we re-compute ancestors against the new state.
-    private final LazySupertypeCache lazySupertypes = new LazySupertypeCache();
+    // when source files change, previous relationships may be invalid.
+    // Discarding the cache ensures we re-compute hierarchies against the new state.
+    private final LazyTypeHierarchyCache lazyHierarchy = new LazyTypeHierarchyCache();
 
     /**
      * Helper util for lazy import resolution and recursion guarding.
@@ -218,23 +218,42 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Helper class to encapsulate lazy supertype caching and recursion detection.
+     * Helper class to encapsulate lazy supertype and subtype caching and recursion detection.
      */
-    private static final class LazySupertypeCache {
-        private final ConcurrentHashMap<CodeUnit, List<CodeUnit>> cache = new ConcurrentHashMap<>();
+    private static final class LazyTypeHierarchyCache {
+        private final ConcurrentHashMap<CodeUnit, List<CodeUnit>> supertypeCache = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<CodeUnit, Set<CodeUnit>> subtypeCache = new ConcurrentHashMap<>();
         private final ThreadLocal<Set<CodeUnit>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
+        private volatile boolean isSubtypesPopulated = false;
 
         boolean isComputing(CodeUnit cu) {
             return recursionGuard.get().contains(cu);
         }
 
         @Nullable
-        List<CodeUnit> get(CodeUnit cu) {
-            return cache.get(cu);
+        List<CodeUnit> getSupertypes(CodeUnit cu) {
+            return supertypeCache.get(cu);
         }
 
-        List<CodeUnit> computeIfAbsent(CodeUnit cu, Function<CodeUnit, List<CodeUnit>> computer) {
-            return cache.computeIfAbsent(cu, k -> {
+        @Nullable
+        Set<CodeUnit> getSubtypes(CodeUnit cu) {
+            return subtypeCache.get(cu);
+        }
+
+        List<CodeUnit> computeSupertypesIfAbsent(CodeUnit cu, Function<CodeUnit, List<CodeUnit>> computer) {
+            return supertypeCache.computeIfAbsent(cu, k -> {
+                var visiting = recursionGuard.get();
+                visiting.add(k);
+                try {
+                    return computer.apply(k);
+                } finally {
+                    visiting.remove(k);
+                }
+            });
+        }
+
+        Set<CodeUnit> computeSubtypesIfAbsent(CodeUnit cu, Function<CodeUnit, Set<CodeUnit>> computer) {
+            return subtypeCache.computeIfAbsent(cu, k -> {
                 var visiting = recursionGuard.get();
                 visiting.add(k);
                 try {
@@ -246,15 +265,15 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         boolean isEmpty() {
-            return cache.isEmpty();
+            return supertypeCache.isEmpty() && subtypeCache.isEmpty();
         }
 
-        int size() {
-            return cache.size();
+        void forEachSupertype(BiConsumer<? super CodeUnit, ? super List<CodeUnit>> action) {
+            supertypeCache.forEach(action);
         }
 
-        void forEach(BiConsumer<? super CodeUnit, ? super List<CodeUnit>> action) {
-            cache.forEach(action);
+        void forEachSubtype(BiConsumer<? super CodeUnit, ? super Set<CodeUnit>> action) {
+            subtypeCache.forEach(action);
         }
     }
 
@@ -756,17 +775,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
      * Intended for use by Language.saveAnalyzer and other persistence hooks.
      */
     public AnalyzerState snapshotState() {
-        if (lazySupertypes.isEmpty() && lazyImports.isEmpty()) {
+        if (lazyHierarchy.isEmpty() && lazyImports.isEmpty()) {
             return this.state;
         }
 
         PMap<CodeUnit, CodeUnitProperties> nextCodeUnitState = this.state.codeUnitState();
-        if (!lazySupertypes.isEmpty()) {
+        if (!lazyHierarchy.isEmpty()) {
             // Efficiently merge lazy-computed supertypes into the snapshot state using PMap structural sharing.
             // Instead of copying the entire map (O(N)), we collect only the updates (O(M)) and apply them (O(M log N)).
-            Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>(lazySupertypes.size());
+            Map<CodeUnit, CodeUnitProperties> updates = new HashMap<>();
 
-            lazySupertypes.forEach((cu, supers) -> {
+            lazyHierarchy.forEachSupertype((cu, supers) -> {
                 CodeUnitProperties existing = this.state.codeUnitState().get(cu);
                 if (existing != null) {
                     // Create new record with Computed supertypes
@@ -781,6 +800,17 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 }
             });
             nextCodeUnitState = nextCodeUnitState.plusAll(updates);
+        }
+
+        TypeHierarchyGraph nextTypeHierarchyGraph = this.state.typeHierarchyGraph();
+        if (!lazyHierarchy.isEmpty()) {
+            Map<CodeUnit, List<CodeUnit>> superUpdates = new HashMap<>(this.state.typeHierarchyGraph().supertypes());
+            Map<CodeUnit, Set<CodeUnit>> subUpdates = new HashMap<>(this.state.typeHierarchyGraph().subtypes());
+
+            lazyHierarchy.forEachSupertype(superUpdates::put);
+            lazyHierarchy.forEachSubtype(subUpdates::put);
+
+            nextTypeHierarchyGraph = TypeHierarchyGraph.from(superUpdates, subUpdates);
         }
 
         ImportGraph nextImportGraph = this.state.importGraph();
@@ -800,7 +830,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 nextCodeUnitState,
                 this.state.fileState(),
                 nextImportGraph,
-                this.state.typeHierarchyGraph(),
+                nextTypeHierarchyGraph,
                 this.state.symbolKeyIndex(),
                 this.state.snapshotEpochNanos());
     }
@@ -3290,13 +3320,13 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Guard against recursive computation on the same thread.
         // This prevents infinite recursion and avoids IllegalStateException from ConcurrentHashMap.computeIfAbsent.
-        if (lazySupertypes.isComputing(cu)) {
+        if (lazyHierarchy.isComputing(cu)) {
             log.trace("Recursive getDirectAncestors detected for {}", cu.fqName());
             return List.of();
         }
 
         // 1. Check lazy cache
-        List<CodeUnit> cached = lazySupertypes.get(cu);
+        List<CodeUnit> cached = lazyHierarchy.getSupertypes(cu);
         if (cached != null) {
             return cached;
         }
@@ -3308,7 +3338,57 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         }
 
         // 3. Compute lazily (atomic per key)
-        return lazySupertypes.computeIfAbsent(cu, this::computeSupertypes);
+        return lazyHierarchy.computeSupertypesIfAbsent(cu, this::computeSupertypes);
+    }
+
+    /**
+     * Returns the direct subtypes/descendants for the given CodeUnit.
+     */
+    @Override
+    public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        if (!cu.isClass()) {
+            return Set.of();
+        }
+
+        // 1. Check lazy cache first
+        Set<CodeUnit> cached = lazyHierarchy.getSubtypes(cu);
+        if (cached != null) {
+            return cached;
+        }
+
+        // 2. Check persistent TypeHierarchyGraph state
+        Set<CodeUnit> persisted = this.state.typeHierarchyGraph().subtypesOf(cu);
+        if (!persisted.isEmpty()) {
+            return persisted;
+        }
+
+        // 3. Compute lazily and populate cache
+        if (!lazyHierarchy.isSubtypesPopulated) {
+            synchronized (lazyHierarchy) {
+                if (!lazyHierarchy.isSubtypesPopulated) {
+                    // To compute subtypes accurately for any unit, we must have computed supertypes for all classes
+                    getAllDeclarations().stream()
+                            .filter(CodeUnit::isClass)
+                            .forEach(this::getDirectAncestors);
+                    
+                    // Now populate the subtype cache from supertype info
+                    for (var entry : this.state.codeUnitState().entrySet()) {
+                        CodeUnit sub = entry.getKey();
+                        if (!sub.isClass()) continue;
+                        
+                        List<CodeUnit> supers = getDirectAncestors(sub);
+                        for (CodeUnit sup : supers) {
+                            lazyHierarchy.subtypeCache.computeIfAbsent(sup, k -> ConcurrentHashMap.newKeySet()).add(sub);
+                        }
+                    }
+                    lazyHierarchy.isSubtypesPopulated = true;
+                }
+            }
+        }
+
+        return lazyHierarchy.getSubtypes(cu) != null
+                ? Collections.unmodifiableSet(lazyHierarchy.getSubtypes(cu))
+                : Collections.emptySet();
     }
 
     /* ---------- file filtering helpers ---------- */
