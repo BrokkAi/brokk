@@ -133,7 +133,8 @@ async function handleEvent(payload: any): Promise<void> {
     } else if (payload.type === 'static-document') {
         onStaticDocument(payload);
     } else {
-        onBrokkEvent(payload); // updates store & talks to worker
+        // live-streaming
+        onBrokkEvent(payload);
     }
 
     // Wait until Svelte updated *and* browser painted
@@ -179,6 +180,13 @@ function onStaticDocument(payload: any): void {
     const markdown = payload.markdown ?? '';
     const seq = STATIC_DOC_SEQ;
 
+    // Empty markdown means exit static mode
+    if (!markdown) {
+        unregister(seq);
+        staticDocStore.set(null);
+        return;
+    }
+
     register(seq, (msg: any) => {
         staticDocStore.set({seq, text: markdown, tree: msg.tree});
     });
@@ -194,6 +202,7 @@ function getCurrentSelection(): string {
 function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
     onHistoryEvent({type: 'history-reset', epoch: 0});
+    onStaticDocument('');
 }
 
 function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {
