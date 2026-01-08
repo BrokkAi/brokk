@@ -142,27 +142,6 @@ public class AttachContextDialog extends BaseThemedDialog {
         tabGroup.add(methodsBtn);
         tabGroup.add(usagesBtn);
 
-        // Configure tab button styling to preserve size on selection
-        var allTabs = List.of(filesBtn, foldersBtn, classesBtn, methodsBtn, usagesBtn);
-
-        // Calculate maximum button size to ensure all buttons have identical dimensions
-        int maxWidth = 0;
-        int maxHeight = 0;
-        for (var btn : allTabs) {
-            btn.setMargin(new Insets(4, 4, 4, 4));
-            var size = btn.getPreferredSize();
-            maxWidth = Math.max(maxWidth, size.width);
-            maxHeight = Math.max(maxHeight, size.height);
-        }
-        var fixedSize = new Dimension(maxWidth, maxHeight);
-
-        for (var btn : allTabs) {
-            // Lock button dimensions to prevent any size variation
-            btn.setPreferredSize(fixedSize);
-            btn.setMinimumSize(fixedSize);
-            btn.setMaximumSize(fixedSize);
-        }
-
         // Default selection: Files
         filesBtn.setSelected(true);
 
@@ -253,13 +232,8 @@ public class AttachContextDialog extends BaseThemedDialog {
 
         root.add(top, BorderLayout.NORTH);
 
-        // Prepare autocomplete: default to Files
-        filesProvider.setAutoActivationRules(
-                true, "._-$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+        // Prepare autocomplete: minimal setup, configuration deferred
         ac = new ClosingAutoCompletion(filesProvider, this::onConfirm);
-        ac.setAutoActivationEnabled(true);
-        ac.setAutoActivationDelay(0);
-        ac.setAutoCompleteSingleChoices(false);
         ac.install(searchField);
 
         // Confirm on Enter (when autocomplete popup is not visible)
@@ -313,16 +287,43 @@ public class AttachContextDialog extends BaseThemedDialog {
         // Register analyzer callback to manage gating lifecycle
         registerAnalyzerCallback();
 
-        // Initial gating + apply selected tab behavior
-        gateTabs();
-        onTabChanged();
-
-        setMinimumSize(new Dimension(700, 180));
-        setPreferredSize(new Dimension(700, 180));
-        pack();
+        setSize(700, 180);
         setLocationRelativeTo(parent);
 
-        SwingUtilities.invokeLater(() -> searchField.requestFocusInWindow());
+        // Defer all expensive initialization to after dialog becomes visible
+        SwingUtilities.invokeLater(() -> {
+            // Button sizing for uniform width
+            var allTabs = List.of(filesBtn, foldersBtn, classesBtn, methodsBtn, usagesBtn);
+            int maxWidth = 0;
+            int maxHeight = 0;
+            for (var btn : allTabs) {
+                btn.setMargin(new Insets(4, 4, 4, 4));
+                var size = btn.getPreferredSize();
+                maxWidth = Math.max(maxWidth, size.width);
+                maxHeight = Math.max(maxHeight, size.height);
+            }
+            var fixedSize = new Dimension(maxWidth, maxHeight);
+            for (var btn : allTabs) {
+                btn.setPreferredSize(fixedSize);
+                btn.setMinimumSize(fixedSize);
+                btn.setMaximumSize(fixedSize);
+            }
+            tabBar.revalidate();
+
+            // Autocomplete configuration
+            filesProvider.setAutoActivationRules(
+                    true, "._-$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789");
+            ac.setAutoActivationEnabled(true);
+            ac.setAutoActivationDelay(0);
+            ac.setAutoCompleteSingleChoices(false);
+
+            // Tab gating and setup
+            gateTabs();
+            onTabChanged();
+
+            // Focus request (keep last)
+            searchField.requestFocusInWindow();
+        });
 
         // Ensure callback is removed on close
         addWindowListener(new WindowAdapter() {

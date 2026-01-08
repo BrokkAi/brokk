@@ -1511,7 +1511,8 @@ public class Llm {
                     logger.debug("Cost notifications disabled by user settings");
                     return;
                 }
-                var pricing = service.getModelPricing(modelName);
+                var tier = Service.getProcessingTier(model);
+                var pricing = service.getModelPricing(modelName, tier);
 
                 int input = usage.inputTokens();
                 int cached = usage.cachedInputTokens();
