@@ -561,7 +561,7 @@ public class PreviewManager {
 
         var markdownPanel = MarkdownOutputPool.instance().borrow();
         markdownPanel.withContextForLookups(cm, chrome);
-        markdownPanel.setText(combinedMessages);
+        markdownPanel.setMessages(combinedMessages);
 
         JPanel contentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
         ContextFragment fragment = (of instanceof ContextFragment cf) ? cf : null;
@@ -618,7 +618,7 @@ public class PreviewManager {
         if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
             var markdownPanel = MarkdownOutputPool.instance().borrow();
             markdownPanel.updateTheme(MainProject.getTheme());
-            markdownPanel.setText(List.of(Messages.customSystem(text)));
+            markdownPanel.setStaticDocument(text);
             panel = createSearchableContentPanel(List.of(markdownPanel), null, false);
         } else {
             panel = new PreviewTextPanel(chrome, cm, null, text, style, chrome.getTheme(), sf);
@@ -727,7 +727,7 @@ public class PreviewManager {
     private JPanel renderMarkdownContent(String text) {
         var markdownPanel = MarkdownOutputPool.instance().borrow();
         markdownPanel.updateTheme(MainProject.getTheme());
-        markdownPanel.setText(List.of(Messages.customSystem(text)));
+        markdownPanel.setStaticDocument(text);
         return createSearchableContentPanel(List.of(markdownPanel), null, false);
     }
 

@@ -5,7 +5,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.webview.MOPBridge;
 import ai.brokk.gui.mop.webview.MOPWebViewHost;
@@ -135,7 +134,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             logger.debug("Skipping MOP main update, content is unchanged.");
             return;
         }
-        setText(newMessages);
+        setMessages(newMessages);
     }
 
     private void setHistoryIfChanged(List<TaskEntry> entries) {
@@ -256,11 +255,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void setText(ContextFragments.TaskFragment newOutput) {
-        setText(newOutput.messages());
-    }
-
-    public void setText(List<? extends ChatMessage> newMessages) {
+    public void setMessages(List<? extends ChatMessage> newMessages) {
         clearMain();
         messages.addAll(newMessages);
         for (var message : newMessages) {

@@ -53,9 +53,7 @@ public final class AskHumanDialog {
             // Question (Markdown)
             var questionPanel = new MarkdownOutputPanel(true);
             questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
-            var fragment = new ContextFragments.TaskFragment(
-                    chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
-            questionPanel.setText(fragment);
+            questionPanel.setStaticDocument(question);
             questionPanel.applyTheme(chrome.getTheme());
 
             var questionScroll = new JScrollPane(questionPanel);
@@ -195,9 +193,7 @@ public final class AskHumanDialog {
             // Question (Markdown)
             var questionPanel = new MarkdownOutputPanel(true);
             questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
-            var fragment = new ContextFragments.TaskFragment(
-                    chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
-            questionPanel.setText(fragment);
+            questionPanel.setStaticDocument(question);
             questionPanel.applyTheme(chrome.getTheme());
 
             var questionScroll = new JScrollPane(questionPanel);
