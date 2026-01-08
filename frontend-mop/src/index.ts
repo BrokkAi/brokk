@@ -19,8 +19,11 @@ import { setSummaryEntry, deleteSummaryEntry, getSummaryEntry, updateSummaryTree
 import { register, unregister, isRegistered } from './worker/parseRouter';
 import { parse } from './worker/worker-bridge';
 import { allocSummarySeq } from './shared/seq';
+import { staticDocStore } from './stores/staticDocStore';
 
 const mainLog = createLogger('main');
+
+const STATIC_DOC_SEQ = -1;
 
 let searchCtrl: SearchController | null = null;
 
@@ -127,6 +130,8 @@ async function handleEvent(payload: any): Promise<void> {
         onHistoryEvent(payload);
     } else if (payload.type === 'live-summary') {
         onLiveSummary(payload);
+    } else if (payload.type === 'static-document') {
+        onStaticDocument(payload);
     } else {
         onBrokkEvent(payload); // updates store & talks to worker
     }
@@ -168,6 +173,18 @@ function onLiveSummary(payload: any): void {
 
     // Trigger parsing with the worker (slow parse, don't update buffer)
     parse(summary, summarySeq, false, false);
+}
+
+function onStaticDocument(payload: any): void {
+    const markdown = payload.markdown ?? '';
+    const seq = STATIC_DOC_SEQ;
+
+    register(seq, (msg: any) => {
+        staticDocStore.set({seq, text: markdown, tree: msg.tree});
+    });
+
+    parse(markdown, seq, false, false);
+    staticDocStore.set({seq, text: markdown});
 }
 
 function getCurrentSelection(): string {
