@@ -899,7 +899,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                         currentActualBranch = localTrackingName;
                     }
                 }
-                chrome.refreshAllGitUi(currentActualBranch);
+                chrome.refreshGitAndFetch(currentActualBranch);
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
                 chrome.toolError(Objects.toString(e.getMessage(), "Unknown error during checkout."));
@@ -992,7 +992,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     // Update commit/branch tables
                     if (branchForUiRefreshFinal != null) {
-                        chrome.refreshAllGitUi(branchForUiRefreshFinal);
+                        chrome.refreshGitAndFetch(branchForUiRefreshFinal);
                     }
                 });
             }
@@ -1059,7 +1059,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
             contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
-                    chrome.refreshAllGitUi(newName);
+                    chrome.refreshGitAndFetch(newName);
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");

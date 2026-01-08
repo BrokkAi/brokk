@@ -251,21 +251,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void performRefresh() {
-        tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Refreshing from upstream...");
+        tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
 
         contextManager
-                .submitBackgroundTask("Refreshing from upstream", () -> {
-                    try {
-                        String defaultBranch = repo.getDefaultBranch();
-                        String remoteName = repo.remote().getOriginRemoteNameWithFallback();
-                        if (remoteName != null && repo.hasUpstreamBranch(defaultBranch)) {
-                            repo.remote().fetchBranch(remoteName, defaultBranch);
-                        }
-                    } catch (Exception e) {
-                        logger.debug("Failed to fetch upstream default branch", e);
-                    }
-                    return resolveBaselineState();
-                })
+                .submitBackgroundTask("Computing review changes", () -> resolveBaselineState())
                 .thenCompose(state -> {
                     if (state == null) return CompletableFuture.completedFuture(null);
 

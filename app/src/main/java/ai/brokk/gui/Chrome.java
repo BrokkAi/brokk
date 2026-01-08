@@ -12,6 +12,7 @@ import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.git.GitRepo;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -2444,17 +2445,26 @@ public class Chrome
     /**
      * Refreshes all Git-related UI components after a branch change or significant repo update.
      * This coordinates updates across the repo state, branch labels, and the review/changes panel.
+     * Also fetches from the upstream default branch if available.
      */
-    public void refreshAllGitUi(@Nullable String branchName) {
+    public void refreshGitAndFetch(@Nullable String branchName) {
+        try {
+            var repo = getProject().getRepo();
+            if (repo instanceof GitRepo gitRepo) {
+                String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
+                if (remoteName != null) {
+                    String defaultBranch = gitRepo.getDefaultBranch();
+                    gitRepo.remote().fetchBranch(remoteName, defaultBranch);
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to fetch upstream default branch", e);
+        }
+
         updateGitRepo();
         refreshBranchUi(branchName);
 
-        // Also refresh the Changes tab to reflect the new branch's diff
-        try {
-            getRightPanel().requestReviewUpdate();
-        } catch (Exception ex) {
-            logger.debug("Unable to refresh Changes tab after Git UI action", ex);
-        }
+        getRightPanel().requestReviewUpdate();
     }
 
     /**
