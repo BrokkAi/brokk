@@ -869,6 +869,7 @@ public class Brokk {
                 removedChrome != null ? removedChrome.closeAsync() : CompletableFuture.<Void>completedFuture(null);
 
         final Chrome finalChrome = removedChrome;
+        // Callback runs off-EDT; helpers schedule their Swing work on EDT internally
         closeFuture.whenComplete((v, ex) -> {
             if (ex != null) {
                 logger.error("Error during Chrome async close for {}", projectPath, ex);

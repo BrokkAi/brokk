@@ -1032,6 +1032,10 @@ public class Chrome
     /**
      * Asynchronously close Chrome, running cleanup off EDT.
      * Returns a future that completes when cleanup is done.
+     *
+     * <p><b>Note:</b> This method does NOT dispose the frame. The caller is responsible
+     * for calling {@code getFrame().dispose()} on the EDT after the future completes
+     * to release native window resources.
      */
     public CompletableFuture<Void> closeAsync() {
         logger.info("Closing Chrome UI (async)");
