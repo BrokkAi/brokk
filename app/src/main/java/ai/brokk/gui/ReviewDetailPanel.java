@@ -226,7 +226,17 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
         buttonPanel.add(splitBtn);
 
-        var nextBtn = new ai.brokk.gui.components.MaterialButton("Skip");
+        var copyBtn = new ai.brokk.gui.components.MaterialButton("Copy Markdown");
+        copyBtn.addActionListener(e -> {
+            String combined = String.join("\n\n", markdownChunks);
+            java.awt.Toolkit.getDefaultToolkit()
+                    .getSystemClipboard()
+                    .setContents(new java.awt.datatransfer.StringSelection(combined), null);
+        });
+        buttonPanel.add(Box.createHorizontalStrut(10));
+        buttonPanel.add(copyBtn);
+
+        var nextBtn = new ai.brokk.gui.components.MaterialButton("Next");
         nextBtn.addActionListener(e -> onNext.run());
         buttonPanel.add(Box.createHorizontalStrut(10));
         buttonPanel.add(nextBtn);
