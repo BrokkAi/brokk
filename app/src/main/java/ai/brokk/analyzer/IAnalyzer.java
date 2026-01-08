@@ -193,9 +193,7 @@ public interface IAnalyzer {
     /**
      * @return the nearest enclosing code unit of the line range within the file. Returns empty if none exists.
      */
-    default Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
-        return Optional.empty();
-    }
+    Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine);
 
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
