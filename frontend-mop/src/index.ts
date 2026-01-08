@@ -187,6 +187,8 @@ function onStaticDocument(payload: any): void {
         return;
     }
 
+    unregister(seq);
+
     register(seq, (msg: any) => {
         staticDocStore.set({seq, text: markdown, tree: msg.tree});
     });
