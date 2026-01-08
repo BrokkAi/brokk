@@ -187,34 +187,64 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             String defaultBranch = repo.getDefaultBranch();
             String currentBranch = repo.getCurrentBranch();
 
-            if (!currentBranch.equals(defaultBranch)) {
-                return new BaselineState(BaselineMode.NON_DEFAULT_BRANCH, defaultBranch);
+            String remoteName = repo.remote().getOriginRemoteNameWithFallback();
+            String upstreamRef = remoteName != null ? remoteName + "/" + defaultBranch : null;
+            boolean hasUpstream = upstreamRef != null && repo.listRemoteBranches().contains(upstreamRef);
+
+            String baseline = defaultBranch;
+            if (hasUpstream) {
+                // If upstream is ahead of our local default branch, use upstream as the baseline
+                String mergeBase = repo.getMergeBase(defaultBranch, upstreamRef);
+                if (mergeBase != null && !mergeBase.equals(repo.resolveToCommit(upstreamRef).name())) {
+                    baseline = upstreamRef;
+                }
             }
 
-            var remoteBranches = repo.listRemoteBranches();
-            String upstreamRef = "origin/" + defaultBranch;
-            if (remoteBranches.contains(upstreamRef)) {
+            if (!currentBranch.equals(defaultBranch)) {
+                return new BaselineState(BaselineMode.NON_DEFAULT_BRANCH, baseline);
+            }
+
+            if (hasUpstream) {
                 return new BaselineState(BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRef);
             }
 
             return new BaselineState(BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD");
-        } catch (GitAPIException e) {
+        } catch (Exception e) {
             logger.warn("Failed to compute baseline for changes", e);
             return new BaselineState(BaselineMode.NO_BASELINE, "Error: " + e.getMessage());
         }
     }
 
     private void performRefresh() {
-        var state = resolveBaselineState();
-        if (state == null) return;
+        tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Refreshing from upstream...");
 
-        lastBaselineLabel = state.baselineLabel();
-        lastBaselineMode = state.baselineMode();
+        contextManager
+                .submitBackgroundTask("Refreshing from upstream", () -> {
+                    try {
+                        String defaultBranch = repo.getDefaultBranch();
+                        String remoteName = repo.remote().getOriginRemoteNameWithFallback();
+                        if (remoteName != null && repo.hasUpstreamBranch(defaultBranch)) {
+                            repo.remote().fetchBranch(remoteName, defaultBranch);
+                        }
+                    } catch (Exception e) {
+                        logger.debug("Failed to fetch upstream default branch", e);
+                    }
+                    return resolveBaselineState();
+                })
+                .thenCompose(state -> {
+                    if (state == null) return CompletableFuture.completedFuture(null);
 
-        tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
+                    lastBaselineLabel = state.baselineLabel();
+                    lastBaselineMode = state.baselineMode();
 
-        refreshCumulativeChangesAsync(state.baselineLabel(), state.baselineMode())
+                    SwingUtilities.invokeLater(() -> {
+                        tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
+                    });
+
+                    return refreshCumulativeChangesAsync(state.baselineLabel(), state.baselineMode());
+                })
                 .thenAccept(result -> {
+                    if (result == null) return;
                     lastCumulativeChanges = result;
                     var prepared = DiffService.preparePerFileSummaries(result);
 
@@ -224,9 +254,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     }
 
                     final StalenessInfo finalStaleness = staleness;
+                    final String label = lastBaselineLabel;
+                    final BaselineMode mode = lastBaselineMode;
+
                     SwingUtilities.invokeLater(() -> {
-                        updateTitleAndTooltipFromResult(result, state.baselineLabel());
-                        updateContent(result, prepared, state.baselineLabel(), state.baselineMode());
+                        updateTitleAndTooltipFromResult(result, label != null ? label : "");
+                        updateContent(result, prepared, label, mode);
 
                         if (finalStaleness != null) {
                             int commits = finalStaleness.commitsBehind();
