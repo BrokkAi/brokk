@@ -11,6 +11,7 @@
     "jdeploy": {
         "jdk": false,
         "jdkProvider": "jbr",
+        "jbrVariant": "jcef",
         "minLauncherInitialAppVersion": "0.18.0",
         "files": [{
             "dir": "app/build/libs",
