@@ -226,7 +226,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         private final ConcurrentHashMap<CodeUnit, List<CodeUnit>> supertypeCache = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<CodeUnit, Set<CodeUnit>> subtypeCache = new ConcurrentHashMap<>();
         private final ThreadLocal<Set<CodeUnit>> recursionGuard = ThreadLocal.withInitial(HashSet::new);
-        private volatile boolean isSubtypesPopulated = false;
 
         boolean isComputing(CodeUnit cu) {
             return recursionGuard.get().contains(cu);
@@ -3367,34 +3366,20 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             return persisted;
         }
 
-        // 3. Compute lazily and populate cache
-        if (!lazyHierarchy.isSubtypesPopulated) {
-            synchronized (lazyHierarchy) {
-                if (!lazyHierarchy.isSubtypesPopulated) {
-                    // To compute subtypes accurately for any unit, we must have computed supertypes for all classes
-                    getAllDeclarations().stream().filter(CodeUnit::isClass).forEach(this::getDirectAncestors);
-
-                    // Now populate the subtype cache from supertype info
-                    for (var entry : this.state.codeUnitState().entrySet()) {
-                        CodeUnit sub = entry.getKey();
-                        if (!sub.isClass()) continue;
-
-                        List<CodeUnit> supers = getDirectAncestors(sub);
-                        for (CodeUnit sup : supers) {
-                            lazyHierarchy
-                                    .subtypeCache
-                                    .computeIfAbsent(sup, k -> ConcurrentHashMap.newKeySet())
-                                    .add(sub);
-                        }
-                    }
-                    lazyHierarchy.isSubtypesPopulated = true;
-                }
-            }
+        // 3. Guard against recursion/cycles
+        if (lazyHierarchy.isComputing(cu)) {
+            log.trace("Recursive getDirectDescendants detected for {}", cu.fqName());
+            return Set.of();
         }
 
-        return lazyHierarchy.getSubtypes(cu) != null
-                ? Collections.unmodifiableSet(lazyHierarchy.getSubtypes(cu))
-                : Collections.emptySet();
+        // 4. Compute lazily and populate cache
+        return lazyHierarchy.computeSubtypesIfAbsent(cu, k -> {
+            Set<CodeUnit> descendants = this.state.codeUnitState().keySet().stream()
+                    .filter(CodeUnit::isClass)
+                    .filter(candidateClass -> getDirectAncestors(candidateClass).contains(k))
+                    .collect(Collectors.toUnmodifiableSet());
+            return descendants;
+        });
     }
 
     /* ---------- file filtering helpers ---------- */
