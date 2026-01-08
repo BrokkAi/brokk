@@ -3867,69 +3867,35 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     /**
-     * Combined post-processing pipeline. Performs type analysis to pre-compute hierarchies
-     * and build the subtype graph.
+     * Combined post-processing pipeline. All hierarchy computation is deferred to lazy on-demand resolution.
      */
     protected AnalyzerState runPostProcessing(AnalyzerState baseState) {
-        // Some of the getters expect `this.state` to be non-null, but a callee of this could be the constructor
-        TreeSitterAnalyzer delegateForTypes = (TreeSitterAnalyzer) newSnapshot(baseState);
+        Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new HashMap<>();
 
-        Map<CodeUnit, CodeUnitProperties> updatedCodeUnitState = new ConcurrentHashMap<>(baseState.codeUnitState());
-        Map<CodeUnit, List<CodeUnit>> supertypeMap = new ConcurrentHashMap<>();
-        Map<CodeUnit, Set<CodeUnit>> subtypeMap = new ConcurrentHashMap<>();
+        baseState.codeUnitState().forEach((cu, props) -> {
+            if (cu.isClass() && !(props.superTypes() instanceof SuperTypeInfo.Uncomputed)) {
+                updatedCodeUnitState.put(
+                        cu,
+                        new CodeUnitProperties(
+                                props.children(),
+                                props.signatures(),
+                                props.ranges(),
+                                props.rawSupertypes(),
+                                new SuperTypeInfo.Uncomputed(),
+                                props.hasBody()));
+            }
+        });
 
-        // Count total classes to process
-        int totalClasses = (int) baseState.codeUnitState().keySet().stream()
-                .filter(CodeUnit::isClass)
-                .count();
-        var progressReporter = new DebouncedProgressReporter(totalClasses, "Computing type hierarchies", 100);
-
-        int parallelism = Runtime.getRuntime().availableProcessors();
-        try (var fjp = new java.util.concurrent.ForkJoinPool(parallelism)) {
-            fjp.submit(() -> {
-                        baseState.codeUnitState().entrySet().parallelStream()
-                                .filter(e -> e.getKey().isClass())
-                                .forEach(entry -> {
-                                    CodeUnit cu = entry.getKey();
-                                    CodeUnitProperties props = entry.getValue();
-                                    List<CodeUnit> supers = delegateForTypes.computeSupertypes(cu);
-
-                                    if (!supers.isEmpty()) {
-                                        supertypeMap.put(cu, supers);
-                                        for (CodeUnit sup : supers) {
-                                            subtypeMap
-                                                    .computeIfAbsent(sup, k -> ConcurrentHashMap.newKeySet())
-                                                    .add(cu);
-                                        }
-                                    }
-
-                                    SuperTypeInfo info = new SuperTypeInfo.Computed(supers);
-                                    if (!Objects.equals(props.superTypes(), info)) {
-                                        updatedCodeUnitState.put(
-                                                cu,
-                                                new CodeUnitProperties(
-                                                        props.children(),
-                                                        props.signatures(),
-                                                        props.ranges(),
-                                                        props.rawSupertypes(),
-                                                        info,
-                                                        props.hasBody()));
-                                    }
-                                    progressReporter.increment();
-                                });
-                    })
-                    .join();
-
-            // Final progress update
-            progressReporter.reportFinal();
-        }
+        PMap<CodeUnit, CodeUnitProperties> finalCodeUnitState = updatedCodeUnitState.isEmpty()
+                ? baseState.codeUnitState()
+                : baseState.codeUnitState().plusAll(updatedCodeUnitState);
 
         return new AnalyzerState(
                 baseState.symbolIndex(),
-                HashTreePMap.from(updatedCodeUnitState),
+                finalCodeUnitState,
                 baseState.fileState(),
                 baseState.importGraph(),
-                TypeHierarchyGraph.from(supertypeMap, subtypeMap),
+                TypeHierarchyGraph.empty(),
                 baseState.symbolKeyIndex(),
                 baseState.snapshotEpochNanos());
     }
