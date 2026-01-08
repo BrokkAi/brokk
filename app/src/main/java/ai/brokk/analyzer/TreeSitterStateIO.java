@@ -564,7 +564,8 @@ public final class TreeSitterStateIO {
 
         // Rebuild forward imports Map for ImportGraph
         Map<ProjectFile, Set<CodeUnit>> importsMap = new HashMap<>();
-        for (var entry : dto.imports()) {
+        var dtoImports = dto.imports() != null ? dto.imports() : List.<ImportEntryDto>of();
+        for (var entry : dtoImports) {
             importsMap.put(
                     fromDto(entry.key()),
                     entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
@@ -572,7 +573,8 @@ public final class TreeSitterStateIO {
 
         // Rebuild reverse imports Map for ImportGraph
         Map<ProjectFile, Set<ProjectFile>> reverseImportsMap = new HashMap<>();
-        for (var entry : dto.reverseImports()) {
+        var dtoReverseImports = dto.reverseImports() != null ? dto.reverseImports() : List.<ReverseImportEntryDto>of();
+        for (var entry : dtoReverseImports) {
             reverseImportsMap.put(
                     fromDto(entry.key()),
                     entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
@@ -581,12 +583,13 @@ public final class TreeSitterStateIO {
         // Rebuild TypeHierarchyGraph
         Map<CodeUnit, List<CodeUnit>> supertypesMap = new HashMap<>();
         Map<CodeUnit, Set<CodeUnit>> subtypesMap = new HashMap<>();
-        for (var entry : dto.typeHierarchy().supertypes()) {
+        var typeHierarchyDto = dto.typeHierarchy() != null ? dto.typeHierarchy() : TypeHierarchyGraphDto.EMPTY;
+        for (var entry : typeHierarchyDto.supertypes()) {
             supertypesMap.put(
                     fromDto(entry.key()),
                     entry.value().stream().map(TreeSitterStateIO::fromDto).toList());
         }
-        for (var entry : dto.typeHierarchy().subtypes()) {
+        for (var entry : typeHierarchyDto.subtypes()) {
             subtypesMap.put(
                     fromDto(entry.key()),
                     entry.value().stream().map(TreeSitterStateIO::fromDto).collect(Collectors.toSet()));
@@ -594,7 +597,9 @@ public final class TreeSitterStateIO {
 
         // Rebuild SymbolKeyIndex
         var keySet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        keySet.addAll(dto.symbolKeys());
+        if (dto.symbolKeys() != null) {
+            keySet.addAll(dto.symbolKeys());
+        }
         var unmodifiableKeys = Collections.unmodifiableNavigableSet(keySet);
         var symbolKeyIndex = new TreeSitterAnalyzer.SymbolKeyIndex(unmodifiableKeys);
 
