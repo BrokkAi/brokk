@@ -189,11 +189,14 @@ public class CodePrompts {
 
                 3. Give each change as a *SEARCH/REPLACE* block.
 
-                All changes to files must use this *SEARCH/REPLACE* block format.
+                If an appropriate test file is in the Workspace, add or update tests to cover the changes you make.
+                If no such test file exists, only create a new one if instructed to do so.
 
                 If a file is read-only or unavailable, ask the user to add it or make it editable.
 
-                If you are struggling to use a dependency or API correctly, you MUST stop and ask the user for help.
+                If you do not know how to use a dependency or API correctly, you MUST stop and ask the user for help.
+
+                All changes to files must use this *SEARCH/REPLACE* block format.
 
                 <rules>
                 # EXTENDED *SEARCH/REPLACE block* Rules:
