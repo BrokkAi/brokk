@@ -224,8 +224,8 @@ public final class TreeSitterStateIO {
             List<FileStateEntryDto> fileState,
             List<ImportEntryDto> imports,
             List<ReverseImportEntryDto> reverseImports,
-            List<SupertypeEntryDto> supertypes,
-            List<SubtypeEntryDto> subtypes,
+            @Nullable List<SupertypeEntryDto> supertypes,
+            @Nullable List<SubtypeEntryDto> subtypes,
             List<String> symbolKeys,
             long snapshotEpochNanos) {}
 
