@@ -100,6 +100,13 @@ public class MultiAnalyzer
     }
 
     @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
+        return delegates.values().stream()
+                .flatMap(analyzer -> analyzer.enclosingCodeUnit(file, startLine, endLine).stream())
+                .findFirst();
+    }
+
+    @Override
     public IProject getProject() {
         return findFirst(analyzer -> Optional.of(analyzer.getProject())).orElseThrow();
     }
