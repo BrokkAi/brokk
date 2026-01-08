@@ -1418,34 +1418,52 @@ public class ContextFragments {
                                 () -> new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fqName));
             }
 
-            String text;
+            StringBuilder sb = new StringBuilder();
             var analyzer = contextManager.getAnalyzerUninterrupted();
             var scpOpt = analyzer.as(SourceCodeProvider.class);
             boolean hasSourceCode = false;
             if (scpOpt.isEmpty()) {
-                text = "Code Intelligence cannot extract source for: " + fqName;
+                sb.append("Code Intelligence cannot extract source for: ").append(fqName);
             } else {
                 var scp = scpOpt.get();
                 if (unit.isFunction()) {
                     var codeOpt = scp.getMethodSource(unit, true);
                     if (codeOpt.isPresent()) {
-                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                        sb.append(new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text());
                         hasSourceCode = true;
                     } else {
-                        text = "No source found for method: " + fqName;
+                        sb.append("No source found for method: ").append(fqName);
                     }
                 } else {
                     var codeOpt = scp.getClassSource(unit, true);
                     if (codeOpt.isPresent()) {
-                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
+                        sb.append(new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text());
                         hasSourceCode = true;
                     } else {
-                        text = "No source found for class: " + fqName;
+                        sb.append("No source found for class: ").append(fqName);
                     }
                 }
             }
 
-            return new ContentSnapshot(text, Set.of(unit), Set.of(unit.source()), (List<Byte>) null, hasSourceCode);
+            Set<CodeUnit> sources = new LinkedHashSet<>();
+            sources.add(unit);
+            Set<ProjectFile> files = new LinkedHashSet<>();
+            files.add(unit.source());
+
+            if (unit.isClass()) {
+                Map<CodeUnit, String> ancestorSkeletons = resolveAncestorSkeletons(unit, analyzer);
+                if (!ancestorSkeletons.isEmpty()) {
+                    String formattedAncestors = new SkeletonFragmentFormatter().formatSkeletonsByPackage(ancestorSkeletons);
+                    if (!formattedAncestors.isEmpty()) {
+                        sb.append("\n\n").append(formattedAncestors);
+                        sources.addAll(ancestorSkeletons.keySet());
+                        ancestorSkeletons.keySet().forEach(anc -> files.add(anc.source()));
+                    }
+                }
+            }
+
+            return new ContentSnapshot(
+                    sb.toString(), Set.copyOf(sources), Set.copyOf(files), (List<Byte>) null, hasSourceCode);
         }
 
         @Override
