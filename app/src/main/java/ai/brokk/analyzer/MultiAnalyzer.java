@@ -311,6 +311,7 @@ public class MultiAnalyzer
     public List<CodeUnit> getDirectAncestors(CodeUnit cu) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.getDirectAncestors(cu).stream())
+                .distinct()
                 .toList();
     }
 
