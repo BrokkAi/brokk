@@ -35,7 +35,6 @@
     <span id="wrap-mode-status" style="margin-left:6px; color:#666;">(scroll)</span>
     <button onclick="showAllCodeblockCases()">Show All Code Block Cases</button>
     <button onclick="showStaticDocument()">Show Static Document</button>
-    <button onclick="clearStaticDocument()">Clear Static Document</button>
     <h3>Search Tools</h3>
     <input type="text" id="search-query-input" placeholder="Search query" style="width: 200px; margin-right: 5px;">
     <label><input type="checkbox" id="search-case-sensitive"> Case Sensitive</label>
@@ -363,11 +362,6 @@ Try clicking these: \`String\`, \`List\`, \`HashMap\`
 
         simulateEvent('static-document', { markdown: staticContent });
     }
-
-    function clearStaticDocument() {
-        simulateEvent('static-document', { markdown: null });
-    }
-
 
     const ai = `
 
