@@ -53,6 +53,13 @@ public interface IAnalyzer {
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
     /**
+     * @return true if the given file contains test cases according to this analyzer's logic.
+     */
+    default boolean containsTests(ProjectFile file) {
+        return false;
+    }
+
+    /**
      * Returns the set of languages this analyzer understands.
      */
     Set<Language> languages();

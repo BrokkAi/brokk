@@ -7,6 +7,9 @@ import java.util.*;
 import org.jetbrains.annotations.Nullable;
 import org.treesitter.TSLanguage;
 import org.treesitter.TSNode;
+import org.treesitter.TSQueryCapture;
+import org.treesitter.TSQueryCursor;
+import org.treesitter.TSQueryMatch;
 import org.treesitter.TreeSitterScala;
 
 public class ScalaAnalyzer extends TreeSitterAnalyzer {
@@ -186,5 +189,25 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     @Override
     public Optional<String> extractCallReceiver(String reference) {
         return ClassNameExtractor.extractForScala(reference);
+    }
+
+    @Override
+    protected boolean containsTestMarkers(org.treesitter.TSTree tree, SourceContent sourceContent) {
+        var query = getThreadLocalQuery();
+        var cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String captureName = query.getCaptureNameForId(capture.getIndex());
+                switch (captureName) {
+                    case "test.annotation", "test.import", "test.call", "test.infix" -> {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

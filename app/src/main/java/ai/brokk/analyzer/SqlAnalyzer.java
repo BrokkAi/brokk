@@ -322,4 +322,9 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     public List<CodeUnit> getDirectChildren(CodeUnit cu) {
         return List.of();
     }
+
+    @Override
+    public boolean containsTests(ProjectFile file) {
+        return false;
+    }
 }

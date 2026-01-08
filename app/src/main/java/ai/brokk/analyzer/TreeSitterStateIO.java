@@ -1,6 +1,8 @@
 package ai.brokk.analyzer;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
@@ -265,7 +267,18 @@ public final class TreeSitterStateIO {
      * DTO for TreeSitterAnalyzer.FileProperties without the TSTree.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record FilePropertiesDto(List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements) {}
+    public record FilePropertiesDto(
+            List<CodeUnitDto> topLevelCodeUnits, List<String> importStatements, boolean containsTests) {
+        @JsonCreator
+        public FilePropertiesDto(
+                @JsonProperty("topLevelCodeUnits") List<CodeUnitDto> topLevelCodeUnits,
+                @JsonProperty("importStatements") List<String> importStatements,
+                @JsonProperty(value = "containsTests", required = true) boolean containsTests) {
+            this.topLevelCodeUnits = topLevelCodeUnits;
+            this.importStatements = importStatements;
+            this.containsTests = containsTests;
+        }
+    }
 
     /**
      * DTO entry for ProjectFile -> Set<CodeUnit> (imports).
@@ -283,7 +296,9 @@ public final class TreeSitterStateIO {
      * DTO for TypeHierarchyGraph.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record TypeHierarchyGraphDto(List<SupertypeEntryDto> supertypes, List<SubtypeEntryDto> subtypes) {}
+    public record TypeHierarchyGraphDto(List<SupertypeEntryDto> supertypes, List<SubtypeEntryDto> subtypes) {
+        public static TypeHierarchyGraphDto EMPTY = new TypeHierarchyGraphDto(List.of(), List.of());
+    }
 
     /**
      * DTO entry for CodeUnit -> List<CodeUnit> (supertypes).
@@ -422,7 +437,7 @@ public final class TreeSitterStateIO {
                     new ArrayList<CodeUnitDto>(fileProps.topLevelCodeUnits().size());
             for (var cu : fileProps.topLevelCodeUnits()) topLevelDtos.add(toDto(cu));
 
-            var fpDto = new FilePropertiesDto(topLevelDtos, fileProps.importStatements());
+            var fpDto = new FilePropertiesDto(topLevelDtos, fileProps.importStatements(), fileProps.containsTests());
             fileEntries.add(new FileStateEntryDto(toDto(e.getKey()), fpDto));
         }
 
@@ -541,7 +556,8 @@ public final class TreeSitterStateIO {
             var fp = new TreeSitterAnalyzer.FileProperties(
                     topLevel,
                     null, // parsedTree intentionally omitted
-                    v.importStatements());
+                    v.importStatements(),
+                    v.containsTests());
             fileStateMap.put(fromDto(entry.key()), fp);
         }
         PMap<ProjectFile, TreeSitterAnalyzer.FileProperties> fileState = HashTreePMap.from(fileStateMap);

@@ -103,4 +103,9 @@ public class DisabledAnalyzer implements IAnalyzer {
     public Optional<String> extractCallReceiver(String reference) {
         return Optional.empty();
     }
+
+    @Override
+    public boolean containsTests(ProjectFile file) {
+        return false;
+    }
 }

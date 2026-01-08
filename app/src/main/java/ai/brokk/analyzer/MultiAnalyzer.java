@@ -316,6 +316,11 @@ public class MultiAnalyzer
     }
 
     @Override
+    public boolean containsTests(ProjectFile file) {
+        return delegateFor(file).map(delegate -> delegate.containsTests(file)).orElse(false);
+    }
+
+    @Override
     public Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.getDirectDescendants(cu).stream())
