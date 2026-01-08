@@ -79,7 +79,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private JPanel diffContainer;
 
-    private JLabel headerLabel;
+    private JComboBox<ComparisonTarget> baselineDropdown;
 
     private final MaterialButton commitBtn;
 
@@ -129,7 +129,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         setOpaque(false);
 
         // Initialize components to satisfy NullAway and avoid redundant null checks
-        this.headerLabel = new JLabel();
+        this.baselineDropdown = new JComboBox<>(ComparisonTarget.values());
+        this.baselineDropdown.setOpaque(false);
+        this.baselineDropdown.addActionListener(e -> requestUpdate());
+
         this.commitBtn = new MaterialButton("Changes to Commit");
         this.pullBtn = new MaterialButton("Pull");
         this.pushBtn = new MaterialButton("Push");
@@ -182,20 +185,52 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private record BaselineState(BaselineMode baselineMode, String baselineLabel) {}
 
+    private enum ComparisonTarget {
+        CUMULATIVE("Cumulative Changes"),
+        SESSION("Changes this Session");
+
+        private final String label;
+
+        ComparisonTarget(String label) {
+            this.label = label;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
     private @Nullable BaselineState resolveBaselineState() {
         try {
+            ComparisonTarget target = (ComparisonTarget) baselineDropdown.getSelectedItem();
+            if (target == ComparisonTarget.SESSION) {
+                var history = contextManager.getContextHistoryList();
+                if (!history.isEmpty()) {
+                    var firstContext = history.get(0);
+                    var gitState = contextManager.getContextHistory().getGitState(firstContext.id());
+                    if (gitState.isPresent()) {
+                        return new BaselineState(
+                                BaselineMode.SESSION, gitState.get().commitHash());
+                    }
+                }
+                return new BaselineState(BaselineMode.NO_BASELINE, "No session start found");
+            }
+
             String defaultBranch = repo.getDefaultBranch();
             String currentBranch = repo.getCurrentBranch();
 
             String remoteName = repo.remote().getOriginRemoteNameWithFallback();
             String upstreamRef = remoteName != null ? remoteName + "/" + defaultBranch : null;
-            boolean hasUpstream = upstreamRef != null && repo.listRemoteBranches().contains(upstreamRef);
+            boolean hasUpstream =
+                    upstreamRef != null && repo.listRemoteBranches().contains(upstreamRef);
 
             String baseline = defaultBranch;
             if (hasUpstream) {
                 // If upstream is ahead of our local default branch, use upstream as the baseline
                 String mergeBase = repo.getMergeBase(defaultBranch, upstreamRef);
-                if (mergeBase != null && !mergeBase.equals(repo.resolveToCommit(upstreamRef).name())) {
+                if (mergeBase != null
+                        && !mergeBase.equals(repo.resolveToCommit(upstreamRef).name())) {
                     baseline = upstreamRef;
                 }
             }
@@ -338,6 +373,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 }
                 leftCommitSha = "HEAD";
             }
+            case SESSION -> {
+                leftCommitSha = baselineLabel;
+                var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                for (var mf : myChanges) {
+                    fileMap.putIfAbsent(mf.file(), mf);
+                }
+                for (var mf : repo.getModifiedFiles()) {
+                    fileMap.put(mf.file(), mf);
+                }
+            }
             default -> throw new AssertionError();
         }
 
@@ -468,12 +513,20 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         var headerPanel = new JPanel(new BorderLayout(8, 0));
         headerPanel.setOpaque(false);
 
-        String labelText = (baselineLabel != null && !baselineLabel.isEmpty())
-                ? "Comparing vs " + baselineLabel
-                : "Branch-based changes";
-        headerLabel = new JLabel(labelText);
-        headerLabel.setFont(headerLabel.getFont().deriveFont(Font.BOLD));
-        headerPanel.add(headerLabel, BorderLayout.WEST);
+        var leftHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        leftHeader.setOpaque(false);
+
+        JLabel compareLabel = new JLabel("Changes:");
+        compareLabel.setFont(compareLabel.getFont().deriveFont(Font.BOLD));
+        leftHeader.add(compareLabel);
+        leftHeader.add(baselineDropdown);
+
+        String baselineInfo = (baselineLabel != null && !baselineLabel.isEmpty()) ? " (vs " + baselineLabel + ")" : "";
+        JLabel infoLabel = new JLabel(baselineInfo);
+        infoLabel.setForeground(UIManager.getColor("Label.disabledForeground"));
+        leftHeader.add(infoLabel);
+
+        headerPanel.add(leftHeader, BorderLayout.WEST);
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
         buttonPanel.setOpaque(false);
@@ -911,6 +964,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         NON_DEFAULT_BRANCH,
         DEFAULT_WITH_UPSTREAM,
         DEFAULT_LOCAL_ONLY,
+        SESSION,
         NO_BASELINE
     }
 }
