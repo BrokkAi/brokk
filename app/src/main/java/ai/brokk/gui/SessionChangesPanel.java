@@ -937,6 +937,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     revalidate();
                     repaint();
                 });
+            } catch (InterruptedException ex) {
+                logger.debug("Review generation cancelled by user");
+                SwingUtilities.invokeLater(() -> {
+                    codeReviewPanel.setBusy(false);
+                    setGuidedReviewBusy(false);
+                    revalidate();
+                    repaint();
+                });
             } catch (ReviewGenerationException ex) {
                 logger.warn("Review generation failed: {}", ex.getMessage());
                 SwingUtilities.invokeLater(() -> {

@@ -8,7 +8,6 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.RoundRectangle2D;
 import javax.swing.SwingUtilities;
-import javax.swing.UIManager;
 import org.jetbrains.annotations.Nullable;
 
 /**
