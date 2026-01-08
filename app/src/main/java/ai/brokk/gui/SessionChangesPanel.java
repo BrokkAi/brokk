@@ -822,11 +822,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     return;
                 }
 
-                String formattedDiff = changes.perFileChanges().stream()
-                        .map(de -> "File: " + de.title() + "\n" + de.diff())
-                        .collect(java.util.stream.Collectors.joining("\n\n"));
-
-                var agent = new ReviewAgent(formattedDiff, contextManager, chrome, fileComparisons);
+                var agent = new ReviewAgent(changes, contextManager, chrome, fileComparisons);
 
                 var result = agent.execute();
 

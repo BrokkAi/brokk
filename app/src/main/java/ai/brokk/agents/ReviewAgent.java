@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 import ai.brokk.AbstractService;
+import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
@@ -12,6 +13,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -27,6 +29,7 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -38,6 +41,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
@@ -47,6 +51,8 @@ import org.jspecify.annotations.NullMarked;
 @NullMarked
 public class ReviewAgent {
     private static final Logger logger = LogManager.getLogger(ReviewAgent.class);
+
+    private final DiffService.CumulativeChanges changes;
 
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
 
@@ -60,16 +66,22 @@ public class ReviewAgent {
         void updateProgress(int progress);
     }
 
-    private final String diff;
     private final IContextManager cm;
     private final IConsoleIO io;
     private final List<FileComparisonInfo> fileComparisons;
 
-    public ReviewAgent(String diff, IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
-        this.diff = diff;
+    public ReviewAgent(DiffService.CumulativeChanges changes, IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
+        this.changes = changes;
         this.cm = cm;
         this.io = io;
         this.fileComparisons = fileComparisons;
+    }
+
+    /**
+     * Legacy constructor for tests or cases where only a raw diff string is available.
+     */
+    public ReviewAgent(String diff, IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
+        this(new DiffService.CumulativeChanges(0, 0, 0, List.of()), cm, io, fileComparisons);
     }
 
     private @Nullable ProgressUpdater progressUpdater;
@@ -80,6 +92,11 @@ public class ReviewAgent {
 
     @Blocking
     public ReviewResult execute() throws InterruptedException, ReviewGenerationException {
+        return execute(false);
+    }
+
+    @Blocking
+    public ReviewResult execute(boolean quickMode) throws InterruptedException, ReviewGenerationException {
         String goal =
                 """
                 Identify all code locations relevant to the provided diff to perform a comprehensive code review,
@@ -87,10 +104,11 @@ public class ReviewAgent {
                 """;
 
         // Prepare the initial context with the diff pinned
+        var diff = changes.perFileChanges().stream()
+                .map(de -> "File: " + de.title() + "\n" + de.diff())
+                .collect(java.util.stream.Collectors.joining("\n\n"));
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-        Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
 
         // Configure SearchAgent with ARCHITECT model and noAppend scan config
         var architectModel = cm.getService().getModel(ModelType.ARCHITECT);
@@ -98,31 +116,10 @@ public class ReviewAgent {
         var searchScanConfig = SearchAgent.ScanConfig.noAppend();
 
         try (var scope = cm.anonymousScope()) {
-            var searchTools = List.of(
-                    "addSymbolUsagesToWorkspace",
-                    "addClassesToWorkspace",
-                    "addClassSummariesToWorkspace",
-                    "addMethodsToWorkspace",
-                    "addFileSummariesToWorkspace",
-                    "addFilesToWorkspace");
-            SearchAgent agent =
-                    new SearchAgent(initialContext, goal, architectModel, scope, io, searchScanConfig, searchTools);
-            AtomicInteger searchTurnCount = new AtomicInteger(0);
-            agent.setTurnListener(() -> {
-                int turns = searchTurnCount.incrementAndGet();
-                updateProgress(Math.min(10, turns * 2));
-            });
-
-            // Phase 1: Establish context using SearchAgent
-            TaskResult searchResult = agent.execute();
-
-            if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
-                throw new ReviewGenerationException("Review context gathering failed", searchResult.stopDetails());
-            }
-
-            // Phase 2: Two-turn review process
-            var reviewContext = searchResult.context().withHistory(List.of());
-            var turn1Llm = cm.getLlm(new Llm.Options(architectModel, "Code Review").withEcho());
+            Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
+            var reviewContext = setupContext(initialContext, goal, architectModel, scope, searchScanConfig, quickMode);
+            var turn1Model = quickMode ? scanModel : architectModel;
+            var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
             turn1Llm.setOutput(io);
 
             var turn2Llm = cm.getLlm(new Llm.Options(scanModel, "Code Review (Structuring)").withEcho());
@@ -228,6 +225,43 @@ public class ReviewAgent {
 
             return new ReviewResult(review, reviewContext);
         }
+    }
+
+    private @NotNull Context setupContext(Context initialContext, String goal, StreamingChatModel architectModel, ContextManager.TaskScope scope, SearchAgent.ScanConfig searchScanConfig, boolean quickMode) throws ReviewGenerationException {
+        if (quickMode) {
+            var filesToContext = changes.perFileChanges().stream()
+                    .filter(de -> !de.oldContent().isEmpty() && !de.newContent().isEmpty())
+                    .filter(de -> de.diff().split("@@").length > 3) // > 2 hunks (split by @@ results in [preamble, hunk1, hunk2, hunk3...])
+                    .map(de -> de.fragment())
+                    .toList();
+            return initialContext.addFragments(filesToContext);
+        }
+
+        var searchTools = List.of(
+                "addSymbolUsagesToWorkspace",
+                "addClassesToWorkspace",
+                "addClassSummariesToWorkspace",
+                "addMethodsToWorkspace",
+                "addFileSummariesToWorkspace",
+                "addFilesToWorkspace");
+        SearchAgent agent =
+                new SearchAgent(initialContext, goal, architectModel, scope, io, searchScanConfig, searchTools);
+        AtomicInteger searchTurnCount = new AtomicInteger(0);
+        agent.setTurnListener(() -> {
+            int turns = searchTurnCount.incrementAndGet();
+            updateProgress(Math.min(10, turns * 2));
+        });
+
+        // Phase 1: Establish context using SearchAgent
+        TaskResult searchResult = agent.execute();
+
+        if (searchResult.stopDetails().reason() != TaskResult.StopReason.SUCCESS) {
+            throw new ReviewGenerationException("Review context gathering failed", searchResult.stopDetails());
+        }
+
+        // Phase 2: Two-turn review process
+        var reviewContext = searchResult.context().withHistory(List.of());
+        return reviewContext;
     }
 
     private void updateProgress(int min) {
