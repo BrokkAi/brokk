@@ -313,8 +313,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         switch (baselineMode) {
             case NON_DEFAULT_BRANCH -> {
-                String defaultBranch = baselineLabel;
-                String defaultBranchRef = "refs/heads/" + defaultBranch;
+                String defaultBranchRef = baselineLabel;
                 leftCommitSha = repo.getMergeBase("HEAD", defaultBranchRef);
                 if (leftCommitSha != null) {
                     var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
