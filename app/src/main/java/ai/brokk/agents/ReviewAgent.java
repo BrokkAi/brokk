@@ -33,15 +33,26 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import ai.brokk.SessionManager;
+import ai.brokk.context.ContextHistory;
+import ai.brokk.git.CommitInfo;
+import com.github.f4b6a3.uuid.util.UuidUtil;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.swing.Timer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -711,6 +722,92 @@ public class ReviewAgent {
 
         this.contextBeingBuilt = wst.getContext();
         return "Context updated with requested fragments.";
+    }
+
+    @Blocking
+    public @Nullable ContextFragments.StringFragment extractInstructionsFragment(
+            DiffService.CumulativeChanges changes, @Nullable UUID singleSessionId) {
+        List<ContextHistory> histories = new ArrayList<>();
+        var sessionManager = cm.getProject().getSessionManager();
+
+        if (singleSessionId != null) {
+            // Single session mode: just load that session's history
+            logger.debug("Extracting instructions for single session: {}", singleSessionId);
+            ContextHistory history = sessionManager.loadHistory(singleSessionId, cm);
+            if (history != null) {
+                histories.add(history);
+            }
+        } else if (!changes.commits().isEmpty()) {
+            // Cumulative mode: filter sessions by time and matching commits
+            List<CommitInfo> commits = changes.commits();
+            logger.debug("Extracting instructions for cumulative changes with {} commits: {}",
+                    commits.size(), commits.stream().map(CommitInfo::id).toList());
+
+            // Compute earliest commit time from CommitInfo.date() (which is already Instant)
+            Instant earliestCommit = commits.stream()
+                    .map(CommitInfo::date)
+                    .filter(Objects::nonNull)
+                    .min(Comparator.naturalOrder())
+                    .orElse(Instant.now());
+            Instant timeBound = earliestCommit.minus(1, ChronoUnit.DAYS);
+
+            // Filter sessions by UUID v7 timestamp > timeBound
+            List<SessionManager.SessionInfo> shortlisted = sessionManager.listSessions().stream()
+                    .filter(s -> UuidUtil.getInstant(s.id()).isAfter(timeBound))
+                    .toList();
+
+            logger.debug("Shortlisted {} sessions based on time bound {}", shortlisted.size(), timeBound);
+
+            // Collect commit IDs we're looking for
+            Set<String> changeCommitIds = commits.stream().map(CommitInfo::id).collect(Collectors.toSet());
+
+            // Load each shortlisted session and check for overlapping commits
+            for (var session : shortlisted) {
+                ContextHistory history = sessionManager.loadHistory(session.id(), cm);
+                if (history == null) continue;
+
+                // Check if any GitState in this history has a commit hash that matches our changes
+                Set<String> sessionCommitHashes = history.getGitStates().values().stream()
+                        .map(ContextHistory.GitState::commitHash)
+                        .collect(Collectors.toSet());
+
+                boolean hasOverlappingCommits = sessionCommitHashes.stream()
+                        .anyMatch(changeCommitIds::contains);
+
+                if (hasOverlappingCommits) {
+                    logger.debug("Session {} has overlapping commits", session.id());
+                    histories.add(history);
+                }
+            }
+        }
+
+        // Extract instructions from all matching histories
+        // Get TaskEntries from each Context in each ContextHistory
+        List<String> instructions = histories.stream()
+                .flatMap(h -> h.getHistory().stream())  // Stream<Context>
+                .flatMap(ctx -> ctx.getTaskHistory().stream())  // Stream<TaskEntry>
+                .filter(te -> te.log() != null)
+                .sorted(Comparator.comparing(te -> requireNonNull(te.log()).id()))
+                .map(te -> requireNonNull(te.log()).description().join())
+                .filter(desc -> !desc.isBlank())
+                .distinct()
+                .toList();
+
+        logger.debug("Extracted {} instruction fragments", instructions.size());
+
+        if (instructions.isEmpty()) {
+            return null;
+        }
+
+        String mergedText = instructions.stream()
+                .map(desc -> "- " + desc)
+                .collect(Collectors.joining("\n"));
+
+        return new ContextFragments.StringFragment(
+                cm,
+                mergedText,
+                "User Instructions",
+                SyntaxConstants.SYNTAX_STYLE_NONE);
     }
 
     @Tool("Create a structured code review of the current changes or proposal.")
