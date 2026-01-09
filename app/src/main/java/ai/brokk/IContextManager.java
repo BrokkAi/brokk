@@ -38,7 +38,7 @@ import org.jetbrains.annotations.Nullable;
 public interface IContextManager {
     Logger logger = LogManager.getLogger(IContextManager.class);
 
-    default boolean undoContext() {
+    default boolean undoContext() throws InterruptedException {
         throw new UnsupportedOperationException();
     }
 

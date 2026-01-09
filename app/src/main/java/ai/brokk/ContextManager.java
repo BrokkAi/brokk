@@ -969,12 +969,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Nothing to undo");
             }
+            return null;
         });
     }
 
     @Override
-    public boolean undoContext() {
-        return withStableContext(() -> {
+    @Blocking
+    public boolean undoContext() throws InterruptedException {
+        return withContextResolvedAndWatcherPaused(() -> {
             UndoResult result = contextHistory.undo(1, io, project);
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
@@ -992,7 +994,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** undo changes until we reach the target FROZEN context */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
-            UndoResult result = withStableContext(() -> contextHistory.undoUntil(targetFrozenContext, io, project));
+            UndoResult result = withContextResolvedAndWatcherPaused(
+                    () -> contextHistory.undoUntil(targetFrozenContext, io, project));
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1004,13 +1007,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Context not found or already at that point");
             }
+            return null;
         });
     }
 
     /** redo last undone context */
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
-            ContextHistory.RedoResult redoResult = withStableContext(() -> contextHistory.redo(io, project));
+            ContextHistory.RedoResult redoResult =
+                    withContextResolvedAndWatcherPaused(() -> contextHistory.redo(io, project));
             if (redoResult.wasRedone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1021,6 +1026,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "no redo state available");
             }
+            return null;
         });
     }
 
@@ -1909,15 +1915,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     @Blocking
-    public <T> T withStableContext(Callable<T> callable) {
-        return withFileChangeNotificationsPaused(() -> {
-            try {
-                liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+    public <T> T withContextResolvedAndWatcherPaused(Callable<T> callable) throws InterruptedException {
+        analyzerWrapper.pause();
+        liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+        try {
             return callable.call();
-        });
+        } catch (InterruptedException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            analyzerWrapper.resume();
+        }
     }
 
     @FunctionalInterface

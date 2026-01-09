@@ -49,6 +49,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class ArchitectAgent {
@@ -318,7 +319,8 @@ public class ArchitectAgent {
 
     @Tool(
             "Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
-    public String undoLastChanges() {
+    @Blocking
+    public String undoLastChanges() throws InterruptedException {
         logger.debug("undoLastChanges invoked");
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Undoing last CodeAgent changes...");
         if (cm.undoContext()) {

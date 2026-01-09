@@ -860,7 +860,7 @@ public class CodeAgent {
             context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            logger.warn("Interrupted while waiting for contexts to be computed", e);
+            logger.debug("Interrupted while waiting for contexts to be computed", e);
         }
 
         // Guardrail: block edits to files designated read-only in the current context
