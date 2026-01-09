@@ -412,10 +412,15 @@ public class BuildAgent {
                 | **SBT**           | `sbt -error "testOnly{{#fqclasses}} {{value}}{{/fqclasses}}"`
                 | **Maven**         | `mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}`
                 | **Gradle**        | `gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}`
-                | **Go**            | `go test -run '{{#classes}}{{value}}{{^last}} | {{/last}}{{/classes}}`
-                | **.NET CLI**      | `dotnet test --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}} | {{/last}}{{/classes}}"`
-                | **pytest**        | `uv sync && pytest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
-                | **Jest**          | `jest {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **Go**            | `go test -run '{{#classes}}{{value}}{{^last}}|{{/last}}{{/classes}}'`
+                | **.NET CLI**      | `dotnet test --verbosity quiet --filter "{{#classes}}FullyQualifiedName\\~{{value}}{{^last}}|{{/last}}{{/classes}}"`
+                | **Cargo**         | `cargo test -q {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}`
+                | **pytest**        | `uv sync && pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **Poetry**        | `poetry install --no-interaction && poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **Jest**          | `jest --silent {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **npm**           | `npm test --silent -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **RSpec**         | `bundle exec rspec --format progress {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
+                | **PHPUnit**       | `./vendor/bin/phpunit --no-progress {{#files}}{{value}}{{^last}} {{/last}}{{/files}}`
 
                 %s
                 Only fall back to the bare command (`gradle`, `mvn` …) when no wrapper script is present.
