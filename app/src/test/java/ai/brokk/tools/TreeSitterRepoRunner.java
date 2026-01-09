@@ -229,6 +229,19 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         System.exit(exitCode);
     }
 
+    /**
+     * Deletes the projects base directory and all its contents.
+     */
+    private void cleanupProjects() throws IOException {
+        if (Files.exists(projectsBaseDir)) {
+            try (var stream = Files.walk(projectsBaseDir)) {
+                stream.sorted(Comparator.reverseOrder())
+                        .map(Path::toFile)
+                        .forEach(java.io.File::delete);
+            }
+        }
+    }
+
     @Override
     public Integer call() {
         if (command == null) {
@@ -1973,5 +1986,90 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         assertEquals(1, discovery.totalMatched(), "Should match exactly one Java file");
         assertEquals(1, discovery.files().size(), "Should add exactly one Java file for analysis");
         assertTrue(discovery.discoveryTime().toMillis() >= 0, "Discovery time should be measured");
+    }
+
+    @Test
+    void setupAndAnalyze_withSparseCheckout_usesMinimalDiskSpace() throws Exception {
+        Path remoteRoot = Files.createTempDirectory("tsrr-integration-remote");
+        Path localBase = Files.createTempDirectory("tsrr-integration-local");
+
+        try {
+            // 1. Create a temporary Git repository with mixed file types
+            new ProcessBuilder("git", "init", "-b", "main").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "config", "user.email", "test@example.com").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "config", "user.name", "test").directory(remoteRoot.toFile()).start().waitFor();
+
+            // Use src directory to ensure patterns like **/*.java match reliably
+            Path src = remoteRoot.resolve("src");
+            Files.createDirectories(src);
+            Files.writeString(src.resolve("Main.java"), "public class Main {}");
+            Files.writeString(src.resolve("Utils.cpp"), "void run() {}");
+            Files.writeString(src.resolve("script.py"), "print(1)");
+            Files.writeString(src.resolve("app.ts"), "const x = 1;");
+
+            new ProcessBuilder("git", "add", ".").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "commit", "-m", "initial").directory(remoteRoot.toFile()).start().waitFor();
+
+            // 2. Configure a test project in PROJECTS map pointing to this temporary repo
+            String projectName = "integration-test-repo";
+            ProjectConfig testConfig = new ProjectConfig(
+                    remoteRoot.toAbsolutePath().toString(),
+                    "main",
+                    Map.of(Languages.JAVA, List.of("**/*.java")),
+                    List.of()
+            );
+
+            // Since PROJECTS is an immutable map created in a static block, 
+            // we use a runner instance and override logic or simulate the environment.
+            TreeSitterRepoRunner runner = new TreeSitterRepoRunner();
+            runner.projectsBaseDir = localBase;
+            runner.sparseCheckout = true;
+
+            // We need to reflectively inject the project or use a custom PROJECTS map.
+            // Since we can't edit the static Map easily, we'll simulate setupProjects' behavior 
+            // for just this config.
+            Path projectPath = localBase.resolve(projectName);
+
+            // 3. Run setup (simulated setupProjects for the specific config)
+            runner.cloneProject(testConfig, projectPath);
+
+            // 4. Verifies only Java files are present after clone
+            assertTrue(Files.exists(projectPath.resolve("src/Main.java")), "Java file should exist");
+
+            // 5. Verifies non-Java files are not present in working directory
+            assertFalse(Files.exists(projectPath.resolve("src/Utils.cpp")), "CPP file should not exist");
+            assertFalse(Files.exists(projectPath.resolve("src/script.py")), "Python file should not exist");
+            assertFalse(Files.exists(projectPath.resolve("src/app.ts")), "TS file should not exist");
+
+            // 6. Runs getProjectFiles to confirm file discovery still works
+            // Note: getProjectFiles will use DEFAULT_LANGUAGE_PATTERNS because "integration-test-repo" 
+            // is not in the static PROJECTS map.
+            runner.testDirectory = projectPath;
+            var discovery = runner.getProjectFiles(projectName, Languages.JAVA, 100);
+            assertEquals(1, discovery.files().size(), "Should discover 1 Java file");
+            assertTrue(discovery.files().get(0).getRelPath().toString().endsWith("Main.java"));
+
+            // 7. Verifies analysis can process the discovered files
+            var result = runner.runProjectBaseline(projectName, Languages.JAVA, discovery);
+            assertFalse(result.failed, "Analysis should succeed: " + result.failureReason);
+            assertEquals(1, result.filesProcessed);
+
+            // 8. Calls cleanupProjects() to remove the test repository
+            runner.cleanupProjects();
+
+            // 9. Assert that the test project directory was deleted
+            assertFalse(Files.exists(localBase), "Local projects base directory should be deleted");
+
+        } finally {
+            // Final cleanup of the remote repo
+            try (var stream = Files.walk(remoteRoot)) {
+                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+            }
+            if (Files.exists(localBase)) {
+                try (var stream = Files.walk(localBase)) {
+                    stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+                }
+            }
+        }
     }
 }
