@@ -60,6 +60,11 @@ export type BubbleState = Bubble & {
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing
 
+  // Terminal bubbles (streamed without markdown parsing)
+  isTerminal?: boolean;
+  terminalChunks?: string[];
+  terminalComplete?: boolean;
+
   // Properties for Reasoning bubbles
   reasoning?: boolean;
   startTime?: number;           // ms timestamp when the reasoning started

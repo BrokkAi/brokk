@@ -1142,10 +1142,14 @@ public class BuildAgent {
         var io = cm.getIo();
 
         io.llmOutput(
-                "\nRunning verification command: \n\n```bash\n" + verificationCommand + "\n```\n",
-                ChatMessageType.CUSTOM);
-        String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
-        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
+                "\nRunning verification command:\n\n```bash\n" + verificationCommand + "\n```\n",
+                ChatMessageType.CUSTOM,
+                true,
+                false);
+
+        // Start a dedicated terminal bubble and stream only terminal content into it.
+        io.llmOutput("```terminal\n", ChatMessageType.CUSTOM, true, false);
+
         try {
             var details = cm.getProject().awaitBuildDetails();
             var envVars = details.environmentVariables();
@@ -1157,16 +1161,17 @@ public class BuildAgent {
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, false, false),
                     timeout,
                     execCfg,
                     envVars);
-            io.llmOutput("\n```", ChatMessageType.CUSTOM);
+
+            io.llmOutput("```\n", ChatMessageType.CUSTOM, false, false);
 
             logger.debug("Verification command successful. Output: {}", output);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
-            io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
+            io.llmOutput("```\n", ChatMessageType.CUSTOM, false, false);
 
             String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
