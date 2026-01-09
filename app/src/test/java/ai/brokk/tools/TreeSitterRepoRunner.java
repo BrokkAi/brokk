@@ -21,8 +21,10 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -338,7 +340,20 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         }
 
         try {
-            executor.invokeAll(tasks);
+            List<Future<Void>> futures = executor.invokeAll(tasks);
+            for (Future<Void> future : futures) {
+                try {
+                    future.get();
+                } catch (ExecutionException e) {
+                    System.err.println("Setup task failed: " + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
+                    if (verbose) {
+                        e.printStackTrace();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    System.err.println("Setup task interrupted");
+                }
+            }
         } finally {
             executor.shutdown();
             if (!executor.awaitTermination(30, TimeUnit.MINUTES)) {
