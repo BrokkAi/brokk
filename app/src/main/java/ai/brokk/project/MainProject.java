@@ -786,8 +786,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public boolean isGitHubRepo() {
-        if (!hasGit()) return false; // hasGit from AbstractProject
-        var gitRepo = (GitRepo) getRepo(); // getRepo from AbstractProject
+        if (!(getRepo() instanceof GitRepo gitRepo)) return false;
         String remoteUrl = gitRepo.remote().getUrl("origin");
         if (remoteUrl == null || remoteUrl.isBlank()) return false;
         return remoteUrl.contains("github.com");
@@ -1196,7 +1195,7 @@ public final class MainProject extends AbstractProject {
             var gitTopLevel = getMasterRootPathForConfig();
             var legacyStyle = new ai.brokk.analyzer.ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
             var agentsFile = new ai.brokk.analyzer.ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
-            var gitRepo = hasGit() ? (GitRepo) getRepo() : null;
+            var gitRepo = getRepo() instanceof GitRepo g ? g : null;
 
             logger.info(
                     "Starting style.md to AGENTS.md migration for {} via StyleGuideMigrator",

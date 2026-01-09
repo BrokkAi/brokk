@@ -106,7 +106,10 @@ public class GitHubAuth {
         if (!usingOverride
                 || (effectiveOwner == null || effectiveOwner.isBlank())
                 || (effectiveRepoName == null || effectiveRepoName.isBlank())) {
-            var repo = (GitRepo) project.getRepo();
+            if (!(project.getRepo() instanceof GitRepo repo)) {
+                throw new IOException("GitHub authentication requires a Git repository, but project uses "
+                        + project.getRepo().getClass().getSimpleName());
+            }
 
             var remoteUrl = repo.getOriginRemoteUrl();
             // Use GitUiUtil for parsing owner/repo from URL
