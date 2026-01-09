@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -489,7 +490,7 @@ public class ContextHistoryTest {
         public SlowFragment(IContextManager cm, String id, CountDownLatch latch) {
             super(id, cm, "Slow Fragment", "Slow", "text", null, () -> {
                 try {
-                    latch.await();
+                    latch.await(SNAPSHOT_AWAIT_TIMEOUT.multipliedBy(2).toMillis(), TimeUnit.MILLISECONDS);
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
