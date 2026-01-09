@@ -1266,9 +1266,12 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             } catch (Exception e) {
                 System.err.println("⚠ WARNING: Sparse checkout failed: " + e.getMessage()
                         + ". Falling back to full checkout (git reset --hard HEAD).");
-                new ProcessBuilder("git", "-C", targetPath.toString(), "reset", "--hard", "HEAD")
+                int fallbackExitCode = new ProcessBuilder("git", "-C", targetPath.toString(), "reset", "--hard", "HEAD")
                         .start()
                         .waitFor();
+                if (fallbackExitCode != 0) {
+                    throw new RuntimeException("Git reset fallback failed with exit code: " + fallbackExitCode);
+                }
             }
         }
     }
