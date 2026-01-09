@@ -649,9 +649,9 @@ public class BuildAgent {
             String buildLintCommand,
             String testAllCommand,
             String testSomeCommand,
-            @JsonDeserialize(as = java.util.LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+            @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
-            @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+            @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Map<String, String> environmentVariables) {
 
         @VisibleForTesting
@@ -675,7 +675,7 @@ public class BuildAgent {
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
                 @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables) {
             // Migrate legacy excludedDirectories to exclusionPatterns
-            Set<String> patterns = new java.util.LinkedHashSet<>();
+            Set<String> patterns = new LinkedHashSet<>();
             if (exclusionPatterns != null) {
                 patterns.addAll(exclusionPatterns);
             }

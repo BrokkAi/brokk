@@ -2,10 +2,12 @@ package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
+import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialChip;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.AskHumanDialog;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
@@ -20,6 +22,8 @@ import java.awt.CardLayout;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -29,6 +33,7 @@ import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JScrollPane;
+import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
@@ -126,7 +131,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             buttonPanel.removeAll();
             buttonPanel.setVisible(true);
 
-            var captureBtn = new ai.brokk.gui.components.MaterialButton("Capture to new Session");
+            var captureBtn = new MaterialButton("Capture to new Session");
             captureBtn.addActionListener(e -> {
                 var ctx = parent.getReviewContext();
                 if (ctx != null) {
@@ -228,17 +233,15 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
         buttonPanel.add(splitBtn);
 
-        var copyBtn = new ai.brokk.gui.components.MaterialButton("Copy Markdown");
+        var copyBtn = new MaterialButton("Copy Markdown");
         copyBtn.addActionListener(e -> {
             String combined = String.join("\n\n", markdownChunks);
-            java.awt.Toolkit.getDefaultToolkit()
-                    .getSystemClipboard()
-                    .setContents(new java.awt.datatransfer.StringSelection(combined), null);
+            Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(combined), null);
         });
         buttonPanel.add(Box.createHorizontalStrut(10));
         buttonPanel.add(copyBtn);
 
-        var nextBtn = new ai.brokk.gui.components.MaterialButton("Next");
+        var nextBtn = new MaterialButton("Next");
         nextBtn.addActionListener(e -> onNext.run());
         buttonPanel.add(Box.createHorizontalStrut(10));
         buttonPanel.add(nextBtn);
@@ -316,7 +319,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     public Dimension getPreferredSize() {
         Dimension pref = super.getPreferredSize();
         var parent = getParent();
-        if (parent instanceof javax.swing.JSplitPane split) {
+        if (parent instanceof JSplitPane split) {
             return new Dimension(pref.width, (int) (split.getHeight() * 0.4));
         }
         return pref;
@@ -325,14 +328,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         setBackground(
-                guiTheme.isDarkTheme()
-                        ? ai.brokk.gui.mop.ThemeColors.getPanelBackground()
-                        : javax.swing.UIManager.getColor("Panel.background"));
+                guiTheme.isDarkTheme() ? ThemeColors.getPanelBackground() : UIManager.getColor("Panel.background"));
 
         markdownPanel.applyTheme(guiTheme);
 
         var isDark = UIManager.getBoolean("laf.dark");
-        placeholderArea.setForeground(javax.swing.UIManager.getColor("Label.disabledForeground"));
+        placeholderArea.setForeground(UIManager.getColor("Label.disabledForeground"));
 
         for (var c : excerptsPanel.getComponents()) {
             if (c instanceof MaterialChip chip) {

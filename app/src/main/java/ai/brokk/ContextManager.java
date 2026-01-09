@@ -389,8 +389,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                 + "Files that should be ignored may appear in the project.%n%n"
                                 + "To fix this, open the project from within the git repository root.",
                         projectRoot, workTreeRoot);
-                this.io.systemNotify(
-                        message, "Gitignore Configuration Warning", javax.swing.JOptionPane.WARNING_MESSAGE);
+                this.io.systemNotify(message, "Gitignore Configuration Warning", JOptionPane.WARNING_MESSAGE);
             }
         }
 

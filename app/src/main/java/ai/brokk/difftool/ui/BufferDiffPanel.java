@@ -1761,8 +1761,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
     @Override
     public void applyBlame(
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap) {
+            Map<Integer, BlameService.BlameInfo> leftMap, Map<Integer, BlameService.BlameInfo> rightMap) {
         var right = getFilePanel(PanelSide.RIGHT);
         if (right != null) {
             right.getGutterComponent().setBlameLines(rightMap);
@@ -1791,14 +1790,14 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
     @Override
     @Nullable
-    public java.nio.file.Path getTargetPathForBlame() {
+    public Path getTargetPathForBlame() {
         var right = getFilePanel(PanelSide.RIGHT);
         if (right != null) {
             var bd = right.getBufferDocument();
             if (bd != null) {
                 String name = bd.getName();
                 if (!name.isBlank()) {
-                    var targetPath = java.nio.file.Paths.get(name);
+                    var targetPath = Paths.get(name);
                     if (!targetPath.isAbsolute()) {
                         return targetPath.toAbsolutePath().normalize();
                     }
@@ -1866,7 +1865,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
                     viewport.setViewPosition(new Point(0, Math.max(0, y)));
                 }
-            } catch (javax.swing.text.BadLocationException e) {
+            } catch (BadLocationException e) {
                 logger.warn("Could not scroll to line {} on side {}", lineNumber, side, e);
             }
         });

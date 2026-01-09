@@ -489,7 +489,7 @@ public class SearchAgent {
         };
     }
 
-    protected boolean isWorkspaceTool(dev.langchain4j.agent.tool.ToolExecutionRequest request, ToolRegistry tr) {
+    protected boolean isWorkspaceTool(ToolExecutionRequest request, ToolRegistry tr) {
         try {
             var vi = tr.validateTool(request);
             return vi.instance() instanceof WorkspaceTools;

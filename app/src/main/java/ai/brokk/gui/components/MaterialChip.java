@@ -1,6 +1,9 @@
 package ai.brokk.gui.components;
 
+import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
 import java.awt.AlphaComposite;
 import java.awt.BasicStroke;
@@ -12,11 +15,14 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.Insets;
+import java.awt.Polygon;
 import java.awt.RenderingHints;
 import java.awt.event.ActionListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.List;
+import javax.swing.BorderFactory;
 import javax.swing.Icon;
 import javax.swing.ImageIcon;
 import javax.swing.JLabel;
@@ -111,12 +117,12 @@ public class MaterialChip extends JPanel {
         revalidate();
     }
 
-    public void setLeadingIcons(java.util.List<Icon> icons) {
+    public void setLeadingIcons(List<Icon> icons) {
         iconPanel.removeAll();
         for (Icon icon : icons) {
             Icon fitted = fitIconToChip(icon);
             JLabel iconLabel = new JLabel(fitted);
-            iconLabel.setBorder(javax.swing.BorderFactory.createEmptyBorder(0, 0, 0, 2));
+            iconLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 2));
             iconPanel.add(iconLabel);
         }
         iconPanel.setVisible(!icons.isEmpty());
@@ -127,7 +133,7 @@ public class MaterialChip extends JPanel {
     private Icon fitIconToChip(Icon base) {
         int target = Math.max(12, label.getPreferredSize().height - 4);
         try {
-            if (base instanceof ai.brokk.gui.SwingUtil.ThemedIcon themed) {
+            if (base instanceof SwingUtil.ThemedIcon themed) {
                 return themed.withSize(target);
             }
             int w = Math.max(1, base.getIconWidth());
@@ -222,13 +228,13 @@ public class MaterialChip extends JPanel {
                 int x1 = centerX - halfDiag, y1 = centerY + halfDiag;
                 int x2 = centerX + halfDiag, y2 = centerY - halfDiag;
 
-                java.awt.Polygon leftPoly = new java.awt.Polygon();
+                Polygon leftPoly = new Polygon();
                 leftPoly.addPoint(x1, y1);
                 leftPoly.addPoint(x2, y2);
                 leftPoly.addPoint(w + halfDiag, -halfDiag);
                 leftPoly.addPoint(-halfDiag, -halfDiag);
 
-                java.awt.Polygon rightPoly = new java.awt.Polygon();
+                Polygon rightPoly = new Polygon();
                 rightPoly.addPoint(x1, y1);
                 rightPoly.addPoint(x2, y2);
                 rightPoly.addPoint(w + halfDiag, h + halfDiag);
@@ -290,7 +296,7 @@ public class MaterialChip extends JPanel {
             Graphics2D g2 = icon.createGraphics();
             try {
                 g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                Color iconColor = ai.brokk.difftool.utils.ColorUtil.contrastingText(chipBackground);
+                Color iconColor = ColorUtil.contrastingText(chipBackground);
                 g2.setColor(iconColor);
                 g2.setStroke(new BasicStroke(1.2f));
                 g2.drawLine(2, 2, targetW - 3, targetH - 3);
@@ -302,7 +308,7 @@ public class MaterialChip extends JPanel {
         }
 
         Icon uiIcon = UIManager.getIcon("Brokk.close");
-        if (uiIcon == null) uiIcon = ai.brokk.gui.util.Icons.CLOSE;
+        if (uiIcon == null) uiIcon = Icons.CLOSE;
 
         BufferedImage buf =
                 new BufferedImage(uiIcon.getIconWidth(), uiIcon.getIconHeight(), BufferedImage.TYPE_INT_ARGB);

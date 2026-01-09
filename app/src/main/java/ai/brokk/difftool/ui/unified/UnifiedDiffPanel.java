@@ -2,6 +2,7 @@ package ai.brokk.difftool.ui.unified;
 
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
+import ai.brokk.difftool.ui.BlameService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferDiffPanel;
 import ai.brokk.difftool.ui.CompositeHighlighter;
@@ -12,8 +13,16 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.ReviewParser;
+import java.awt.BasicStroke;
 import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Point;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
+import java.awt.Shape;
+import java.awt.Stroke;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.nio.file.Path;
@@ -25,6 +34,8 @@ import javax.swing.SwingUtilities;
 import javax.swing.text.AttributeSet;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.DocumentFilter;
+import javax.swing.text.Highlighter;
+import javax.swing.text.JTextComponent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
@@ -586,28 +597,26 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /**
      * Painter that draws a rounded rectangle border around a range of text.
      */
-    private static class ExcerptBorderPainter implements javax.swing.text.Highlighter.HighlightPainter {
-        private final java.awt.Color color;
+    private static class ExcerptBorderPainter implements Highlighter.HighlightPainter {
+        private final Color color;
 
-        public ExcerptBorderPainter(java.awt.Color color) {
+        public ExcerptBorderPainter(Color color) {
             this.color = color;
         }
 
         @Override
-        public void paint(
-                java.awt.Graphics g, int p0, int p1, java.awt.Shape bounds, javax.swing.text.JTextComponent c) {
+        public void paint(Graphics g, int p0, int p1, Shape bounds, JTextComponent c) {
             try {
-                java.awt.Rectangle r0 = c.modelToView2D(p0).getBounds();
-                java.awt.Rectangle r1 = c.modelToView2D(p1).getBounds();
+                Rectangle r0 = c.modelToView2D(p0).getBounds();
+                Rectangle r1 = c.modelToView2D(p1).getBounds();
 
-                java.awt.Graphics2D g2d = (java.awt.Graphics2D) g;
-                java.awt.Color oldColor = g2d.getColor();
-                java.awt.Stroke oldStroke = g2d.getStroke();
+                Graphics2D g2d = (Graphics2D) g;
+                Color oldColor = g2d.getColor();
+                Stroke oldStroke = g2d.getStroke();
 
                 g2d.setColor(color);
-                g2d.setStroke(new java.awt.BasicStroke(2.0f));
-                g2d.setRenderingHint(
-                        java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+                g2d.setStroke(new BasicStroke(2.0f));
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
                 int x = 2;
                 int y = r0.y;
@@ -694,8 +703,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     @Override
     public void applyBlame(
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap) {
+            Map<Integer, BlameService.BlameInfo> leftMap, Map<Integer, BlameService.BlameInfo> rightMap) {
         if (customLineNumberList != null) {
             customLineNumberList.setLeftBlameLines(leftMap);
             customLineNumberList.setBlameLines(rightMap);
@@ -800,7 +808,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
             boolean isDark = getTheme().isDarkTheme();
             // Using a color that stands out: green-ish for dark, blue-ish for light, or themed accent
-            java.awt.Color borderColor = isDark ? new java.awt.Color(0, 214, 27) : new java.awt.Color(0, 120, 215);
+            Color borderColor = isDark ? new Color(0, 214, 27) : new Color(0, 120, 215);
 
             excerptHighlightTag = jmHighlighter.addHighlight(
                     JMHighlighter.LAYER3, startOffset, endOffset, new ExcerptBorderPainter(borderColor));
@@ -876,7 +884,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
                     viewport.setViewPosition(new Point(0, Math.max(0, y)));
                 }
-            } catch (javax.swing.text.BadLocationException e) {
+            } catch (BadLocationException e) {
                 logger.warn("Could not scroll to line {}", lineNumber, e);
             }
         });

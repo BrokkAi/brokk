@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import ai.brokk.ContextManager;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
 import ai.brokk.context.Context;
+import ai.brokk.difftool.ui.DiffProjectFileNavigationTarget;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
@@ -66,7 +67,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         navigationListeners.add(listener);
     }
 
-    public void setNavigationTarget(ai.brokk.difftool.ui.DiffProjectFileNavigationTarget target) {
+    public void setNavigationTarget(DiffProjectFileNavigationTarget target) {
         // detailPanel handles navigation through listeners now
     }
 

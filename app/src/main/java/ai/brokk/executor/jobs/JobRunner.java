@@ -35,6 +35,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -151,7 +152,7 @@ public final class JobRunner {
                 // To use it with set or get methods
                 AtomicReference<Object> completionResultRef = new AtomicReference<>(null);
 
-                var completed = new java.util.concurrent.atomic.AtomicInteger(0);
+                var completed = new AtomicInteger(0);
 
                 var rawCodeModelName = spec.codeModel();
                 var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();

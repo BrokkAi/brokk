@@ -13,6 +13,7 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
@@ -300,7 +301,7 @@ class DiffServiceTest {
             if (!written) {
                 throw new IOException("ImageIO.write returned false for " + file.getFileName());
             }
-            Files.move(tempFile, file.absPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.move(tempFile, file.absPath(), StandardCopyOption.REPLACE_EXISTING);
 
             // Ensure file is readable and has content
             if (!Files.isReadable(file.absPath()) || Files.size(file.absPath()) == 0) {

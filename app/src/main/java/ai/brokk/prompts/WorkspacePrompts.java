@@ -15,6 +15,7 @@ import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -143,7 +144,7 @@ public final class WorkspacePrompts {
 
     /** Convenience overload for callers that don't control build-status visibility. */
     public static String formatToc(Context ctx) {
-        return formatToc(ctx, java.util.Collections.emptySet());
+        return formatToc(ctx, Collections.emptySet());
     }
 
     /**

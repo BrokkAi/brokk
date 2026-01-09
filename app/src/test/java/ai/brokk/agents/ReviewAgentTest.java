@@ -13,6 +13,7 @@ import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
+import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -128,8 +129,8 @@ class ReviewAgentTest {
         var stubModel = new TestScriptedLanguageModel(resp1, resp2);
         var llm = new Llm(stubModel, "test", cm, false, false, false, false);
 
-        var initialMessages = new ArrayList<dev.langchain4j.data.message.ChatMessage>();
-        initialMessages.add(new dev.langchain4j.data.message.UserMessage("analyze"));
+        var initialMessages = new ArrayList<ChatMessage>();
+        initialMessages.add(new UserMessage("analyze"));
         var turn1Result = llm.sendRequest(initialMessages);
 
         Map<Integer, CodeExcerpt> result =
@@ -159,8 +160,8 @@ class ReviewAgentTest {
         var stubModel = new TestScriptedLanguageModel(badResp, badResp, badResp, badResp, badResp);
         var llm = new Llm(stubModel, "test", cm, false, false, false, false);
 
-        var initialMessages = new ArrayList<dev.langchain4j.data.message.ChatMessage>();
-        initialMessages.add(new dev.langchain4j.data.message.UserMessage("analyze"));
+        var initialMessages = new ArrayList<ChatMessage>();
+        initialMessages.add(new UserMessage("analyze"));
         var turn1Result = llm.sendRequest(initialMessages);
 
         Map<Integer, CodeExcerpt> result =
@@ -220,8 +221,8 @@ class ReviewAgentTest {
 
         var stubModel = new TestScriptedLanguageModel(resp1);
         var llm = new Llm(stubModel, "test", cm, false, false, false, false);
-        var initialMessages = new ArrayList<dev.langchain4j.data.message.ChatMessage>();
-        initialMessages.add(new dev.langchain4j.data.message.UserMessage("analyze"));
+        var initialMessages = new ArrayList<ChatMessage>();
+        initialMessages.add(new UserMessage("analyze"));
         var turn1Result = llm.sendRequest(initialMessages);
 
         Map<Integer, CodeExcerpt> result =

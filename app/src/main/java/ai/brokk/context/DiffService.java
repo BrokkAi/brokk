@@ -4,6 +4,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
@@ -27,7 +28,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>Uses a global bounded cache of (prev, curr) context pairs to avoid redundant computations across sessions.
  * This service materializes computed values asynchronously as needed via
- * {@link ai.brokk.util.ComputedValue#await(java.time.Duration)}.
+ * {@link ai.brokk.util.ComputedValue#await(Duration)}.
  */
 public final class DiffService {
     private static final Logger logger = LogManager.getLogger(DiffService.class);
@@ -329,7 +330,7 @@ public final class DiffService {
     @Blocking
     public static CumulativeChanges summarizeDiff(
             IGitRepo repo, String leftRef, String rightRef, Set<IGitRepo.ModifiedFile> files) {
-        if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
+        if (!(repo instanceof GitRepo gitRepo)) {
             return new CumulativeChanges(0, 0, 0, List.of());
         }
 

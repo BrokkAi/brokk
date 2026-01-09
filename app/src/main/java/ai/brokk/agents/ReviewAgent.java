@@ -9,6 +9,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService;
@@ -21,20 +22,27 @@ import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.RawExcerpt;
+import ai.brokk.util.WhitespaceMatch;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import javax.swing.Timer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -106,7 +114,7 @@ public class ReviewAgent {
         // Prepare the initial context with the diff pinned
         var diff = changes.perFileChanges().stream()
                 .map(de -> "File: " + de.title() + "\n" + de.diff())
-                .collect(java.util.stream.Collectors.joining("\n\n"));
+                .collect(Collectors.joining("\n\n"));
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
 
@@ -145,13 +153,10 @@ public class ReviewAgent {
 
                 int turn1Floor = progressOf100;
                 AtomicInteger linesSeen = new AtomicInteger(0);
-                ai.brokk.cli.MemoryConsole progressConsole = new ai.brokk.cli.MemoryConsole() {
+                MemoryConsole progressConsole = new MemoryConsole() {
                     @Override
                     public void llmOutput(
-                            String token,
-                            dev.langchain4j.data.message.ChatMessageType type,
-                            boolean explicitNewMessage,
-                            boolean isReasoning) {
+                            String token, ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
                         super.llmOutput(token, type, explicitNewMessage, isReasoning);
                         if (token.contains("\n")) {
                             int lines = linesSeen.addAndGet(
@@ -168,7 +173,7 @@ public class ReviewAgent {
                     break;
                 }
 
-                if (turn1Result.error() instanceof dev.langchain4j.exception.ContextTooLargeException) {
+                if (turn1Result.error() instanceof ContextTooLargeException) {
                     // Get non-diff fragments and their files
                     Context currentContext = reviewContext;
                     var nonDiffFragments = currentContext
@@ -229,7 +234,7 @@ public class ReviewAgent {
             var toolSpecs = tr.getTools(List.of("createReview"));
 
             int turn2Floor = progressOf100;
-            javax.swing.Timer turn2Timer = new javax.swing.Timer(1000, null);
+            Timer turn2Timer = new Timer(1000, null);
             AtomicInteger turn2Seconds = new AtomicInteger(0);
             turn2Timer.addActionListener(e -> {
                 int p = turn2Floor + turn2Seconds.incrementAndGet();
@@ -369,7 +374,7 @@ public class ReviewAgent {
         // Try NEW content first
         String newContent = fileInfo.rightSource().content();
         String[] newLines = newContent.split("\\R", -1);
-        var newMatches = ai.brokk.util.WhitespaceMatch.findAll(newLines, excerptLines);
+        var newMatches = WhitespaceMatch.findAll(newLines, excerptLines);
         if (!newMatches.isEmpty()) {
             var best = ReviewParser.findBestMatch(newMatches, excerpt.line());
             return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.NEW, best.matchedText());
@@ -378,7 +383,7 @@ public class ReviewAgent {
         // Try OLD content
         String oldContent = fileInfo.leftSource().content();
         String[] oldLines = oldContent.split("\\R", -1);
-        var oldMatches = ai.brokk.util.WhitespaceMatch.findAll(oldLines, excerptLines);
+        var oldMatches = WhitespaceMatch.findAll(oldLines, excerptLines);
         if (!oldMatches.isEmpty()) {
             var best = ReviewParser.findBestMatch(oldMatches, excerpt.line());
             return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.OLD, best.matchedText());
@@ -433,7 +438,7 @@ public class ReviewAgent {
 
             String errorList = fileResolutionErrors.entrySet().stream()
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
-                    .collect(java.util.stream.Collectors.joining("\n"));
+                    .collect(Collectors.joining("\n"));
 
             boolean someSucceeded = !validPathExcerpts.isEmpty();
             String successNote = someSucceeded
@@ -458,7 +463,7 @@ public class ReviewAgent {
         String mergedResponseText = buildMergedResponseText(turn1Result.text(), validPathExcerpts);
 
         // Stage 2: Text Resolution (Validate excerpts match file content)
-        Map<Integer, CodeExcerpt> matchedExcerpts = new java.util.concurrent.ConcurrentHashMap<>();
+        Map<Integer, CodeExcerpt> matchedExcerpts = new ConcurrentHashMap<>();
         List<ChatMessage> textResolutionMessages = new ArrayList<>();
         attempts = 0;
         while (true) {
@@ -487,14 +492,14 @@ public class ReviewAgent {
                             return null;
                         }
                     })
-                    .filter(java.util.Objects::nonNull)
-                    .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
             if (textResolutionErrors.isEmpty() || attempts++ == 2) break;
 
             String errorList = textResolutionErrors.entrySet().stream()
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
-                    .collect(java.util.stream.Collectors.joining("\n"));
+                    .collect(Collectors.joining("\n"));
 
             var filesToInclude = textResolutionErrors.keySet().stream()
                     .map(validPathExcerpts::get)

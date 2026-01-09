@@ -22,6 +22,7 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -29,6 +30,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -507,7 +509,7 @@ public class ContextSerializationTest {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if ("contexts.jsonl".equals(entry.getName())) {
-                    return new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    return new String(zis.readAllBytes(), StandardCharsets.UTF_8);
                 }
             }
         }
@@ -1565,7 +1567,7 @@ public class ContextSerializationTest {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if ("contexts.jsonl".equals(entry.getName())) {
-                    String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    String content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
                     String firstLine = content.lines()
                             .filter(s -> !s.isBlank())
                             .findFirst()
@@ -1576,7 +1578,7 @@ public class ContextSerializationTest {
                     Map<String, Object> obj = mapper.readValue(firstLine, Map.class);
                     @SuppressWarnings("unchecked")
                     List<String> readonly = (List<String>) obj.getOrDefault("readonly", List.of());
-                    return new java.util.HashSet<>(readonly);
+                    return new HashSet<>(readonly);
                 }
             }
         }
@@ -1638,21 +1640,20 @@ public class ContextSerializationTest {
 
     // Helper: rewrite contexts.jsonl in a zip file using a single-line transform
     @SuppressWarnings("unchecked")
-    private void rewriteContextsInZip(Path source, Path target, java.util.function.Function<String, String> transform)
-            throws IOException {
+    private void rewriteContextsInZip(Path source, Path target, Function<String, String> transform) throws IOException {
         Map<String, byte[]> entries = new LinkedHashMap<>();
         try (var zis = new ZipInputStream(Files.newInputStream(source))) {
             ZipEntry e;
             while ((e = zis.getNextEntry()) != null) {
                 if (e.getName().equals("contexts.jsonl")) {
-                    String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    String content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
                     List<String> lines = content.lines().toList();
                     List<String> transformed = lines.stream()
                             .filter(s -> !s.isBlank())
                             .map(transform)
                             .toList();
                     String newContent = String.join("\n", transformed) + "\n";
-                    entries.put(e.getName(), newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    entries.put(e.getName(), newContent.getBytes(StandardCharsets.UTF_8));
                 } else {
                     @SuppressWarnings("null")
                     byte[] bytes = zis.readAllBytes();
