@@ -1,6 +1,7 @@
 package ai.brokk;
 
 import static ai.brokk.SessionManager.SessionInfo;
+import static ai.brokk.context.ContextHistory.SNAPSHOT_AWAIT_TIMEOUT;
 import static java.lang.Math.max;
 import static java.util.Objects.requireNonNull;
 
@@ -973,7 +974,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public boolean undoContext() {
-        return withFileChangeNotificationsPaused(() -> {
+        return withStableContext(() -> {
             UndoResult result = contextHistory.undo(1, io, project);
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
@@ -991,8 +992,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** undo changes until we reach the target FROZEN context */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
-            UndoResult result =
-                    withFileChangeNotificationsPaused(() -> contextHistory.undoUntil(targetFrozenContext, io, project));
+            UndoResult result = withStableContext(() -> contextHistory.undoUntil(targetFrozenContext, io, project));
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1010,8 +1010,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** redo last undone context */
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
-            ContextHistory.RedoResult redoResult =
-                    withFileChangeNotificationsPaused(() -> contextHistory.redo(io, project));
+            ContextHistory.RedoResult redoResult = withStableContext(() -> contextHistory.redo(io, project));
             if (redoResult.wasRedone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1623,8 +1622,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Set<ProjectFile> allReferenced = new HashSet<>();
         for (var f : fragments) {
             try {
-                var files =
-                        f.files().await(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
+                var files = f.files().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
                 allReferenced.addAll(files);
             } catch (TimeoutException te) {
                 logger.warn("Timed out waiting for files() of fragment {}", f.id());
@@ -1910,6 +1908,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
+    @Blocking
+    public <T> T withStableContext(Callable<T> callable) {
+        return withFileChangeNotificationsPaused(() -> {
+            try {
+                liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return callable.call();
+        });
+    }
+
     @FunctionalInterface
     public interface TaskRunner {
         /**
@@ -2156,6 +2166,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
+    @Blocking
     @Override
     public TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
         // prepare MOP
@@ -2195,6 +2206,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private final UUID groupId = UUID.randomUUID();
         private final String groupLabel;
 
+        @Blocking
         private TaskScope(boolean groupAndCompress, @Nullable String taskDescription) {
             this.groupAndCompress = groupAndCompress;
             this.groupLabel = taskDescription == null ? "Task" : taskDescription;
@@ -2202,6 +2214,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
             taskScopeInProgress.set(true);
 
             analyzerWrapper.pause();
+            try {
+                liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
 
         /**
