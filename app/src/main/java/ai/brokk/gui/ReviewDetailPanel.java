@@ -109,6 +109,10 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         cardLayout.show(this, CARD_PLACEHOLDER);
     }
 
+    public void setReviewContext(@Nullable Context context) {
+        this.reviewContext = context;
+    }
+
     public void setBusy(boolean busy) {
         if (busy) {
             placeholderArea.setText("Generating review...");

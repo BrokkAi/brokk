@@ -81,6 +81,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
     public void displayReview(GuidedReview review, Context context) {
         this.reviewContext = context;
+        detailPanel.setReviewContext(context);
         itemExcerpts.clear();
         itemExcerpts.put(review.overview(), List.of());
 
