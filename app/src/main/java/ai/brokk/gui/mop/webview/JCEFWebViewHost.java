@@ -22,6 +22,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cef.CefApp;
 import org.cef.CefClient;
+import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.browser.CefMessageRouter;
@@ -174,35 +175,122 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             logger.error("Failed to initialize JCEF via jcefmaven", e);
             System.err.println("*** JCEF initialization failed: " + e.getMessage() + " ***");
             e.printStackTrace(System.err);
-            throw wrapWithLinuxLibraryHint(e);
+            throw wrapWithDependencyHint(e);
         }
     }
 
-    private static RuntimeException wrapWithLinuxLibraryHint(Throwable e) {
-        // Check for missing Linux system libraries
+    private static RuntimeException wrapWithDependencyHint(Throwable e) {
+        // Check for missing dependencies across all platforms
         Throwable cause = e;
         while (cause != null) {
-            if (cause instanceof UnsatisfiedLinkError ule && Environment.isLinux()) {
-                var msg = ule.getMessage();
-                if (msg != null && msg.contains(".so:")) {
-                    var libName = extractMissingLibrary(msg);
-                    var instructions =
-                            """
-                            JCEF requires system libraries that are not installed.
-                            Missing: %s
+            var msg = cause.getMessage();
+            if (msg == null) {
+                cause = cause.getCause();
+                continue;
+            }
 
-                            Install with:
-                              Debian/Ubuntu: sudo apt install libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1
-                              Fedora/RHEL:   sudo dnf install nss atk gtk3 mesa-libgbm
-                              Arch:          sudo pacman -S nss atk gtk3 mesa
-                            """
-                                    .formatted(libName);
-                    return new DependencyException(instructions, ule);
+            // Check for missing system libraries (all platforms)
+            if (cause instanceof UnsatisfiedLinkError) {
+                // Linux: .so files
+                if (msg.contains(".so:")) {
+                    var libName = extractMissingLibrary(msg, ".so:");
+                    return new DependencyException(linuxInstructions(libName), cause);
+                }
+                // macOS: .dylib files or jcef_helper
+                if (msg.contains(".dylib") || msg.contains("jcef_helper")) {
+                    return new DependencyException(macOsInstructions(msg), cause);
+                }
+                // Windows: .dll files
+                if (msg.contains(".dll")) {
+                    var libName = extractMissingLibrary(msg, ".dll");
+                    return new DependencyException(windowsInstructions(libName), cause);
                 }
             }
+
+            // Check for missing JCEF binaries from JCefSetup
+            if (cause instanceof IllegalStateException) {
+                if (msg.contains("jcef Helper.app not found")) {
+                    return new DependencyException(macOsBinaryMissing(), cause);
+                }
+                if (msg.contains("jcef.dll not found")) {
+                    return new DependencyException(windowsBinaryMissing(), cause);
+                }
+                if (msg.contains("libjcef.so not found")) {
+                    return new DependencyException(linuxBinaryMissing(), cause);
+                }
+            }
+
             cause = cause.getCause();
         }
         return new RuntimeException("JCEF initialization failed", e);
+    }
+
+    private static String linuxInstructions(String libName) {
+        return """
+                JCEF requires system libraries that are not installed.
+                Missing: %s
+
+                Install with:
+                  Debian/Ubuntu: sudo apt install libnss3 libatk-bridge2.0-0 libgtk-3-0 libgbm1
+                  Fedora/RHEL:   sudo dnf install nss atk gtk3 mesa-libgbm
+                  Arch:          sudo pacman -S nss atk gtk3 mesa
+                """
+                .formatted(libName);
+    }
+
+    private static String macOsInstructions(String errorMsg) {
+        return """
+                JCEF requires system frameworks that are not available.
+                Error: %s
+
+                This may indicate:
+                - Missing or corrupted Chromium framework files
+                - Insufficient permissions to load frameworks
+                - Incomplete JCEF installation
+
+                Try reinstalling Brokk or check file permissions.
+                """
+                .formatted(errorMsg);
+    }
+
+    private static String windowsInstructions(String libName) {
+        return """
+                JCEF requires DLL files that are not installed.
+                Missing: %s
+
+                Install Visual C++ Redistributable:
+                https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+                Or reinstall Brokk.
+                """
+                .formatted(libName);
+    }
+
+    private static String linuxBinaryMissing() {
+        return """
+                JCEF binary (libjcef.so) not found in expected location.
+
+                This indicates an incomplete installation.
+                Please reinstall Brokk or check the installation directory.
+                """;
+    }
+
+    private static String macOsBinaryMissing() {
+        return """
+                JCEF Helper.app not found in expected location.
+
+                This indicates an incomplete installation.
+                Please reinstall Brokk or check the Frameworks directory.
+                """;
+    }
+
+    private static String windowsBinaryMissing() {
+        return """
+                JCEF binary (jcef.dll) not found in expected location.
+
+                This indicates an incomplete installation.
+                Please reinstall Brokk or check the installation directory.
+                """;
     }
 
     private static CefApp getOrCreateCefApp() {
@@ -217,15 +305,35 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 return existing;
             }
 
+            // Check if running under JBR - use native JCEF to avoid jcefmaven build_meta.json issue
+            if (Environment.isJBR()) {
+                System.out.println("*** JCEF: Initializing CEF with JBR native JCEF ***");
+                logger.info("Initializing JCEF with JBR native JCEF");
+
+                CefSettings settings = new CefSettings();
+                settings.windowless_rendering_enabled = false;
+                settings.background_color = settings.new ColorType(0xFF, 37, 37, 37);
+
+                CefApp app;
+                try {
+                    app = JCefSetup.buildNative(settings);
+                } catch (Exception e) {
+                    throw wrapWithDependencyHint(e);
+                }
+                cefAppRef.set(app);
+
+                System.out.println("*** JCEF: CefApp created with JBR (state: " + app.getState() + ") ***");
+                logger.info("JCEF CefApp created with JBR");
+                return app;
+            }
+
+            // Non-JBR: use jcefmaven
             System.out.println("*** JCEF: Initializing CEF with jcefmaven ***");
             logger.info("Initializing JCEF with jcefmaven");
 
-            // Use JCefSetup pattern from jcef-poc
             var builder = JCefSetup.builder();
             var settings = builder.getCefSettings();
             settings.windowless_rendering_enabled = false;
-            // Set background color to dark to reduce white flash (ARGB format)
-            // Using dark theme color #252525 = RGB(37,37,37)
             settings.background_color = settings.new ColorType(0xFF, 37, 37, 37);
 
             builder.setAppHandler(new MavenCefAppHandlerAdapter() {
@@ -240,7 +348,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             try {
                 app = builder.build();
             } catch (Exception e) {
-                throw wrapWithLinuxLibraryHint(e);
+                throw wrapWithDependencyHint(e);
             }
             cefAppRef.set(app);
 
@@ -250,13 +358,13 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         }
     }
 
-    private static String extractMissingLibrary(String errorMessage) {
-        // Parse "libnss3.so: cannot open shared object file" pattern
-        int idx = errorMessage.lastIndexOf(".so:");
+    private static String extractMissingLibrary(String errorMessage, String extension) {
+        // Parse library name from error message (e.g., "libnss3.so: cannot open shared object file")
+        int idx = errorMessage.lastIndexOf(extension);
         if (idx > 0) {
             int start = errorMessage.lastIndexOf(' ', idx);
             if (start < 0) start = 0;
-            return errorMessage.substring(start, idx + 3).trim();
+            return errorMessage.substring(start, idx + extension.length()).trim();
         }
         return "unknown library";
     }
