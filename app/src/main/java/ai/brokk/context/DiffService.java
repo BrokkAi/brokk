@@ -4,6 +4,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
@@ -329,13 +330,17 @@ public final class DiffService {
      */
     @Blocking
     public static CumulativeChanges summarizeDiff(
-            IGitRepo repo, String leftRef, String rightRef, Set<IGitRepo.ModifiedFile> files) {
+            IGitRepo repo,
+            String leftRef,
+            String rightRef,
+            Set<IGitRepo.ModifiedFile> files,
+            List<CommitInfo> commits) {
         if (!(repo instanceof GitRepo gitRepo)) {
-            return new CumulativeChanges(0, 0, 0, List.of());
+            return new CumulativeChanges(0, 0, 0, List.of(), commits);
         }
 
         if (files.isEmpty()) {
-            return new CumulativeChanges(0, 0, 0, List.of());
+            return new CumulativeChanges(0, 0, 0, List.of(), commits);
         }
 
         List<DiffEntry> perFileChanges = new ArrayList<>();
@@ -400,7 +405,7 @@ public final class DiffService {
         int totalDeleted =
                 perFileChanges.stream().mapToInt(DiffEntry::linesDeleted).sum();
 
-        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, commits);
     }
 
     /**
@@ -433,11 +438,17 @@ public final class DiffService {
             int totalAdded,
             int totalDeleted,
             List<DiffEntry> perFileChanges,
+            List<CommitInfo> commits,
             @Nullable GitWorkflow.PushPullState pushPullState) {
 
         /** Convenience constructor without pushPullState. */
-        public CumulativeChanges(int filesChanged, int totalAdded, int totalDeleted, List<DiffEntry> perFileChanges) {
-            this(filesChanged, totalAdded, totalDeleted, perFileChanges, null);
+        public CumulativeChanges(
+                int filesChanged,
+                int totalAdded,
+                int totalDeleted,
+                List<DiffEntry> perFileChanges,
+                List<CommitInfo> commits) {
+            this(filesChanged, totalAdded, totalDeleted, perFileChanges, commits, null);
         }
     }
 

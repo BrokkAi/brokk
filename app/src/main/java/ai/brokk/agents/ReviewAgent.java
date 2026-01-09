@@ -98,7 +98,7 @@ public class ReviewAgent {
      * Legacy constructor for tests or cases where only a raw diff string is available.
      */
     public ReviewAgent(String diff, IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
-        this(new DiffService.CumulativeChanges(0, 0, 0, List.of()), cm, io, fileComparisons);
+        this(new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of()), cm, io, fileComparisons);
     }
 
     private @Nullable ProgressUpdater progressUpdater;
