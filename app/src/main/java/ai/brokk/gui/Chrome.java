@@ -12,6 +12,7 @@ import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.git.GitRepo;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -23,7 +24,6 @@ import ai.brokk.gui.git.GitLogTab;
 import ai.brokk.gui.git.GitPullRequestsTab;
 import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
-import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.tests.FileBasedTestRunsStore;
 import ai.brokk.gui.tests.TestRunnerPanel;
@@ -224,8 +224,10 @@ public class Chrome
         frame.setTitle(title);
 
         // Show initial system message
+        var projectType = getProject() instanceof MainProject ? "project" : "worktree";
         showNotification(
-                NotificationRole.INFO, "Opening project at " + getProject().getRoot());
+                NotificationRole.INFO,
+                "Opening " + projectType + " at " + getProject().getRoot());
 
         // Test runner persistence and panel
         var brokkDir = getProject().getRoot().resolve(AbstractProject.BROKK_DIR);
@@ -344,8 +346,6 @@ public class Chrome
 
         // Now show the window with complete layout
         frame.setVisible(true);
-
-        SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
 
         // Defer .gitignore check until initialization completes
         scheduleGitConfigurationAfterInit();
@@ -1021,12 +1021,24 @@ public class Chrome
 
     @Override
     public void close() {
-        logger.info("Closing Chrome UI");
-
+        logger.info("Closing Chrome UI (sync)");
         contextManager.close();
         frame.dispose();
-        // Unregister this instance
         openInstances.remove(this);
+    }
+
+    /**
+     * Asynchronously close Chrome, running cleanup off EDT.
+     * Returns a future that completes when cleanup is done.
+     *
+     * <p><b>Note:</b> This method does NOT dispose the frame. The caller is responsible
+     * for calling {@code getFrame().dispose()} on the EDT after the future completes
+     * to release native window resources.
+     */
+    public CompletableFuture<Void> closeAsync() {
+        logger.info("Closing Chrome UI (async)");
+        openInstances.remove(this);
+        return contextManager.closeAsync(5_000);
     }
 
     private void registerAllListeners() {
@@ -1091,6 +1103,13 @@ public class Chrome
             setContext(newCtx);
             updateContextHistoryTable(newCtx);
         });
+    }
+
+    @Override
+    public void onTaskListChanged(ai.brokk.tasks.TaskList.TaskListData data) {
+        // Count incomplete tasks and update the badge
+        int incomplete = (int) data.tasks().stream().filter(t -> !t.done()).count();
+        SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
     }
 
     @Override
@@ -1824,7 +1843,7 @@ public class Chrome
                         logger.info("[{}] User accepted style regeneration, triggering regeneration", result.stepId());
                         showNotification(IConsoleIO.NotificationRole.INFO, "Regenerating style guide...");
 
-                        var regenerationFuture = contextManager.ensureStyleGuide();
+                        var regenerationFuture = contextManager.regenerateStyleGuideAsync();
                         regenerationFuture
                                 .thenAcceptAsync(styleContent -> {
                                     SwingUtilities.invokeLater(() -> {
@@ -2432,6 +2451,31 @@ public class Chrome
             rightPanel.setBranchLabel(branchName);
             projectFilesPanel.updateBorderTitle();
         });
+    }
+
+    /**
+     * Refreshes all Git-related UI components after a branch change or significant repo update.
+     * This coordinates updates across the repo state, branch labels, and the review/changes panel.
+     * Also fetches from the upstream default branch if available.
+     */
+    public void refreshGitAndFetch(@Nullable String branchName) {
+        try {
+            var repo = getProject().getRepo();
+            if (repo instanceof GitRepo gitRepo) {
+                String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
+                if (remoteName != null) {
+                    String defaultBranch = gitRepo.getDefaultBranch();
+                    gitRepo.remote().fetchBranch(remoteName, defaultBranch);
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to fetch upstream default branch", e);
+        }
+
+        updateGitRepo();
+        refreshBranchUi(branchName);
+
+        getRightPanel().requestReviewUpdate();
     }
 
     /**

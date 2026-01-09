@@ -1843,6 +1843,9 @@ public class ContextFragments {
         private final List<ChatMessage> messages;
         private final boolean escapeHtml;
 
+        /**
+         * @param description the user instructions or action goal
+         */
         public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description) {
             this(contextManager, messages, description, true);
         }

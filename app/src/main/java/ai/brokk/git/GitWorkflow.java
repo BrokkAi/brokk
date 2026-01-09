@@ -248,7 +248,7 @@ public final class GitWorkflow {
         var tr = cm.getToolRegistry()
                 .builder()
                 .register(this)
-                .register(new WorkspaceTools((ContextManager) cm))
+                .register(new WorkspaceTools(((ContextManager) cm).liveContext()))
                 .build();
 
         var toolSpecs = new ArrayList<dev.langchain4j.agent.tool.ToolSpecification>();

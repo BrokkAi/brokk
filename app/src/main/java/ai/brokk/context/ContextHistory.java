@@ -487,6 +487,15 @@ public class ContextHistory {
         return Optional.ofNullable(gitStates.get(contextId));
     }
 
+    public synchronized Optional<GitState> getFirstGitState() {
+        for (var ctx : history) {
+            if (gitStates.containsKey(ctx.id())) {
+                return Optional.of(gitStates.get(ctx.id()));
+            }
+        }
+        return Optional.empty();
+    }
+
     public synchronized Map<UUID, GitState> getGitStates() {
         return Map.copyOf(gitStates);
     }

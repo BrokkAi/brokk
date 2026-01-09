@@ -596,11 +596,14 @@ public class Brokk {
         var contextFuture = contextManager.createGui();
         var io = (Chrome) contextManager.getIo();
 
-        // Log the current data retention policy.
+        // Log the current data retention policy (skip for worktrees - they inherit from parent).
         // This is called after any necessary dialog has been shown and policy confirmed.
-        io.showNotification(
-                IConsoleIO.NotificationRole.INFO,
-                "Data Retention Policy set to: " + contextManager.getProject().getDataRetentionPolicy());
+        if (contextManager.getProject() instanceof MainProject) {
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Data Retention Policy set to: "
+                            + contextManager.getProject().getDataRetentionPolicy());
+        }
 
         openProjectWindows.put(projectPath, io);
 
@@ -862,133 +865,148 @@ public class Brokk {
     }
 
     private static void performWindowClose(Path projectPath) {
-        Chrome ourChromeInstance = openProjectWindows.get(projectPath);
-        IProject projectBeingClosed = null;
-        if (ourChromeInstance != null) {
-            if (ourChromeInstance.getContextManager().isLlmTaskInProgress()) {
-                int choice = ourChromeInstance.showConfirmDialog(
-                        "An AI task is in progress. Are you sure you want to close this project?",
-                        "Task in Progress",
-                        JOptionPane.YES_NO_OPTION,
-                        JOptionPane.WARNING_MESSAGE);
-                if (choice == JOptionPane.NO_OPTION) {
-                    return;
-                }
-            }
-            projectBeingClosed = ourChromeInstance.getContextManager().getProject();
-        }
+        Chrome chrome = openProjectWindows.get(projectPath);
 
-        if (projectBeingClosed != null) {
-            if (projectBeingClosed instanceof MainProject) { // Closing a main project
-                logger.debug(
-                        "Main project {} is closing. Closing its associated worktree windows.",
-                        projectPath.getFileName());
-                List<Chrome> worktreeChromes = mainToWorktreeChromes.remove(projectBeingClosed);
-                if (worktreeChromes != null) {
-                    for (Chrome worktreeChrome : worktreeChromes) {
-                        Path worktreeChromePath =
-                                worktreeChrome.getContextManager().getProject().getRoot();
-                        logger.debug("Closing worktree window: {}", worktreeChromePath.getFileName());
-                        // Standard way to close a window: dispatch event, then it will call performWindowClose for
-                        // itself.
-                        SwingUtilities.invokeLater(() -> {
-                            JFrame frame = worktreeChrome.getFrame();
-                            frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
-                        });
-                        // DO NOT remove from openProjectWindows here; the worktree's own performWindowClose will handle
-                        // that.
-                    }
-                }
-            } else { // Closing a worktree project
-                var parentOfWorktree = projectBeingClosed.getParent();
-                List<Chrome> worktreeListOfMain = mainToWorktreeChromes.get(parentOfWorktree);
-                if (worktreeListOfMain != null) {
-                    if (worktreeListOfMain.remove(ourChromeInstance)) {
-                        logger.debug(
-                                "Removed worktree window {} from main project {}'s tracking list.",
-                                projectPath.getFileName(),
-                                parentOfWorktree.getRoot().getFileName());
-                    }
-                    // If the list becomes empty, we could remove the main project's entry from mainToWorktreeChromes,
-                    // but computeIfAbsent handles recreation, so it's not strictly necessary for correctness.
-                    // However, for cleanliness:
-                    if (worktreeListOfMain.isEmpty()) {
-                        mainToWorktreeChromes.remove(parentOfWorktree);
-                        logger.debug(
-                                "Removed main project {} from worktree tracking map as its list of worktrees is now empty.",
-                                parentOfWorktree.getRoot().getFileName());
-                    }
-                }
+        // Confirm if LLM task in progress
+        if (chrome != null && chrome.getContextManager().isLlmTaskInProgress()) {
+            int choice = chrome.showConfirmDialog(
+                    "An AI task is in progress. Are you sure you want to close this project?",
+                    "Task in Progress",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.WARNING_MESSAGE);
+            if (choice == JOptionPane.NO_OPTION) {
+                return;
             }
         }
 
-        // Standard cleanup
+        // Handle worktree associations
+        if (chrome != null) {
+            handleWorktreeAssociations(chrome, projectPath);
+        }
+
+        // Remove from map and hide immediately for responsive UX
         Chrome removedChrome = openProjectWindows.remove(projectPath);
-        if (removedChrome != null) {
-            removedChrome.close();
-        }
         logger.debug("Removed project from open windows map: {}", projectPath);
-
-        if (reOpeningProjects.contains(projectPath)) {
-            CompletableFuture.runAsync(() -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
-                    .exceptionally(ex -> {
-                        logger.error(
-                                "Error removing project (before reopen) from open projects list: {}", projectPath, ex);
-                        return null;
-                    });
-
-            new OpenProjectBuilder(projectPath)
-                    .open()
-                    .whenCompleteAsync(
-                            (@Nullable Boolean success, @Nullable Throwable reopenEx) -> {
-                                reOpeningProjects.remove(projectPath);
-                                if (reopenEx != null) {
-                                    logger.error(
-                                            "Exception occurred while trying to reopen project: {}",
-                                            projectPath,
-                                            reopenEx);
-                                } else if (success == null || !success) {
-                                    logger.warn("Failed to reopen project: {}. It will not be reopened.", projectPath);
-                                }
-                                if (openProjectWindows.isEmpty() && reOpeningProjects.isEmpty()) {
-                                    logger.info(
-                                            "All projects closed after reopen attempt of {}. Exiting.", projectPath);
-                                    System.exit(0);
-                                }
-                            },
-                            SwingUtilities::invokeLater);
-            return;
+        if (removedChrome != null) {
+            removedChrome.getFrame().setVisible(false);
         }
 
-        // Dispose the frame to actually close the window
-        if (ourChromeInstance != null) {
-            ourChromeInstance.getFrame().dispose();
-        }
+        // Async cleanup then dispatch to appropriate handler
+        var closeFuture =
+                removedChrome != null ? removedChrome.closeAsync() : CompletableFuture.<Void>completedFuture(null);
 
-        boolean noMainProjectsOpen = openProjectWindows.values().stream().noneMatch(chrome -> {
-            IProject p = chrome.getContextManager().getProject();
-            return p instanceof MainProject; // Check if it's a main project
-        });
-        boolean appIsExiting = noMainProjectsOpen && reOpeningProjects.isEmpty();
-        if (appIsExiting) {
-            // We are about to exit the application.
-            // Do NOT remove this project from the persistent "open projects" list.
-            logger.info("Last project window ({}) closed. App exiting. It remains MRU.", projectPath);
-            try {
-                ContextFragments.shutdownFragmentExecutor();
-            } catch (Throwable t) {
-                logger.debug("Error during fragment executor shutdown on window close", t);
+        final Chrome finalChrome = removedChrome;
+        // Callback runs off-EDT; helpers schedule their Swing work on EDT internally
+        closeFuture.whenComplete((v, ex) -> {
+            if (ex != null) {
+                logger.error("Error during Chrome async close for {}", projectPath, ex);
             }
-            System.exit(0);
-        } else {
-            // Other projects are still open or other projects are pending reopening.
-            // This one is just closing, so remove it from the persistent "open projects" list.
-            CompletableFuture.runAsync(() -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
-                    .exceptionally(ex -> {
-                        logger.error("Error removing project from open projects list: {}", projectPath, ex);
-                        return null;
+            if (reOpeningProjects.contains(projectPath)) {
+                handleReopenAfterClose(projectPath);
+            } else {
+                handleNormalCloseCompletion(projectPath, finalChrome);
+            }
+        });
+    }
+
+    private static void handleWorktreeAssociations(Chrome chrome, Path projectPath) {
+        IProject project = chrome.getContextManager().getProject();
+
+        if (project instanceof MainProject) {
+            logger.debug("Main project {} closing. Closing associated worktree windows.", projectPath.getFileName());
+            List<Chrome> worktrees = mainToWorktreeChromes.remove(project);
+            if (worktrees != null) {
+                for (Chrome wt : worktrees) {
+                    logger.debug(
+                            "Closing worktree window: {}",
+                            wt.getContextManager().getProject().getRoot().getFileName());
+                    SwingUtilities.invokeLater(() -> {
+                        JFrame frame = wt.getFrame();
+                        frame.dispatchEvent(new WindowEvent(frame, WindowEvent.WINDOW_CLOSING));
                     });
-            // No System.exit(0) here, as other windows/tasks are active.
+                }
+            }
+        } else {
+            // Remove from parent's worktree list
+            var parent = project.getParent();
+            List<Chrome> list = mainToWorktreeChromes.get(parent);
+            if (list != null) {
+                if (list.remove(chrome)) {
+                    logger.debug(
+                            "Removed worktree {} from main project {}'s tracking list.",
+                            projectPath.getFileName(),
+                            parent.getRoot().getFileName());
+                }
+                if (list.isEmpty()) {
+                    mainToWorktreeChromes.remove(parent);
+                    logger.debug(
+                            "Removed main project {} from worktree tracking map (list empty).",
+                            parent.getRoot().getFileName());
+                }
+            }
+        }
+    }
+
+    private static void handleReopenAfterClose(Path projectPath) {
+        CompletableFuture.runAsync(() -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
+                .exceptionally(ex -> {
+                    logger.error("Error removing project before reopen: {}", projectPath, ex);
+                    return null;
+                });
+
+        new OpenProjectBuilder(projectPath)
+                .open()
+                .whenCompleteAsync(
+                        (@Nullable Boolean success, @Nullable Throwable ex) -> {
+                            reOpeningProjects.remove(projectPath);
+                            if (ex != null) {
+                                logger.error("Exception reopening project: {}", projectPath, ex);
+                            } else if (success == null || !success) {
+                                logger.warn("Failed to reopen project: {}", projectPath);
+                            }
+                            checkAppExitAfterClose();
+                        },
+                        SwingUtilities::invokeLater);
+    }
+
+    private static void handleNormalCloseCompletion(Path projectPath, @Nullable Chrome chrome) {
+        SwingUtilities.invokeLater(() -> {
+            if (chrome != null) {
+                chrome.getFrame().dispose();
+            }
+            if (shouldAppExit()) {
+                performAppExit(projectPath);
+            } else {
+                CompletableFuture.runAsync(
+                                () -> MainProject.removeFromOpenProjectsListAndClearActiveSession(projectPath))
+                        .exceptionally(ex -> {
+                            logger.error("Error removing project from list: {}", projectPath, ex);
+                            return null;
+                        });
+            }
+        });
+    }
+
+    private static boolean shouldAppExit() {
+        boolean noMainProjectsOpen = openProjectWindows.values().stream()
+                .noneMatch(c -> c.getContextManager().getProject() instanceof MainProject);
+        return noMainProjectsOpen && reOpeningProjects.isEmpty();
+    }
+
+    private static void performAppExit(Path lastProjectPath) {
+        logger.info("Last project window ({}) closed. App exiting.", lastProjectPath);
+        try {
+            ContextFragments.shutdownFragmentExecutor();
+        } catch (Throwable t) {
+            logger.debug("Error during fragment executor shutdown", t);
+        }
+        System.exit(0);
+    }
+
+    private static void checkAppExitAfterClose() {
+        if (openProjectWindows.isEmpty() && reOpeningProjects.isEmpty()) {
+            logger.info("All projects closed. Exiting.");
+            System.exit(0);
         }
     }
 
@@ -997,85 +1015,89 @@ public class Brokk {
         Path projectPath = builder.path;
         MainProject parent = builder.parent;
 
-        try {
-            MainProject.updateRecentProject(projectPath);
-            var project = AbstractProject.createProject(projectPath, parent);
+        // Run all blocking initialization off the calling thread (which may be EDT)
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                MainProject.updateRecentProject(projectPath);
+                var project = AbstractProject.createProject(projectPath, parent);
 
-            if (project.getRepo().isWorktree() && parent == null) {
-                logger.warn(
-                        "User attempted to open a worktree ({}) directly as a project without specific internal trigger. Denying.",
-                        projectPath);
-                final Path finalProjectPath = projectPath;
+                if (project.getRepo().isWorktree() && parent == null) {
+                    logger.warn(
+                            "User attempted to open a worktree ({}) directly as a project without specific internal trigger. Denying.",
+                            projectPath);
+                    final Path finalProjectPath = projectPath;
+                    SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
+                            null,
+                            "The selected path (" + finalProjectPath.getFileName() + ") is a Git worktree.\n"
+                                    + "Worktrees should be managed via the 'Worktrees' tab in the main repository window, or created by Architect.",
+                            "Cannot Open Worktree Directly",
+                            JOptionPane.WARNING_MESSAGE));
+                    return Optional.<ContextManager>empty();
+                }
+
+                if (!project.hasGit()) {
+                    int response = castNonNull(SwingUtil.runOnEdt(
+                            () -> JOptionPane.showConfirmDialog(
+                                    null,
+                                    """
+                            This project is not under Git version control. Would you like to initialize a new Git repository here?
+
+                            Without Git, the project will be read-only, and some features may be limited.""",
+                                    "Initialize Git Repository?",
+                                    JOptionPane.YES_NO_OPTION,
+                                    JOptionPane.QUESTION_MESSAGE),
+                            JOptionPane.NO_OPTION));
+
+                    if (response == JOptionPane.YES_OPTION) {
+                        try {
+                            logger.info("Initializing Git repository at {}...", project.getRoot());
+                            GitRepoFactory.initRepo(project.getRoot());
+                            project = AbstractProject.createProject(projectPath, parent);
+                            logger.info("Git repository initialized successfully at {}.", project.getRoot());
+                        } catch (Exception e) {
+                            logger.error(
+                                    "Failed to initialize Git repository at {}: {}",
+                                    project.getRoot(),
+                                    e.getMessage(),
+                                    e);
+                            final String errorMsg = e.getMessage();
+                            SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
+                                    null,
+                                    "Failed to initialize Git repository: " + errorMsg
+                                            + "\nThe project will be opened as read-only.",
+                                    "Git Initialization Error",
+                                    JOptionPane.ERROR_MESSAGE));
+                        }
+                    } else {
+                        logger.info(
+                                "User declined Git initialization for project {}. Proceeding as read-only.",
+                                project.getRoot());
+                    }
+                }
+
+                if (project instanceof MainProject mp) {
+                    mp.reserveSessionsForKnownWorktrees();
+                }
+
+                var contextManager = new ContextManager(project);
+                if (builder.sourceContextForSession != null) {
+                    String newSessionName =
+                            "Architect Session (" + project.getRoot().getFileName() + ")";
+                    contextManager.createSessionWithoutGui(builder.sourceContextForSession, newSessionName);
+                }
+                return Optional.of(contextManager);
+            } catch (Exception e) {
+                logger.error("Failed to initialize project for path {}: {}", projectPath, e.getMessage(), e);
+                final String errorMsg = e.getMessage();
                 SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
                         null,
-                        "The selected path (" + finalProjectPath.getFileName() + ") is a Git worktree.\n"
-                                + "Worktrees should be managed via the 'Worktrees' tab in the main repository window, or created by Architect.",
-                        "Cannot Open Worktree Directly",
-                        JOptionPane.WARNING_MESSAGE));
-                return CompletableFuture.completedFuture(Optional.empty());
+                        "Could not open project " + projectPath.getFileName() + ":\n" + errorMsg
+                                + "\nPlease check the logs for more details.",
+                        "Project Initialization Failed",
+                        JOptionPane.ERROR_MESSAGE));
+                return Optional.empty();
             }
-
-            if (!project.hasGit()) {
-                int response = castNonNull(SwingUtil.runOnEdt(
-                        () -> JOptionPane.showConfirmDialog(
-                                null,
-                                """
-                        This project is not under Git version control. Would you like to initialize a new Git repository here?
-
-                        Without Git, the project will be read-only, and some features may be limited.""",
-                                "Initialize Git Repository?",
-                                JOptionPane.YES_NO_OPTION,
-                                JOptionPane.QUESTION_MESSAGE),
-                        JOptionPane.NO_OPTION));
-
-                if (response == JOptionPane.YES_OPTION) {
-                    try {
-                        logger.info("Initializing Git repository at {}...", project.getRoot());
-                        GitRepoFactory.initRepo(project.getRoot());
-                        project = AbstractProject.createProject(projectPath, parent); // Re-create project
-                        logger.info("Git repository initialized successfully at {}.", project.getRoot());
-                    } catch (Exception e) {
-                        logger.error(
-                                "Failed to initialize Git repository at {}: {}", project.getRoot(), e.getMessage(), e);
-                        final String errorMsg = e.getMessage();
-                        SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
-                                null,
-                                "Failed to initialize Git repository: " + errorMsg
-                                        + "\nThe project will be opened as read-only.",
-                                "Git Initialization Error",
-                                JOptionPane.ERROR_MESSAGE));
-                    }
-                } else {
-                    logger.info(
-                            "User declined Git initialization for project {}. Proceeding as read-only.",
-                            project.getRoot());
-                }
-            }
-
-            if (project instanceof MainProject mp) {
-                mp.reserveSessionsForKnownWorktrees();
-            }
-
-            // TODO nothing is actually async here
-            var contextManager = new ContextManager(project); // Project must be final or effectively final for lambda
-            if (builder.sourceContextForSession != null) {
-                // Asynchronously create session from workspace, then complete the future
-                String newSessionName =
-                        "Architect Session (" + project.getRoot().getFileName() + ")"; // Or generate based on branch
-                contextManager.createSessionWithoutGui(builder.sourceContextForSession, newSessionName);
-            }
-            return CompletableFuture.completedFuture(Optional.of(contextManager));
-        } catch (Exception e) {
-            logger.error("Failed to initialize project for path {}: {}", projectPath, e.getMessage(), e);
-            final String errorMsg = e.getMessage();
-            SwingUtil.runOnEdt(() -> JOptionPane.showMessageDialog(
-                    null,
-                    "Could not open project " + projectPath.getFileName() + ":\n" + errorMsg
-                            + "\nPlease check the logs for more details.",
-                    "Project Initialization Failed",
-                    JOptionPane.ERROR_MESSAGE));
-            return CompletableFuture.completedFuture(Optional.empty());
-        }
+        });
     }
 
     /**

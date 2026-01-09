@@ -302,7 +302,21 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                                                     e);
                                 }
                             } else if (value.isObject()) {
-                                modelInfo.put(key, value.toString());
+                                if ("pricing_tiers".equals(key)) {
+                                    try {
+                                        var pricingTiers = objectMapper.convertValue(value, PricingTiers.class);
+                                        modelInfo.put(key, pricingTiers);
+                                    } catch (IllegalArgumentException e) {
+                                        LogManager.getLogger(Service.class)
+                                                .warn(
+                                                        "Could not parse pricing_tiers for model {}: {}",
+                                                        modelName,
+                                                        value.toString(),
+                                                        e);
+                                    }
+                                } else {
+                                    modelInfo.put(key, value.toString());
+                                }
                             }
                         }
                     }

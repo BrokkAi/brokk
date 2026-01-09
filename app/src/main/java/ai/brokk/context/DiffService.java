@@ -338,75 +338,66 @@ public final class DiffService {
         }
 
         List<DiffEntry> perFileChanges = new ArrayList<>();
-        int totalAdded = 0;
-        int totalDeleted = 0;
 
-        for (var modFile : files) {
-            var file = modFile.file();
+        files.stream()
+                .sorted(Comparator.comparing(mf -> mf.file().getRelPath()))
+                .forEach(modFile -> {
+                    var file = modFile.file();
 
-            // Compute left content based on left reference
-            String leftContent = "";
-            if (!leftRef.isBlank()) {
-                if ("WORKING".equals(leftRef)) {
-                    leftContent = file.read().orElse("");
-                } else {
-                    try {
-                        var leftFrag = ContextFragments.GitFileFragment.fromCommit(file, leftRef, gitRepo);
-                        leftContent = leftFrag.text().join();
-                    } catch (RuntimeException e) {
-                        // File doesn't exist at leftRef (new file) - treat as empty baseline
-                        logger.debug("File {} not found at {}, treating as new file", file, leftRef);
-                        leftContent = "";
+                    // Compute left content based on left reference
+                    String leftContent = "";
+                    if (!leftRef.isBlank()) {
+                        if ("WORKING".equals(leftRef)) {
+                            leftContent = file.read().orElse("");
+                        } else {
+                            try {
+                                var leftFrag = ContextFragments.GitFileFragment.fromCommit(file, leftRef, gitRepo);
+                                leftContent = leftFrag.text().join();
+                            } catch (RuntimeException e) {
+                                // File doesn't exist at leftRef (new file) - treat as empty baseline
+                                logger.debug("File {} not found at {}, treating as new file", file, leftRef);
+                                leftContent = "";
+                            }
+                        }
                     }
-                }
-            }
 
-            // Compute right content based on right reference
-            String rightContent = "";
-            if (!rightRef.isBlank()) {
-                if ("WORKING".equals(rightRef)) {
-                    rightContent = file.read().orElse("");
-                } else {
-                    try {
-                        var rightFragTmp = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-                        rightContent = rightFragTmp.text().join();
-                    } catch (RuntimeException e) {
-                        // File doesn't exist at rightRef (deleted file) - treat as empty right side
-                        logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
-                        rightContent = "";
+                    // Build right-side fragment and extract content
+                    ContextFragments.GitFileFragment rightFrag;
+                    String rightContent;
+                    if ("WORKING".equals(rightRef)) {
+                        rightContent = file.read().orElse("");
+                        rightFrag = new ContextFragments.GitFileFragment(file, "WORKING", rightContent);
+                    } else {
+                        try {
+                            rightFrag = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
+                            rightContent = rightFrag.text().join();
+                        } catch (RuntimeException e) {
+                            // File doesn't exist at rightRef (deleted file) - treat as empty right side
+                            logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
+                            rightContent = "";
+                            rightFrag = new ContextFragments.GitFileFragment(file, rightRef, rightContent);
+                        }
                     }
-                }
-            }
 
-            // Compute line counts
-            var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
-            int added = diffRes.added();
-            int deleted = diffRes.deleted();
+                    // Compute line counts
+                    var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
+                    int added = diffRes.added();
+                    int deleted = diffRes.deleted();
 
-            // Skip if no changes
-            if (added == 0 && deleted == 0) {
-                continue;
-            }
+                    // Skip if no changes
+                    if (added == 0 && deleted == 0) {
+                        return;
+                    }
 
-            totalAdded += added;
-            totalDeleted += deleted;
+                    synchronized (perFileChanges) {
+                        perFileChanges.add(
+                                new DiffEntry(rightFrag, diffRes.diff(), added, deleted, leftContent, rightContent));
+                    }
+                });
 
-            // Build DiffEntry using the right-side fragment as representative
-            ContextFragments.GitFileFragment rightFragForEntry;
-            if ("WORKING".equals(rightRef)) {
-                rightFragForEntry = new ContextFragments.GitFileFragment(file, "WORKING", rightContent);
-            } else {
-                try {
-                    rightFragForEntry = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-                } catch (RuntimeException e) {
-                    // File doesn't exist at rightRef (e.g., deleted) - synthesize with current computed rightContent
-                    rightFragForEntry = new ContextFragments.GitFileFragment(file, rightRef, rightContent);
-                }
-            }
-
-            var de = new DiffEntry(rightFragForEntry, "", added, deleted, leftContent, rightContent);
-            perFileChanges.add(de);
-        }
+        int totalAdded = perFileChanges.stream().mapToInt(DiffEntry::linesAdded).sum();
+        int totalDeleted =
+                perFileChanges.stream().mapToInt(DiffEntry::linesDeleted).sum();
 
         return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
     }

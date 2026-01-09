@@ -1,6 +1,5 @@
 package ai.brokk.tools;
 
-import ai.brokk.ContextManager;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SkeletonProvider;
@@ -49,15 +48,6 @@ public class WorkspaceTools {
      */
     public WorkspaceTools(Context initialContext) {
         this.context = initialContext;
-    }
-
-    /**
-     * Compatibility constructor used by callers that previously passed a ContextManager.
-     * This seeds the working Context from cm.liveContext() and retains a reference to cm so callers can call
-     * publishTo(cm) to commit the changes as a single atomic push.
-     */
-    public WorkspaceTools(ContextManager cm) {
-        this.context = cm.liveContext();
     }
 
     /** Returns the current working Context for this WorkspaceTools instance. */

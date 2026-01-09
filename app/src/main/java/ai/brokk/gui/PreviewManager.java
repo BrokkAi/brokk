@@ -15,7 +15,6 @@ import ai.brokk.gui.dialogs.PreviewFrame;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
-import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.search.GenericSearchBar;
 import ai.brokk.gui.search.MarkdownSearchableComponent;
@@ -559,9 +558,9 @@ public class PreviewManager {
             }
         }
 
-        var markdownPanel = MarkdownOutputPool.instance().borrow();
-        markdownPanel.withContextForLookups(cm, chrome);
-        markdownPanel.setText(combinedMessages);
+        var markdownPanel = new MarkdownOutputPanel();
+        markdownPanel.setContextForLookups(cm, chrome);
+        markdownPanel.setMessages(combinedMessages);
 
         JPanel contentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
         ContextFragment fragment = (of instanceof ContextFragment cf) ? cf : null;
@@ -616,9 +615,10 @@ public class PreviewManager {
 
         JComponent panel;
         if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
-            var markdownPanel = MarkdownOutputPool.instance().borrow();
+            var markdownPanel = new MarkdownOutputPanel();
             markdownPanel.updateTheme(MainProject.getTheme());
-            markdownPanel.setText(List.of(Messages.customSystem(text)));
+            markdownPanel.setContextForLookups(cm, chrome);
+            markdownPanel.setStaticDocument(text);
             panel = createSearchableContentPanel(List.of(markdownPanel), null, false);
         } else {
             panel = new PreviewTextPanel(chrome, cm, null, text, style, chrome.getTheme(), sf);
@@ -725,9 +725,10 @@ public class PreviewManager {
      * Renders markdown content and wraps it in a searchable preview panel.
      */
     private JPanel renderMarkdownContent(String text) {
-        var markdownPanel = MarkdownOutputPool.instance().borrow();
+        var markdownPanel = new MarkdownOutputPanel();
         markdownPanel.updateTheme(MainProject.getTheme());
-        markdownPanel.setText(List.of(Messages.customSystem(text)));
+        markdownPanel.setContextForLookups(cm, chrome);
+        markdownPanel.setStaticDocument(text);
         return createSearchableContentPanel(List.of(markdownPanel), null, false);
     }
 

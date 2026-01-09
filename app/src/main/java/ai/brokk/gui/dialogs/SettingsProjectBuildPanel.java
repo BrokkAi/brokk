@@ -177,7 +177,7 @@ public class SettingsProjectBuildPanel extends JPanel {
                 populateJdkControlsFromProject();
             }
         });
-        updateJdkControlsVisibility(project.getBuildLanguage());
+        updateJdkControlsVisibility(project.computedBuildLanguage());
         setJavaHomeCheckbox.addActionListener(e -> jdkSelector.setEnabled(setJavaHomeCheckbox.isSelected()));
 
         gbc.gridy = row++;
@@ -383,7 +383,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
         // Populate initial values
         populatePrimaryLanguageComboBox();
-        var selectedLang = project.getBuildLanguage();
+        var selectedLang = project.computedBuildLanguage();
         primaryLanguageComboBox.setSelectedItem(selectedLang);
         updateJdkControlsVisibility(selectedLang);
         if (selectedLang == Languages.JAVA) {
@@ -740,7 +740,7 @@ public class SettingsProjectBuildPanel extends JPanel {
         buildTimeoutSpinner.setValue((int) project.getMainProject().getRunCommandTimeoutSeconds());
         populateJdkControlsFromProject();
 
-        var selectedLang = project.getBuildLanguage();
+        var selectedLang = project.computedBuildLanguage();
         primaryLanguageComboBox.setSelectedItem(selectedLang);
         updateJdkControlsVisibility(selectedLang);
         if (selectedLang == Languages.JAVA) {
@@ -833,7 +833,7 @@ public class SettingsProjectBuildPanel extends JPanel {
             }
         }
 
-        if (selectedPrimaryLang != null && selectedPrimaryLang != project.getBuildLanguage()) {
+        if (selectedPrimaryLang != null && selectedPrimaryLang != project.computedBuildLanguage()) {
             project.setBuildLanguage(selectedPrimaryLang);
             logger.debug("Applied Primary Language: {}", selectedPrimaryLang);
         }
@@ -904,7 +904,7 @@ public class SettingsProjectBuildPanel extends JPanel {
 
     private void populatePrimaryLanguageComboBox() {
         var detected = findLanguagesInProject();
-        var configured = project.getBuildLanguage();
+        var configured = project.computedBuildLanguage();
         if (!detected.contains(configured)) {
             detected.add(configured);
         }

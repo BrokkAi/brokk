@@ -11,7 +11,9 @@ import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.ReviewParser;
 import java.awt.BorderLayout;
+import java.awt.Point;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.nio.file.Path;
@@ -49,6 +51,9 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     @Nullable
     private DiffGutterComponent customLineNumberList;
+
+    @Nullable
+    private Object excerptHighlightTag;
 
     private UnifiedDiffDocument.ContextMode contextMode = UnifiedDiffDocument.ContextMode.STANDARD_3_LINES;
 
@@ -578,6 +583,47 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         return navigator != null ? navigator.getNavigationInfo() : "No navigator";
     }
 
+    /**
+     * Painter that draws a rounded rectangle border around a range of text.
+     */
+    private static class ExcerptBorderPainter implements javax.swing.text.Highlighter.HighlightPainter {
+        private final java.awt.Color color;
+
+        public ExcerptBorderPainter(java.awt.Color color) {
+            this.color = color;
+        }
+
+        @Override
+        public void paint(
+                java.awt.Graphics g, int p0, int p1, java.awt.Shape bounds, javax.swing.text.JTextComponent c) {
+            try {
+                java.awt.Rectangle r0 = c.modelToView2D(p0).getBounds();
+                java.awt.Rectangle r1 = c.modelToView2D(p1).getBounds();
+
+                java.awt.Graphics2D g2d = (java.awt.Graphics2D) g;
+                java.awt.Color oldColor = g2d.getColor();
+                java.awt.Stroke oldStroke = g2d.getStroke();
+
+                g2d.setColor(color);
+                g2d.setStroke(new java.awt.BasicStroke(2.0f));
+                g2d.setRenderingHint(
+                        java.awt.RenderingHints.KEY_ANTIALIASING, java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+
+                int x = 2;
+                int y = r0.y;
+                int width = c.getWidth() - 6;
+                int height = (r1.y + r1.height) - r0.y;
+
+                g2d.drawRoundRect(x, y, width, height, 8, 8);
+
+                g2d.setColor(oldColor);
+                g2d.setStroke(oldStroke);
+            } catch (BadLocationException e) {
+                // Ignore
+            }
+        }
+    }
+
     /** Get the JMHighlighter for external access (similar to FilePanel). */
     public JMHighlighter getHighlighter() {
         return jmHighlighter;
@@ -612,6 +658,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     /** Remove all diff highlights from the highlighter. */
     private void removeHighlights() {
         UnifiedDiffHighlighter.removeHighlights(jmHighlighter);
+        clearExcerptHighlight();
     }
 
     /** Apply diff highlights to the current unified diff content. */
@@ -700,5 +747,138 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
         }
 
         scrollPane.revalidate();
+    }
+
+    /**
+     * Highlights a range of lines in the source file, translating to unified view coordinates.
+     *
+     * @param startSourceLine 1-based start line in source file
+     * @param endSourceLine 1-based end line in source file
+     * @param side which side of the diff (OLD or NEW)
+     */
+    public void highlightExcerptLines(int startSourceLine, int endSourceLine, ReviewParser.DiffSide side) {
+        clearExcerptHighlight();
+
+        if (unifiedDocument == null) {
+            logger.warn("Cannot highlight - no unified document");
+            return;
+        }
+
+        boolean isRightSide = (side == ReviewParser.DiffSide.NEW);
+        int startDocLine = unifiedDocument.findDocumentLineForSourceLine(startSourceLine, isRightSide);
+        int endDocLine = unifiedDocument.findDocumentLineForSourceLine(endSourceLine, isRightSide);
+
+        if (startDocLine < 0 || endDocLine < 0) {
+            logger.warn(
+                    "Could not find document lines for source lines {}-{} on {} side, skipping highlight",
+                    startSourceLine,
+                    endSourceLine,
+                    side);
+            return; // Don't highlight incorrectly
+        }
+
+        // Use 1-based line numbers for the highlight
+        highlightExcerptLinesInternal(startDocLine + 1, endDocLine + 1);
+    }
+
+    /**
+     * Highlights a range of lines with a themed border.
+     *
+     * @param startLine 1-based start line
+     * @param endLine 1-based end line
+     */
+    public void highlightExcerptLines(int startLine, int endLine) {
+        clearExcerptHighlight();
+        highlightExcerptLinesInternal(startLine, endLine);
+    }
+
+    /** Internal method that highlights using unified document line numbers. */
+    private void highlightExcerptLinesInternal(int startLine, int endLine) {
+        try {
+            int startOffset = textArea.getLineStartOffset(Math.max(0, startLine - 1));
+            int endOffset = textArea.getLineEndOffset(Math.max(0, endLine - 1));
+
+            boolean isDark = getTheme().isDarkTheme();
+            // Using a color that stands out: green-ish for dark, blue-ish for light, or themed accent
+            java.awt.Color borderColor = isDark ? new java.awt.Color(0, 214, 27) : new java.awt.Color(0, 120, 215);
+
+            excerptHighlightTag = jmHighlighter.addHighlight(
+                    JMHighlighter.LAYER3, startOffset, endOffset, new ExcerptBorderPainter(borderColor));
+            textArea.repaint();
+        } catch (BadLocationException e) {
+            logger.warn("Failed to highlight excerpt lines {}-{}", startLine, endLine, e);
+        }
+    }
+
+    /** Removes the current excerpt border highlight. */
+    public void clearExcerptHighlight() {
+        if (excerptHighlightTag != null) {
+            jmHighlighter.removeHighlight(JMHighlighter.LAYER3, excerptHighlightTag);
+            excerptHighlightTag = null;
+            textArea.repaint();
+        }
+    }
+
+    /**
+     * Scrolls to a line in the source file, translating to unified view coordinates.
+     *
+     * @param sourceLineNumber 1-based line number in the source file
+     * @param side which side of the diff (OLD or NEW)
+     */
+    public void scrollToLine(int sourceLineNumber, ReviewParser.DiffSide side) {
+        if (unifiedDocument == null) {
+            logger.warn("Cannot scroll - no unified document");
+            return;
+        }
+
+        boolean isRightSide = (side == ReviewParser.DiffSide.NEW);
+        int docLine = unifiedDocument.findDocumentLineForSourceLine(sourceLineNumber, isRightSide);
+
+        if (docLine < 0) {
+            logger.warn("Could not find document line for source line {} on {} side", sourceLineNumber, side);
+            return; // Don't scroll to wrong location
+        }
+
+        // Convert 0-based to 1-based for the existing scrollToLine method
+        scrollToLine(docLine + 1);
+    }
+
+    /**
+     * Scrolls the unified diff text area to center the specified line.
+     *
+     * @param lineNumber 1-based line number in the unified view to scroll to
+     */
+    public void scrollToLine(int lineNumber) {
+        // Ensure we execute on EDT and after any pending layout
+        SwingUtilities.invokeLater(() -> {
+            try {
+                // Convert 1-based to 0-based line number
+                int offset = textArea.getLineStartOffset(Math.max(0, lineNumber - 1));
+                textArea.setCaretPosition(offset);
+
+                // Scroll the line to the top with a 3-line buffer
+                var rect = textArea.modelToView2D(offset);
+                if (rect != null) {
+                    var viewport = scrollPane.getViewport();
+                    int viewportHeight = viewport.getHeight();
+
+                    // If viewport height isn't ready yet, it's hard to position correctly.
+                    // But we can at least scroll to a position relative to the text area.
+                    int lineHeight = textArea.getLineHeight();
+                    int buffer = 3 * lineHeight;
+                    int y = (int) rect.getY() - buffer;
+
+                    // Ensure we don't scroll past the bottom if viewport size is known
+                    if (viewportHeight > 0) {
+                        int maxY = Math.max(0, textArea.getHeight() - viewportHeight);
+                        y = Math.min(y, maxY);
+                    }
+
+                    viewport.setViewPosition(new Point(0, Math.max(0, y)));
+                }
+            } catch (javax.swing.text.BadLocationException e) {
+                logger.warn("Could not scroll to line {}", lineNumber, e);
+            }
+        });
     }
 }
