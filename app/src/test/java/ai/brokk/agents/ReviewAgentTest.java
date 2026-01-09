@@ -97,7 +97,7 @@ class ReviewAgentTest {
                 new BufferSource.StringSource("content2", "NEW", "file2.java"),
                 new BufferSource.StringSource("content2", "NEW", "file2.java"));
 
-        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info1, info2));
+        ReviewAgent agent = new ReviewAgent(cm, null, List.of(info1, info2));
 
         // Turn 1: Excerpt 0 is good, Excerpt 1 is bad (wrong file)
         String resp1 =
@@ -145,7 +145,7 @@ class ReviewAgentTest {
     void testRetryInStages_exhaustsRetries() throws InterruptedException {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
-        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of());
+        ReviewAgent agent = new ReviewAgent(cm, null, List.of());
 
         // Always return the same bad excerpt
         String badResp =
@@ -200,7 +200,7 @@ class ReviewAgentTest {
                 null,
                 new BufferSource.StringSource("line1\nline2\nline3\nline4", "OLD", "file.java"),
                 new BufferSource.StringSource("line1\nline2-new\nline3\nline4", "NEW", "file.java"));
-        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info));
+        ReviewAgent agent = new ReviewAgent(cm, null, List.of(info));
 
         // 1. Excerpt ID gaps (0 and 5)
         // 2. Content normalization (excerpt has \r\n, file has \n - WhitespaceMatch handles this)
@@ -276,7 +276,7 @@ class ReviewAgentTest {
                 new BufferSource.StringSource("public class Fixed {}", "NEW", "fixed.java"),
                 new BufferSource.StringSource("public class Fixed {}", "NEW", "fixed.java"));
 
-        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info1, info2));
+        ReviewAgent agent = new ReviewAgent(cm, null, List.of(info1, info2));
 
         // Initial response: 0 is good, 1 has bad path
         String resp1 =
@@ -332,7 +332,7 @@ class ReviewAgentTest {
                 new BufferSource.StringSource("content2", "NEW", "file2.java"),
                 new BufferSource.StringSource("content2", "NEW", "file2.java"));
 
-        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info1, info2));
+        ReviewAgent agent = new ReviewAgent(cm, null, List.of(info1, info2));
 
         // Scenario: Text, Excerpt 0 (Good), Text, Excerpt 1 (Bad Path), Text
         String resp1 =
@@ -390,7 +390,7 @@ class ReviewAgentTest {
                 null,
                 new BufferSource.StringSource("line1\nline2\nline3", "NEW", "file.java"),
                 new BufferSource.StringSource("line1\nline2\nline3", "NEW", "file.java"));
-        ReviewAgent agent = new ReviewAgent("diff", cm, null, List.of(info));
+        ReviewAgent agent = new ReviewAgent(cm, null, List.of(info));
 
         // Turn 1: Excerpt 0 bad path, Excerpt 1 bad content
         String resp1 =

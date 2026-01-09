@@ -33,12 +33,16 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.request.ToolChoice;
+
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -49,6 +53,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 import org.jspecify.annotations.NullMarked;
 
 /**
@@ -59,6 +64,7 @@ public class ReviewAgent {
     private static final Logger logger = LogManager.getLogger(ReviewAgent.class);
 
     private final DiffService.CumulativeChanges changes;
+    private final List<UUID> sessionIds;
 
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
 
@@ -85,20 +91,20 @@ public class ReviewAgent {
 
     public ReviewAgent(
             DiffService.CumulativeChanges changes,
+            List<UUID> sessionIds,
             IContextManager cm,
             IConsoleIO io,
             List<FileComparisonInfo> fileComparisons) {
         this.changes = changes;
+        this.sessionIds = List.copyOf(sessionIds);
         this.cm = cm;
         this.io = io;
         this.fileComparisons = fileComparisons;
     }
 
-    /**
-     * Legacy constructor for tests or cases where only a raw diff string is available.
-     */
-    public ReviewAgent(String diff, IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
-        this(new DiffService.CumulativeChanges(0, 0, 0, List.of()), cm, io, fileComparisons);
+    @TestOnly
+    ReviewAgent(IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
+        this(new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of()), List.of(), cm, io, fileComparisons);
     }
 
     private @Nullable ProgressUpdater progressUpdater;
@@ -125,6 +131,11 @@ public class ReviewAgent {
         try (var scope = cm.anonymousScope()) {
             // Turn 0: Context setup and determine complexity
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
+            var instructionsOpt = extractInstructionsFragment(sessionIds);
+            if (instructionsOpt.isPresent()) {
+                var instructionsFragment = instructionsOpt.get();
+                initialContext = initialContext.addFragments(instructionsFragment).withPinned(instructionsFragment, true);
+            }
 
             updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
@@ -711,6 +722,45 @@ public class ReviewAgent {
 
         this.contextBeingBuilt = wst.getContext();
         return "Context updated with requested fragments.";
+    }
+
+    @Blocking
+    public Optional<ContextFragments.StringFragment> extractInstructionsFragment(
+            List<UUID> sessionIds) {
+        if (sessionIds.isEmpty()) {
+            return Optional.empty();
+        }
+
+        var sessionManager = cm.getProject().getSessionManager();
+
+        // Extract instructions from all matching histories
+        List<String> instructions = sessionIds.stream()
+                .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
+                .filter(Objects::nonNull)
+                .flatMap(h -> h.getHistory().stream())  // Stream<Context>
+                .flatMap(ctx -> ctx.getTaskHistory().stream())  // Stream<TaskEntry>
+                .filter(te -> te.log() != null)
+                .sorted(Comparator.comparing(te -> requireNonNull(te.log()).id()))
+                .map(te -> requireNonNull(te.log()).description().join())
+                .filter(desc -> !desc.isBlank())
+                .distinct()
+                .toList();
+
+        logger.debug("Extracted {} instruction fragments", instructions.size());
+
+        if (instructions.isEmpty()) {
+            return Optional.empty();
+        }
+
+        String mergedText = instructions.stream()
+                .map(desc -> "- " + desc)
+                .collect(Collectors.joining("\n"));
+
+        return Optional.of(new ContextFragments.StringFragment(
+                cm,
+                mergedText,
+                "User Instructions",
+                SyntaxConstants.SYNTAX_STYLE_NONE));
     }
 
     @Tool("Create a structured code review of the current changes or proposal.")
