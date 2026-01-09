@@ -195,10 +195,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             negatable = true)
     private boolean sparseCheckout = true;
 
-    @CommandLine.Option(
-            names = "--threads",
-            description = "Number of concurrent clone operations (default: available processors)")
-    private int threads = Runtime.getRuntime().availableProcessors();
+    private int threads = Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
 
     @CommandLine.Option(names = "--max-files", description = "Maximum files to process (default: 1000)")
     private int maxFiles = 1000;
