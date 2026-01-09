@@ -126,10 +126,10 @@ public class ReviewAgent {
             updateProgress("Analyzing changes", SETUP_PROGRESS);
 
             var turn1Model = setupResult.isComplex() ? architectModel : scanModel;
-            var turn1Llm = cm.getLlm(turn1Model, "Code Review");
+            var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
             turn1Llm.setOutput(io);
 
-            var turn2Llm = cm.getLlm(scanModel, "Code Review (Structuring)");
+            var turn2Llm = cm.getLlm(new Llm.Options(scanModel, "Code Review (Structuring)").withEcho());
             turn2Llm.setOutput(io);
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
@@ -284,7 +284,7 @@ public class ReviewAgent {
 
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
         var scanModel = cm.getService().getModel(ModelType.SCAN);
-        var llm = cm.getLlm(scanModel, "Review Context Selection");
+        var llm = cm.getLlm(new Llm.Options(scanModel, "Review Context Selection"));
         llm.setOutput(io);
 
         var messages = new ArrayList<ChatMessage>();
