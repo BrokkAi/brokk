@@ -47,7 +47,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
     // Flags related to external rebuild requests and readiness
     private volatile boolean externalRebuildRequested = false;
-    private volatile boolean wasReady = false;
     private final AtomicLong idlePollTriggeredRebuilds = new AtomicLong(0);
 
     // Dedicated single-threaded executor for analyzer refresh tasks
@@ -275,6 +274,9 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         logger.debug("Loading/creating analyzer for languages: {}", langHandle);
         if (langHandle == Languages.NONE) {
             logger.info("No languages configured, using disabled analyzer for: {}", project.getRoot());
+            logger.debug("Analyzer became ready (Disabled), notifying listeners");
+            listener.onAnalyzerReady();
+            listener.afterEachBuild(false);
             return new DisabledAnalyzer(project);
         }
 
@@ -325,25 +327,11 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
         }
 
         // Persist analyzer snapshots by language (best-effort)
-        try {
-            persistAnalyzerState(analyzer);
-        } catch (Throwable t) {
-            logger.debug("Ignoring exception during analyzer state persistence: {}", t.toString());
-        }
+        persistAnalyzerState(analyzer);
 
-        /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
-        logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
-
-        // always refresh workspace in case there was a race and we shut down
-        // after saving a new analyzer but before refreshing the workspace
-        if (wasReady) {
-            logger.debug("No analyzer ready transition detected");
-        } else {
-            logger.debug("Analyzer became ready during loadOrCreateAnalyzer, notifying listeners");
-            listener.onAnalyzerReady();
-        }
+        logger.debug("Analyzer became ready, notifying listeners");
+        listener.onAnalyzerReady();
         listener.afterEachBuild(false);
-        wasReady = true;
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
         if (needsRebuild && !externalRebuildRequested) {
@@ -431,7 +419,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
     /**
      * Refreshes the analyzer by scheduling a job on the analyzerExecutor. The function controls whether a new analyzer
      * is created, or an optimistic or pessimistic incremental rebuild. The function receives the current analyzer
-     * (possibly {@code null}) as its argument and must return the new analyzer to become current.
+     * (non-null) as its argument and must return the new analyzer to become current.
      *
      * <p>Returns the Future representing the scheduled task.
      */
@@ -441,29 +429,14 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             requireNonNull(currentAnalyzer);
             listener.beforeEachBuild();
 
-            // The function is supplied the current analyzer (may be null).
+            // The function is supplied the current analyzer.
             currentAnalyzer = fn.apply(currentAnalyzer);
-
             // Persist analyzer snapshots by language (best-effort)
-            try {
-                persistAnalyzerState(currentAnalyzer);
-            } catch (Throwable t) {
-                logger.debug("Ignoring exception during analyzer state persistence: {}", t.toString());
-            }
-
+            persistAnalyzerState(currentAnalyzer);
             logger.debug("Analyzer refresh completed.");
 
-            boolean isNowReady = (currentAnalyzer != null);
-            logger.debug(
-                    "Checking analyzer ready transition after refresh: wasReady={}, isNowReady={}",
-                    wasReady,
-                    isNowReady);
-            if (!wasReady && isNowReady) {
-                logger.debug("Analyzer became ready, notifying listeners");
-                listener.onAnalyzerReady();
-            }
             listener.afterEachBuild(externalRebuildRequested);
-            wasReady = isNowReady;
+
             return currentAnalyzer;
         });
     }
@@ -550,7 +523,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      * Persist per-language analyzer snapshots if the sub-analyzers are TreeSitter-backed.
      */
     private void persistAnalyzerState(IAnalyzer analyzer) {
-
         var langs = analyzer.languages();
         if (langs.isEmpty()) {
             logger.trace(
