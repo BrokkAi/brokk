@@ -307,7 +307,7 @@ public class MergeAgent {
             var msg = "Merge completed successfully. Processed %d conflicted files. Verification passed."
                     .formatted(hasConflictLines.size());
             logger.debug(msg);
-            cm.getIo().llmOutput(msg, ChatMessageType.AI);
+            cm.getIo().llmOutput(msg, ChatMessageType.AI, ai.brokk.LlmOutputMeta.DEFAULT);
 
             var ctx = new Context(cm).addFragments(cm.toPathFragments(changedFiles));
             return new TaskResult(

@@ -344,8 +344,8 @@ public final class BlitzForgeProgressDialog extends BaseThemedDialog implements 
         }
 
         @Override
-        public void llmOutput(String token, ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
-            super.llmOutput(token, type, explicitNewMessage, isReasoning);
+        public void llmOutput(String token, ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+            super.llmOutput(token, type, meta);
             long newLines = token.chars().filter(c -> c == '\n').count();
             if (newLines > 0) {
                 // Increment per-file progress

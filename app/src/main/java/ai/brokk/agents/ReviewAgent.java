@@ -179,8 +179,8 @@ public class ReviewAgent {
                 MemoryConsole progressConsole = new MemoryConsole() {
                     @Override
                     public void llmOutput(
-                            String token, ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
-                        super.llmOutput(token, type, explicitNewMessage, isReasoning);
+                            String token, ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+                        super.llmOutput(token, type, meta);
                         if (token.contains("\n")) {
                             int lines = linesSeen.addAndGet(
                                     (int) token.chars().filter(ch -> ch == '\n').count());

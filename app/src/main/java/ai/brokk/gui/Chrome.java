@@ -973,10 +973,10 @@ public class Chrome
     @Override
     public void llmOutput(String token, ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
         if (SwingUtilities.isEventDispatchThread()) {
-            rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta.isNewMessage(), meta.isReasoning());
+            rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta);
         } else {
             SwingUtilities.invokeLater(
-                    () -> rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta.isNewMessage(), meta.isReasoning()));
+                    () -> rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta));
         }
     }
 

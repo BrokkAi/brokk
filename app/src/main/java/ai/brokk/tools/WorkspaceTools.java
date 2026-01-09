@@ -201,7 +201,7 @@ public class WorkspaceTools {
 
         // Operate on actual stored fragments only
         var allFragments = context.allFragments().toList();
-        var byId = allFragments.stream().collect(Collectors.toMap(ContextFragment::id, f -> f));
+        Map<String, ContextFragment> byId = allFragments.stream().collect(Collectors.toMap(ContextFragment::id, f -> f));
 
         var idsToDropSet = new HashSet<>(idToRemoval.keySet());
 
@@ -502,14 +502,14 @@ public class WorkspaceTools {
         var formattedTaskList = "# Task List\n" + lines + "\n";
 
         var io = cm.getIo();
-        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, true, false);
+        io.llmOutput("# Explanation\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         int count = tasks.size();
         String suffix = (count == 1) ? "" : "s";
         String message =
                 "**Task list created** with %d item%s. Review it in the **Tasks** tab or open the **Task List** fragment in the Workspace below."
                         .formatted(count, suffix);
-        io.llmOutput(message, ChatMessageType.AI, true, false);
+        io.llmOutput(message, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         return formattedTaskList;
     }

@@ -164,7 +164,7 @@ public final class MergeOneFile {
             if (Thread.interrupted()) {
                 return new Outcome(Status.INTERRUPTED, null);
             }
-            io.llmOutput("\n# Merge %s (step %d)".formatted(file, step), ChatMessageType.AI, true, false);
+            io.llmOutput("\n# Merge %s (step %d)".formatted(file, step), ChatMessageType.AI, LlmOutputMeta.newMessage());
 
             Llm.StreamingResult result;
             try {

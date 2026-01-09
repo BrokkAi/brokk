@@ -455,12 +455,15 @@ public class CodeAgent {
 
     void report(String message) {
         logger.debug(message);
-        io.llmOutput("\n" + message, ChatMessageType.CUSTOM);
+        io.llmOutput("\n" + message, ChatMessageType.CUSTOM, ai.brokk.LlmOutputMeta.DEFAULT);
     }
 
     void reportComplete(String message) {
         logger.debug(message);
-        io.llmOutput("\n# Code Agent Finished\n" + message, ChatMessageType.CUSTOM);
+        io.llmOutput(
+                "\n# Code Agent Finished\n" + message,
+                ChatMessageType.CUSTOM,
+                ai.brokk.LlmOutputMeta.terminal());
     }
 
     Step parsePhase(
@@ -611,7 +614,7 @@ public class CodeAgent {
             }
 
             var diagnosticMessages = formatDiagnosticsReport(Map.of(file, diags));
-            io.llmOutput(diagnosticMessages, ChatMessageType.CUSTOM);
+            io.llmOutput(diagnosticMessages, ChatMessageType.CUSTOM, ai.brokk.LlmOutputMeta.DEFAULT);
 
             if (attempts++ >= MAX_QUICK_FIX_ATTEMPTS) {
                 report("Quick Edit: Maximum fix attempts reached.");

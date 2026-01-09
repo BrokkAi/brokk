@@ -143,7 +143,10 @@ class WandConsoleIOTest {
     }
 
     private void emit(String token, boolean isReasoning, boolean isNewMessage) throws Exception {
-        wandConsoleIO.llmOutput(token, ChatMessageType.AI, isNewMessage, isReasoning);
+        var meta = ai.brokk.LlmOutputMeta.DEFAULT
+                .withReasoning(isReasoning)
+                .withNewMessage(isNewMessage);
+        wandConsoleIO.llmOutput(token, ChatMessageType.AI, meta);
         awaitEdtIdle();
     }
 
