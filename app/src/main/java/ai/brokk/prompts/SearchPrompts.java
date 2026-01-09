@@ -168,9 +168,9 @@ public class SearchPrompts {
                 - Workspace curation ONLY. No code, no answers, no plans.
 
 			 Curation guidelines:
-			 - KEEP any fragment that contains logic, UI components, or utility methods 
+			 - KEEP any fragment that contains logic, UI components, or utility methods
 			   directly related to the search goal.
-			 - DROP if the fragment is irrelevant OR if a concise summary provides 
+			 - DROP if the fragment is irrelevant OR if a concise summary provides
 			   100% of the value with 0% information loss.
 			
                 Tools (call exactly one):
