@@ -39,7 +39,7 @@ class LlmOutputMetaTest {
 
     @Test
     void withX_methodsSetFlagsAndPreserveOtherValues() {
-        var base = new LlmOutputMeta(true, false, true);
+        var base = LlmOutputMeta.DEFAULT.withNewMessage(true).withTerminal(true);
 
         assertEquals(new LlmOutputMeta(false, false, true), base.withNewMessage(false));
         assertEquals(new LlmOutputMeta(true, true, true), base.withReasoning(true));
