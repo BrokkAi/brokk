@@ -224,8 +224,10 @@ public class Chrome
         frame.setTitle(title);
 
         // Show initial system message
+        var projectType = getProject() instanceof MainProject ? "project" : "worktree";
         showNotification(
-                NotificationRole.INFO, "Opening project at " + getProject().getRoot());
+                NotificationRole.INFO,
+                "Opening " + projectType + " at " + getProject().getRoot());
 
         // Test runner persistence and panel
         var brokkDir = getProject().getRoot().resolve(AbstractProject.BROKK_DIR);
@@ -1019,12 +1021,24 @@ public class Chrome
 
     @Override
     public void close() {
-        logger.info("Closing Chrome UI");
-
+        logger.info("Closing Chrome UI (sync)");
         contextManager.close();
         frame.dispose();
-        // Unregister this instance
         openInstances.remove(this);
+    }
+
+    /**
+     * Asynchronously close Chrome, running cleanup off EDT.
+     * Returns a future that completes when cleanup is done.
+     *
+     * <p><b>Note:</b> This method does NOT dispose the frame. The caller is responsible
+     * for calling {@code getFrame().dispose()} on the EDT after the future completes
+     * to release native window resources.
+     */
+    public CompletableFuture<Void> closeAsync() {
+        logger.info("Closing Chrome UI (async)");
+        openInstances.remove(this);
+        return contextManager.closeAsync(5_000);
     }
 
     private void registerAllListeners() {
@@ -1829,7 +1843,7 @@ public class Chrome
                         logger.info("[{}] User accepted style regeneration, triggering regeneration", result.stepId());
                         showNotification(IConsoleIO.NotificationRole.INFO, "Regenerating style guide...");
 
-                        var regenerationFuture = contextManager.ensureStyleGuide();
+                        var regenerationFuture = contextManager.regenerateStyleGuideAsync();
                         regenerationFuture
                                 .thenAcceptAsync(styleContent -> {
                                     SwingUtilities.invokeLater(() -> {
