@@ -241,10 +241,23 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
      * Deletes the projects base directory and all its contents.
      */
     private void cleanupProjects() throws IOException {
-        if (Files.exists(projectsBaseDir)) {
-            try (var stream = Files.walk(projectsBaseDir)) {
-                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
-            }
+        if (!Files.exists(projectsBaseDir)) {
+            return;
+        }
+
+        List<Path> failures = new ArrayList<>();
+        try (var stream = Files.walk(projectsBaseDir)) {
+            stream.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException e) {
+                    failures.add(path);
+                }
+            });
+        }
+
+        if (!failures.isEmpty()) {
+            throw new IOException("Failed to delete " + failures.size() + " paths: " + failures);
         }
     }
 
