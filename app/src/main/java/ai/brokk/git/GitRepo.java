@@ -2141,7 +2141,6 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Factory method to create CommitInfo from a JGit RevCommit. Assumes this is NOT a stash commit. */
     public CommitInfo fromRevCommit(RevCommit commit) {
         return new CommitInfo(
-                this,
                 commit.getName(),
                 commit.getShortMessage(),
                 commit.getAuthorIdent().getName(),
@@ -2151,7 +2150,6 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Factory method to create CommitInfo for a stash entry from a JGit RevCommit. */
     public CommitInfo fromStashCommit(RevCommit commit, int index) {
         return new CommitInfo(
-                this,
                 commit.getName(),
                 commit.getShortMessage(),
                 commit.getAuthorIdent().getName(),
