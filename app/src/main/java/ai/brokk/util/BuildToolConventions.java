@@ -3,6 +3,7 @@ package ai.brokk.util;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.jetbrains.annotations.Nullable;
 
 public class BuildToolConventions {
 
@@ -14,6 +15,7 @@ public class BuildToolConventions {
         CARGO,
         BAZEL,
         CMAKE,
+        POETRY,
         PYTHON,
         UNKNOWN
     }
@@ -65,6 +67,9 @@ public class BuildToolConventions {
         if (names.contains("cmakelists.txt")) {
             return BuildSystem.CMAKE;
         }
+        if (names.contains("poetry.lock")) {
+            return BuildSystem.POETRY;
+        }
         if (names.contains("setup.py") || names.contains("pyproject.toml") || names.contains("requirements.txt")) {
             return BuildSystem.PYTHON;
         }
@@ -82,6 +87,22 @@ public class BuildToolConventions {
         return BuildSystem.UNKNOWN;
     }
 
+    public static String getDefaultTestAllCommand(BuildSystem system) {
+        return switch (system) {
+            case POETRY -> "poetry run pytest -q";
+            case CARGO -> "cargo test -q";
+            default -> "";
+        };
+    }
+
+    public static String getDefaultTestSomeCommand(BuildSystem system) {
+        return switch (system) {
+            case POETRY -> "poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}";
+            case CARGO -> "cargo test -q {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}";
+            default -> "";
+        };
+    }
+
     public static List<String> getDefaultExcludes(BuildSystem system) {
         return switch (system) {
             case MAVEN -> List.of("target/");
@@ -91,9 +112,54 @@ public class BuildToolConventions {
             case CARGO -> List.of("target/"); // Rust target directory
             case BAZEL -> List.of("bazel-out/");
             case CMAKE -> List.of("build/", "out/"); // Common for CMake and general Make
-            case PYTHON ->
+            case POETRY, PYTHON ->
                 List.of("__pycache__/", ".pytest_cache/", ".mypy_cache/", ".tox/", ".egg-info/", "build/", "dist/");
             default -> List.of(); // UNKNOWN or any other unhandled system
+        };
+    }
+
+    /**
+     * Resolves a build or test command to prefer repository-local wrappers or specialized binaries.
+     *
+     * @param command The raw command string (e.g., "mvn test").
+     * @param rootFilenames Filenames present in the project root.
+     * @return The resolved command.
+     */
+    public static String resolveCommand(String command, List<String> rootFilenames) {
+        if (command == null || command.isBlank()) {
+            return "";
+        }
+
+        Set<String> names = rootFilenames.stream().map(String::toLowerCase).collect(Collectors.toSet());
+        String trimmed = command.trim();
+        String[] parts = trimmed.split("\\s+", 2);
+        String binary = parts[0];
+        String args = parts.length > 1 ? " " + parts[1] : "";
+
+        boolean isWindows = Environment.isWindows();
+
+        return switch (binary) {
+            case "mvn" -> {
+                String wrapper = isWindows ? "mvnw.cmd" : "./mvnw";
+                if (names.contains(wrapper.replace("./", "").toLowerCase())) {
+                    yield wrapper + (isWindows ? " --%" : "") + args;
+                }
+                yield command;
+            }
+            case "gradle" -> {
+                String wrapper = isWindows ? "gradlew.bat" : "./gradlew";
+                if (names.contains(wrapper.replace("./", "").toLowerCase())) {
+                    yield wrapper + (isWindows ? " --%" : "") + args;
+                }
+                yield command;
+            }
+            case "pytest" -> {
+                if (names.contains("poetry.lock")) {
+                    yield "poetry run " + command;
+                }
+                yield command;
+            }
+            default -> command;
         };
     }
 }

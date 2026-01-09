@@ -16,7 +16,9 @@ class BuildToolConventionsTest {
         assertEquals(BuildSystem.SBT, BuildToolConventions.determineBuildSystem(List.of("build.sbt", "project")));
         assertEquals(BuildSystem.NPM, BuildToolConventions.determineBuildSystem(List.of("package.json", "node_modules")));
         assertEquals(BuildSystem.CARGO, BuildToolConventions.determineBuildSystem(List.of("Cargo.toml", "src")));
+        assertEquals(BuildSystem.CARGO, BuildToolConventions.determineBuildSystem(List.of("cargo.toml", "src")));
         assertEquals(BuildSystem.CMAKE, BuildToolConventions.determineBuildSystem(List.of("CMakeLists.txt", "main.cpp")));
+        assertEquals(BuildSystem.POETRY, BuildToolConventions.determineBuildSystem(List.of("pyproject.toml", "poetry.lock")));
         assertEquals(BuildSystem.PYTHON, BuildToolConventions.determineBuildSystem(List.of("pyproject.toml")));
         assertEquals(BuildSystem.PYTHON, BuildToolConventions.determineBuildSystem(List.of("setup.py")));
         assertEquals(BuildSystem.PYTHON, BuildToolConventions.determineBuildSystem(List.of("requirements.txt")));
@@ -51,5 +53,39 @@ class BuildToolConventionsTest {
         assertEquals(List.of("build/", ".gradle/"), BuildToolConventions.getDefaultExcludes(BuildSystem.GRADLE));
         assertEquals(List.of("node_modules/", "dist/"), BuildToolConventions.getDefaultExcludes(BuildSystem.NPM));
         assertEquals(List.of(), BuildToolConventions.getDefaultExcludes(BuildSystem.UNKNOWN));
+    }
+
+    @Test
+    void testGetDefaultCommands() {
+        assertEquals("cargo test -q", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.CARGO));
+        assertEquals(
+                "poetry run pytest -q", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.POETRY));
+        assertEquals("", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.MAVEN));
+
+        assertEquals(
+                "cargo test -q {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}",
+                BuildToolConventions.getDefaultTestSomeCommand(BuildSystem.CARGO));
+        assertEquals(
+                "poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}",
+                BuildToolConventions.getDefaultTestSomeCommand(BuildSystem.POETRY));
+    }
+
+    @Test
+    void testResolveCommand() {
+        // Maven wrapper
+        assertEquals("./mvnw test", BuildToolConventions.resolveCommand("mvn test", List.of("mvnw", "pom.xml")));
+        assertEquals("mvn test", BuildToolConventions.resolveCommand("mvn test", List.of("pom.xml")));
+
+        // Gradle wrapper
+        assertEquals("./gradlew build", BuildToolConventions.resolveCommand("gradle build", List.of("gradlew", "build.gradle")));
+        assertEquals("gradle build", BuildToolConventions.resolveCommand("gradle build", List.of("build.gradle")));
+
+        // Poetry
+        assertEquals("poetry run pytest -v", BuildToolConventions.resolveCommand("pytest -v", List.of("poetry.lock", "pyproject.toml")));
+        assertEquals("pytest -v", BuildToolConventions.resolveCommand("pytest -v", List.of("pyproject.toml")));
+
+        // Fallthrough
+        assertEquals("npm test", BuildToolConventions.resolveCommand("npm test", List.of("package.json")));
+        assertEquals("", BuildToolConventions.resolveCommand("", List.of("pom.xml")));
     }
 }

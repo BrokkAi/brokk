@@ -738,10 +738,23 @@ public class BuildAgent {
 
         // Check project setting for test scope
         IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
+        var rootFiles = cm.getProject().getRepo().getTrackedFiles().stream()
+                .filter(f -> f.getParent().equals(Path.of("")))
+                .map(ProjectFile::toString)
+                .toList();
+
         if (testScope == IProject.CodeAgentTestScope.ALL) {
-            String cmd = System.getenv("BRK_TESTALL_CMD") != null
-                    ? System.getenv("BRK_TESTALL_CMD")
-                    : details.testAllCommand();
+            String cmd = System.getenv("BRK_TESTALL_CMD");
+            if (cmd == null || cmd.isBlank()) {
+                cmd = details.testAllCommand();
+            }
+            if (cmd.isBlank()) {
+                BuildSystem detectedSystem = BuildToolConventions.determineBuildSystem(rootFiles);
+                cmd = BuildToolConventions.getDefaultTestAllCommand(detectedSystem);
+            }
+
+            cmd = BuildToolConventions.resolveCommand(cmd, rootFiles);
+
             logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", cmd);
             return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
         }
@@ -771,16 +784,18 @@ public class BuildAgent {
         // Decide which command to use
         if (workspaceTestFiles.isEmpty()) {
             var summaries = ContextFragment.describe(ctx.allFragments());
+            String cmd = BuildToolConventions.resolveCommand(details.buildLintCommand(), rootFiles);
+
             logger.debug(
                     "No relevant test files found for {} with Workspace {}; using build/lint command: {}",
                     cm.getProject().getRoot(),
                     summaries,
-                    details.buildLintCommand());
-            return interpolateCommandWithPythonVersion(
-                    details.buildLintCommand(), cm.getProject().getRoot());
+                    cmd);
+            return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
         }
 
-        return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
+        String cmd = getBuildLintSomeCommand(cm, details, workspaceTestFiles);
+        return BuildToolConventions.resolveCommand(cmd, rootFiles);
     }
 
     /**
@@ -825,9 +840,19 @@ public class BuildAgent {
             IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
             throws InterruptedException {
 
-        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
-                ? System.getenv("BRK_TESTSOME_CMD")
-                : details.testSomeCommand();
+        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD");
+        if (testSomeTemplate == null || testSomeTemplate.isBlank()) {
+            testSomeTemplate = details.testSomeCommand();
+        }
+
+        if (testSomeTemplate.isBlank()) {
+            var rootFiles = cm.getProject().getRepo().getTrackedFiles().stream()
+                    .filter(f -> f.getParent().equals(Path.of("")))
+                    .map(ProjectFile::toString)
+                    .toList();
+            BuildSystem detectedSystem = BuildToolConventions.determineBuildSystem(rootFiles);
+            testSomeTemplate = BuildToolConventions.getDefaultTestSomeCommand(detectedSystem);
+        }
 
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
