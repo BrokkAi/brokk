@@ -1,7 +1,6 @@
 package ai.brokk.util;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -17,30 +16,12 @@ public class BuildToolConventions {
         CMAKE,
         POETRY,
         PYTHON,
+        RUBY,
+        PHP,
         DOTNET,
         UNKNOWN
     }
 
-    /**
-     * Identifies the build system based on filenames present in the project root.
-     *
-     * <p>At runtime, {@code rootFilenames} is typically sourced from {@code BuildAgent.execute()},
-     * which collects git-tracked files in the repo root and converts them to strings.
-     *
-     * <p>The check is case-insensitive and follows this priority order:
-     * <ol>
-     *   <li>Maven (pom.xml)</li>
-     *   <li>Gradle (build.gradle, build.gradle.kts)</li>
-     *   <li>SBT (build.sbt)</li>
-     *   <li>Node (package.json)</li>
-     *   <li>Cargo (cargo.toml)</li>
-     *   <li>CMake (cmakelists.txt)</li>
-     *   <li>Python (setup.py, pyproject.toml, requirements.txt)</li>
-     *   <li>Bazel (workspace.bazel, module.bazel, build.bazel)</li>
-     * </ol>
-     *
-     * @param rootFilenames List of filenames found directly in the project root.
-     */
     public static BuildSystem determineBuildSystem(List<String> rootFilenames) {
         Set<String> names = rootFilenames.stream().map(String::toLowerCase).collect(Collectors.toSet());
 
@@ -68,14 +49,20 @@ public class BuildToolConventions {
         if (names.contains("cmakelists.txt")) {
             return BuildSystem.CMAKE;
         }
+        if (names.contains("gemfile")) {
+            return BuildSystem.RUBY;
+        }
+        if (names.contains("composer.json")) {
+            return BuildSystem.PHP;
+        }
+        if (names.stream().anyMatch(n -> n.endsWith(".csproj"))) {
+            return BuildSystem.DOTNET;
+        }
         if (names.contains("poetry.lock")) {
             return BuildSystem.POETRY;
         }
         if (names.contains("setup.py") || names.contains("pyproject.toml") || names.contains("requirements.txt")) {
             return BuildSystem.PYTHON;
-        }
-        if (names.stream().anyMatch(n -> n.endsWith(".sln") || n.endsWith(".csproj") || n.endsWith(".fsproj"))) {
-            return BuildSystem.DOTNET;
         }
         // BAZEL check can be ambiguous, let's put it after more specific ones or make it more robust.
         // For now, if common files like 'BUILD' or 'WORKSPACE' (without .bazel extension) are present,
@@ -91,91 +78,21 @@ public class BuildToolConventions {
         return BuildSystem.UNKNOWN;
     }
 
-    public static String getDefaultTestAllCommand(BuildSystem system) {
-        return switch (system) {
-            case MAVEN -> "mvn --quiet test";
-            case GRADLE -> "gradle --quiet test";
-            case CARGO -> "cargo test -q";
-            case POETRY -> "poetry run pytest -q";
-            case PYTHON -> "pytest -q";
-            case NPM -> "npm test --silent";
-            case DOTNET -> "dotnet test --verbosity quiet";
-            default -> "";
-        };
-    }
-
-    public static String getDefaultTestSomeCommand(BuildSystem system) {
-        return switch (system) {
-            case MAVEN ->
-                "mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}";
-            case GRADLE -> "gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}";
-            case CARGO -> "cargo test -q {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}";
-            case POETRY -> "poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}";
-            case PYTHON -> "pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}";
-            case NPM -> "npm test --silent -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}";
-            case DOTNET ->
-                "dotnet test --verbosity quiet --filter \"{{#classes}}FullyQualifiedName~{{value}}{{^last}} | {{/last}}{{/classes}}\"";
-            default -> "";
-        };
-    }
-
     public static List<String> getDefaultExcludes(BuildSystem system) {
         return switch (system) {
             case MAVEN -> List.of("target/");
             case GRADLE -> List.of("build/", ".gradle/");
-            case SBT -> List.of("target/"); // Scala target directory
+            case SBT -> List.of("target/");
             case NPM -> List.of("node_modules/", "dist/");
-            case CARGO -> List.of("target/"); // Rust target directory
+            case CARGO -> List.of("target/");
             case BAZEL -> List.of("bazel-out/");
-            case CMAKE -> List.of("build/", "out/"); // Common for CMake and general Make
+            case CMAKE -> List.of("build/", "out/");
             case POETRY, PYTHON ->
                 List.of("__pycache__/", ".pytest_cache/", ".mypy_cache/", ".tox/", ".egg-info/", "build/", "dist/");
-            default -> List.of(); // UNKNOWN or any other unhandled system
-        };
-    }
-
-    /**
-     * Resolves a build or test command to prefer repository-local wrappers or specialized binaries.
-     *
-     * @param command The raw command string (e.g., "mvn test").
-     * @param rootFilenames Filenames present in the project root.
-     * @return The resolved command.
-     */
-    public static String resolveCommand(String command, List<String> rootFilenames) {
-        if (command.isBlank()) {
-            return "";
-        }
-
-        Set<String> names = rootFilenames.stream().map(String::toLowerCase).collect(Collectors.toSet());
-        String trimmed = command.trim();
-        String[] parts = trimmed.split("\\s+", 2);
-        String binary = parts[0];
-        String args = parts.length > 1 ? " " + parts[1] : "";
-
-        boolean isWindows = Environment.isWindows();
-
-        return switch (binary) {
-            case "mvn" -> {
-                String wrapper = isWindows ? "mvnw.cmd" : "./mvnw";
-                if (names.contains(wrapper.replace("./", "").toLowerCase(Locale.ROOT))) {
-                    yield wrapper + (isWindows ? " --%" : "") + args;
-                }
-                yield command;
-            }
-            case "gradle" -> {
-                String wrapper = isWindows ? "gradlew.bat" : "./gradlew";
-                if (names.contains(wrapper.replace("./", "").toLowerCase(Locale.ROOT))) {
-                    yield wrapper + (isWindows ? " --%" : "") + args;
-                }
-                yield command;
-            }
-            case "pytest" -> {
-                if (names.contains("poetry.lock")) {
-                    yield "poetry run " + command;
-                }
-                yield command;
-            }
-            default -> command;
+            case RUBY -> List.of("vendor/bundle/", ".bundle/", "coverage/");
+            case PHP -> List.of("vendor/", "cache/");
+            case DOTNET -> List.of("bin/", "obj/", "packages/");
+            default -> List.of();
         };
     }
 }

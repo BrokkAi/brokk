@@ -126,11 +126,6 @@ public class BuildAgent {
     /**
      * Execute the build information gathering process.
      *
-     * <p>This method identifies the project's build system by inspecting git-tracked files
-     * located specifically in the repository root. This root-only filter ensures that
-     * nested build files in submodules or documentation do not trigger false positives
-     * for the primary build system.
-     *
      * @return The gathered BuildDetails record, or EMPTY if the process fails or is interrupted.
      */
     public BuildDetails execute() throws InterruptedException {
@@ -701,29 +696,7 @@ public class BuildAgent {
         }
     }
 
-    /**
-     * Determine the best verification command using the provided Context.
-     *
-     * <p>Selection flow and precedence:
-     * <ol>
-     *   <li>If {@code CodeAgentTestScope} is {@code ALL}:
-     *     <ul>
-     *       <li>Uses {@code BRK_TESTALL_CMD} env var if set.</li>
-     *       <li>Otherwise uses {@code details.testAllCommand()}.</li>
-     *     </ul>
-     *   </li>
-     *   <li>If {@code CodeAgentTestScope} is {@code WORKSPACE}:
-     *     <ul>
-     *       <li>Collects {@code ProjectFile}s from editable, read-only, and skeleton fragments.</li>
-     *       <li>Identifies test files via {@code ContextManager.isTestFile}.</li>
-     *       <li>If no workspace tests are found: uses {@code details.buildLintCommand()}.</li>
-     *       <li>If workspace tests are found: calls {@link #getBuildLintSomeCommand}.</li>
-     *     </ul>
-     *   </li>
-     * </ol>
-     *
-     * <p>All selected commands are interpolated for {@code {{pyver}}} before being returned.
-     */
+    /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
     @Blocking
     public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
         var cm = ctx.getContextManager();
@@ -738,23 +711,10 @@ public class BuildAgent {
 
         // Check project setting for test scope
         IProject.CodeAgentTestScope testScope = cm.getProject().getCodeAgentTestScope();
-        var rootFiles = cm.getProject().getRepo().getTrackedFiles().stream()
-                .filter(f -> f.getParent().equals(Path.of("")))
-                .map(ProjectFile::toString)
-                .toList();
-
         if (testScope == IProject.CodeAgentTestScope.ALL) {
-            String cmd = System.getenv("BRK_TESTALL_CMD");
-            if (cmd == null || cmd.isBlank()) {
-                cmd = details.testAllCommand();
-            }
-            if (cmd.isBlank()) {
-                BuildSystem detectedSystem = BuildToolConventions.determineBuildSystem(rootFiles);
-                cmd = BuildToolConventions.getDefaultTestAllCommand(detectedSystem);
-            }
-
-            cmd = BuildToolConventions.resolveCommand(cmd, rootFiles);
-
+            String cmd = System.getenv("BRK_TESTALL_CMD") != null
+                    ? System.getenv("BRK_TESTALL_CMD")
+                    : details.testAllCommand();
             logger.debug("Code Agent Test Scope is ALL, using testAllCommand: {}", cmd);
             return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
         }
@@ -784,18 +744,16 @@ public class BuildAgent {
         // Decide which command to use
         if (workspaceTestFiles.isEmpty()) {
             var summaries = ContextFragment.describe(ctx.allFragments());
-            String cmd = BuildToolConventions.resolveCommand(details.buildLintCommand(), rootFiles);
-
             logger.debug(
                     "No relevant test files found for {} with Workspace {}; using build/lint command: {}",
                     cm.getProject().getRoot(),
                     summaries,
-                    cmd);
-            return interpolateCommandWithPythonVersion(cmd, cm.getProject().getRoot());
+                    details.buildLintCommand());
+            return interpolateCommandWithPythonVersion(
+                    details.buildLintCommand(), cm.getProject().getRoot());
         }
 
-        String cmd = getBuildLintSomeCommand(cm, details, workspaceTestFiles);
-        return BuildToolConventions.resolveCommand(cmd, rootFiles);
+        return getBuildLintSomeCommand(cm, details, workspaceTestFiles);
     }
 
     /**
@@ -811,48 +769,20 @@ public class BuildAgent {
 
     /**
      * Determine and interpolate the "run some tests" command for the current workspace.
-     *
-     * <p>Selection and Fallback rules:
-     * <ul>
-     *   <li><b>Template Source:</b> {@code BRK_TESTSOME_CMD} env var takes precedence over {@code details.testSomeCommand()}.</li>
-     *   <li><b>Fallback:</b> If the template contains no recognized Mustache sections
-     *       ({@code {{#files}}}, {@code {{#classes}}}, {@code {{#fqclasses}}}, or {@code {{#modules}}}),
-     *       it falls back to {@code details.buildLintCommand()}.</li>
-     * </ul>
-     *
-     * <p>Template selection is based on Mustache keys present in the template:
-     * <ul>
-     *   <li>{@code {{#modules}}}: Python-style dotted module labels.</li>
-     *   <li>{@code {{#files}}}: Relative file paths (ProjectFile.toString()).</li>
-     *   <li>{@code {{#fqclasses}}}: Fully qualified class names (requires Analyzer).</li>
-     *   <li>{@code {{#classes}}}: Simple class names (requires Analyzer).</li>
-     * </ul>
-     *
-     * <p>If the template contains {@code {{#modules}}}, this will convert selected test files into
+     * Supports files-based, classes-based, fqclasses-based, and modules-based templates.
+     * If the template contains {{#modules}}, this will convert selected test files into
      * dotted module labels relative to a detected module anchor:
-     * <ol>
-     *  <li>Parent of any hardcoded *.py runner mentioned in the configured commands.</li>
-     *  <li>A top-level "tests/" directory if present.</li>
-     *  <li>The import root of each file established by walking up until no __init__.py.</li>
-     * </ol>
+     *  1) Parent of any hardcoded *.py runner mentioned in the configured commands,
+     *  2) A top-level "tests/" directory if present,
+     *  3) The import root of each file established by walking up until no __init__.py.
      */
     public static String getBuildLintSomeCommand(
             IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
             throws InterruptedException {
 
-        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD");
-        if (testSomeTemplate == null || testSomeTemplate.isBlank()) {
-            testSomeTemplate = details.testSomeCommand();
-        }
-
-        if (testSomeTemplate.isBlank()) {
-            var rootFiles = cm.getProject().getRepo().getTrackedFiles().stream()
-                    .filter(f -> f.getParent().equals(Path.of("")))
-                    .map(ProjectFile::toString)
-                    .toList();
-            BuildSystem detectedSystem = BuildToolConventions.determineBuildSystem(rootFiles);
-            testSomeTemplate = BuildToolConventions.getDefaultTestSomeCommand(detectedSystem);
-        }
+        String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
+                ? System.getenv("BRK_TESTSOME_CMD")
+                : details.testSomeCommand();
 
         boolean isFilesBased = testSomeTemplate.contains("{{#files}}");
         boolean isFqBased = testSomeTemplate.contains("{{#fqclasses}}");
