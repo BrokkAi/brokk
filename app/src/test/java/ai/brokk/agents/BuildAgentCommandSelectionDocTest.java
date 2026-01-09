@@ -11,9 +11,9 @@ class BuildAgentCommandSelectionDocTest {
     void testInterpolateMustacheTemplate_Files() {
         String template = "pytest {{#files}}{{value}} {{/files}}--junitxml=report.xml";
         List<String> files = List.of("tests/test_a.py", "tests/test_b.py");
-        
+
         String result = BuildAgent.interpolateMustacheTemplate(template, files, "files");
-        
+
         assertEquals("pytest tests/test_a.py tests/test_b.py --junitxml=report.xml", result);
     }
 
@@ -21,7 +21,7 @@ class BuildAgentCommandSelectionDocTest {
     void testInterpolateMustacheTemplate_PythonVersion() {
         String template = "python{{pyver}} -m pytest";
         String result = BuildAgent.interpolateMustacheTemplate(template, List.of(), "unused", "3.11");
-        
+
         assertEquals("python3.11 -m pytest", result);
     }
 

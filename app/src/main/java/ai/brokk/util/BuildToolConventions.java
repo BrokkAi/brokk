@@ -1,9 +1,9 @@
 package ai.brokk.util;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.jetbrains.annotations.Nullable;
 
 public class BuildToolConventions {
 
@@ -17,6 +17,7 @@ public class BuildToolConventions {
         CMAKE,
         POETRY,
         PYTHON,
+        DOTNET,
         UNKNOWN
     }
 
@@ -73,6 +74,9 @@ public class BuildToolConventions {
         if (names.contains("setup.py") || names.contains("pyproject.toml") || names.contains("requirements.txt")) {
             return BuildSystem.PYTHON;
         }
+        if (names.stream().anyMatch(n -> n.endsWith(".sln") || n.endsWith(".csproj") || n.endsWith(".fsproj"))) {
+            return BuildSystem.DOTNET;
+        }
         // BAZEL check can be ambiguous, let's put it after more specific ones or make it more robust.
         // For now, if common files like 'BUILD' or 'WORKSPACE' (without .bazel extension) are present,
         // it's hard to distinguish from other systems. A more robust check might involve looking for
@@ -89,16 +93,28 @@ public class BuildToolConventions {
 
     public static String getDefaultTestAllCommand(BuildSystem system) {
         return switch (system) {
-            case POETRY -> "poetry run pytest -q";
+            case MAVEN -> "mvn --quiet test";
+            case GRADLE -> "gradle --quiet test";
             case CARGO -> "cargo test -q";
+            case POETRY -> "poetry run pytest -q";
+            case PYTHON -> "pytest -q";
+            case NPM -> "npm test --silent";
+            case DOTNET -> "dotnet test --verbosity quiet";
             default -> "";
         };
     }
 
     public static String getDefaultTestSomeCommand(BuildSystem system) {
         return switch (system) {
-            case POETRY -> "poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}";
+            case MAVEN ->
+                "mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}";
+            case GRADLE -> "gradle --quiet test{{#classes}} --tests {{value}}{{/classes}}";
             case CARGO -> "cargo test -q {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}";
+            case POETRY -> "poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}";
+            case PYTHON -> "pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}";
+            case NPM -> "npm test --silent -- {{#files}}{{value}}{{^last}} {{/last}}{{/files}}";
+            case DOTNET ->
+                "dotnet test --verbosity quiet --filter \"{{#classes}}FullyQualifiedName~{{value}}{{^last}} | {{/last}}{{/classes}}\"";
             default -> "";
         };
     }
@@ -126,7 +142,7 @@ public class BuildToolConventions {
      * @return The resolved command.
      */
     public static String resolveCommand(String command, List<String> rootFilenames) {
-        if (command == null || command.isBlank()) {
+        if (command.isBlank()) {
             return "";
         }
 
@@ -141,14 +157,14 @@ public class BuildToolConventions {
         return switch (binary) {
             case "mvn" -> {
                 String wrapper = isWindows ? "mvnw.cmd" : "./mvnw";
-                if (names.contains(wrapper.replace("./", "").toLowerCase())) {
+                if (names.contains(wrapper.replace("./", "").toLowerCase(Locale.ROOT))) {
                     yield wrapper + (isWindows ? " --%" : "") + args;
                 }
                 yield command;
             }
             case "gradle" -> {
                 String wrapper = isWindows ? "gradlew.bat" : "./gradlew";
-                if (names.contains(wrapper.replace("./", "").toLowerCase())) {
+                if (names.contains(wrapper.replace("./", "").toLowerCase(Locale.ROOT))) {
                     yield wrapper + (isWindows ? " --%" : "") + args;
                 }
                 yield command;

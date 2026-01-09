@@ -11,23 +11,33 @@ class BuildToolConventionsTest {
     @Test
     void testDetermineBuildSystem() {
         assertEquals(BuildSystem.MAVEN, BuildToolConventions.determineBuildSystem(List.of("pom.xml", "src")));
-        assertEquals(BuildSystem.GRADLE, BuildToolConventions.determineBuildSystem(List.of("build.gradle", "settings.gradle")));
+        assertEquals(
+                BuildSystem.GRADLE,
+                BuildToolConventions.determineBuildSystem(List.of("build.gradle", "settings.gradle")));
         assertEquals(BuildSystem.GRADLE, BuildToolConventions.determineBuildSystem(List.of("build.gradle.kts")));
         assertEquals(BuildSystem.SBT, BuildToolConventions.determineBuildSystem(List.of("build.sbt", "project")));
-        assertEquals(BuildSystem.NPM, BuildToolConventions.determineBuildSystem(List.of("package.json", "node_modules")));
+        assertEquals(
+                BuildSystem.NPM, BuildToolConventions.determineBuildSystem(List.of("package.json", "node_modules")));
         assertEquals(BuildSystem.CARGO, BuildToolConventions.determineBuildSystem(List.of("Cargo.toml", "src")));
         assertEquals(BuildSystem.CARGO, BuildToolConventions.determineBuildSystem(List.of("cargo.toml", "src")));
-        assertEquals(BuildSystem.CMAKE, BuildToolConventions.determineBuildSystem(List.of("CMakeLists.txt", "main.cpp")));
-        assertEquals(BuildSystem.POETRY, BuildToolConventions.determineBuildSystem(List.of("pyproject.toml", "poetry.lock")));
+        assertEquals(
+                BuildSystem.CMAKE, BuildToolConventions.determineBuildSystem(List.of("CMakeLists.txt", "main.cpp")));
+        assertEquals(
+                BuildSystem.POETRY,
+                BuildToolConventions.determineBuildSystem(List.of("pyproject.toml", "poetry.lock")));
         assertEquals(BuildSystem.PYTHON, BuildToolConventions.determineBuildSystem(List.of("pyproject.toml")));
         assertEquals(BuildSystem.PYTHON, BuildToolConventions.determineBuildSystem(List.of("setup.py")));
         assertEquals(BuildSystem.PYTHON, BuildToolConventions.determineBuildSystem(List.of("requirements.txt")));
+        assertEquals(BuildSystem.DOTNET, BuildToolConventions.determineBuildSystem(List.of("Solution.sln")));
+        assertEquals(BuildSystem.DOTNET, BuildToolConventions.determineBuildSystem(List.of("Project.csproj")));
         assertEquals(BuildSystem.BAZEL, BuildToolConventions.determineBuildSystem(List.of("MODULE.bazel")));
         assertEquals(BuildSystem.BAZEL, BuildToolConventions.determineBuildSystem(List.of("WORKSPACE.bazel")));
         assertEquals(BuildSystem.BAZEL, BuildToolConventions.determineBuildSystem(List.of("BUILD.bazel")));
-        assertEquals(BuildSystem.UNKNOWN, BuildToolConventions.determineBuildSystem(List.of("README.md", "random.txt")));
+        assertEquals(
+                BuildSystem.UNKNOWN, BuildToolConventions.determineBuildSystem(List.of("README.md", "random.txt")));
         assertEquals(BuildSystem.UNKNOWN, BuildToolConventions.determineBuildSystem(List.of("BUILD"))); // Too ambiguous
-        assertEquals(BuildSystem.UNKNOWN, BuildToolConventions.determineBuildSystem(List.of("WORKSPACE"))); // Too ambiguous
+        assertEquals(
+                BuildSystem.UNKNOWN, BuildToolConventions.determineBuildSystem(List.of("WORKSPACE"))); // Too ambiguous
     }
 
     @Test
@@ -42,9 +52,11 @@ class BuildToolConventionsTest {
         // Maven > Gradle
         assertEquals(BuildSystem.MAVEN, BuildToolConventions.determineBuildSystem(List.of("pom.xml", "build.gradle")));
         // Gradle > NPM
-        assertEquals(BuildSystem.GRADLE, BuildToolConventions.determineBuildSystem(List.of("build.gradle", "package.json")));
+        assertEquals(
+                BuildSystem.GRADLE, BuildToolConventions.determineBuildSystem(List.of("build.gradle", "package.json")));
         // NPM > Python
-        assertEquals(BuildSystem.NPM, BuildToolConventions.determineBuildSystem(List.of("package.json", "pyproject.toml")));
+        assertEquals(
+                BuildSystem.NPM, BuildToolConventions.determineBuildSystem(List.of("package.json", "pyproject.toml")));
     }
 
     @Test
@@ -57,10 +69,13 @@ class BuildToolConventionsTest {
 
     @Test
     void testGetDefaultCommands() {
+        assertEquals("mvn --quiet test", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.MAVEN));
+        assertEquals("gradle --quiet test", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.GRADLE));
         assertEquals("cargo test -q", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.CARGO));
+        assertEquals("poetry run pytest -q", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.POETRY));
+        assertEquals("npm test --silent", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.NPM));
         assertEquals(
-                "poetry run pytest -q", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.POETRY));
-        assertEquals("", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.MAVEN));
+                "dotnet test --verbosity quiet", BuildToolConventions.getDefaultTestAllCommand(BuildSystem.DOTNET));
 
         assertEquals(
                 "cargo test -q {{#classes}}{{value}}{{^last}} {{/last}}{{/classes}}",
@@ -68,6 +83,12 @@ class BuildToolConventionsTest {
         assertEquals(
                 "poetry run pytest -q {{#files}}{{value}}{{^last}} {{/last}}{{/files}}",
                 BuildToolConventions.getDefaultTestSomeCommand(BuildSystem.POETRY));
+        assertEquals(
+                "mvn --quiet test -Dsurefire.failIfNoSpecifiedTests=false -Dtest={{#classes}}{{value}}{{^last}},{{/last}}{{/classes}}",
+                BuildToolConventions.getDefaultTestSomeCommand(BuildSystem.MAVEN));
+        assertEquals(
+                "dotnet test --verbosity quiet --filter \"{{#classes}}FullyQualifiedName~{{value}}{{^last}} | {{/last}}{{/classes}}\"",
+                BuildToolConventions.getDefaultTestSomeCommand(BuildSystem.DOTNET));
     }
 
     @Test
@@ -77,11 +98,15 @@ class BuildToolConventionsTest {
         assertEquals("mvn test", BuildToolConventions.resolveCommand("mvn test", List.of("pom.xml")));
 
         // Gradle wrapper
-        assertEquals("./gradlew build", BuildToolConventions.resolveCommand("gradle build", List.of("gradlew", "build.gradle")));
+        assertEquals(
+                "./gradlew build",
+                BuildToolConventions.resolveCommand("gradle build", List.of("gradlew", "build.gradle")));
         assertEquals("gradle build", BuildToolConventions.resolveCommand("gradle build", List.of("build.gradle")));
 
         // Poetry
-        assertEquals("poetry run pytest -v", BuildToolConventions.resolveCommand("pytest -v", List.of("poetry.lock", "pyproject.toml")));
+        assertEquals(
+                "poetry run pytest -v",
+                BuildToolConventions.resolveCommand("pytest -v", List.of("poetry.lock", "pyproject.toml")));
         assertEquals("pytest -v", BuildToolConventions.resolveCommand("pytest -v", List.of("pyproject.toml")));
 
         // Fallthrough
