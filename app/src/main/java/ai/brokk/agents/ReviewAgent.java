@@ -7,6 +7,7 @@ import static java.util.Objects.requireNonNullElse;
 import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
@@ -179,7 +180,7 @@ public class ReviewAgent {
                 MemoryConsole progressConsole = new MemoryConsole() {
                     @Override
                     public void llmOutput(
-                            String token, ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+                            String token, ChatMessageType type, LlmOutputMeta meta) {
                         super.llmOutput(token, type, meta);
                         if (token.contains("\n")) {
                             int lines = linesSeen.addAndGet(

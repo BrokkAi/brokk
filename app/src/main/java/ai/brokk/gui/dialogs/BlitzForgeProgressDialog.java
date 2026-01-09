@@ -2,6 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
@@ -344,7 +345,7 @@ public final class BlitzForgeProgressDialog extends BaseThemedDialog implements 
         }
 
         @Override
-        public void llmOutput(String token, ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+        public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
             super.llmOutput(token, type, meta);
             long newLines = token.chars().filter(c -> c == '\n').count();
             if (newLines > 0) {

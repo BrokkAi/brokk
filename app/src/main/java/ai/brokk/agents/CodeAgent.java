@@ -7,6 +7,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.Llm.StreamingResult;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.Languages;
@@ -455,7 +456,7 @@ public class CodeAgent {
 
     void report(String message) {
         logger.debug(message);
-        io.llmOutput("\n" + message, ChatMessageType.CUSTOM, ai.brokk.LlmOutputMeta.DEFAULT);
+        io.llmOutput("\n" + message, ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
     }
 
     void reportComplete(String message) {
@@ -463,7 +464,7 @@ public class CodeAgent {
         io.llmOutput(
                 "\n# Code Agent Finished\n" + message,
                 ChatMessageType.CUSTOM,
-                ai.brokk.LlmOutputMeta.terminal());
+                LlmOutputMeta.terminal());
     }
 
     Step parsePhase(
@@ -614,7 +615,7 @@ public class CodeAgent {
             }
 
             var diagnosticMessages = formatDiagnosticsReport(Map.of(file, diags));
-            io.llmOutput(diagnosticMessages, ChatMessageType.CUSTOM, ai.brokk.LlmOutputMeta.DEFAULT);
+            io.llmOutput(diagnosticMessages, ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
             if (attempts++ >= MAX_QUICK_FIX_ATTEMPTS) {
                 report("Quick Edit: Maximum fix attempts reached.");

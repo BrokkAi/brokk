@@ -1,6 +1,7 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -57,7 +58,7 @@ public class TextAreaConsoleIO implements IConsoleIO {
     }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         // Handle transition from reasoning -> content by clearing any interim reasoning tokens first.
         if (clearOnReasoningTransition) {
             if (!meta.isReasoning() && lastWasReasoning && !hasStartedContent) {

@@ -8,6 +8,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
@@ -1120,7 +1121,7 @@ public class BuildAgent {
             io.llmOutput(
                     "\nNo verification command specified, skipping build/check.",
                     ChatMessageType.CUSTOM,
-                    ai.brokk.LlmOutputMeta.newMessage());
+                    LlmOutputMeta.newMessage());
             return ctx; // unchanged
         }
 
@@ -1206,9 +1207,9 @@ public class BuildAgent {
         io.llmOutput(
                 "\nRunning verification command: \n\n```bash\n" + verificationCommand + "\n```\n",
                 ChatMessageType.CUSTOM,
-                ai.brokk.LlmOutputMeta.newMessage());
+                LlmOutputMeta.newMessage());
         String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
-        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM, ai.brokk.LlmOutputMeta.DEFAULT);
+        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
         try {
             var details = override != null ? override : cm.getProject().awaitBuildDetails();
             var envVars = details.environmentVariables();
@@ -1220,16 +1221,16 @@ public class BuildAgent {
             var output = Environment.instance.runShellCommand(
                     verificationCommand,
                     cm.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, ai.brokk.LlmOutputMeta.DEFAULT),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT),
                     timeout,
                     execCfg,
                     envVars);
-            io.llmOutput("\n```", ChatMessageType.CUSTOM, ai.brokk.LlmOutputMeta.DEFAULT);
+            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
             logger.debug("Verification command successful. Output: {}", output);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
-            io.llmOutput("\n```", ChatMessageType.CUSTOM, ai.brokk.LlmOutputMeta.DEFAULT); // Close the markdown block
+            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT); // Close the markdown block
 
             String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);

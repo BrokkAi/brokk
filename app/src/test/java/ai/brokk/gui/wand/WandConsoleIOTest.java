@@ -3,6 +3,7 @@ package ai.brokk.gui.wand;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -143,7 +144,7 @@ class WandConsoleIOTest {
     }
 
     private void emit(String token, boolean isReasoning, boolean isNewMessage) throws Exception {
-        var meta = ai.brokk.LlmOutputMeta.DEFAULT
+        var meta = LlmOutputMeta.DEFAULT
                 .withReasoning(isReasoning)
                 .withNewMessage(isNewMessage);
         wandConsoleIO.llmOutput(token, ChatMessageType.AI, meta);
