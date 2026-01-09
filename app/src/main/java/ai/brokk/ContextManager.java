@@ -975,7 +975,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public boolean undoContext() {
-        return withFileChangeNotificationsPaused(() -> {
+        return withStableContext(() -> {
             UndoResult result = contextHistory.undo(1, io, project);
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
@@ -993,8 +993,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** undo changes until we reach the target FROZEN context */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
-            UndoResult result =
-                    withFileChangeNotificationsPaused(() -> contextHistory.undoUntil(targetFrozenContext, io, project));
+            UndoResult result = withStableContext(() -> contextHistory.undoUntil(targetFrozenContext, io, project));
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1012,8 +1011,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** redo last undone context */
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
-            ContextHistory.RedoResult redoResult =
-                    withFileChangeNotificationsPaused(() -> contextHistory.redo(io, project));
+            ContextHistory.RedoResult redoResult = withStableContext(() -> contextHistory.redo(io, project));
             if (redoResult.wasRedone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -1894,17 +1892,24 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
         analyzerWrapper.pause();
         try {
-            liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
-        try {
             return callable.call();
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
             analyzerWrapper.resume();
         }
+    }
+
+    @Blocking
+    public <T> T withStableContext(Callable<T> callable) {
+        return withFileChangeNotificationsPaused(() -> {
+            try {
+                liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return callable.call();
+        });
     }
 
     @FunctionalInterface
