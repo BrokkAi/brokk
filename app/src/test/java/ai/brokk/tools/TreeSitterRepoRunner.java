@@ -191,6 +191,11 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             negatable = true)
     private boolean sparseCheckout = true;
 
+    @CommandLine.Option(
+            names = "--threads",
+            description = "Number of concurrent clone operations (default: available processors)")
+    private int threads = Runtime.getRuntime().availableProcessors();
+
     @CommandLine.Option(names = "--max-files", description = "Maximum files to process (default: 1000)")
     private int maxFiles = 1000;
 
@@ -1299,6 +1304,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             System.out.printf("Directory     : %s%n", testDirectory.toAbsolutePath());
         }
         System.out.printf("Max files     : %d%n", maxFiles);
+        System.out.printf("Threads       : %d%n", threads);
         System.out.printf("Warm-ups      : %d%n", warmupIterations);
         System.out.printf("Iterations    : %d%n", iterations);
         System.out.printf("Memory profile: %s%n", memoryProfiling ? "ENABLED" : "disabled");
