@@ -70,6 +70,11 @@ public class MutedConsoleIO implements IConsoleIO {
     }
 
     @Override
+    public void llmOutput(String token, ChatMessageType type) {
+        // Mute streaming output
+    }
+
+    @Override
     public void systemNotify(String message, String title, int messageType) {
         delegate.systemNotify(message, title, messageType);
     }
