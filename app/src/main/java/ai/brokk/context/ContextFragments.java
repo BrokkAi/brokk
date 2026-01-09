@@ -413,61 +413,28 @@ public class ContextFragments {
         private static ContentSnapshot decodeFrozen(ProjectFile file, IContextManager contextManager, byte[] bytes) {
             String text = new String(bytes, StandardCharsets.UTF_8);
             String name = file.getFileName();
-            Set<CodeUnit> sources = new LinkedHashSet<>();
-            Set<ProjectFile> files = new LinkedHashSet<>();
-            files.add(file);
-
-            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+            Set<CodeUnit> sources;
             try {
-                Set<CodeUnit> declarations = analyzer.getDeclarations(file);
-                sources.addAll(declarations);
-
-                declarations.stream()
-                        .filter(CodeUnit::isClass)
-                        .flatMap(cls -> analyzer.getDirectAncestors(cls).stream())
-                        .filter(anc -> !anc.isAnonymous())
-                        .forEach(anc -> {
-                            sources.add(anc);
-                            files.add(anc.source());
-                        });
+                sources = contextManager.getAnalyzerUninterrupted().getDeclarations(file);
             } catch (Throwable t) {
                 logger.error("Failed to analyze declarations for file {}, sources will be empty", name, t);
+                sources = Set.of();
             }
-            return new ContentSnapshot(text, Set.copyOf(sources), Set.copyOf(files), (List<Byte>) null, true);
+            return new ContentSnapshot(text, sources, Set.of(file), (List<Byte>) null, true);
         }
 
         private static ContentSnapshot computeSnapshotFor(ProjectFile file, IContextManager contextManager) {
             boolean valid = file.exists();
             String text = file.read().orElse("");
             String name = file.getFileName();
-
-            Set<CodeUnit> sources = new LinkedHashSet<>();
-            Set<ProjectFile> files = new LinkedHashSet<>();
-            files.add(file);
-
-            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+            Set<CodeUnit> sources = Set.of();
             try {
-                sources.addAll(analyzer.getDeclarations(file));
-
-                Map<CodeUnit, String> ancestorSkeletons = new LinkedHashMap<>();
-                analyzer.getTopLevelDeclarations(file).stream()
-                        .filter(CodeUnit::isClass)
-                        .forEach(cls -> ancestorSkeletons.putAll(resolveAncestorSkeletons(cls, analyzer)));
-
-                if (!ancestorSkeletons.isEmpty()) {
-                    String formatted = new SkeletonFragmentFormatter().format(new SkeletonFragmentFormatter.Request(
-                            null, List.of(), ancestorSkeletons, SummaryType.FILE_SKELETONS));
-                    if (!formatted.isEmpty()) {
-                        text = text + "\n\n" + formatted;
-                        sources.addAll(ancestorSkeletons.keySet());
-                        ancestorSkeletons.keySet().forEach(anc -> files.add(anc.source()));
-                    }
-                }
+                sources = contextManager.getAnalyzerUninterrupted().getDeclarations(file);
             } catch (Exception e) {
                 logger.error("Failed to analyze declarations for file {}, sources will be empty", name, e);
             }
 
-            return new ContentSnapshot(text, Set.copyOf(sources), Set.copyOf(files), (List<Byte>) null, valid);
+            return new ContentSnapshot(text, sources, Set.of(file), (List<Byte>) null, valid);
         }
 
         private ProjectPathFragment(
@@ -1407,24 +1374,20 @@ public class ContextFragments {
 
         private static ContentSnapshot decodeFrozen(String fullyQualifiedName, byte[] bytes, IAnalyzer analyzer) {
             String text = new String(bytes, StandardCharsets.UTF_8);
-            Set<CodeUnit> units = new LinkedHashSet<>();
-            Set<ProjectFile> files = new LinkedHashSet<>();
+            Set<CodeUnit> units = Set.of();
+            Set<ProjectFile> files = Set.of();
             try {
-                analyzer.getDefinitions(fullyQualifiedName).stream().findFirst().ifPresent(unit -> {
-                    units.add(unit);
-                    files.add(unit.source());
-
-                    if (unit.isClass()) {
-                        Map<CodeUnit, String> ancestors = resolveAncestorSkeletons(unit, analyzer);
-                        units.addAll(ancestors.keySet());
-                        ancestors.keySet().forEach(anc -> files.add(anc.source()));
-                    }
-                });
+                var unit = analyzer.getDefinitions(fullyQualifiedName).stream()
+                        .findFirst()
+                        .orElseThrow();
+                units = Set.of(unit);
+                var file = unit.source();
+                files = Set.of(file);
             } catch (Exception e) {
                 logger.warn("Unable to resolve CodeUnit for fqName: {}", fullyQualifiedName);
             }
 
-            return ContentSnapshot.textSnapshot(text, Set.copyOf(units), Set.copyOf(files));
+            return ContentSnapshot.textSnapshot(text, units, files);
         }
 
         public CodeFragment(IContextManager contextManager, CodeUnit unit) {
@@ -1455,57 +1418,34 @@ public class ContextFragments {
                                 () -> new IllegalArgumentException("Unable to resolve CodeUnit for fqName: " + fqName));
             }
 
-            StringBuilder sb = new StringBuilder();
+            String text;
             var analyzer = contextManager.getAnalyzerUninterrupted();
             var scpOpt = analyzer.as(SourceCodeProvider.class);
             boolean hasSourceCode = false;
             if (scpOpt.isEmpty()) {
-                sb.append("Code Intelligence cannot extract source for: ").append(fqName);
+                text = "Code Intelligence cannot extract source for: " + fqName;
             } else {
                 var scp = scpOpt.get();
                 if (unit.isFunction()) {
                     var codeOpt = scp.getMethodSource(unit, true);
                     if (codeOpt.isPresent()) {
-                        sb.append(new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text());
+                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
                         hasSourceCode = true;
                     } else {
-                        sb.append("No source found for method: ").append(fqName);
+                        text = "No source found for method: " + fqName;
                     }
                 } else {
                     var codeOpt = scp.getClassSource(unit, true);
                     if (codeOpt.isPresent()) {
-                        sb.append(new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text());
+                        text = new AnalyzerUtil.CodeWithSource(codeOpt.get(), unit).text();
                         hasSourceCode = true;
                     } else {
-                        sb.append("No source found for class: ").append(fqName);
+                        text = "No source found for class: " + fqName;
                     }
                 }
             }
 
-            Set<CodeUnit> sources = new LinkedHashSet<>();
-            sources.add(unit);
-            Set<ProjectFile> files = new LinkedHashSet<>();
-            files.add(unit.source());
-
-            if (unit.isClass()) {
-                Map<CodeUnit, String> ancestorSkeletons = resolveAncestorSkeletons(unit, analyzer);
-                if (!ancestorSkeletons.isEmpty()) {
-                    String formattedAncestors = new SkeletonFragmentFormatter()
-                            .format(new SkeletonFragmentFormatter.Request(
-                                    unit,
-                                    analyzer.getDirectAncestors(unit),
-                                    ancestorSkeletons,
-                                    SummaryType.CODEUNIT_SKELETON));
-                    if (!formattedAncestors.isEmpty()) {
-                        sb.append("\n\n").append(formattedAncestors);
-                        sources.addAll(ancestorSkeletons.keySet());
-                        ancestorSkeletons.keySet().forEach(anc -> files.add(anc.source()));
-                    }
-                }
-            }
-
-            return new ContentSnapshot(
-                    sb.toString(), Set.copyOf(sources), Set.copyOf(files), (List<Byte>) null, hasSourceCode);
+            return new ContentSnapshot(text, Set.of(unit), Set.of(unit.source()), (List<Byte>) null, hasSourceCode);
         }
 
         @Override
