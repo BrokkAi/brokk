@@ -1,6 +1,7 @@
 package ai.brokk.context;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnit;
