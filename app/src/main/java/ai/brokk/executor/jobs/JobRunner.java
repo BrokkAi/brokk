@@ -166,10 +166,12 @@ public final class JobRunner {
                         : null;
                 final StreamingChatModel reviewPlannerModel =
                         mode == Mode.REVIEW ? resolveModelOrThrow(spec.plannerModel()) : null;
-                final StreamingChatModel reviewCodeModel = mode == Mode.REVIEW
-                        ? (hasCodeModelOverride
-                                ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
-                                : defaultCodeModel())
+                // Resolve scan model for REVIEW mode (prefer explicit spec.scanModel() if provided; otherwise project
+                // default)
+                final StreamingChatModel reviewScanModel = mode == Mode.REVIEW
+                        ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
+                                ? resolveModelOrThrow(spec.scanModel().trim())
+                                : cm.getService().getScanModel())
                         : null;
                 final StreamingChatModel askPlannerModel =
                         mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
@@ -206,20 +208,20 @@ public final class JobRunner {
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
-                            case REVIEW -> service.nameOf(Objects.requireNonNull(reviewCodeModel));
+                            case REVIEW -> "(default, ignored for REVIEW)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ -> !hasCodeModelOverride;
-                            case ASK, SEARCH -> true;
-                            case CODE, REVIEW -> !hasCodeModelOverride;
+                            case ASK, SEARCH, REVIEW -> true;
+                            case CODE -> !hasCodeModelOverride;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
                     plannerModelNameForLog = (mode == Mode.CODE) ? "(unused)" : "(unknown)";
                 }
                 if (codeModelNameForLog == null || codeModelNameForLog.isBlank()) {
                     codeModelNameForLog = usesDefaultCodeModel ? "(default)" : "(unknown)";
-                } else if (usesDefaultCodeModel && mode != Mode.ASK && mode != Mode.SEARCH) {
+                } else if (usesDefaultCodeModel && mode != Mode.ASK && mode != Mode.SEARCH && mode != Mode.REVIEW) {
                     codeModelNameForLog = codeModelNameForLog + " (default)";
                 }
 
@@ -541,30 +543,54 @@ public final class JobRunner {
                                         }
                                     }
                                     case REVIEW -> {
+                                        // Parse PR data from task input
                                         var prData = Json.getMapper().readTree(spec.taskInput());
                                         int prNumber = prData.get("pr_number").asInt(0);
                                         String repoURL = prData.get("repo_url").asText();
 
-                                        // Create review prompt
-                                        String reviewPrompt = managePRContext(prNumber, repoURL, spec);
+                                        try (var scope = cm.beginTaskUngrouped("Review PR #" + prNumber)) {
+                                            // 1. Extract diff from GitHub PR
+                                            PRDiffInfo prInfo = extractPRDiff(prNumber, repoURL, spec);
 
-                                        // Execute review using CodeAgent
-                                        var agent = new CodeAgent(
-                                                cm,
-                                                Objects.requireNonNull(
-                                                        reviewPlannerModel,
-                                                        "plannel model unavailable for REVIEW jobs"));
+                                            // 2. Add diff to context
+                                            var context = cm.liveContext();
+                                            var diffFragment = new ContextFragments.StringFragment(
+                                                    cm,
+                                                    prInfo.diff(),
+                                                    "PR #" + prNumber + ": " + prInfo.title(),
+                                                    "text/x-diff",
+                                                    prInfo.changedFiles());
+                                            context = context.addFragments(diffFragment);
 
-                                        TaskResult result;
-                                        try (var scope = cm.beginTaskUngrouped("Review")) {
-                                            result = agent.execute(reviewPrompt, Set.of());
+                                            // 3. Pre-scan to load relevant context using ContextAgent
+                                            var scanModel = Objects.requireNonNull(
+                                                    reviewScanModel, "scan model unavailable for REVIEW jobs");
+                                            var searchAgent = new LutzAgent(
+                                                    context,
+                                                    "Review the diff for PR #" + prNumber,
+                                                    scanModel,
+                                                    SearchPrompts.Objective.ANSWER_ONLY,
+                                                    scope);
+                                            context = searchAgent.scanContext();
+
+                                            // 4. Generate review using planner model
+                                            var plannerModel = Objects.requireNonNull(
+                                                    reviewPlannerModel, "planner model unavailable for REVIEW jobs");
+                                            TaskResult result = reviewUsingPlannerModel(context, plannerModel, prInfo);
                                             scope.append(result);
-                                        }
-                                        String jsonString = result.stopDetails().explanation();
-                                        if (!jsonString.isBlank()) {
-                                            Object parsed = Json.fromJson(
-                                                    jsonString, new TypeReference<Map<String, Object>>() {});
-                                            completionResultRef.set(parsed);
+
+                                            // 5. Extract JSON for completion result
+                                            String responseText =
+                                                    result.stopDetails().explanation();
+                                            if (!responseText.isBlank()) {
+                                                try {
+                                                    Object parsed = Json.fromJson(
+                                                            responseText, new TypeReference<Map<String, Object>>() {});
+                                                    completionResultRef.set(parsed);
+                                                } catch (Exception e) {
+                                                    logger.warn("Failed to parse review JSON: {}", e.getMessage());
+                                                }
+                                            }
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
@@ -765,6 +791,91 @@ public final class JobRunner {
                 meta);
     }
 
+    /**
+     * Generates a code review using the planner model and returns the result as JSON.
+     *
+     * @param ctx the current Context with workspace and diff
+     * @param model the model to use for the review
+     * @param prInfo the PR metadata including diff
+     * @return a TaskResult containing the review JSON
+     */
+    private TaskResult reviewUsingPlannerModel(Context ctx, StreamingChatModel model, PRDiffInfo prInfo) {
+        var svc = cm.getService();
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
+
+        String reviewGuide = cm.getProject().getReviewGuide();
+        String systemPrompt =
+                """
+                You are an expert code reviewer. Your task is to review the proposed changes in a Pull Request.
+
+                Focus on:
+                1. Design issues - architectural concerns, coupling, abstraction problems
+                2. Bugs and correctness - logic errors, edge cases, error handling gaps
+                3. Code quality - readability, maintainability, naming, duplication
+
+                Be constructive, specific, and actionable in your feedback.
+                """;
+
+        String userPrompt =
+                """
+                Please review the following Pull Request:
+                PR #%d: %s
+
+                Description:
+                %s
+
+                Review Guidelines:
+                %s
+
+                <diff>
+                %s
+                </diff>
+
+                Provide your review as JSON with this exact schema (no markdown fences, no extra text):
+                {
+                  "action": "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
+                  "comments": [
+                    {
+                      "file": "relative/path/to/file",
+                      "line": 123,
+                      "comment": "Specific issue description"
+                    }
+                  ],
+                  "summary": "Overall review summary"
+                }
+
+                For each issue, create a comment entry with the exact file path, line number, and a concise description.
+                Use action=REQUEST_CHANGES for blocking issues, APPROVE if no issues, COMMENT for minor suggestions.
+                """
+                        .formatted(prInfo.prNumber(), prInfo.title(), prInfo.description(), reviewGuide, prInfo.diff());
+
+        List<ChatMessage> messages = List.of(new SystemMessage(systemPrompt), new UserMessage(userPrompt));
+
+        var llm = cm.getLlm(new Llm.Options(model, "Review PR #" + prInfo.prNumber()).withEcho());
+        llm.setOutput(cm.getIo());
+
+        TaskResult.StopDetails stop = null;
+        Llm.StreamingResult response = null;
+        try {
+            response = llm.sendRequest(messages);
+        } catch (InterruptedException e) {
+            stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+        }
+
+        if (response != null) {
+            stop = TaskResult.StopDetails.fromResponse(response);
+        }
+
+        Objects.requireNonNull(stop);
+        return new TaskResult(
+                cm,
+                "Review PR #" + prInfo.prNumber() + ": " + prInfo.title(),
+                List.copyOf(cm.getIo().getLlmRawMessages()),
+                ctx,
+                stop,
+                meta);
+    }
+
     private static Throwable unwrapFailure(Throwable throwable) {
         var current = throwable;
         while ((current instanceof CompletionException || current instanceof ExecutionException)) {
@@ -786,16 +897,20 @@ public final class JobRunner {
     }
 
     /**
-     * Manages pull request context by fetching PR data, extracting diff information,
-     * and generating a formatted review prompt with project guidelines.
+     * Information extracted from a GitHub Pull Request for review.
+     */
+    record PRDiffInfo(int prNumber, String title, String description, String diff, Set<ProjectFile> changedFiles) {}
+
+    /**
+     * Extracts diff and metadata from a GitHub Pull Request.
      *
      * @param prNumber The pull request number
      * @param repoUrl The GitHub repository URL
-     * @return Formatted review prompt string with JSON output instructions
+     * @param spec The job specification containing auth tokens
+     * @return PRDiffInfo with the extracted data
      * @throws IOException If GitHub API communication fails
-     * @throws IllegalArgumentException If the repository URL is invalid
      */
-    private String managePRContext(int prNumber, String repoUrl, JobSpec spec) throws IOException {
+    private PRDiffInfo extractPRDiff(int prNumber, String repoUrl, JobSpec spec) throws IOException {
         var ownerRepo = GitRepoIdUtil.parseOwnerRepoFromUrl(repoUrl);
         if (ownerRepo == null) {
             throw new IllegalArgumentException("Invalid GitHub URL: " + repoUrl);
@@ -826,74 +941,39 @@ public final class JobRunner {
         GHRepository ghRepo = github.getRepository(owner + "/" + repoName);
         GHPullRequest pr = ghRepo.getPullRequest(prNumber);
 
-        try {
-            StringBuilder diff = new StringBuilder();
-            Set<ProjectFile> changedFiles = new LinkedHashSet<>();
+        StringBuilder diff = new StringBuilder();
+        Set<ProjectFile> changedFiles = new LinkedHashSet<>();
 
-            for (GHPullRequestFileDetail file : pr.listFiles()) {
-                String filename = file.getFilename();
-                if (filename != null && !filename.isBlank()) {
-                    try {
-                        var projectFile = cm.toFile(filename);
-                        changedFiles.add(projectFile);
-                    } catch (Exception ex) {
-                        if (logger.isDebugEnabled()) {
-                            logger.debug("Unable to resolve ProjectFile for PR file '{}'", filename, ex);
-                        }
+        for (GHPullRequestFileDetail file : pr.listFiles()) {
+            String filename = file.getFilename();
+            if (filename != null && !filename.isBlank()) {
+                try {
+                    var projectFile = cm.toFile(filename);
+                    changedFiles.add(projectFile);
+                } catch (Exception ex) {
+                    if (logger.isDebugEnabled()) {
+                        logger.debug("Unable to resolve ProjectFile for PR file '{}'", filename, ex);
                     }
-                }
-
-                String patch = file.getPatch();
-
-                if (patch != null && filename != null && !filename.isBlank()) {
-                    diff.append("diff --git a/")
-                            .append(filename)
-                            .append(" b/")
-                            .append(filename)
-                            .append("\n")
-                            .append(patch)
-                            .append("\n");
                 }
             }
 
-            String fullDiff = diff.toString();
-            String description = pr.getBody();
-
-            var fragment = new ContextFragments.StringFragment(
-                    cm, fullDiff, description, "text/x-diff", Set.copyOf(changedFiles));
-            cm.addFragments(fragment);
-
-            String reviewGuide = cm.getProject().getReviewGuide();
-
-            return String.format(
-                    """
-                Please review the following Pull Request:
-                PR #%d: %s
-                %s
-                Review Guidelines:
-                %s
-
-                Please provide a thorough code review based on the diff and files in context.
-                IMPORTANT: You must output ONLY valid JSON with this exact schema (no markdown fences, no extra text):
-                {
-                "action": "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
-                "comments": [
-                    {
-                    "file": "relative/path/to/file",
-                    "line": 123,
-                    "comment": "Specific issue description"
-                    }
-                ],
-                "summary": "Overall review summary"
-                }
-
-                For each issue you find, create a comment entry with the exact file path from the changed_files, line number, and a concise description.
-                Use action=REQUEST_CHANGES for blocking issues, APPROVE if no issues, COMMENT for minor suggestions.
-                """,
-                    prNumber, pr.getTitle(), description, reviewGuide);
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to build review context for PR #" + prNumber, e);
+            String patch = file.getPatch();
+            if (patch != null && filename != null && !filename.isBlank()) {
+                diff.append("diff --git a/")
+                        .append(filename)
+                        .append(" b/")
+                        .append(filename)
+                        .append("\n")
+                        .append(patch)
+                        .append("\n");
+            }
         }
+
+        return new PRDiffInfo(
+                prNumber,
+                pr.getTitle() != null ? pr.getTitle() : "",
+                pr.getBody() != null ? pr.getBody() : "",
+                diff.toString(),
+                Set.copyOf(changedFiles));
     }
 }
