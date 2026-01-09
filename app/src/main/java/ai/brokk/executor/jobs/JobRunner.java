@@ -855,13 +855,7 @@ public final class JobRunner {
         }
 
         Objects.requireNonNull(stop);
-        return new TaskResult(
-                cm,
-                "Diff Review",
-                List.copyOf(cm.getIo().getLlmRawMessages()),
-                ctx,
-                stop,
-                meta);
+        return new TaskResult(cm, "Diff Review", List.copyOf(cm.getIo().getLlmRawMessages()), ctx, stop, meta);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
