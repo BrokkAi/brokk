@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import javax.swing.*;
@@ -26,8 +27,9 @@ public class FileTreePanel extends JPanel implements ThemeAware {
 
     private final JTree fileTree;
     private final DefaultTreeModel treeModel;
-    private DefaultMutableTreeNode rootNode;
-    private final List<FileComparisonInfo> fileComparisons;
+    private final DefaultMutableTreeNode rootNode;
+    private List<FileComparisonInfo> fileComparisons;
+
     private final JScrollPane scrollPane;
 
     @Nullable
@@ -41,6 +43,25 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     // Indices of files that currently have unsaved changes
     private final Set<Integer> dirtyIndices = new HashSet<>();
     private volatile int pendingInitialSelection = -1;
+
+    private final AtomicInteger buildGeneration = new AtomicInteger(0);
+
+    @Nullable
+    private SwingWorker<List<FileWithPath>, Void> activeWorker;
+
+    public void updateData(List<FileComparisonInfo> fileComparisons, Path projectRoot, @Nullable String rootTitle) {
+        assert SwingUtilities.isEventDispatchThread() : "updateData must be called on EDT";
+        this.fileComparisons = List.copyOf(fileComparisons);
+        String displayTitle =
+                rootTitle != null ? rootTitle : projectRoot.getFileName().toString();
+        rootNode.setUserObject(displayTitle);
+
+        // Reset state for the new data set
+        this.dirtyIndices.clear();
+        this.pendingInitialSelection = -1;
+
+        buildTree();
+    }
 
     public FileTreePanel(List<FileComparisonInfo> fileComparisons, Path projectRoot) {
         this(fileComparisons, projectRoot, null);
@@ -95,6 +116,15 @@ public class FileTreePanel extends JPanel implements ThemeAware {
     }
 
     private void buildTree() {
+        assert SwingUtilities.isEventDispatchThread() : "buildTree must be called on EDT";
+
+        // Cancel any existing worker for a previous generation
+        if (activeWorker != null) {
+            activeWorker.cancel(true);
+        }
+
+        final int generation = buildGeneration.incrementAndGet();
+
         rootNode.removeAllChildren();
 
         // Show loading state immediately
@@ -103,13 +133,13 @@ public class FileTreePanel extends JPanel implements ThemeAware {
         treeModel.reload();
 
         // Perform file operations in background thread
-        new SwingWorker<List<FileWithPath>, Void>() {
+        activeWorker = new SwingWorker<List<FileWithPath>, Void>() {
             @Override
             protected List<FileWithPath> doInBackground() throws Exception {
                 assert !SwingUtilities.isEventDispatchThread() : "Background work should not run on EDT";
 
                 // Collect all files with their complete paths and determine status
-                var allFiles = IntStream.range(0, fileComparisons.size())
+                return IntStream.range(0, fileComparisons.size())
                         .mapToObj(i -> {
                             var comparison = fileComparisons.get(i);
                             ProjectFile file = comparison.file();
@@ -132,13 +162,16 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                         })
                         .sorted(Comparator.comparing(f -> f.path.toString()))
                         .collect(Collectors.toCollection(ArrayList::new));
-
-                return allFiles;
             }
 
             @Override
             protected void done() {
                 assert SwingUtilities.isEventDispatchThread() : "UI updates must run on EDT";
+
+                // Only apply results if this is still the current generation and was not cancelled
+                if (generation != buildGeneration.get() || isCancelled()) {
+                    return;
+                }
 
                 try {
                     var allFiles = get();
@@ -178,9 +211,14 @@ public class FileTreePanel extends JPanel implements ThemeAware {
                 } catch (Exception e) {
                     // Handle file I/O errors gracefully
                     logger.error("Error building file tree", e);
+                } finally {
+                    if (activeWorker == this) {
+                        activeWorker = null;
+                    }
                 }
             }
-        }.execute();
+        };
+        activeWorker.execute();
     }
 
     private DefaultMutableTreeNode findOrCreateDirectoryNode(DefaultMutableTreeNode root, Path dirPath) {

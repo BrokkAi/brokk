@@ -70,7 +70,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private BaselineMode lastBaselineMode = null;
 
-    private ai.brokk.difftool.ui.DiffDisplayCore diffCore;
+    private final ai.brokk.difftool.ui.DiffDisplayCore diffCore;
 
     private final ai.brokk.difftool.ui.FileTreePanel fileTreePanel;
 
@@ -78,9 +78,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final JSplitPane leftSplitPane;
 
-    private JPanel diffContainer;
+    private final JPanel diffContainer;
 
-    private JComboBox<ComparisonTarget> baselineDropdown;
+    private final JComboBox<ComparisonTarget> baselineDropdown;
 
     private final MaterialButton commitBtn;
 
@@ -94,18 +94,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton pasteBtn;
 
+    private final CardLayout mainCardLayout;
+    private final JPanel cardsPanel;
+    private final JLabel emptyLabel;
+
     private boolean guidedReviewBusy = false;
 
     private boolean hasGeneratedReview = false;
 
-    @Nullable
-    private JScrollPane detailScrollPane = null;
+    private final JScrollPane detailScrollPane;
 
-    @Nullable
-    private JSplitPane rightVerticalSplitPane = null;
+    private final JSplitPane rightVerticalSplitPane;
 
-    @Nullable
-    private JSplitPane mainSplitPane = null;
+    private final JSplitPane mainSplitPane;
 
     @Nullable
     private ReviewParser.CodeExcerpt activeExcerpt = null;
@@ -130,6 +131,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.repo = gr;
 
         setOpaque(false);
+        setBorder(new CompoundBorder(
+                new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
 
         this.baselineDropdown = new JComboBox<>(ComparisonTarget.values());
         this.baselineDropdown.setOpaque(false);
@@ -151,13 +154,147 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
         this.leftSplitPane.setResizeWeight(0.5);
 
+        this.detailScrollPane = new JScrollPane(codeReviewPanel.getDetailPanel());
+        this.detailScrollPane.setBorder(null);
+
+        this.rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detailScrollPane, diffContainer);
+        this.rightVerticalSplitPane.setResizeWeight(0.5);
+
+        this.mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplitPane);
+        this.mainSplitPane.setDividerLocation(300);
+
+        this.mainCardLayout = new CardLayout();
+        this.cardsPanel = new JPanel(mainCardLayout);
+        this.cardsPanel.setOpaque(false);
+
+        this.emptyLabel = new JLabel("", SwingConstants.CENTER);
+        this.emptyLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
+        this.cardsPanel.add(emptyLabel, "EMPTY");
+        this.cardsPanel.add(mainSplitPane, "MAIN");
+
+        var headerPanel = new JPanel(new BorderLayout(8, 0));
+        headerPanel.setOpaque(false);
+        var leftHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        leftHeader.setOpaque(false);
+        leftHeader.add(baselineDropdown);
+        headerPanel.add(leftHeader, BorderLayout.WEST);
+
+        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
+        buttonPanel.setOpaque(false);
+        buttonPanel.add(commitBtn);
+        buttonPanel.add(pullBtn);
+        buttonPanel.add(pushBtn);
+        buttonPanel.add(prBtn);
+        buttonPanel.add(guidedReviewBtn);
+        headerPanel.add(buttonPanel, BorderLayout.EAST);
+
+        add(headerPanel, BorderLayout.NORTH);
+        add(cardsPanel, BorderLayout.CENTER);
+
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
 
-        // Initialize diffCore with empty comparisons - will be replaced on first rebuildUI
-        var initialDummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
+        var dummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
                 new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
-        this.diffCore = new ai.brokk.difftool.ui.DiffDisplayCore(
-                initialDummyPanel, contextManager, chrome.getTheme(), List.of(), false, 0);
+        this.diffCore = createDiffCore(dummyPanel);
+
+        // One-time listener installations
+        fileTreePanel.setSelectionListener(new DiffProjectFileNavigationTarget() {
+            @Override
+            public void navigateToFile(int fileIndex) {
+                codeReviewPanel.clearSelection();
+                activeExcerpt = null;
+                diffCore.showFile(fileIndex);
+            }
+
+            @Override
+            public void navigateToFile(ProjectFile file) {
+                codeReviewPanel.clearSelection();
+                activeExcerpt = null;
+                diffCore.showFile(file);
+            }
+
+            @Override
+            public void navigateToLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
+                codeReviewPanel.clearSelection();
+                activeExcerpt = null;
+                diffCore.showLocation(file, lineNumber, side);
+            }
+        });
+
+        codeReviewPanel.addReviewNavigationListener(ce -> {
+            fileTreePanel.selectFileQuietly(ce.file());
+            activeExcerpt = ce;
+            diffCore.showLocation(ce.file(), ce.line(), ce.side());
+        });
+
+        commitBtn.addActionListener(e -> showCommitDialog());
+        pullBtn.addActionListener(e -> performPull());
+        pushBtn.addActionListener(e -> performPush());
+        prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
+        pasteBtn.addActionListener(e -> handlePasteReview());
+
+        SwingUtil.applyPrimaryButtonStyle(commitBtn);
+        SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
+        guidedReviewBtn.setIdleAction(this::generateGuidedReview);
+        guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
+    }
+
+    private ai.brokk.difftool.ui.DiffDisplayCore createDiffCore(ai.brokk.difftool.ui.BrokkDiffPanel dummyPanel) {
+        return new ai.brokk.difftool.ui.DiffDisplayCore(
+                dummyPanel, contextManager, chrome.getTheme(), fileComparisons, false, 0) {
+            @Override
+            protected ai.brokk.difftool.ui.AbstractDiffPanel createPanel(
+                    int index, ai.brokk.difftool.node.JMDiffNode diffNode) {
+                var panel = new ai.brokk.difftool.ui.unified.UnifiedDiffPanel(dummyPanel, chrome.getTheme(), diffNode);
+                panel.setContextMode(ai.brokk.difftool.ui.unified.UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
+                panel.applyTheme(chrome.getTheme());
+                return panel;
+            }
+
+            @Override
+            public void showFile(int index) {
+                super.showFile(index);
+                fileTreePanel.selectFile(index);
+            }
+
+            @Override
+            protected void displayPanel(
+                    int index,
+                    ai.brokk.difftool.ui.AbstractDiffPanel panel,
+                    int targetLine,
+                    ReviewParser.DiffSide targetSide) {
+                diffContainer.removeAll();
+                diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+
+                if (targetLine > 0) {
+                    panel.resetAutoScrollFlag();
+                    panel.diff(false);
+                    if (panel instanceof ai.brokk.difftool.ui.BufferDiffPanel bp) {
+                        var side = (targetSide == ReviewParser.DiffSide.OLD)
+                                ? ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.LEFT
+                                : ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.RIGHT;
+                        bp.scrollToLine(targetLine, side);
+                    } else if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                        up.clearExcerptHighlight();
+                        up.scrollToLine(targetLine, targetSide);
+                        if (activeExcerpt != null) {
+                            String[] lines = activeExcerpt.excerpt().split("\\r?\\n", -1);
+                            int endLine = targetLine + Math.max(0, lines.length - 1);
+                            up.highlightExcerptLines(targetLine, endLine, targetSide);
+                        }
+                    }
+                } else {
+                    if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                        up.clearExcerptHighlight();
+                    }
+                    panel.resetToFirstDifference();
+                    panel.diff(true);
+                }
+
+                diffContainer.revalidate();
+                diffContainer.repaint();
+            }
+        };
     }
 
     public void requestUpdate() {
@@ -432,6 +569,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
+        // Check if the baseline or mode has changed since the last review was generated
+        boolean baselineChanged = (baselineLabel != null && !baselineLabel.equals(lastBaselineLabel))
+                || (baselineMode != null && baselineMode != lastBaselineMode);
+
+        if (baselineChanged && hasGeneratedReview) {
+            hasGeneratedReview = false;
+            lastReviewState = null;
+            activeExcerpt = null;
+            codeReviewPanel.getDetailPanel().showPlaceholder();
+            updateReviewPanelVisibility(false);
+        }
+
         refreshUI(res, prepared, baselineMode);
     }
 
@@ -504,45 +653,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             List<Map.Entry<String, DiffService.DiffEntry>> prepared,
             @Nullable BaselineMode baselineMode) {
 
-        diffCore.clearCache();
-        removeAll();
-
         updateDropdownLabels();
 
-        var headerPanel = new JPanel(new BorderLayout(8, 0));
-        headerPanel.setOpaque(false);
-
-        var leftHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        leftHeader.setOpaque(false);
-
-        leftHeader.add(baselineDropdown);
-
-        headerPanel.add(leftHeader, BorderLayout.WEST);
-
         if (res.filesChanged() == 0 || baselineMode == BaselineMode.NO_BASELINE) {
-            var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-            buttonPanel.setOpaque(false);
-            headerPanel.add(buttonPanel, BorderLayout.EAST);
-
-            var topContainer = new JPanel(new BorderLayout(0, 6));
-            topContainer.setOpaque(false);
-            topContainer.add(headerPanel, BorderLayout.NORTH);
-
-            var emptyLabel = new JLabel(getEmptyStateMessage(), SwingConstants.CENTER);
-            emptyLabel.setBorder(new EmptyBorder(20, 0, 20, 0));
-            topContainer.add(emptyLabel, BorderLayout.CENTER);
-
-            setBorder(new CompoundBorder(
-                    new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
-            add(topContainer, BorderLayout.CENTER);
-
+            diffCore.updateFileComparisons(List.of());
+            emptyLabel.setText(getEmptyStateMessage());
+            mainCardLayout.show(cardsPanel, "EMPTY");
             revalidate();
             repaint();
             return;
         }
 
-        var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
-        buttonPanel.setOpaque(false);
+        mainCardLayout.show(cardsPanel, "MAIN");
 
         boolean hasUncommittedChanges = false;
         try {
@@ -553,16 +675,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         boolean isSession = baselineMode == BaselineMode.SESSION;
 
-        SwingUtil.applyPrimaryButtonStyle(commitBtn);
-        for (var al : commitBtn.getActionListeners()) commitBtn.removeActionListener(al);
-        commitBtn.addActionListener(e -> showCommitDialog());
         commitBtn.setVisible(!isSession && hasUncommittedChanges);
-        buttonPanel.add(commitBtn);
 
-        SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
         guidedReviewBtn.setVisible(true);
-        guidedReviewBtn.setIdleAction(this::generateGuidedReview);
-        guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
 
         var pushPull = res.pushPullState();
         boolean canPull = pushPull != null && pushPull.canPull();
@@ -577,16 +692,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         } else {
             pullBtn.setToolTipText(null);
         }
-        for (var al : pullBtn.getActionListeners()) pullBtn.removeActionListener(al);
-        pullBtn.addActionListener(e -> performPull());
         pullBtn.setVisible(!isSession);
-        buttonPanel.add(pullBtn);
 
         pushBtn.setEnabled(!hasUncommittedChanges);
-        for (var al : pushBtn.getActionListeners()) pushBtn.removeActionListener(al);
-        pushBtn.addActionListener(e -> performPush());
         pushBtn.setVisible(!isSession && pushPull != null && pushPull.canPush());
-        buttonPanel.add(pushBtn);
 
         boolean showPR = !isSession
                 && (baselineMode == BaselineMode.NON_DEFAULT_BRANCH
@@ -595,7 +704,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         boolean prBtnEnabled = !hasUncommittedChanges;
         String prBtnTooltip = null;
         if (prBtnEnabled && showPR) {
-            // Check if a PR already exists for this branch
             try {
                 String currentBranch = repo.getCurrentBranch();
                 if (GitHubAuth.getOrCreateInstance(contextManager.getProject())
@@ -605,155 +713,30 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 }
             } catch (Exception e) {
                 logger.debug("Could not check for existing PRs: {}", e.getMessage());
-                // Continue - don't block PR creation just because we couldn't check
             }
         }
         prBtn.setEnabled(prBtnEnabled);
-        if (prBtnTooltip != null) {
-            prBtn.setToolTipText(prBtnTooltip);
-        }
-        for (var al : prBtn.getActionListeners()) prBtn.removeActionListener(al);
-        prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
+        prBtn.setToolTipText(prBtnTooltip);
         prBtn.setVisible(showPR);
-        buttonPanel.add(prBtn);
-
-        for (var al : pasteBtn.getActionListeners()) pasteBtn.removeActionListener(al);
-        pasteBtn.addActionListener(e -> handlePasteReview());
-        // uncomment to enable paste-for-debugging
-        // buttonPanel.add(pasteBtn);
-
-        buttonPanel.add(guidedReviewBtn);
-
-        headerPanel.add(buttonPanel, BorderLayout.EAST);
-
-        var topContainer = new JPanel(new BorderLayout(0, 6));
-        topContainer.setOpaque(false);
-        topContainer.add(headerPanel, BorderLayout.NORTH);
 
         String projectName = "Project";
         var root = contextManager.getProject().getRoot();
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
-        this.fileComparisons = prepared.stream().map(this::toFileComparisonInfo).toList();
+        List<FileComparisonInfo> nextComparisons =
+                prepared.stream().map(this::toFileComparisonInfo).toList();
 
-        diffContainer = new JPanel(new BorderLayout());
-        diffContainer.setOpaque(false);
+        // If the file set changed significantly and we aren't showing a review, clear the excerpt
+        if (!nextComparisons.equals(this.fileComparisons)) {
+            activeExcerpt = null;
+        }
 
-        var dummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
-                new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
+        this.fileComparisons = nextComparisons;
+        this.diffCore.updateFileComparisons(this.fileComparisons, 0);
 
-        this.diffCore =
-                new ai.brokk.difftool.ui.DiffDisplayCore(
-                        dummyPanel, contextManager, chrome.getTheme(), fileComparisons, false, 0) {
-                    @Override
-                    protected ai.brokk.difftool.ui.AbstractDiffPanel createPanel(
-                            int index, ai.brokk.difftool.node.JMDiffNode diffNode) {
-                        var panel = new ai.brokk.difftool.ui.unified.UnifiedDiffPanel(
-                                dummyPanel, chrome.getTheme(), diffNode);
-                        panel.setContextMode(ai.brokk.difftool.ui.unified.UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
-                        panel.applyTheme(chrome.getTheme());
-                        return panel;
-                    }
-
-                    @Override
-                    public void showFile(int index) {
-                        super.showFile(index);
-                        fileTreePanel.selectFile(index);
-                    }
-
-                    @Override
-                    protected void displayPanel(
-                            int index,
-                            ai.brokk.difftool.ui.AbstractDiffPanel panel,
-                            int targetLine,
-                            ReviewParser.DiffSide targetSide) {
-                        diffContainer.removeAll();
-                        diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
-
-                        if (targetLine > 0) {
-                            panel.resetAutoScrollFlag();
-                            panel.diff(false);
-                            if (panel instanceof ai.brokk.difftool.ui.BufferDiffPanel bp) {
-                                var side = (targetSide == ReviewParser.DiffSide.OLD)
-                                        ? ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.LEFT
-                                        : ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.RIGHT;
-                                bp.scrollToLine(targetLine, side);
-                            } else if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
-                                up.clearExcerptHighlight();
-                                up.scrollToLine(targetLine, targetSide);
-                                if (activeExcerpt != null) {
-                                    String[] lines = activeExcerpt.excerpt().split("\\r?\\n", -1);
-                                    int endLine = targetLine + Math.max(0, lines.length - 1);
-                                    up.highlightExcerptLines(targetLine, endLine, targetSide);
-                                }
-                            }
-                        } else {
-                            if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
-                                up.clearExcerptHighlight();
-                            }
-                            panel.resetToFirstDifference();
-                            panel.diff(true);
-                        }
-
-                        diffContainer.revalidate();
-                        diffContainer.repaint();
-                    }
-                };
-
-        dummyPanel.setBufferDiffPanel(null);
-
-        // Update existing fileTreePanel instead of replacing
-        fileTreePanel.removeAll();
-        var newTreePanel = new ai.brokk.difftool.ui.FileTreePanel(fileComparisons, root, projectName);
-        fileTreePanel.setLayout(new BorderLayout());
-        fileTreePanel.add(newTreePanel, BorderLayout.CENTER);
-
-        newTreePanel.setSelectionListener(new DiffProjectFileNavigationTarget() {
-            @Override
-            public void navigateToFile(int fileIndex) {
-                codeReviewPanel.clearSelection();
-                activeExcerpt = null;
-                diffCore.showFile(fileIndex);
-            }
-
-            @Override
-            public void navigateToFile(ProjectFile file) {
-                codeReviewPanel.clearSelection();
-                activeExcerpt = null;
-                diffCore.showFile(file);
-            }
-
-            @Override
-            public void navigateToLocation(ProjectFile file, int lineNumber, ReviewParser.DiffSide side) {
-                codeReviewPanel.clearSelection();
-                activeExcerpt = null;
-                diffCore.showLocation(file, lineNumber, side);
-            }
-        });
-        newTreePanel.initializeTree();
-
-        codeReviewPanel.addReviewNavigationListener(ce -> {
-            newTreePanel.selectFileQuietly(ce.file());
-            activeExcerpt = ce;
-            diffCore.showLocation(ce.file(), ce.line(), ce.side());
-        });
-
-        detailScrollPane = new JScrollPane(codeReviewPanel.getDetailPanel());
-        detailScrollPane.setBorder(null);
-
-        rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detailScrollPane, diffContainer);
-        rightVerticalSplitPane.setResizeWeight(0.5);
-
-        mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplitPane);
-        mainSplitPane.setDividerLocation(300);
+        fileTreePanel.updateData(fileComparisons, root, projectName);
 
         updateReviewPanelVisibility(hasGeneratedReview);
-
-        topContainer.add(mainSplitPane, BorderLayout.CENTER);
-
-        setBorder(new CompoundBorder(
-                new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
-        add(topContainer, BorderLayout.CENTER);
 
         this.diffCore.showFile(0);
         applyTheme(chrome.getTheme());
@@ -869,25 +852,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 leftSplitPane.setDividerLocation(0.5);
             }
 
-            if (detailScrollPane != null) {
-                detailScrollPane.setVisible(visible);
+            detailScrollPane.setVisible(visible);
+
+            rightVerticalSplitPane.setDividerSize(visible ? defaultSplitPaneDividerSize() : 0);
+            if (!visible) {
+                rightVerticalSplitPane.setDividerLocation(0);
+            } else {
+                rightVerticalSplitPane.setResizeWeight(0.5);
+                rightVerticalSplitPane.setDividerLocation(0.5);
             }
 
-            if (rightVerticalSplitPane != null) {
-                rightVerticalSplitPane.setDividerSize(visible ? defaultSplitPaneDividerSize() : 0);
-                if (!visible) {
-                    rightVerticalSplitPane.setDividerLocation(0);
-                } else {
-                    rightVerticalSplitPane.setResizeWeight(0.5);
-                    rightVerticalSplitPane.setDividerLocation(0.5);
-                }
-            }
-
-            if (mainSplitPane != null) {
-                mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
-                mainSplitPane.setResizeWeight(0.0);
-                mainSplitPane.setDividerLocation(visible ? 300 : 200);
-            }
+            mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
+            mainSplitPane.setResizeWeight(0.0);
+            mainSplitPane.setDividerLocation(visible ? 300 : 200);
 
             revalidate();
             repaint();

@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
 
@@ -24,11 +25,12 @@ public class DiffDisplayCore {
     private final BrokkDiffPanel mainPanel;
     private final ContextManager contextManager;
     private final GuiTheme theme;
-    private final List<FileComparisonInfo> fileComparisons;
+    private List<FileComparisonInfo> fileComparisons;
     private final boolean isMultipleCommitsContext;
 
     private int currentIndex = 0;
     private final Map<Integer, AbstractDiffPanel> panelCache = new HashMap<>();
+    private final AtomicInteger updateGeneration = new AtomicInteger(0);
 
     public DiffDisplayCore(
             BrokkDiffPanel mainPanel,
@@ -40,9 +42,25 @@ public class DiffDisplayCore {
         this.mainPanel = mainPanel;
         this.contextManager = contextManager;
         this.theme = theme;
-        this.fileComparisons = List.copyOf(fileComparisons);
         this.isMultipleCommitsContext = isMultipleCommitsContext;
-        this.currentIndex = initialIndex;
+        this.fileComparisons = List.copyOf(fileComparisons);
+        this.currentIndex = clampIndex(initialIndex, this.fileComparisons.size());
+    }
+
+    public void updateFileComparisons(List<FileComparisonInfo> newFileComparisons) {
+        updateFileComparisons(newFileComparisons, currentIndex);
+    }
+
+    public void updateFileComparisons(List<FileComparisonInfo> newFileComparisons, int preferredIndex) {
+        updateGeneration.incrementAndGet();
+        clearCache();
+        this.fileComparisons = List.copyOf(newFileComparisons);
+        this.currentIndex = clampIndex(preferredIndex, this.fileComparisons.size());
+    }
+
+    private static int clampIndex(int index, int size) {
+        if (size == 0) return 0;
+        return Math.max(0, Math.min(index, size - 1));
     }
 
     public List<FileComparisonInfo> getFileComparisons() {
@@ -157,12 +175,14 @@ public class DiffDisplayCore {
     }
 
     private void createAsync(int index, FileComparisonInfo info, int targetLine, ReviewParser.DiffSide targetSide) {
+        int generation = updateGeneration.get();
         contextManager.submitBackgroundTask("Computing diff: " + info.getDisplayName(), () -> {
             var diffNode = FileComparisonHelper.createDiffNode(
                     info.leftSource(), info.rightSource(), contextManager, isMultipleCommitsContext);
             diffNode.diff();
 
             SwingUtilities.invokeLater(() -> {
+                if (generation != updateGeneration.get()) return;
                 AbstractDiffPanel panel = createPanel(index, diffNode);
                 panelCache.put(index, panel);
                 if (index == currentIndex) {
