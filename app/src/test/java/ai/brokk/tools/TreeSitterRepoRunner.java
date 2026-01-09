@@ -298,13 +298,31 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             if (!Files.exists(projectPath)) {
                 System.out.println("Cloning " + projectName + "...");
                 cloneProject(config, projectPath);
-                System.out.println("✓ " + projectName + " cloned successfully");
+                reportProjectStats(projectName, projectPath);
             } else {
                 System.out.println("✓ " + projectName + " already exists");
             }
         }
 
         System.out.println("All projects ready for baseline testing");
+    }
+
+    private void reportProjectStats(String projectName, Path projectPath) throws IOException {
+        long totalSize = 0;
+        long fileCount = 0;
+        try (Stream<Path> stream = Files.walk(projectPath)) {
+            var it = stream.iterator();
+            while (it.hasNext()) {
+                Path p = it.next();
+                if (Files.isRegularFile(p)) {
+                    totalSize += Files.size(p);
+                    fileCount++;
+                }
+            }
+        }
+        double sizeMb = totalSize / (1024.0 * 1024.0);
+        System.out.printf(
+                Locale.ROOT, "✓ %s cloned successfully (%.1f MB, %d files)%n", projectName, sizeMb, fileCount);
     }
 
     private void runFullBaselines() throws Exception {
@@ -1210,6 +1228,9 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         }
 
         // 2. Set patterns
+        if (verbose) {
+            System.out.println("Applying sparse patterns for " + repoPath.getFileName() + ": " + patterns);
+        }
         List<String> setCmd = new ArrayList<>(List.of("git", "-C", repo, "sparse-checkout", "set"));
         setCmd.addAll(patterns);
         if (new ProcessBuilder(setCmd).start().waitFor() != 0) {
@@ -1900,6 +1921,35 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                 stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
             }
             try (var stream = Files.walk(localRoot)) {
+                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+            }
+        }
+    }
+
+    @Test
+    void setupProjects_reportsDiskUsageAfterSparseCheckout() throws Exception {
+        Path tempBase = Files.createTempDirectory("tsrr-usage-test");
+        try {
+            Path projectPath = tempBase.resolve("test-project");
+            Files.createDirectories(projectPath);
+            Files.writeString(projectPath.resolve("file1.txt"), "Small content");
+            Files.writeString(projectPath.resolve("file2.txt"), "A bit more content here");
+
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            java.io.PrintStream originalOut = System.out;
+            System.setOut(new java.io.PrintStream(out));
+            try {
+                reportProjectStats("test-project", projectPath);
+            } finally {
+                System.setOut(originalOut);
+            }
+
+            String output = out.toString();
+            assertTrue(output.contains("test-project cloned successfully"), "Output should contain success message");
+            assertTrue(output.contains("2 files"), "Output should report 2 files");
+            assertTrue(output.contains("MB"), "Output should report size in MB");
+        } finally {
+            try (var stream = Files.walk(tempBase)) {
                 stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
             }
         }
