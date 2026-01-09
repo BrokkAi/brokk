@@ -154,6 +154,16 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             }
         }
 
+        // Schedule all processing on the analyzer executor - return immediately!
+        analyzerExecutor.submit(() -> handleFilesChangedOnAnalyzerThread(batch));
+    }
+
+    /**
+     * Handles file change events on the analyzer executor thread.
+     * This method does the actual work of processing file changes, keeping the
+     * file watcher thread responsive by deferring all heavy operations.
+     */
+    private void handleFilesChangedOnAnalyzerThread(EventBatch batch) {
         // AnalyzerWrapper now focuses only on analyzer-relevant changes.
         // Git metadata and tracked file change notifications are handled by ContextManager's listener.
 
@@ -434,10 +444,8 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      * (possibly {@code null}) as its argument and must return the new analyzer to become current.
      *
      * <p>Returns the Future representing the scheduled task.
-     *
-     * <p>Synchronized to simplify reasoning about pause/resume; otherwise is inherently threadsafe.
      */
-    private synchronized CompletableFuture<IAnalyzer> refresh(Function<IAnalyzer, IAnalyzer> fn) {
+    private CompletableFuture<IAnalyzer> refresh(Function<IAnalyzer, IAnalyzer> fn) {
         logger.trace("Scheduling analyzer refresh task");
         return analyzerExecutor.submit(() -> {
             requireNonNull(currentAnalyzer);
@@ -516,13 +524,13 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
     /** Pause the file watching service. */
     @Override
-    public synchronized void pause() {
+    public void pause() {
         watchService.pause();
     }
 
     /** Resume the file watching service. */
     @Override
-    public synchronized void resume() {
+    public void resume() {
         watchService.resume();
     }
 
