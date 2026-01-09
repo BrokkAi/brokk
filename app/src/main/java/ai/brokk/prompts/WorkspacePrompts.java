@@ -16,11 +16,9 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -50,40 +48,6 @@ public final class WorkspacePrompts {
     public record CodeAgentMessages(List<ChatMessage> workspace, @Nullable String buildFailure) {}
 
     /**
-     * Sorts editable fragments by the minimum file modification time (mtime) across their associated files.
-     * - Fragments with no files or inaccessible mtimes are given an mtime of 0 and will appear first.
-     * - Sorting is ascending (oldest first, newest last).
-     *
-     * @param editableFragments stream of editable fragments (typically from {@link Context#getEditableFragments()})
-     * @return stream of fragments sorted by min mtime
-     */
-    public static Stream<ContextFragment> sortByMtime(Stream<ContextFragment> editableFragments) {
-        // Materialize min mtime for each fragment first to avoid recomputing during sort comparisons.
-        record Key(ContextFragment fragment, long minMtime) {}
-
-        return editableFragments
-                .map(cf -> {
-                    long minMtime = cf.files().join().stream()
-                            .mapToLong(pf -> {
-                                try {
-                                    return pf.mtime();
-                                } catch (IOException e) {
-                                    logger.warn(
-                                            "Could not get mtime for file in fragment [{}]; using 0",
-                                            cf.shortDescription(),
-                                            e);
-                                    return 0L;
-                                }
-                            })
-                            .min()
-                            .orElse(0L);
-                    return new Key(cf, minMtime);
-                })
-                .sorted(Comparator.comparingLong(k -> k.minMtime))
-                .map(k -> k.fragment);
-    }
-
-    /**
      * Unified workspace table of contents.
      *
      * Shows:
@@ -102,7 +66,8 @@ public final class WorkspacePrompts {
                 .filter(cf -> buildFragment.isEmpty() || cf != buildFragment.get())
                 .map(cf -> cf.formatToc(ctx.isPinned(cf)))
                 .collect(Collectors.joining("\n"));
-        var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
+        var editableFragments =
+                ContextFragment.sortByMtime(ctx.getEditableFragments()).toList();
 
         var readOnlySection = readOnlyContents.isBlank()
                 ? ""
@@ -274,7 +239,8 @@ public final class WorkspacePrompts {
     }
 
     private static List<ChatMessage> buildEditableAll(Context ctx, Set<SpecialTextType> suppressedTypes) {
-        var editableFragments = sortByMtime(ctx.getEditableFragments()).toList();
+        var editableFragments =
+                ContextFragment.sortByMtime(ctx.getEditableFragments()).toList();
         var editableTextFragments = formatWithPolicy(ctx, editableFragments, suppressedTypes).text;
 
         boolean shouldShowBuild = !suppressedTypes.contains(SpecialTextType.BUILD_RESULTS)

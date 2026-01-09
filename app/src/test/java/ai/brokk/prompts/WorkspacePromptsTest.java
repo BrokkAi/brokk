@@ -6,6 +6,7 @@ import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.testutil.TestConsoleIO;
@@ -113,7 +114,7 @@ class WorkspacePromptsTest {
         var ctx = new Context(cm).addFragments(List.of(fragC, fragB, fragA));
 
         // Sort and verify order is by mtime (oldest A, then B, then newest C)
-        var sorted = WorkspacePrompts.sortByMtime(ctx.getEditableFragments()).toList();
+        var sorted = ContextFragment.sortByMtime(ctx.getEditableFragments()).toList();
 
         assertEquals(3, sorted.size(), "All three fragments should be present");
         assertEquals(fragA, sorted.get(0), "Oldest file A should be first");
@@ -153,7 +154,7 @@ class WorkspacePromptsTest {
         var ctx = new Context(cm).addFragments(List.of(projectFrag)).addFragments(virtualFrag);
 
         // Sort and verify virtual fragment stays first
-        var sorted = WorkspacePrompts.sortByMtime(ctx.getEditableFragments()).toList();
+        var sorted = ContextFragment.sortByMtime(ctx.getEditableFragments()).toList();
 
         assertEquals(2, sorted.size());
         assertInstanceOf(
