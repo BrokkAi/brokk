@@ -8,6 +8,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
+import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
@@ -241,23 +242,9 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
      * Deletes the projects base directory and all its contents.
      */
     private void cleanupProjects() throws IOException {
-        if (!Files.exists(projectsBaseDir)) {
-            return;
-        }
-
-        List<Path> failures = new ArrayList<>();
-        try (var stream = Files.walk(projectsBaseDir)) {
-            stream.sorted(Comparator.reverseOrder()).forEach(path -> {
-                try {
-                    Files.deleteIfExists(path);
-                } catch (IOException e) {
-                    failures.add(path);
-                }
-            });
-        }
-
-        if (!failures.isEmpty()) {
-            throw new IOException("Failed to delete " + failures.size() + " paths: " + failures);
+        FileUtil.deleteRecursively(projectsBaseDir);
+        if (Files.exists(projectsBaseDir)) {
+            throw new IOException("Failed to delete projects directory: " + projectsBaseDir);
         }
     }
 
