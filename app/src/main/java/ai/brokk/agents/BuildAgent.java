@@ -64,6 +64,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -785,9 +786,11 @@ public class BuildAgent {
         boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
 
         if (!isFilesBased && !isClassesBased && !isModulesBased) {
-            logger.debug(
-                    "Template lacks {{#files}}, {{#classes}}, or {{#modules}}; using build/lint: {}",
-                    details.buildLintCommand());
+            cm.getIo()
+                    .systemNotify(
+                            "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, or {{#modules}}). Please update the build configuration in Settings.",
+                            "Build Configuration Warning",
+                            JOptionPane.WARNING_MESSAGE);
             return details.buildLintCommand();
         }
 
