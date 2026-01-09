@@ -347,7 +347,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         }
 
         System.out.println("--------------------------------------------------");
-        System.out.println("Setup complete: " + successCount.get() + "/" + PROJECTS.size() + " projects ready");
+        System.out.println("Setup complete: " + successCount.get() + "/" + projectsToSetup.size() + " projects ready");
         System.out.println("--------------------------------------------------");
     }
 
