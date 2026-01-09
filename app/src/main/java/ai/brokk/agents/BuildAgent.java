@@ -1142,7 +1142,7 @@ public class BuildAgent {
         var io = cm.getIo();
 
         io.llmOutput(
-                "\nRunning verification command:\n\n```bash\n" + verificationCommand + "\n```\n",
+                "\nRunning verification command:\n\n```sh\n" + verificationCommand + "\n```\n",
                 ChatMessageType.CUSTOM,
                 true,
                 false);
