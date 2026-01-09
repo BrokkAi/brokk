@@ -47,19 +47,25 @@ public class CodeFragmentTest {
         var fragment = new ContextFragments.CodeFragment(contextManager, subCls);
         String text = fragment.text().join();
 
+        // Text should contain only the class source
         assertCodeContains(text, "class Sub extends Base {}");
-        assertCodeContains(text, "// Direct ancestors of Sub: Base");
-        assertCodeContains(text, "package com.example;");
-        assertCodeContains(text, "class Base {}");
 
+        // Ancestors should be in supporting fragments
+        var supporting = fragment.supportingFragments();
+        assertEquals(1, supporting.size());
+
+        var ancestorFragment =
+                (ContextFragments.SummaryFragment) supporting.iterator().next();
+        assertEquals("com.example.Base", ancestorFragment.getTargetIdentifier());
+
+        // Sources of the fragment itself
         Set<CodeUnit> sources = fragment.sources().join();
         assertTrue(sources.contains(subCls));
-        assertTrue(sources.contains(baseCls));
+        assertEquals(1, sources.size());
 
         Set<ProjectFile> files = fragment.files().join();
         assertTrue(files.contains(subFile));
-        assertTrue(files.contains(baseFile));
-        assertEquals(2, files.size());
+        assertEquals(1, files.size());
     }
 
     @Test
@@ -67,7 +73,7 @@ public class CodeFragmentTest {
         ProjectFile file = new ProjectFile(tempDir, "Example.java");
         CodeUnit cls = CodeUnit.cls(file, "com.example", "Example");
         CodeUnit method = CodeUnit.fn(file, "com.example", "Example.run");
-        
+
         analyzer.setDirectAncestors(cls, List.of(CodeUnit.cls(file, "com.example", "Parent")));
         analyzer.setSource(method, "void run() {}");
 
@@ -76,7 +82,7 @@ public class CodeFragmentTest {
 
         assertCodeContains(text, "void run() {}");
         assertTrue(!text.contains("Direct ancestors"), "Methods should not pull in class ancestors");
-        
+
         assertEquals(Set.of(method), fragment.sources().join());
         assertEquals(Set.of(file), fragment.files().join());
     }

@@ -428,13 +428,14 @@ class ContextTest {
     void testAddFragmentsExpandsSupportingFragments() {
         ContextFragment supporting =
                 new ContextFragments.StringFragment(contextManager, "supp", "supp", SyntaxConstants.SYNTAX_STYLE_NONE);
-        ContextFragment primary = new ContextFragments.StringFragment(
-                contextManager, "primary", "primary", SyntaxConstants.SYNTAX_STYLE_NONE) {
-            @Override
-            public Set<ContextFragment> supportingFragments() {
-                return Set.of(supporting);
-            }
-        };
+        ContextFragment primary =
+                new ContextFragments.StringFragment(
+                        contextManager, "primary", "primary", SyntaxConstants.SYNTAX_STYLE_NONE) {
+                    @Override
+                    public Set<ContextFragment> supportingFragments() {
+                        return Set.of(supporting);
+                    }
+                };
 
         Context ctx = new Context(contextManager).addFragments(List.of(primary));
 

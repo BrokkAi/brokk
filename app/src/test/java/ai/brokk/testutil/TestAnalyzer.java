@@ -1,14 +1,7 @@
 package ai.brokk.testutil;
 
 import ai.brokk.analyzer.*;
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.IAnalyzer;
-import ai.brokk.analyzer.LintResult;
-import ai.brokk.analyzer.LintingProvider;
-import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.analyzer.SkeletonProvider;
 import ai.brokk.project.IProject;
-
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -138,9 +131,7 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public Set<CodeUnit> getDeclarations(ProjectFile file) {
-        return allClasses.stream()
-                .filter(cu -> cu.source().equals(file))
-                .collect(Collectors.toSet());
+        return allClasses.stream().filter(cu -> cu.source().equals(file)).collect(Collectors.toSet());
     }
 
     @Override

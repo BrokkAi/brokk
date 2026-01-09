@@ -40,7 +40,6 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -480,6 +479,18 @@ public class ContextFragments {
         @Override
         public String toString() {
             return "ProjectPathFragment('%s')".formatted(description().renderNowOr(file.toString()));
+        }
+
+        @Override
+        public Set<ContextFragment> supportingFragments() {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            return analyzer.getDeclarations(file).stream()
+                    .filter(CodeUnit::isClass)
+                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                    .filter(anc -> !anc.isAnonymous())
+                    .map(anc -> new SummaryFragment(
+                            contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                    .collect(Collectors.toSet());
         }
     }
 
@@ -1452,6 +1463,18 @@ public class ContextFragments {
         public ContextFragment refreshCopy() {
             return new CodeFragment(id, contextManager, fullyQualifiedName);
         }
+
+        @Override
+        public Set<ContextFragment> supportingFragments() {
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            return analyzer.getDefinitions(fullyQualifiedName).stream()
+                    .filter(CodeUnit::isClass)
+                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                    .filter(anc -> !anc.isAnonymous())
+                    .map(anc -> new SummaryFragment(
+                            contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                    .collect(Collectors.toSet());
+        }
     }
 
     public static class CallGraphFragment extends AbstractComputedFragment {
@@ -1680,6 +1703,21 @@ public class ContextFragments {
             return summaryType;
         }
 
+        @Override
+        public Set<ContextFragment> supportingFragments() {
+            if (summaryType != SummaryType.CODEUNIT_SKELETON) {
+                return Set.of();
+            }
+
+            var analyzer = contextManager.getAnalyzerUninterrupted();
+            return analyzer.getDefinitions(targetIdentifier).stream()
+                    .filter(CodeUnit::isClass)
+                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                    .filter(anc -> !anc.isAnonymous())
+                    .map(anc -> new SummaryFragment(contextManager, anc.fqName(), SummaryType.CODEUNIT_SKELETON))
+                    .collect(Collectors.toSet());
+        }
+
         private static ContentSnapshot computeSnapshotFor(
                 String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
@@ -1690,33 +1728,18 @@ public class ContextFragments {
 
             if (skeletonProviderOpt.isPresent()) {
                 var skeletonProvider = skeletonProviderOpt.get();
-                Map<CodeUnit, String> ancestorSkeletons = new LinkedHashMap<>();
                 for (CodeUnit cu : primaryTargets) {
                     skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
-                    if (cu.isClass()) {
-                        ancestorSkeletons.putAll(resolveAncestorSkeletons(cu, analyzer));
-                    }
                 }
-                skeletonsMap.putAll(ancestorSkeletons);
             }
 
             String text;
             if (skeletonsMap.isEmpty()) {
                 text = "No summary found for: " + targetIdentifier;
             } else {
-                CodeUnit primaryTarget = null;
-                List<CodeUnit> ancestors = List.of();
-                if (summaryType == SummaryType.CODEUNIT_SKELETON) {
-                    var maybeClassUnit =
-                            primaryTargets.stream().filter(CodeUnit::isClass).findFirst();
-                    if (maybeClassUnit.isPresent()) {
-                        primaryTarget = maybeClassUnit.get();
-                        ancestors = analyzer.getDirectAncestors(primaryTarget);
-                    }
-                }
                 text = new SkeletonFragmentFormatter()
                         .format(new SkeletonFragmentFormatter.Request(
-                                primaryTarget, ancestors, skeletonsMap, summaryType));
+                                null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
                 if (text.isEmpty()) text = "No summary found for: " + targetIdentifier;
             }
 

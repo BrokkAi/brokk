@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -33,7 +32,7 @@ public class ProjectPathFragmentTest {
         // Create a test file in the temporary directory
         Path srcDir = tempDir.resolve("src");
         Files.createDirectories(srcDir);
-        
+
         // Use consistent relative paths
         String myClassRelPath = "src/MyClass.java";
         String baseClassRelPath = "src/Base.java";
@@ -65,23 +64,27 @@ public class ProjectPathFragmentTest {
     void projectPathFragmentIncludesAncestorSkeletons() {
         ProjectPathFragment fragment = new ProjectPathFragment(projectFile, contextManager);
 
-        // Verify text output
+        // Verify text output: should only contain the file content
         String text = fragment.text().join();
         assertCodeContains(text, "public class MyClass extends Base {}");
-        
-        // Note: FILE_SKELETONS summary type used by ProjectPathFragment does not include 
-        // the "// Direct ancestors of..." header, just the skeletons grouped by package.
-        assertCodeContains(text, "package com.example;");
-        assertCodeContains(text, "public class Base {");
 
-        // Verify sources() includes both
+        // Ancestor skeletons should NOT be in text, but in supporting fragments
+        // Verify supportingFragments
+        var supporting = fragment.supportingFragments();
+        assertEquals(1, supporting.size(), "Should have one supporting fragment for Base");
+
+        var ancestorFragment =
+                (ContextFragments.SummaryFragment) supporting.iterator().next();
+        assertEquals("com.example.Base", ancestorFragment.getTargetIdentifier());
+
+        // Verify sources() includes only MyClass
         var sources = fragment.sources().join();
         assertTrue(sources.stream().anyMatch(cu -> cu.shortName().equals("MyClass")), "Should contain primary class");
-        assertTrue(sources.stream().anyMatch(cu -> cu.shortName().equals("Base")), "Should contain ancestor class");
+        assertEquals(1, sources.size());
 
-        // Verify files() includes both
+        // Verify files() includes only projectFile
         var files = fragment.files().join();
         assertTrue(files.stream().anyMatch(f -> f.equals(projectFile)), "Should contain primary file");
-        assertTrue(files.stream().anyMatch(f -> f.equals(new ProjectFile(tempDir, "src/Base.java"))), "Should contain ancestor file");
+        assertEquals(1, files.size());
     }
 }
