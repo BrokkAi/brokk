@@ -8,27 +8,20 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.SearchAgent;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.io.HeadlessHttpConsole;
-import ai.brokk.gui.util.GitRepoIdUtil;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.util.Json;
-import com.fasterxml.jackson.core.type.TypeReference;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
@@ -39,10 +32,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
-import org.kohsuke.github.GHPullRequest;
-import org.kohsuke.github.GHPullRequestFileDetail;
-import org.kohsuke.github.GHRepository;
-import org.kohsuke.github.GitHubBuilder;
 
 /**
  * Executes long-running Brokk jobs using ContextManager, producing durable events
@@ -543,54 +532,32 @@ public final class JobRunner {
                                         }
                                     }
                                     case REVIEW -> {
-                                        // Parse PR data from task input
-                                        var prData = Json.getMapper().readTree(spec.taskInput());
-                                        int prNumber = prData.get("pr_number").asInt(0);
-                                        String repoURL = prData.get("repo_url").asText();
+                                        // taskInput IS the diff directly
+                                        String diff = spec.taskInput();
 
-                                        try (var scope = cm.beginTaskUngrouped("Review PR #" + prNumber)) {
-                                            // 1. Extract diff from GitHub PR
-                                            PRDiffInfo prInfo = extractPRDiff(prNumber, repoURL, spec);
-
-                                            // 2. Add diff to context
+                                        try (var scope = cm.beginTaskUngrouped("Diff Review")) {
+                                            // 1. Add diff to context
                                             var context = cm.liveContext();
                                             var diffFragment = new ContextFragments.StringFragment(
-                                                    cm,
-                                                    prInfo.diff(),
-                                                    "PR #" + prNumber + ": " + prInfo.title(),
-                                                    "text/x-diff",
-                                                    prInfo.changedFiles());
+                                                    cm, diff, "Diff to Review", "text/x-diff", Set.of());
                                             context = context.addFragments(diffFragment);
 
-                                            // 3. Pre-scan to load relevant context using ContextAgent
+                                            // 2. Pre-scan to load relevant context using ContextAgent
                                             var scanModel = Objects.requireNonNull(
                                                     reviewScanModel, "scan model unavailable for REVIEW jobs");
                                             var searchAgent = new LutzAgent(
                                                     context,
-                                                    "Review the diff for PR #" + prNumber,
+                                                    "Review this diff",
                                                     scanModel,
                                                     SearchPrompts.Objective.ANSWER_ONLY,
                                                     scope);
                                             context = searchAgent.scanContext();
 
-                                            // 4. Generate review using planner model
+                                            // 3. Generate review using planner model
                                             var plannerModel = Objects.requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
-                                            TaskResult result = reviewUsingPlannerModel(context, plannerModel, prInfo);
+                                            TaskResult result = reviewDiff(context, plannerModel, diff);
                                             scope.append(result);
-
-                                            // 5. Extract JSON for completion result
-                                            String responseText =
-                                                    result.stopDetails().explanation();
-                                            if (!responseText.isBlank()) {
-                                                try {
-                                                    Object parsed = Json.fromJson(
-                                                            responseText, new TypeReference<Map<String, Object>>() {});
-                                                    completionResultRef.set(parsed);
-                                                } catch (Exception e) {
-                                                    logger.warn("Failed to parse review JSON: {}", e.getMessage());
-                                                }
-                                            }
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
@@ -792,66 +759,87 @@ public final class JobRunner {
     }
 
     /**
-     * Generates a code review using the planner model and returns the result as JSON.
+     * Generates a diff review using the planner model and returns the result as Markdown.
      *
      * @param ctx the current Context with workspace and diff
      * @param model the model to use for the review
-     * @param prInfo the PR metadata including diff
-     * @return a TaskResult containing the review JSON
+     * @param diff the diff content to review
+     * @return a TaskResult containing the review
      */
-    private TaskResult reviewUsingPlannerModel(Context ctx, StreamingChatModel model, PRDiffInfo prInfo) {
+    private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff) {
         var svc = cm.getService();
         var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
 
-        String reviewGuide = cm.getProject().getReviewGuide();
-        String systemPrompt =
+        String fencedDiff = "```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```";
+
+        String prompt =
                 """
-                You are an expert code reviewer. Your task is to review the proposed changes in a Pull Request.
+                You are performing a Pull Request diff review. The diff to review is provided
+                *between the fenced code block marked DIFF_START and DIFF_END*.
+                Everything inside that block is code - do not ignore any part of it.
 
-                Focus on:
-                1. Design issues - architectural concerns, coupling, abstraction problems
-                2. Bugs and correctness - logic errors, edge cases, error handling gaps
-                3. Code quality - readability, maintainability, naming, duplication
-
-                Be constructive, specific, and actionable in your feedback.
-                """;
-
-        String userPrompt =
-                """
-                Please review the following Pull Request:
-                PR #%d: %s
-
-                Description:
                 %s
 
-                Review Guidelines:
-                %s
+                IMPORTANT: Line Number Format
+                -----------------------------
+                Each diff line is annotated with explicit OLD/NEW line numbers for your reference:
 
-                <diff>
-                %s
-                </diff>
+                - Added lines:   "[OLD:- NEW:N] +<content>" where N is the exact line number in the new file
+                - Removed lines: "[OLD:N NEW:-] -<content>" where N is the exact line number in the old file
+                - Context lines: "[OLD:N NEW:N]  <content>" where N/N are the exact line numbers in the old/new files
 
-                Provide your review as JSON with this exact schema (no markdown fences, no extra text):
-                {
-                  "action": "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
-                  "comments": [
-                    {
-                      "file": "relative/path/to/file",
-                      "line": 123,
-                      "comment": "Specific issue description"
-                    }
-                  ],
-                  "summary": "Overall review summary"
-                }
+                When writing your review, cite line numbers using just the number (e.g., #L42), choosing the appropriate number:
+                - For additions ("+"): use the NEW line number from the annotation
+                - For deletions ("-"): use the OLD line number from the annotation
+                - For context/unchanged lines (" "): use the NEW line number from the annotation
 
-                For each issue, create a comment entry with the exact file path, line number, and a concise description.
-                Use action=REQUEST_CHANGES for blocking issues, APPROVE if no issues, COMMENT for minor suggestions.
+                Your task:
+                Analyze ONLY the diff content above and any direct implications to the surrounding code visible in the diff.
+
+                Return a concise Markdown response with EXACTLY the following sections (use the headings exactly as written):
+
+                Summary
+                --------
+                Start this section with the exact line:
+                ## Brokk PR Review
+
+                Then provide: 1-3 sentences describing what changed and the key issues.
+
+                Comments
+                --------
+                Use this exact format for detailed findings (one issue per bullet):
+                - file://<path>#L<line> | Description of issue and why it matters. Provide a minimal actionable suggestion if relevant.
+                - file://<path>#L<line> | Another issue.
+
+                Rules:
+                - Only analyze the diff content provided in DIFF_START/DIFF_END.
+                - Do NOT say you cannot see the diff. It is inside the code block.
+                - SKIP any line that has no issue. Do not comment on correct code.
+                - Only output lines that describe actual problems, bugs, security issues, or code smells.
+                - Never write comments like "this is correct", "looks good", "well done", "properly implemented", or any form of approval/praise.
+                - If you cannot identify a concrete problem with a line, do not mention that line at all.
+                - Every issue MUST be a single bullet line with EXACTLY this structure:
+                  - file://<path>#L<line> | <description>
+                - The file://<path>#L<line> part MUST be plain text:
+                  - No Markdown formatting (no **bold**, no backticks, no links).
+                  - No surrounding punctuation or extra characters.
+                - The <line> MUST be the exact line number from the diff annotation (just the number):
+                  - "+" lines: use the number from NEW
+                  - "-" lines: use the number from OLD
+                  - " " lines: use the number from NEW
+                - The line MUST be a single integer (e.g. #L12), NOT a range (do not output #L12-L34).
+                - Use exactly one | separator with spaces around it:  ... #L<line> | ...
+                - Be precise and concise.
+                - Include code snippets only when they clarify the fix.
+                - If no issues are found, still describe what the PR changes in the Summary section, then state "No issues were found." Omit the Comments section entirely when there are no issues.
+
+                Begin analysis now.
                 """
-                        .formatted(prInfo.prNumber(), prInfo.title(), prInfo.description(), reviewGuide, prInfo.diff());
+                        .formatted(fencedDiff);
 
-        List<ChatMessage> messages = List.of(new SystemMessage(systemPrompt), new UserMessage(userPrompt));
+        List<ChatMessage> messages = List.of(new UserMessage(prompt));
 
-        var llm = cm.getLlm(new Llm.Options(model, "Review PR #" + prInfo.prNumber()).withEcho());
+        var llm = cm.getLlm(new Llm.Options(model, "Diff Review").withEcho());
         llm.setOutput(cm.getIo());
 
         TaskResult.StopDetails stop = null;
@@ -869,7 +857,7 @@ public final class JobRunner {
         Objects.requireNonNull(stop);
         return new TaskResult(
                 cm,
-                "Review PR #" + prInfo.prNumber() + ": " + prInfo.title(),
+                "Diff Review",
                 List.copyOf(cm.getIo().getLlmRawMessages()),
                 ctx,
                 stop,
@@ -894,86 +882,5 @@ public final class JobRunner {
             return throwable.getClass().getSimpleName();
         }
         return throwable.getClass().getSimpleName() + ": " + message;
-    }
-
-    /**
-     * Information extracted from a GitHub Pull Request for review.
-     */
-    record PRDiffInfo(int prNumber, String title, String description, String diff, Set<ProjectFile> changedFiles) {}
-
-    /**
-     * Extracts diff and metadata from a GitHub Pull Request.
-     *
-     * @param prNumber The pull request number
-     * @param repoUrl The GitHub repository URL
-     * @param spec The job specification containing auth tokens
-     * @return PRDiffInfo with the extracted data
-     * @throws IOException If GitHub API communication fails
-     */
-    private PRDiffInfo extractPRDiff(int prNumber, String repoUrl, JobSpec spec) throws IOException {
-        var ownerRepo = GitRepoIdUtil.parseOwnerRepoFromUrl(repoUrl);
-        if (ownerRepo == null) {
-            throw new IllegalArgumentException("Invalid GitHub URL: " + repoUrl);
-        }
-
-        String sessionIdStr = spec.tags().get("session_id");
-        if (sessionIdStr == null || sessionIdStr.isBlank()) {
-            throw new IllegalStateException("Session ID not found in job specification");
-        }
-
-        String authToken = spec.tags().get("github_token");
-        if (authToken == null || authToken.isBlank()) {
-            throw new IllegalStateException("GitHub authentication token not found in job specification");
-        }
-
-        UUID sessionId = UUID.fromString(sessionIdStr);
-        try {
-            cm.updateActiveSession(sessionId);
-            logger.info("Switched session successfully for PR review");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to switch session for review", e);
-        }
-
-        String owner = ownerRepo.owner();
-        String repoName = ownerRepo.repo();
-
-        var github = new GitHubBuilder().withOAuthToken(authToken).build();
-        GHRepository ghRepo = github.getRepository(owner + "/" + repoName);
-        GHPullRequest pr = ghRepo.getPullRequest(prNumber);
-
-        StringBuilder diff = new StringBuilder();
-        Set<ProjectFile> changedFiles = new LinkedHashSet<>();
-
-        for (GHPullRequestFileDetail file : pr.listFiles()) {
-            String filename = file.getFilename();
-            if (filename != null && !filename.isBlank()) {
-                try {
-                    var projectFile = cm.toFile(filename);
-                    changedFiles.add(projectFile);
-                } catch (Exception ex) {
-                    if (logger.isDebugEnabled()) {
-                        logger.debug("Unable to resolve ProjectFile for PR file '{}'", filename, ex);
-                    }
-                }
-            }
-
-            String patch = file.getPatch();
-            if (patch != null && filename != null && !filename.isBlank()) {
-                diff.append("diff --git a/")
-                        .append(filename)
-                        .append(" b/")
-                        .append(filename)
-                        .append("\n")
-                        .append(patch)
-                        .append("\n");
-            }
-        }
-
-        return new PRDiffInfo(
-                prNumber,
-                pr.getTitle() != null ? pr.getTitle() : "",
-                pr.getBody() != null ? pr.getBody() : "",
-                diff.toString(),
-                Set.copyOf(changedFiles));
     }
 }
