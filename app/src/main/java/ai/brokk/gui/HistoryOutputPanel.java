@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -1327,11 +1328,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Appends text to the LLM output area
      */
-    public void appendLlmOutput(String text, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+    public void appendLlmOutput(String text, ChatMessageType type, LlmOutputMeta meta) {
         // Apply any staged preset exactly once before the first token of the next stream
         applyPresetIfNeeded();
 
-        llmStreamArea.append(text, type, isNewMessage, isReasoning);
+        llmStreamArea.append(text, type, meta.isNewMessage(), meta.isReasoning());
     }
 
     /**

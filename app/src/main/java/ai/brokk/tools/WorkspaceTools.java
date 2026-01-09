@@ -1,5 +1,6 @@
 package ai.brokk.tools;
 
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.*;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;

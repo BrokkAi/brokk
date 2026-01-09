@@ -907,7 +907,7 @@ public class Llm {
                     // output the LLM's thinking
                     String textToOutput = parseResult.text();
                     if (textToOutput != null && !textToOutput.isBlank()) {
-                        io.llmOutput(textToOutput, ChatMessageType.AI, false, false);
+                        io.llmOutput(textToOutput, ChatMessageType.AI);
                     }
                 }
 
