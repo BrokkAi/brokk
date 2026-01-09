@@ -94,6 +94,9 @@ class ContextFragmentsTest {
         Files.createDirectories(projectFile.absPath().getParent());
         Files.writeString(projectFile.absPath(), "class DiffPrecedence {}");
 
+        var decoyFile = new ProjectFile(tempDir, "src/Decoy.java");
+        Files.writeString(decoyFile.absPath(), "class Decoy {}");
+
         String diffText =
                 """
                 diff --git a/src/DiffPrecedence.java b/src/DiffPrecedence.java
@@ -102,12 +105,17 @@ class ContextFragmentsTest {
                 @@ -1 +1 @@
                 -class DiffPrecedence {}
                 +class DiffPrecedence { }
+
+                See src/Decoy.java
                 """;
 
         var fragment = new ContextFragments.StringFragment(
                 mockContextManager, diffText, "Diff content", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        assertEquals(Set.of(projectFile), fragment.files().join());
+        var files = fragment.files().join();
+        assertTrue(files.contains(projectFile), "Should contain the file from the diff");
+        assertFalse(files.contains(decoyFile),
+                "Should NOT contain the decoy file (diff parser should return early ignoring trailing text)");
     }
 
     @Test
