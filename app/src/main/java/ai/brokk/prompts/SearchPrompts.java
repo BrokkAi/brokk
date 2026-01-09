@@ -326,10 +326,7 @@ public class SearchPrompts {
                     "- Use callCodeAgent(String instructions) to attempt implementation now in a single shot. "
                             + "If it succeeds, we finish; otherwise, continue with search/planning. "
                             + "Only use this when the goal is small enough to not need decomposition into a task list, "
-                            + "and after you have added all the necessary context to the Workspace. "
-                            + "Note: For Java projects, Code Agent can import external Maven dependencies into Code Intelligence "
-                            + "using its importMavenDependency tool - include this in your instructions when the user needs to "
-                            + "examine or use an external library.");
+                            + "and after you have added all the necessary context to the Workspace.");
         }
         finals.add(
                 "- If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.");

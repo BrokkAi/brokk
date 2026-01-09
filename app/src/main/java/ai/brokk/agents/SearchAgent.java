@@ -249,6 +249,7 @@ public class SearchAgent {
     }
 
     public TaskResult execute() {
+        System.out.println("[SearchAgent] execute() called, class=" + this.getClass().getSimpleName());
         try {
             var tr = executeInternal();
             if (metrics instanceof SearchMetrics.Tracking) {
