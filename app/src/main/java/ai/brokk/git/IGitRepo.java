@@ -31,10 +31,6 @@ public interface IGitRepo {
      * Returns files available for analysis. For Git repos, returns tracked files with fallback
      * to filesystem scan if the repo is empty. For local file repos, performs a filesystem walk.
      *
-     * <p>This method abstracts the file discovery strategy, allowing each repository type to
-     * determine the appropriate approach. Callers should use this method when they need all
-     * files for analysis, rather than specifically Git-tracked files.
-     *
      * @return Set of files available for analysis
      */
     default Set<ProjectFile> getFilesForAnalysis() {

@@ -12,10 +12,10 @@ import java.util.HashSet;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 
 /**
  * Utility for walking filesystem trees and collecting files as ProjectFile instances.
- * Provides common filesystem traversal logic used by both LocalFileRepo and GitRepo fallback.
  */
 public class FileSystemWalker {
     private static final Logger logger = LogManager.getLogger(FileSystemWalker.class);
@@ -27,30 +27,26 @@ public class FileSystemWalker {
      * @param skipDirs Directory names to skip (e.g., ".git", ".brokk")
      * @return Set of discovered ProjectFile instances
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public static Set<ProjectFile> walk(Path root, Set<String> skipDirs) {
         var files = new HashSet<ProjectFile>();
         try {
             Files.walkFileTree(root, new SimpleFileVisitor<>() {
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                    // Skip directories in the exclusion list
-                    if (dir.getFileName() != null
-                            && skipDirs.contains(dir.getFileName().toString())) {
-                        return FileVisitResult.SKIP_SUBTREE;
-                    }
-                    // Skip unreadable directories
-                    if (!Files.isReadable(dir)) {
+                    // Skip directories in the exclusion list or unreadable directories
+                    boolean shouldSkip = dir.getFileName() != null
+                            && skipDirs.contains(dir.getFileName().toString());
+                    if (!shouldSkip && !Files.isReadable(dir)) {
                         logger.warn("Skipping inaccessible directory: {}", dir);
-                        return FileVisitResult.SKIP_SUBTREE;
+                        shouldSkip = true;
                     }
-                    return FileVisitResult.CONTINUE;
+                    return shouldSkip ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
                 }
 
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     // Use attrs.isRegularFile() - more efficient and consistent
-                    // BasicFileAttributes already resolved by walkFileTree (follows symlinks by default)
                     if (attrs.isRegularFile()) {
                         var relPath = root.relativize(file);
                         files.add(new ProjectFile(root, relPath));
@@ -60,8 +56,7 @@ public class FileSystemWalker {
 
                 @Override
                 public FileVisitResult visitFileFailed(Path file, IOException exc) {
-                    // Log and skip - don't make additional I/O calls in error handler
-                    logger.warn("Failed to access path: {}", file, exc);
+                    logger.trace("Failed to access path: {}", file, exc);
                     // Return SKIP_SUBTREE for safety (works for both files and directories)
                     return FileVisitResult.SKIP_SUBTREE;
                 }

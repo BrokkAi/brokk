@@ -1,5 +1,7 @@
 package ai.brokk.git;
 
+import static ai.brokk.project.AbstractProject.BROKK_DIR;
+
 import ai.brokk.analyzer.ProjectFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -47,8 +49,8 @@ public class LocalFileRepo implements IGitRepo {
         if (trackedFilesCache != null) {
             return trackedFilesCache;
         }
-        // LocalFileRepo walks all files without skipping specific directories
-        trackedFilesCache = FileSystemWalker.walk(root, Set.of());
+        // LocalFileRepo walks all files, excluding Brokk metadata directory
+        trackedFilesCache = FileSystemWalker.walk(root, Set.of(BROKK_DIR));
         return trackedFilesCache;
     }
 }

@@ -1,5 +1,6 @@
 package ai.brokk.git;
 
+import static ai.brokk.project.AbstractProject.BROKK_DIR;
 import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
@@ -540,17 +541,12 @@ public class GitRepo implements Closeable, IGitRepo {
         return trackedFilesCache;
     }
 
-    /**
-     * Returns files available for analysis. For Git repos with tracked files, returns those tracked files.
-     * For empty Git repos (no commits or staged files), falls back to filesystem scan to avoid showing
-     * "no files found" in newly initialized repositories.
-     */
     @Override
     public Set<ProjectFile> getFilesForAnalysis() {
         var tracked = getTrackedFiles();
         if (tracked.isEmpty()) {
             logger.info("No Git-tracked files found in {}, using filesystem scan", projectRoot);
-            return FileSystemWalker.walk(projectRoot, Set.of(".git", ".brokk"));
+            return FileSystemWalker.walk(projectRoot, Set.of(".git", BROKK_DIR));
         }
         return tracked;
     }
