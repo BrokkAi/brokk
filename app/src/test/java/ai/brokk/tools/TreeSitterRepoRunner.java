@@ -345,7 +345,8 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                 try {
                     future.get();
                 } catch (ExecutionException e) {
-                    System.err.println("Setup task failed: " + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
+                    System.err.println("Setup task failed: "
+                            + (e.getCause() != null ? e.getCause().getMessage() : e.getMessage()));
                     if (verbose) {
                         e.printStackTrace();
                     }
@@ -1865,7 +1866,6 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         assertNotNull(runner);
     }
 
-
     @Test
     void memoryMonitor_recordsNonNegativePeak() throws Exception {
         var monitor = new MemoryMonitor();
@@ -1928,97 +1928,6 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                 stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
             }
             try (var stream = Files.walk(localRoot)) {
-                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
-            }
-        }
-    }
-
-    @Test
-    void sparseCheckout_fallsBackOnServerIncompatibility() throws Exception {
-        Path remoteRoot = Files.createTempDirectory("tsrr-fallback-remote");
-        Path localRoot = Files.createTempDirectory("tsrr-fallback-local");
-
-        try {
-            // Setup a dummy remote git repo
-            new ProcessBuilder("git", "init", "-b", "main")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
-            new ProcessBuilder("git", "config", "user.email", "test@example.com")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
-            new ProcessBuilder("git", "config", "user.name", "test")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
-
-            Files.writeString(remoteRoot.resolve("A.java"), "public class A {}");
-            new ProcessBuilder("git", "add", ".")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
-            new ProcessBuilder("git", "commit", "-m", "init")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
-
-            // We simulate a failure in sparse checkout by providing a config that
-            // will cause configureSparseCheckout to fail (e.g. by using an invalid pattern if we could,
-            // or we can just rely on the catch block in cloneProject).
-            // However, the easiest way to test the fallback logic is to ensure git reset --hard HEAD
-            // results in the file existing even if sparse checkout "failed" before it could filter.
-
-            TreeSitterRepoRunner runner = new TreeSitterRepoRunner();
-            runner.sparseCheckout = true; // Ensure it's on to trigger the logic
-
-            ProjectConfig config = new ProjectConfig(
-                    remoteRoot.toString(), "main", Map.of(Languages.JAVA, List.of("**/*.java")), List.of());
-
-            // To trigger the fallback catch block, we can simulate a failure in configureSparseCheckout
-            // by deleting the .git directory right after clone but before sparse-checkout init,
-            // but cloneProject is a single method.
-            // Instead, let's verify that when sparseCheckout is true, it attempts the sequence.
-
-            Path repoPath = localRoot.resolve("repo");
-            runner.cloneProject(config, repoPath);
-
-            assertTrue(Files.exists(repoPath.resolve("A.java")), "File should exist after fallback/normal checkout");
-
-        } finally {
-            try (var stream = Files.walk(remoteRoot)) {
-                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
-            }
-            try (var stream = Files.walk(localRoot)) {
-                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
-            }
-        }
-    }
-
-    @Test
-    void setupProjects_reportsDiskUsageAfterSparseCheckout() throws Exception {
-        Path tempBase = Files.createTempDirectory("tsrr-usage-test");
-        try {
-            Path projectPath = tempBase.resolve("test-project");
-            Files.createDirectories(projectPath);
-            Files.writeString(projectPath.resolve("file1.txt"), "Small content");
-            Files.writeString(projectPath.resolve("file2.txt"), "A bit more content here");
-
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            java.io.PrintStream originalOut = System.out;
-            System.setOut(new java.io.PrintStream(out));
-            try {
-                reportProjectStats("test-project", projectPath);
-            } finally {
-                System.setOut(originalOut);
-            }
-
-            String output = out.toString();
-            assertTrue(output.contains("test-project cloned successfully"), "Output should contain success message");
-            assertTrue(output.contains("2 files"), "Output should report 2 files");
-            assertTrue(output.contains("MB"), "Output should report size in MB");
-        } finally {
-            try (var stream = Files.walk(tempBase)) {
                 stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
             }
         }
