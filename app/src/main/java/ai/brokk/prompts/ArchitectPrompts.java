@@ -43,6 +43,9 @@ public class ArchitectPrompts {
           usages, call graphs, etc.) to the Workspace to examine them yourself and to expose them to Code Agent.
         - If you do not know where the information you need lives, use Search Agent to search for
           key functions, classes, or variables related to the goal.
+        - If you need to understand an external library's API (e.g., to use it correctly or debug integration issues),
+          use `importMavenDependency` to import it into Code Intelligence. This downloads and decompiles the library
+          so you can examine its source code and add relevant classes to the Workspace.
         - Identify the root cause of the problem.
         - Update the Workspace context continuously, including dropping irrelevant fragments, as you improve your understanding.
 

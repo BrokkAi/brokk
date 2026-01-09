@@ -158,26 +158,34 @@ public class Decompiler {
         var depsDir = brokkDir.resolve("dependencies");
         var outputDir = depsDir.resolve(jarName.replaceAll("\\.jar$", ""));
 
+        System.out.println("[Decompiler] decompileJarBlocking: " + jarName);
+        System.out.println("[Decompiler] Output dir: " + outputDir);
+
         try {
             Files.createDirectories(depsDir);
 
             if (Files.exists(outputDir)) {
                 if (!overwrite) {
+                    System.out.println("[Decompiler] Dependency already exists, skipping");
                     logger.info("Dependency already exists at {}, skipping", outputDir);
                     var count = countJavaFiles(outputDir);
                     return Optional.of(new DecompileResult(outputDir, count, false));
                 }
+                System.out.println("[Decompiler] Removing existing directory...");
                 logger.debug("Removing existing dependency directory {}", outputDir);
                 deleteDirectoryRecursive(outputDir);
             }
             Files.createDirectories(outputDir);
 
             // Try to get sources JAR
+            System.out.println("[Decompiler] Checking for Maven coordinates in JAR...");
             var coordsOpt = getMavenCoordinatesFromPomProperties(jarPath);
             Optional<Path> sourcesJarPathOpt = Optional.empty();
 
             if (coordsOpt.isPresent()) {
                 var coords = coordsOpt.get();
+                System.out.println("[Decompiler] Found Maven coordinates: " + coords);
+                System.out.println("[Decompiler] Attempting to download sources JAR...");
                 logger.info("Detected Maven coordinates: {}. Attempting to download sources...", coords);
                 var fetcher = new MavenArtifactFetcher();
                 sourcesJarPathOpt = fetcher.fetch(coords, "sources");
@@ -187,25 +195,32 @@ public class Decompiler {
             if (sourcesJarPathOpt.isEmpty()) {
                 var localSources = jarPath.resolveSibling(jarName.replace(".jar", "-sources.jar"));
                 if (Files.exists(localSources)) {
+                    System.out.println("[Decompiler] Found local sources JAR: " + localSources);
                     sourcesJarPathOpt = Optional.of(localSources);
                 }
             }
 
             boolean usedSources;
             if (sourcesJarPathOpt.isPresent()) {
+                System.out.println("[Decompiler] Extracting sources JAR: " + sourcesJarPathOpt.get());
                 logger.info("Using sources JAR: {}", sourcesJarPathOpt.get());
                 extractJarToTemp(sourcesJarPathOpt.get(), outputDir);
                 usedSources = true;
+                System.out.println("[Decompiler] Sources extraction complete");
             } else {
+                System.out.println("[Decompiler] No sources JAR found, starting decompilation (this may take a while)...");
                 logger.info("No sources JAR found, decompiling {}", jarPath);
                 decompileBlocking(jarPath, outputDir);
                 usedSources = false;
+                System.out.println("[Decompiler] Decompilation complete");
             }
 
             var count = countJavaFiles(outputDir);
+            System.out.println("[Decompiler] Final file count: " + count + " Java files");
             logger.info("Decompile complete: {} files in {}", count, outputDir);
             return Optional.of(new DecompileResult(outputDir, count, usedSources));
         } catch (Exception e) {
+            System.out.println("[Decompiler] ERROR: " + e.getMessage());
             logger.error("Error decompiling JAR {}: {}", jarPath, e.getMessage(), e);
             return Optional.empty();
         }
