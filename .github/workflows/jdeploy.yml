@@ -37,7 +37,7 @@ jobs:
         run: ./gradlew assemble
 
       - name: Build shadow JAR
-        run: ./gradlew shadowJar
+        run: ./gradlew clean shadowJar
 
       - name: Download jdeploy-prelaunch.jar
         run: |
