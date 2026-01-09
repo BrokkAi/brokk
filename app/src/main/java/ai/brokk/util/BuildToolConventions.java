@@ -18,6 +18,26 @@ public class BuildToolConventions {
         UNKNOWN
     }
 
+    /**
+     * Identifies the build system based on filenames present in the project root.
+     *
+     * <p>At runtime, {@code rootFilenames} is typically sourced from {@code BuildAgent.execute()},
+     * which collects git-tracked files in the repo root and converts them to strings.
+     *
+     * <p>The check is case-insensitive and follows this priority order:
+     * <ol>
+     *   <li>Maven (pom.xml)</li>
+     *   <li>Gradle (build.gradle, build.gradle.kts)</li>
+     *   <li>SBT (build.sbt)</li>
+     *   <li>Node (package.json)</li>
+     *   <li>Cargo (cargo.toml)</li>
+     *   <li>CMake (cmakelists.txt)</li>
+     *   <li>Python (setup.py, pyproject.toml, requirements.txt)</li>
+     *   <li>Bazel (workspace.bazel, module.bazel, build.bazel)</li>
+     * </ol>
+     *
+     * @param rootFilenames List of filenames found directly in the project root.
+     */
     public static BuildSystem determineBuildSystem(List<String> rootFilenames) {
         Set<String> names = rootFilenames.stream().map(String::toLowerCase).collect(Collectors.toSet());
 
