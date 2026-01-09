@@ -36,7 +36,8 @@ public class CodeFragmentTest {
         CodeUnit baseCls = CodeUnit.cls(baseFile, "com.example", "Base");
         CodeUnit subCls = CodeUnit.cls(subFile, "com.example", "Sub");
 
-        // Re-initialize to ensure the analyzer used by contextManager is the one we configure
+        // Use addDeclaration instead of re-init to match TestAnalyzer patterns if possible,
+        // but re-init is safe here.
         analyzer = new TestAnalyzer(List.of(baseCls, subCls), java.util.Map.of());
         contextManager = new TestContextManager(tempDir, null, analyzer);
 
@@ -57,6 +58,7 @@ public class CodeFragmentTest {
         var ancestorFragment =
                 (ContextFragments.SummaryFragment) supporting.iterator().next();
         assertEquals("com.example.Base", ancestorFragment.getTargetIdentifier());
+        assertEquals(ContextFragment.SummaryType.CODEUNIT_SKELETON, ancestorFragment.getSummaryType());
 
         // Sources of the fragment itself
         Set<CodeUnit> sources = fragment.sources().join();
@@ -74,6 +76,8 @@ public class CodeFragmentTest {
         CodeUnit cls = CodeUnit.cls(file, "com.example", "Example");
         CodeUnit method = CodeUnit.fn(file, "com.example", "Example.run");
 
+        analyzer.addDeclaration(cls);
+        analyzer.addDeclaration(method);
         analyzer.setDirectAncestors(cls, List.of(CodeUnit.cls(file, "com.example", "Parent")));
         analyzer.setSource(method, "void run() {}");
 
@@ -81,7 +85,7 @@ public class CodeFragmentTest {
         String text = fragment.text().join();
 
         assertCodeContains(text, "void run() {}");
-        assertTrue(!text.contains("Direct ancestors"), "Methods should not pull in class ancestors");
+        assertTrue(fragment.supportingFragments().isEmpty(), "Methods should not pull in class ancestors");
 
         assertEquals(Set.of(method), fragment.sources().join());
         assertEquals(Set.of(file), fragment.files().join());
