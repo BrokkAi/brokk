@@ -425,6 +425,26 @@ class ContextTest {
     }
 
     @Test
+    void testAddFragmentsExpandsSupportingFragments() {
+        ContextFragment supporting =
+                new ContextFragments.StringFragment(contextManager, "supp", "supp", SyntaxConstants.SYNTAX_STYLE_NONE);
+        ContextFragment primary = new ContextFragments.StringFragment(
+                contextManager, "primary", "primary", SyntaxConstants.SYNTAX_STYLE_NONE) {
+            @Override
+            public Set<ContextFragment> supportingFragments() {
+                return Set.of(supporting);
+            }
+        };
+
+        Context ctx = new Context(contextManager).addFragments(List.of(primary));
+
+        assertTrue(ctx.allFragments().anyMatch(f -> f == primary), "Primary fragment should be present");
+        assertTrue(
+                ctx.allFragments().anyMatch(f -> f == supporting),
+                "Supporting fragment should be expanded and present");
+    }
+
+    @Test
     void testCopyAndRefreshUpdatesContent() throws Exception {
         var pf = new ProjectFile(tempDir, "src/Refreshed.java");
         Files.createDirectories(pf.absPath().getParent());
