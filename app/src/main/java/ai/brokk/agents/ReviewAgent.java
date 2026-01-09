@@ -135,7 +135,15 @@ public class ReviewAgent {
 
         try (var scope = cm.anonymousScope()) {
             // Turn 0: Context setup and determine complexity
+            // For SESSION mode (no commits), we would need the current session ID, but IProject
+            // doesn't expose it. For now, only extract instructions in cumulative mode with commits.
+            UUID currentSessionId = null;
+            var instructionsFragment = changes.commits().isEmpty() ? null : extractInstructionsFragment(changes, currentSessionId);
+
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
+            if (instructionsFragment != null) {
+                initialContext = initialContext.addFragments(instructionsFragment).withPinned(instructionsFragment, true);
+            }
 
             updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
