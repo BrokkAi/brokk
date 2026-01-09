@@ -1,6 +1,15 @@
 package ai.brokk.util;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import java.io.IOException;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import org.apache.logging.log4j.LogManager;
@@ -97,6 +106,60 @@ public class MavenArtifactFetcher {
             } else {
                 logger.warn("Could not resolve artifact: {}", artifact, e);
             }
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Resolve the latest version for a groupId:artifactId from Maven Central.
+     * Uses the Maven Central REST API.
+     *
+     * @param groupId the Maven groupId
+     * @param artifactId the Maven artifactId
+     * @return the latest version if found, empty otherwise
+     */
+    public Optional<String> resolveLatestVersion(String groupId, String artifactId) {
+        var query = "g:%s AND a:%s".formatted(
+                URLEncoder.encode(groupId, StandardCharsets.UTF_8),
+                URLEncoder.encode(artifactId, StandardCharsets.UTF_8));
+        var url = "https://search.maven.org/solrsearch/select?q=%s&rows=1&wt=json"
+                .formatted(URLEncoder.encode(query, StandardCharsets.UTF_8));
+
+        try {
+            var client = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(10))
+                    .build();
+            var request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(30))
+                    .GET()
+                    .build();
+
+            logger.debug("Querying Maven Central for latest version: {}", url);
+            var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                logger.warn("Maven Central returned status {}", response.statusCode());
+                return Optional.empty();
+            }
+
+            var json = Json.getMapper().readTree(response.body());
+            var docs = json.path("response").path("docs");
+            if (docs.isArray() && !docs.isEmpty()) {
+                var latestVersion = docs.get(0).path("latestVersion").asText(null);
+                if (latestVersion != null && !latestVersion.isBlank()) {
+                    logger.info("Resolved latest version for {}:{} -> {}", groupId, artifactId, latestVersion);
+                    return Optional.of(latestVersion);
+                }
+            }
+
+            logger.info("No version found for {}:{}", groupId, artifactId);
+            return Optional.empty();
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            logger.warn("Failed to query Maven Central for {}:{}: {}", groupId, artifactId, e.getMessage());
             return Optional.empty();
         }
     }
