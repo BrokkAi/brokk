@@ -2140,6 +2140,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
+    @Blocking
     public TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
         // prepare MOP
         var history = liveContext().getTaskHistory();
@@ -2178,6 +2179,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         private final UUID groupId = UUID.randomUUID();
         private final String groupLabel;
 
+        @Blocking
         private TaskScope(boolean groupAndCompress, @Nullable String taskDescription) {
             this.groupAndCompress = groupAndCompress;
             this.groupLabel = taskDescription == null ? "Task" : taskDescription;
