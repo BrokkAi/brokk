@@ -434,10 +434,8 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
      * (possibly {@code null}) as its argument and must return the new analyzer to become current.
      *
      * <p>Returns the Future representing the scheduled task.
-     *
-     * <p>Synchronized to simplify reasoning about pause/resume; otherwise is inherently threadsafe.
      */
-    private synchronized CompletableFuture<IAnalyzer> refresh(Function<IAnalyzer, IAnalyzer> fn) {
+    private CompletableFuture<IAnalyzer> refresh(Function<IAnalyzer, IAnalyzer> fn) {
         logger.trace("Scheduling analyzer refresh task");
         return analyzerExecutor.submit(() -> {
             requireNonNull(currentAnalyzer);
@@ -516,13 +514,13 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
     /** Pause the file watching service. */
     @Override
-    public synchronized void pause() {
+    public void pause() {
         watchService.pause();
     }
 
     /** Resume the file watching service. */
     @Override
-    public synchronized void resume() {
+    public void resume() {
         watchService.resume();
     }
 
