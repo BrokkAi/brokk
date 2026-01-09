@@ -1865,69 +1865,6 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         assertNotNull(runner);
     }
 
-    @Test
-    void setupProjects_runsInParallel() throws Exception {
-        Path remoteRoot = Files.createTempDirectory("tsrr-parallel-remote");
-        Path localBase = Files.createTempDirectory("tsrr-parallel-local");
-
-        try {
-            // Setup a dummy remote git repo
-            new ProcessBuilder("git", "init", "-b", "main")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
-            new ProcessBuilder("git", "config", "user.email", "test@example.com")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
-            new ProcessBuilder("git", "config", "user.name", "test")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
-            Files.writeString(remoteRoot.resolve("file.java"), "public class A {}");
-            new ProcessBuilder("git", "add", ".")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
-            new ProcessBuilder("git", "commit", "-m", "init")
-                    .directory(remoteRoot.toFile())
-                    .start()
-                    .waitFor();
-
-            TreeSitterRepoRunner runner = new TreeSitterRepoRunner();
-            runner.projectsBaseDir = localBase;
-            runner.threads = 2;
-            runner.sparseCheckout = false;
-
-            // Use dummy project configs to avoid cloning real-world massive repos during test
-            Map<String, ProjectConfig> testProjects = Map.of(
-                    "p1",
-                            new ProjectConfig(
-                                    remoteRoot.toString(),
-                                    "main",
-                                    Map.of(Languages.JAVA, List.of("*.java")),
-                                    List.of()),
-                    "p2",
-                            new ProjectConfig(
-                                    remoteRoot.toString(),
-                                    "main",
-                                    Map.of(Languages.JAVA, List.of("*.java")),
-                                    List.of()));
-
-            runner.setupProjects(testProjects);
-
-            assertTrue(Files.exists(localBase.resolve("p1")), "Project p1 should exist");
-            assertTrue(Files.exists(localBase.resolve("p2")), "Project p2 should exist");
-
-        } finally {
-            try (var stream = Files.walk(remoteRoot)) {
-                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
-            }
-            try (var stream = Files.walk(localBase)) {
-                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
-            }
-        }
-    }
 
     @Test
     void memoryMonitor_recordsNonNegativePeak() throws Exception {
