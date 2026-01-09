@@ -11,12 +11,14 @@ import ai.brokk.Llm;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.ArchitectPrompts;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -538,7 +540,8 @@ public class ArchitectAgent {
 
             // Create a local registry for this planning turn
             var wst = new WorkspaceTools(this.context);
-            var tr = cm.getToolRegistry().builder().register(this).register(wst).build();
+            var depTools = new DependencyTools(cm);
+            var tr = cm.getToolRegistry().builder().register(this).register(wst).register(depTools).build();
 
             // Decide tool availability for this step
             var toolSpecs = new ArrayList<ToolSpecification>();
@@ -565,6 +568,11 @@ public class ArchitectAgent {
                 allowed.add("callCodeAgent");
                 allowed.add("setBuildDetails");
                 allowed.add("verifyBuildCommand");
+
+                // Dependency tools (Java only)
+                if (hasJavaLanguage()) {
+                    allowed.add("importMavenDependency");
+                }
 
                 if (this.offerUndoToolNext) {
                     allowed.add("undoLastChanges");
@@ -961,6 +969,13 @@ public class ArchitectAgent {
                     + mergeSummary;
         }
         io.llmOutput(summaryMessage, ChatMessageType.AI, true, false);
+    }
+
+    /**
+     * Returns true if the project language includes Java.
+     */
+    private boolean hasJavaLanguage() {
+        return cm.getProject().getAnalyzerLanguages().contains(Languages.JAVA);
     }
 
     /**
