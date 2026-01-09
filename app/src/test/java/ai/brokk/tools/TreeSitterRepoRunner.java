@@ -21,7 +21,11 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -302,27 +306,54 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     }
 
     private void setupProjects() throws Exception {
-        System.out.println("Setting up test projects...");
+        setupProjects(PROJECTS);
+    }
+
+    private void setupProjects(Map<String, ProjectConfig> projectsToSetup) throws Exception {
+        System.out.println("Setting up test projects (threads: " + threads + ")...");
 
         // Ensure the base directory exists
         Files.createDirectories(projectsBaseDir);
 
-        for (var entry : PROJECTS.entrySet()) {
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        AtomicInteger successCount = new AtomicInteger(0);
+        List<Callable<Void>> tasks = new ArrayList<>();
+
+        for (var entry : projectsToSetup.entrySet()) {
             var projectName = entry.getKey();
             var config = entry.getValue();
 
-            var projectPath = projectsBaseDir.resolve(projectName);
+            tasks.add(() -> {
+                var projectPath = projectsBaseDir.resolve(projectName);
+                if (!Files.exists(projectPath)) {
+                    synchronized (System.out) {
+                        System.out.println("Cloning " + projectName + "...");
+                    }
+                    cloneProject(config, projectPath);
+                    reportProjectStats(projectName, projectPath);
+                    successCount.incrementAndGet();
+                } else {
+                    synchronized (System.out) {
+                        System.out.println("✓ " + projectName + " already exists");
+                    }
+                    successCount.incrementAndGet();
+                }
+                return null;
+            });
+        }
 
-            if (!Files.exists(projectPath)) {
-                System.out.println("Cloning " + projectName + "...");
-                cloneProject(config, projectPath);
-                reportProjectStats(projectName, projectPath);
-            } else {
-                System.out.println("✓ " + projectName + " already exists");
+        try {
+            executor.invokeAll(tasks);
+        } finally {
+            executor.shutdown();
+            if (!executor.awaitTermination(30, TimeUnit.MINUTES)) {
+                executor.shutdownNow();
             }
         }
 
-        System.out.println("All projects ready for baseline testing");
+        System.out.println("--------------------------------------------------");
+        System.out.println("Setup complete: " + successCount.get() + "/" + PROJECTS.size() + " projects ready");
+        System.out.println("--------------------------------------------------");
     }
 
     private void reportProjectStats(String projectName, Path projectPath) throws IOException {
@@ -339,8 +370,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             }
         }
         double sizeMb = totalSize / (1024.0 * 1024.0);
-        System.out.printf(
-                Locale.ROOT, "✓ %s cloned successfully (%.1f MB, %d files)%n", projectName, sizeMb, fileCount);
+        synchronized (System.out) {
+            System.out.printf(
+                    Locale.ROOT, "✓ %s cloned successfully (%.1f MB, %d files)%n", projectName, sizeMb, fileCount);
+        }
     }
 
     private void runFullBaselines() throws Exception {
@@ -1817,6 +1850,46 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     void sanity_createsRunnerInstance() {
         var runner = new TreeSitterRepoRunner();
         assertNotNull(runner);
+    }
+
+    @Test
+    void setupProjects_runsInParallel() throws Exception {
+        Path remoteRoot = Files.createTempDirectory("tsrr-parallel-remote");
+        Path localBase = Files.createTempDirectory("tsrr-parallel-local");
+
+        try {
+            // Setup a dummy remote git repo
+            new ProcessBuilder("git", "init", "-b", "main").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "config", "user.email", "test@example.com").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "config", "user.name", "test").directory(remoteRoot.toFile()).start().waitFor();
+            Files.writeString(remoteRoot.resolve("file.java"), "public class A {}");
+            new ProcessBuilder("git", "add", ".").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "commit", "-m", "init").directory(remoteRoot.toFile()).start().waitFor();
+
+            TreeSitterRepoRunner runner = new TreeSitterRepoRunner();
+            runner.projectsBaseDir = localBase;
+            runner.threads = 2;
+            runner.sparseCheckout = false;
+
+            // Use dummy project configs to avoid cloning real-world massive repos during test
+            Map<String, ProjectConfig> testProjects = Map.of(
+                "p1", new ProjectConfig(remoteRoot.toString(), "main", Map.of(Languages.JAVA, List.of("*.java")), List.of()),
+                "p2", new ProjectConfig(remoteRoot.toString(), "main", Map.of(Languages.JAVA, List.of("*.java")), List.of())
+            );
+
+            runner.setupProjects(testProjects);
+
+            assertTrue(Files.exists(localBase.resolve("p1")), "Project p1 should exist");
+            assertTrue(Files.exists(localBase.resolve("p2")), "Project p2 should exist");
+
+        } finally {
+            try (var stream = Files.walk(remoteRoot)) {
+                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+            }
+            try (var stream = Files.walk(localBase)) {
+                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+            }
+        }
     }
 
     @Test
