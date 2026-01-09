@@ -1012,7 +1012,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+            public void llmOutput(String token, ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
                 appendSystemMessage(token);
             }
 

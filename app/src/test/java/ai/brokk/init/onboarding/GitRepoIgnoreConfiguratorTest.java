@@ -83,7 +83,7 @@ class GitRepoIgnoreConfiguratorTest {
         }
 
         @Override
-        public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+        public void llmOutput(String token, ChatMessageType type, ai.brokk.LlmOutputMeta meta) {
             // No-op for tests
         }
 

@@ -65,12 +65,7 @@ public class MutedConsoleIO implements IConsoleIO {
     }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
-        // Mute streaming output
-    }
-
-    @Override
-    public void llmOutput(String token, ChatMessageType type) {
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         // Mute streaming output
     }
 
