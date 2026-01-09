@@ -241,9 +241,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
     private void cleanupProjects() throws IOException {
         if (Files.exists(projectsBaseDir)) {
             try (var stream = Files.walk(projectsBaseDir)) {
-                stream.sorted(Comparator.reverseOrder())
-                        .map(Path::toFile)
-                        .forEach(java.io.File::delete);
+                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
             }
         }
     }
@@ -1856,12 +1854,27 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
 
         try {
             // Setup a dummy remote git repo
-            new ProcessBuilder("git", "init", "-b", "main").directory(remoteRoot.toFile()).start().waitFor();
-            new ProcessBuilder("git", "config", "user.email", "test@example.com").directory(remoteRoot.toFile()).start().waitFor();
-            new ProcessBuilder("git", "config", "user.name", "test").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "init", "-b", "main")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "config", "user.email", "test@example.com")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "config", "user.name", "test")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
             Files.writeString(remoteRoot.resolve("file.java"), "public class A {}");
-            new ProcessBuilder("git", "add", ".").directory(remoteRoot.toFile()).start().waitFor();
-            new ProcessBuilder("git", "commit", "-m", "init").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "add", ".")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "commit", "-m", "init")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
 
             TreeSitterRepoRunner runner = new TreeSitterRepoRunner();
             runner.projectsBaseDir = localBase;
@@ -1870,9 +1883,18 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
 
             // Use dummy project configs to avoid cloning real-world massive repos during test
             Map<String, ProjectConfig> testProjects = Map.of(
-                "p1", new ProjectConfig(remoteRoot.toString(), "main", Map.of(Languages.JAVA, List.of("*.java")), List.of()),
-                "p2", new ProjectConfig(remoteRoot.toString(), "main", Map.of(Languages.JAVA, List.of("*.java")), List.of())
-            );
+                    "p1",
+                            new ProjectConfig(
+                                    remoteRoot.toString(),
+                                    "main",
+                                    Map.of(Languages.JAVA, List.of("*.java")),
+                                    List.of()),
+                    "p2",
+                            new ProjectConfig(
+                                    remoteRoot.toString(),
+                                    "main",
+                                    Map.of(Languages.JAVA, List.of("*.java")),
+                                    List.of()));
 
             runner.setupProjects(testProjects);
 
@@ -1977,7 +1999,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     .waitFor();
 
             Files.writeString(remoteRoot.resolve("A.java"), "public class A {}");
-            new ProcessBuilder("git", "add", ".").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "add", ".")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
             new ProcessBuilder("git", "commit", "-m", "init")
                     .directory(remoteRoot.toFile())
                     .start()
@@ -2071,9 +2096,18 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
 
         try {
             // 1. Create a temporary Git repository with mixed file types
-            new ProcessBuilder("git", "init", "-b", "main").directory(remoteRoot.toFile()).start().waitFor();
-            new ProcessBuilder("git", "config", "user.email", "test@example.com").directory(remoteRoot.toFile()).start().waitFor();
-            new ProcessBuilder("git", "config", "user.name", "test").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "init", "-b", "main")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "config", "user.email", "test@example.com")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "config", "user.name", "test")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
 
             // Use src directory to ensure patterns like **/*.java match reliably
             Path src = remoteRoot.resolve("src");
@@ -2083,8 +2117,14 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             Files.writeString(src.resolve("script.py"), "print(1)");
             Files.writeString(src.resolve("app.ts"), "const x = 1;");
 
-            new ProcessBuilder("git", "add", ".").directory(remoteRoot.toFile()).start().waitFor();
-            new ProcessBuilder("git", "commit", "-m", "initial").directory(remoteRoot.toFile()).start().waitFor();
+            new ProcessBuilder("git", "add", ".")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
+            new ProcessBuilder("git", "commit", "-m", "initial")
+                    .directory(remoteRoot.toFile())
+                    .start()
+                    .waitFor();
 
             // 2. Configure a test project in PROJECTS map pointing to this temporary repo
             String projectName = "integration-test-repo";
@@ -2092,17 +2132,16 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
                     remoteRoot.toAbsolutePath().toString(),
                     "main",
                     Map.of(Languages.JAVA, List.of("**/*.java")),
-                    List.of()
-            );
+                    List.of());
 
-            // Since PROJECTS is an immutable map created in a static block, 
+            // Since PROJECTS is an immutable map created in a static block,
             // we use a runner instance and override logic or simulate the environment.
             TreeSitterRepoRunner runner = new TreeSitterRepoRunner();
             runner.projectsBaseDir = localBase;
             runner.sparseCheckout = true;
 
             // We need to reflectively inject the project or use a custom PROJECTS map.
-            // Since we can't edit the static Map easily, we'll simulate setupProjects' behavior 
+            // Since we can't edit the static Map easily, we'll simulate setupProjects' behavior
             // for just this config.
             Path projectPath = localBase.resolve(projectName);
 
@@ -2118,7 +2157,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
             assertFalse(Files.exists(projectPath.resolve("src/app.ts")), "TS file should not exist");
 
             // 6. Runs getProjectFiles to confirm file discovery still works
-            // Note: getProjectFiles will use DEFAULT_LANGUAGE_PATTERNS because "integration-test-repo" 
+            // Note: getProjectFiles will use DEFAULT_LANGUAGE_PATTERNS because "integration-test-repo"
             // is not in the static PROJECTS map.
             runner.testDirectory = projectPath;
             var discovery = runner.getProjectFiles(projectName, Languages.JAVA, 100);
