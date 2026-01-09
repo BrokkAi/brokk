@@ -1453,8 +1453,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    public Context setTaskList(TaskList.TaskListData data) {
-        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+    public void setTaskListAsync(TaskList.TaskListData data) {
+        submitContextTask(() -> {
+            pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+        });
     }
 
     public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data) {
@@ -1468,6 +1470,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Notify listeners and UI on the EDT
         SwingUtilities.invokeLater(() -> {
             notifyContextListeners(liveContext());
+
             io.updateContextHistoryTable(liveContext());
             if (io instanceof Chrome) {
                 io.enableActionButtons();
@@ -1686,8 +1689,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.warn("notifyContextListeners called with null context");
             return;
         }
+        var taskList = ctx.getTaskListDataOrEmpty();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
+            listener.onTaskListChanged(taskList);
         }
     }
 
@@ -1695,9 +1700,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public CompletableFuture<String> summarizeTaskForConversation(String input) {
+        return summarize(input, SummarizerPrompts.WORD_BUDGET_5);
+    }
+
+    public CompletableFuture<String> summarize(String input, int words) {
         var future = new CompletableFuture<String>();
 
-        var worker = new SummarizeWorker(this, input, SummarizerPrompts.WORD_BUDGET_5) {
+        var worker = new SummarizeWorker(this, input, words) {
             @Override
             protected void done() {
                 try {
@@ -2124,12 +2133,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return entry.withSummary(summary);
     }
 
-    /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTaskUngrouped(String input) {
-        return beginTask(input, false, null);
-    }
-
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
+    @Override
     public TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
         // prepare MOP
         var history = liveContext().getTaskHistory();
@@ -2162,7 +2167,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * This means it is the agent's responsibility to propagate any sub-agents' Contexts
      * without losing important history.
      */
-    public final class TaskScope implements AutoCloseable {
+    public class TaskScope implements AutoCloseable {
         private final boolean groupAndCompress;
         private final AtomicBoolean closed = new AtomicBoolean(false);
         private final UUID groupId = UUID.randomUUID();
@@ -2265,6 +2270,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             analyzerWrapper.resume();
         }
+    }
+
+    public class AnonymousScope extends TaskScope {
+        private AnonymousScope() {
+            super(false, "");
+        }
+
+        @Override
+        public Context append(TaskResult result) throws InterruptedException {
+            return result.context();
+        }
+
+        @Override
+        public void publish(Context context) {}
+
+        @Override
+        public void close() throws InterruptedException {}
+    }
+
+    @Override
+    public AnonymousScope anonymousScope() {
+        return new AnonymousScope();
     }
 
     public List<Context> getContextHistoryList() {

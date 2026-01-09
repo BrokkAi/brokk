@@ -445,7 +445,8 @@ public class SearchPrompts {
         TASK_LIST,
         ANSWER,
         WORKSPACE,
-        CODE
+        CODE,
+        REVIEW
     }
 
     private record TerminalObjective(String type, String text) {}

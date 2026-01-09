@@ -797,6 +797,24 @@ public class GitHubAuth {
     }
 
     /**
+     * Checks if an open pull request already exists for the given head branch.
+     * This is useful to prevent creating duplicate PRs.
+     *
+     * @param headBranch The source/head branch name to check
+     * @return true if an open PR exists with the given head branch, false otherwise
+     * @throws IOException if there's a problem connecting to GitHub
+     */
+    public boolean hasOpenPullRequestForBranch(String headBranch) throws IOException {
+        var prs = listPullRequestsPaginated(GHIssueState.OPEN, 100);
+        for (var pr : prs) {
+            if (headBranch.equals(pr.getHead().getRef())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Lists issues for the connected repository based on the given state. Note: This may include Pull Requests as they
      * are a type of Issue in GitHub's API. Filtering to exclude PRs can be done by checking `issue.isPullRequest()`.
      */

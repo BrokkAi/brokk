@@ -12,6 +12,7 @@ import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.git.GitRepo;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -1088,6 +1089,13 @@ public class Chrome
             setContext(newCtx);
             updateContextHistoryTable(newCtx);
         });
+    }
+
+    @Override
+    public void onTaskListChanged(ai.brokk.tasks.TaskList.TaskListData data) {
+        // Count incomplete tasks and update the badge
+        int incomplete = (int) data.tasks().stream().filter(t -> !t.done()).count();
+        SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
     }
 
     @Override
@@ -2429,6 +2437,31 @@ public class Chrome
             rightPanel.setBranchLabel(branchName);
             projectFilesPanel.updateBorderTitle();
         });
+    }
+
+    /**
+     * Refreshes all Git-related UI components after a branch change or significant repo update.
+     * This coordinates updates across the repo state, branch labels, and the review/changes panel.
+     * Also fetches from the upstream default branch if available.
+     */
+    public void refreshGitAndFetch(@Nullable String branchName) {
+        try {
+            var repo = getProject().getRepo();
+            if (repo instanceof GitRepo gitRepo) {
+                String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
+                if (remoteName != null) {
+                    String defaultBranch = gitRepo.getDefaultBranch();
+                    gitRepo.remote().fetchBranch(remoteName, defaultBranch);
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to fetch upstream default branch", e);
+        }
+
+        updateGitRepo();
+        refreshBranchUi(branchName);
+
+        getRightPanel().requestReviewUpdate();
     }
 
     /**

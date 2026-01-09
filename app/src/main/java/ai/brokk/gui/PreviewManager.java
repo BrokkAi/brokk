@@ -559,7 +559,7 @@ public class PreviewManager {
         }
 
         var markdownPanel = new MarkdownOutputPanel();
-        markdownPanel.withContextForLookups(cm, chrome);
+        markdownPanel.setContextForLookups(cm, chrome);
         markdownPanel.setMessages(combinedMessages);
 
         JPanel contentPanel = createSearchableContentPanel(List.of(markdownPanel), null, false);
@@ -617,7 +617,7 @@ public class PreviewManager {
         if (SyntaxConstants.SYNTAX_STYLE_MARKDOWN.equals(style)) {
             var markdownPanel = new MarkdownOutputPanel();
             markdownPanel.updateTheme(MainProject.getTheme());
-            markdownPanel.withContextForLookups(cm, chrome);
+            markdownPanel.setContextForLookups(cm, chrome);
             markdownPanel.setStaticDocument(text);
             panel = createSearchableContentPanel(List.of(markdownPanel), null, false);
         } else {
@@ -727,7 +727,7 @@ public class PreviewManager {
     private JPanel renderMarkdownContent(String text) {
         var markdownPanel = new MarkdownOutputPanel();
         markdownPanel.updateTheme(MainProject.getTheme());
-        markdownPanel.withContextForLookups(cm, chrome);
+        markdownPanel.setContextForLookups(cm, chrome);
         markdownPanel.setStaticDocument(text);
         return createSearchableContentPanel(List.of(markdownPanel), null, false);
     }

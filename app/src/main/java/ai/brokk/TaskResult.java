@@ -120,7 +120,8 @@ public record TaskResult(
         SEARCH,
         CONTEXT,
         MERGE,
-        BLITZFORGE;
+        BLITZFORGE,
+        REVIEW;
 
         public String displayName() {
             if (this == SEARCH) {

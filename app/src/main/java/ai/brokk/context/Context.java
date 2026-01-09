@@ -110,36 +110,9 @@ public class Context {
 
         // TODO: Get this off common FJP
         return candidates.parallelStream()
-                .map(pf -> Map.entry(pf, buildRelatedIdentifiers(analyzer, pf)))
+                .map(pf -> Map.entry(pf, analyzer.buildRelatedIdentifiers(pf)))
                 .filter(e -> !e.getValue().isBlank())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a));
-    }
-
-    public static String buildRelatedIdentifiers(IAnalyzer analyzer, ProjectFile file) {
-        return buildRelatedIdentifiers(analyzer, analyzer.getTopLevelDeclarations(file), 0);
-    }
-
-    private static String buildRelatedIdentifiers(IAnalyzer analyzer, List<CodeUnit> units, int indent) {
-        var prefix = "  ".repeat(Math.max(0, indent));
-        var sb = new StringBuilder();
-        for (var cu : units) {
-            // Skip anonymous/lambda artifacts
-            if (cu.isAnonymous()) {
-                continue;
-            }
-
-            // Use FQN for top-level entries, simple identifier for nested entries
-            String name = indent == 0 ? cu.fqName() : cu.identifier();
-            sb.append(prefix).append("- ").append(name);
-
-            var children = analyzer.getDirectChildren(cu);
-            if (!children.isEmpty()) {
-                sb.append("\n");
-                sb.append(buildRelatedIdentifiers(analyzer, children, indent + 1));
-            }
-            sb.append("\n");
-        }
-        return sb.toString().stripTrailing();
     }
 
     public static UUID newContextId() {

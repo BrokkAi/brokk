@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 
 /** Interface for context manager functionality */
 public interface IContextManager {
@@ -88,6 +89,9 @@ public interface IContextManager {
          * @param newCtx The new context state.
          */
         void contextChanged(Context newCtx);
+
+        /** Called when the task list data has been modified. */
+        default void onTaskListChanged(ai.brokk.tasks.TaskList.TaskListData data) {}
     }
 
     /**
@@ -163,12 +167,12 @@ public interface IContextManager {
         }
     }
 
-    default List<ProjectFile> getTestFiles() {
+    default Set<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
         var analyzer = getAnalyzerWrapper().getNonBlocking();
         return allFiles.stream()
                 .filter(f -> ContextManager.isTestFile(f, analyzer))
-                .toList();
+                .collect(Collectors.toSet());
     }
 
     default IAnalyzerWrapper getAnalyzerWrapper() {
@@ -217,6 +221,20 @@ public interface IContextManager {
     default void addFiles(Collection<ProjectFile> path) {}
 
     default IProject getProject() {
+        throw new UnsupportedOperationException();
+    }
+
+    default ContextManager.TaskScope beginTask(
+            String input, boolean groupAndCompress, @Nullable String taskDescription) {
+        throw new UnsupportedOperationException();
+    }
+
+    /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
+    default ContextManager.TaskScope beginTaskUngrouped(String input) {
+        return beginTask(input, false, null);
+    }
+
+    default ContextManager.TaskScope anonymousScope() {
         throw new UnsupportedOperationException();
     }
 
