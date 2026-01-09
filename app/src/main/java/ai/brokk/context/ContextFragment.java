@@ -108,6 +108,15 @@ public interface ContextFragment {
     }
 
     /**
+     * Set of fragments that should be added alongside this one.
+     * <p>
+     * This method is called during {@link Context#addFragments(Collection)} to expand a fragment with related context.
+     */
+    default Set<ContextFragment> supportingFragments() {
+        return Set.of();
+    }
+
+    /**
      * Unique identifier for this fragment. Can be a numeric string for dynamic fragments or a hash string for
      * static/frozen fragments.
      */

@@ -163,9 +163,15 @@ public class Context {
             return this;
         }
 
-        // 1. Deduplicate the input 'toAdd' collection internally first.
+        // Expand with supporting fragments
+        List<ContextFragment> expanded = new ArrayList<>(toAdd);
+        for (ContextFragment f : toAdd) {
+            expanded.addAll(f.supportingFragments());
+        }
+
+        // 1. Deduplicate the expanded collection internally first.
         var uniqueInputs = new ArrayList<ContextFragment>();
-        for (var f : toAdd) {
+        for (var f : expanded) {
             if (uniqueInputs.stream().noneMatch(existing -> existing.hasSameSource(f))) {
                 uniqueInputs.add(f);
             }
