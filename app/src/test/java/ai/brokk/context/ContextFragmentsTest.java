@@ -114,7 +114,8 @@ class ContextFragmentsTest {
 
         var files = fragment.files().join();
         assertTrue(files.contains(projectFile), "Should contain the file from the diff");
-        assertFalse(files.contains(decoyFile),
+        assertFalse(
+                files.contains(decoyFile),
                 "Should NOT contain the decoy file (diff parser should return early ignoring trailing text)");
     }
 
