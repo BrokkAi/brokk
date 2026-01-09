@@ -2,7 +2,6 @@ package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
 import ai.brokk.ICodeReview.ReviewNavigationListener;
-import ai.brokk.context.Context;
 import ai.brokk.gui.components.MaterialChip;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.AskHumanDialog;
@@ -34,7 +33,6 @@ import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
-import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -43,6 +41,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private static final String CARD_CONTENT = "content";
 
     private final ContextManager contextManager;
+    private final CodeReviewPanel parent;
     private final Runnable onNext;
 
     private final MarkdownOutputPanel markdownPanel;
@@ -57,11 +56,9 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final List<ReviewNavigationListener> listeners = new ArrayList<>();
     private final List<String> markdownChunks = new ArrayList<>();
 
-    @Nullable
-    private Context reviewContext = null;
-
-    public ReviewDetailPanel(ContextManager contextManager, Runnable onNext) {
+    public ReviewDetailPanel(ContextManager contextManager, CodeReviewPanel parent, Runnable onNext) {
         this.contextManager = contextManager;
+        this.parent = parent;
         this.onNext = onNext;
 
         cardLayout = new CardLayout();
@@ -109,10 +106,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         cardLayout.show(this, CARD_PLACEHOLDER);
     }
 
-    public void setReviewContext(@Nullable Context context) {
-        this.reviewContext = context;
-    }
-
     public void setBusy(boolean busy) {
         if (busy) {
             placeholderArea.setText("Generating review...");
@@ -135,15 +128,18 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
 
             var captureBtn = new ai.brokk.gui.components.MaterialButton("Capture to new Session");
             captureBtn.addActionListener(e -> {
-                if (reviewContext != null) {
+                var ctx = parent.getReviewContext();
+                if (ctx != null) {
                     contextManager
-                            .createSessionFromContextAsync(reviewContext, "Code Review")
+                            .createSessionFromContextAsync(ctx, "Code Review")
                             .exceptionally(ex -> {
                                 contextManager
                                         .getIo()
                                         .toolError("Failed to create session: " + ex.getMessage(), "Session Error");
                                 return null;
                             });
+                } else {
+                    contextManager.getIo().toolError("No review context available to capture", "Capture Error");
                 }
             });
             buttonPanel.add(captureBtn);
