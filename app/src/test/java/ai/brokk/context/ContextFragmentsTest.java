@@ -132,7 +132,7 @@ class ContextFragmentsTest {
         var fragment = new ContextFragments.StringFragment(
                 mockContextManager, mixedFormats, "Mixed formats", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        assertFalse(fragment.files().join().isEmpty());
+        assertEquals(Set.of(file), fragment.files().join());
     }
 
     @Test
