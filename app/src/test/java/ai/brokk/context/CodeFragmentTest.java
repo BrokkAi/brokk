@@ -90,4 +90,27 @@ public class CodeFragmentTest {
         assertEquals(Set.of(method), fragment.sources().join());
         assertEquals(Set.of(file), fragment.files().join());
     }
+
+    @Test
+    void testProjectPathFragmentIncludesAncestorSkeletons() {
+        ProjectFile parentFile = new ProjectFile(tempDir, "Parent.java");
+        ProjectFile childFile = new ProjectFile(tempDir, "Child.java");
+
+        CodeUnit parentCls = CodeUnit.cls(parentFile, "com.example", "Parent");
+        CodeUnit childCls = CodeUnit.cls(childFile, "com.example", "Child");
+
+        analyzer.addDeclaration(parentCls);
+        analyzer.addDeclaration(childCls);
+        analyzer.setDirectAncestors(childCls, List.of(parentCls));
+
+        var fragment = new ContextFragments.ProjectPathFragment(childFile, contextManager);
+
+        var supporting = fragment.supportingFragments();
+        assertEquals(1, supporting.size());
+
+        var ancestorFragment =
+                (ContextFragments.SummaryFragment) supporting.iterator().next();
+        assertEquals("com.example.Parent", ancestorFragment.getTargetIdentifier());
+        assertEquals(ContextFragment.SummaryType.CODEUNIT_SKELETON, ancestorFragment.getSummaryType());
+    }
 }
