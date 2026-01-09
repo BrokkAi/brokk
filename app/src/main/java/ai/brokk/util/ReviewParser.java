@@ -78,7 +78,10 @@ public class ReviewParser {
     }
 
     private String cleanMetadata(String text) {
-        return text.lines()
+        // Unescape newlines before checking for orphaned BRK_EXCERPT markers
+        String unescaped = text.replace("\\n", "\n");
+        return unescaped
+                .lines()
                 .filter(line -> {
                     String trimmed = line.trim();
                     return !(trimmed.startsWith("BRK_EXCERPT_")
