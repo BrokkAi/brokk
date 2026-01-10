@@ -465,6 +465,23 @@ class ReviewParserTest {
     }
 
     @Test
+    void testParseMarkdownReview_MultiParagraphOverview() {
+        String markdown = """
+                ## Overview
+                Para one.
+                
+                Para two.
+                
+                ## Design Notes
+                ### Title
+                Desc.
+                """.stripIndent();
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+        assertEquals("Para one.\n\nPara two.", review.overview());
+    }
+
+    @Test
     void testParseMarkdownReview_MissingSections() {
         String markdown = """
             ## Overview

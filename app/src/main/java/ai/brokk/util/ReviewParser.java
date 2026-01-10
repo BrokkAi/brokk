@@ -253,7 +253,7 @@ public class ReviewParser {
         Parser parser = Parser.builder(options).build();
         Node document = parser.parse(markdown);
 
-        String overview = "";
+        StringBuilder overviewBuilder = new StringBuilder();
         List<DesignFeedback> designNotes = new ArrayList<>();
         List<TacticalFeedback> tacticalNotes = new ArrayList<>();
         List<String> additionalTests = new ArrayList<>();
@@ -278,7 +278,13 @@ public class ReviewParser {
                 }
             } else if (node instanceof Paragraph p) {
                 if (currentTopLevelSection.equalsIgnoreCase("Overview")) {
-                    overview = new TextCollectingVisitor().collectAndGetText(p).trim();
+                    String pText = new TextCollectingVisitor().collectAndGetText(p).trim();
+                    if (!pText.isEmpty()) {
+                        if (!overviewBuilder.isEmpty()) {
+                            overviewBuilder.append("\n\n");
+                        }
+                        overviewBuilder.append(pText);
+                    }
                 }
             } else if (node instanceof BulletList list) {
                 if (currentTopLevelSection.equalsIgnoreCase("Additional Tests")) {
@@ -291,7 +297,7 @@ public class ReviewParser {
             }
         }
 
-        return new GuidedReview(overview, designNotes, tacticalNotes, additionalTests);
+        return new GuidedReview(overviewBuilder.toString(), designNotes, tacticalNotes, additionalTests);
     }
 
     private record ParsedContent(String description, String recommendation, List<Integer> excerptIds) {}
