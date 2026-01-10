@@ -508,4 +508,94 @@ class ReviewParserTest {
         assertEquals("Description with\nand more text.", design.description());
         assertEquals("Recommendation with", design.recommendation());
     }
+
+    @Test
+    void testParseMarkdownReview_RecommendationMidSentence_NotMatched() {
+        // "Recommendation:" appearing mid-sentence should not be treated as the recommendation delimiter
+        String markdown = """
+            ## Design Notes
+            ### Naming Issue
+            The variable name contains Recommendation: suffix which is confusing.
+            **Recommendation:** Rename the variable to something clearer.
+            """;
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        // The description should include "contains Recommendation: suffix"
+        // The actual recommendation should be "Rename the variable to something clearer."
+        assertEquals(1, review.designNotes().size());
+        assertTrue(review.designNotes().get(0).description().contains("contains Recommendation: suffix"));
+        assertEquals("Rename the variable to something clearer.", review.designNotes().get(0).recommendation());
+    }
+
+    @Test
+    void testParseMarkdownReview_RecommendationInCodeBlock_NotMatched() {
+        // "Recommendation:" appearing in code excerpts should not be treated as delimiter
+        String markdown = """
+            ## Tactical Notes
+            ### Config Issue
+            The code has a hardcoded string:
+            BRK_EXCERPT_1
+            config.java @10
+            ```
+            String key = "Recommendation:";
+            ```
+            **Recommendation:** Use a constant instead.
+            """;
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var resolved = Map.of(
+                1,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "config.java"),
+                        null,
+                        10,
+                        ReviewParser.DiffSide.NEW,
+                        "String key = \"Recommendation:\";"));
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+
+        assertEquals(1, review.tacticalNotes().size());
+        // The recommendation should only be the actual recommendation, not the code
+        assertEquals("Use a constant instead.", review.tacticalNotes().get(0).recommendation());
+    }
+
+    @Test
+    void testParseMarkdownReview_BoldRecommendationFormat() {
+        // The expected format uses bold: **Recommendation:**
+        String markdown = """
+            ## Design Notes
+            ### API Design
+            The API is inconsistent.
+            **Recommendation:** Refactor to use builder pattern.
+
+            ### Error Handling
+            Missing error cases.
+            **Recommendation:** Add try-catch blocks.
+            """;
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        assertEquals(2, review.designNotes().size());
+        assertEquals("Refactor to use builder pattern.", review.designNotes().get(0).recommendation());
+        assertEquals("Add try-catch blocks.", review.designNotes().get(1).recommendation());
+    }
+
+    @Test
+    void testParseMarkdownReview_NonBoldRecommendationIgnored() {
+        // Plain "Recommendation:" without bold should not be the delimiter when bold version exists
+        String markdown = """
+            ## Design Notes
+            ### Mixed Format
+            The method has a Recommendation: comment in the code.
+            **Recommendation:** Remove the outdated comment.
+            """;
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        assertEquals(1, review.designNotes().size());
+        assertTrue(review.designNotes().get(0).description().contains("Recommendation: comment"));
+        assertEquals("Remove the outdated comment.", review.designNotes().get(0).recommendation());
+    }
 }

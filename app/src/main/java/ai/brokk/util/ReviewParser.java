@@ -293,82 +293,44 @@ public class ReviewParser {
         return new GuidedReview(overview, designNotes, tacticalNotes, additionalTests);
     }
 
-    private DesignFeedback parseDesignFeedback(Heading heading, Map<Integer, CodeExcerpt> resolvedExcerpts) {
-        String title = new TextCollectingVisitor().collectAndGetText(heading).trim();
+    private record ParsedContent(String description, String recommendation, List<Integer> excerptIds) {}
+
+    private ParsedContent parseFeedbackContent(Heading heading) {
         StringBuilder description = new StringBuilder();
         StringBuilder recommendation = new StringBuilder();
         List<Integer> excerptIds = new ArrayList<>();
         boolean inRecommendation = false;
 
-        Node node = heading.getNext();
-        while (node != null && !(node instanceof Heading h && h.getLevel() <= 3)) {
-            if (node instanceof Paragraph p) {
-                String fullPara = new TextCollectingVisitor().collectAndGetText(p);
-                String rawPara = p.getChars().toString();
-                String lowerPara = fullPara.toLowerCase();
-
-                Matcher m = Pattern.compile("BRK_EXCERPT_(\\d+)").matcher(rawPara);
-                while (m.find()) {
-                    int id = Integer.parseInt(m.group(1));
-                    excerptIds.add(id);
-                    logger.debug("Design feedback '{}' found excerpt ID: {}", title, id);
-                }
-
-                if (lowerPara.contains("recommendation:")) {
-                    logger.debug("Design feedback '{}' found recommendation keyword", title);
-                    inRecommendation = true;
-                    int idx = lowerPara.indexOf("recommendation:");
-                    String beforeRec = fullPara.substring(0, idx).trim();
-                    if (!beforeRec.isEmpty()) {
-                        description.append(beforeRec).append("\n");
-                    }
-                    recommendation.append(fullPara.substring(idx + "recommendation:".length()).trim());
-                } else if (!inRecommendation) {
-                    description.append(fullPara).append("\n");
-                }
-            }
-            node = node.getNext();
-        }
-
-        List<CodeExcerpt> excerpts = excerptIds.stream()
-                .map(resolvedExcerpts::get)
-                .filter(Objects::nonNull)
-                .toList();
-
-        return new DesignFeedback(title, cleanMetadata(description.toString().trim()), excerpts, cleanMetadata(recommendation.toString().trim()));
-    }
-
-    private TacticalFeedback parseTacticalFeedback(Heading heading, Map<Integer, CodeExcerpt> resolvedExcerpts) {
-        String title = new TextCollectingVisitor().collectAndGetText(heading).trim();
-        StringBuilder description = new StringBuilder();
-        String recommendation = "";
-        Integer excerptId = null;
+        // Flexmark's TextCollectingVisitor strips the ** markers, so we look for "Recommendation:" 
+        // at paragraph start or after a newline (the expected bold format location).
+        // This avoids matching "Recommendation:" mid-sentence.
+        Pattern recPattern = Pattern.compile("(^|\\n)\\s*Recommendation:\\s*");
         Pattern excerptPattern = Pattern.compile("BRK_EXCERPT_(\\d+)");
 
         Node node = heading.getNext();
         while (node != null && !(node instanceof Heading h && h.getLevel() <= 3)) {
             if (node instanceof Paragraph p) {
                 String fullPara = new TextCollectingVisitor().collectAndGetText(p);
-                String rawPara = p.getChars().toString();
 
-                String lowerPara = fullPara.toLowerCase();
-
-                // Extract excerpt ID from ANY paragraph (take the first one found)
-                if (excerptId == null) {
-                    Matcher m = excerptPattern.matcher(rawPara);
-                    if (m.find()) {
-                        excerptId = Integer.parseInt(m.group(1));
-                        logger.debug("Tactical feedback '{}' found excerpt ID: {}", title, excerptId);
-                    }
+                Matcher excerptMatcher = excerptPattern.matcher(p.getChars().toString());
+                while (excerptMatcher.find()) {
+                    excerptIds.add(Integer.parseInt(excerptMatcher.group(1)));
                 }
-                if (lowerPara.contains("recommendation:")) {
-                    logger.debug("Tactical feedback '{}' found recommendation keyword", title);
-                    int idx = lowerPara.indexOf("recommendation:");
-                    String beforeRec = fullPara.substring(0, idx).trim();
+
+                Matcher recMatcher = recPattern.matcher(fullPara);
+
+                if (!inRecommendation && recMatcher.find()) {
+                    inRecommendation = true;
+                    String beforeRec = fullPara.substring(0, recMatcher.start()).trim();
                     if (!beforeRec.isEmpty()) {
                         description.append(beforeRec).append("\n");
                     }
-                    recommendation = fullPara.substring(idx + "recommendation:".length()).trim();
+                    String afterRec = fullPara.substring(recMatcher.end()).trim();
+                    if (!afterRec.isEmpty()) {
+                        recommendation.append(afterRec).append("\n");
+                    }
+                } else if (inRecommendation) {
+                    recommendation.append(fullPara).append("\n");
                 } else {
                     description.append(fullPara).append("\n");
                 }
@@ -376,13 +338,39 @@ public class ReviewParser {
             node = node.getNext();
         }
 
+        return new ParsedContent(
+                cleanMetadata(description.toString().trim()),
+                cleanMetadata(recommendation.toString().trim()),
+                excerptIds);
+    }
+
+    private DesignFeedback parseDesignFeedback(Heading heading, Map<Integer, CodeExcerpt> resolvedExcerpts) {
+        String title = new TextCollectingVisitor().collectAndGetText(heading).trim();
+        ParsedContent content = parseFeedbackContent(heading);
+
+        List<CodeExcerpt> excerpts = content.excerptIds().stream()
+                .map(resolvedExcerpts::get)
+                .filter(Objects::nonNull)
+                .toList();
+
+        return new DesignFeedback(title, content.description(), excerpts, content.recommendation());
+    }
+
+    private TacticalFeedback parseTacticalFeedback(Heading heading, Map<Integer, CodeExcerpt> resolvedExcerpts) {
+        String title = new TextCollectingVisitor().collectAndGetText(heading).trim();
+        ParsedContent content = parseFeedbackContent(heading);
+
+        Integer excerptId = content.excerptIds().isEmpty() ? null : content.excerptIds().getFirst();
         CodeExcerpt excerpt = (excerptId != null) ? resolvedExcerpts.get(excerptId) : null;
         if (excerpt == null) {
-            excerpt = new CodeExcerpt(new ProjectFile(java.nio.file.Path.of(".").toAbsolutePath().normalize(), "unknown"), null, 0, DiffSide.NEW, "");
+            excerpt = new CodeExcerpt(
+                    new ProjectFile(java.nio.file.Path.of(".").toAbsolutePath().normalize(), "unknown"),
+                    null,
+                    0,
+                    DiffSide.NEW,
+                    "");
         }
-        return new TacticalFeedback(title, cleanMetadata(description.toString().trim()),
-                excerpt,
-                cleanMetadata(recommendation));
+        return new TacticalFeedback(title, content.description(), excerpt, content.recommendation());
     }
 
     public record GuidedReview(
