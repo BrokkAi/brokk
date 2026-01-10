@@ -52,7 +52,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
     private void handleItemSelected(Object item) {
         List<CodeExcerpt> excerpts = itemExcerpts.getOrDefault(item, List.of());
-        detailPanel.showItem(item, excerpts);
+        detailPanel.showItem(item, excerpts, listPanel.isLastItemSelected());
 
         if (!excerpts.isEmpty()) {
             CodeExcerpt first = excerpts.getFirst();

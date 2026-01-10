@@ -121,33 +121,53 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         listeners.add(listener);
     }
 
-    public void showItem(Object item, List<CodeExcerpt> excerpts) {
+    public void showItem(Object item, List<CodeExcerpt> excerpts, boolean isLast) {
         cardLayout.show(this, CARD_CONTENT);
         clearContent();
 
-        if (item instanceof String overview) {
-            markdownChunks.add(overview);
-            // Add capture button for overview
+        if (item instanceof String text) {
+            // Check if this is the overview or a test recommendation
+            boolean isOverview = text.equals(parent.getReviewContext() != null 
+                    && parent.getReviewContext().getParsedOutput() != null 
+                    ? parent.getReviewContext().getParsedOutput().toString() : ""); 
+            // Note: Since GuidedReview overview is just a String, we distinguish by 
+            // the presence of excerpts or specific content. In this GUI, 
+            // the Overview is the first item and doesn't have excerpts.
+            
+            markdownChunks.add(text);
             buttonPanel.removeAll();
             buttonPanel.setVisible(true);
 
-            var captureBtn = new MaterialButton("Capture to new Session");
-            captureBtn.addActionListener(e -> {
-                var ctx = parent.getReviewContext();
-                if (ctx != null) {
-                    contextManager
-                            .createSessionFromContextAsync(ctx, "Code Review")
-                            .exceptionally(ex -> {
-                                contextManager
-                                        .getIo()
-                                        .toolError("Failed to create session: " + ex.getMessage(), "Session Error");
-                                return null;
-                            });
-                } else {
-                    contextManager.getIo().toolError("No review context available to capture", "Capture Error");
+            if (isOverview || excerpts.isEmpty() && !isLast) {
+                // Heuristic: If it's the first item or looks like an overview
+                var captureBtn = new MaterialButton("Capture to new Session");
+                captureBtn.addActionListener(e -> {
+                    var ctx = parent.getReviewContext();
+                    if (ctx != null) {
+                        contextManager
+                                .createSessionFromContextAsync(ctx, "Code Review")
+                                .exceptionally(ex -> {
+                                    contextManager
+                                            .getIo()
+                                            .toolError("Failed to create session: " + ex.getMessage(), "Session Error");
+                                    return null;
+                                });
+                    } else {
+                        contextManager.getIo().toolError("No review context available to capture", "Capture Error");
+                    }
+                });
+                buttonPanel.add(captureBtn);
+                
+                if (!isLast) {
+                    var nextBtn = new MaterialButton("Next");
+                    nextBtn.addActionListener(e -> onNext.run());
+                    buttonPanel.add(Box.createHorizontalStrut(10));
+                    buttonPanel.add(nextBtn);
                 }
-            });
-            buttonPanel.add(captureBtn);
+            } else {
+                // It's a test entry
+                addRecommendationButtons(text, isLast);
+            }
         } else if (item instanceof DesignFeedback design) {
             markdownChunks.add("### " + design.title());
             markdownChunks.add(design.description());
@@ -155,7 +175,8 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 addExcerptsTable(excerpts);
             }
             if (!design.recommendation().isBlank()) {
-                addRecommendationSection(design.recommendation());
+                markdownChunks.add("**Recommendation:**\n" + design.recommendation());
+                addRecommendationButtons(design.recommendation(), isLast);
             }
         } else if (item instanceof TacticalFeedback tactical) {
             markdownChunks.add("### " + tactical.title());
@@ -164,13 +185,15 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 addExcerptsTable(excerpts);
             }
             if (!tactical.recommendation().isBlank()) {
-                addRecommendationSection(tactical.recommendation());
+                markdownChunks.add("**Recommendation:**\n" + tactical.recommendation());
+                addRecommendationButtons(tactical.recommendation(), isLast);
             }
         } else if (item instanceof ReviewFeedback feedback) {
             markdownChunks.add("### " + feedback.title());
             markdownChunks.add(feedback.description());
             if (!feedback.recommendation().isBlank()) {
-                addRecommendationSection(feedback.recommendation());
+                markdownChunks.add("**Recommendation:**\n" + feedback.recommendation());
+                addRecommendationButtons(feedback.recommendation(), isLast);
             }
         } else {
             throw new IllegalArgumentException("Unknown item type: " + item.getClass());
@@ -200,9 +223,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         markdownPanel.setStaticDocument(combined);
     }
 
-    private void addRecommendationSection(String recommendation) {
-        markdownChunks.add("**Recommendation:**\n" + recommendation);
-
+    private void addRecommendationButtons(String recommendation, boolean isLast) {
         buttonPanel.removeAll();
         buttonPanel.setVisible(true);
 
@@ -241,10 +262,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         buttonPanel.add(Box.createHorizontalStrut(10));
         buttonPanel.add(copyBtn);
 
-        var nextBtn = new MaterialButton("Next");
-        nextBtn.addActionListener(e -> onNext.run());
-        buttonPanel.add(Box.createHorizontalStrut(10));
-        buttonPanel.add(nextBtn);
+        if (!isLast) {
+            var nextBtn = new MaterialButton("Next");
+            nextBtn.addActionListener(e -> onNext.run());
+            buttonPanel.add(Box.createHorizontalStrut(10));
+            buttonPanel.add(nextBtn);
+        }
     }
 
     private void enqueueTask(String text) {

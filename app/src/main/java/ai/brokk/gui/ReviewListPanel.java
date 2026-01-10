@@ -157,6 +157,25 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         repaint();
     }
 
+    public boolean isLastItemSelected() {
+        Component[] components = contentPanel.getComponents();
+        int currentIndex = -1;
+
+        for (int i = 0; i < components.length; i++) {
+            if (components[i] instanceof JLabel label && label.isOpaque()) {
+                currentIndex = i;
+                break;
+            }
+        }
+
+        for (int i = currentIndex + 1; i < components.length; i++) {
+            if (components[i] instanceof JLabel label && label.getCursor().getType() == Cursor.HAND_CURSOR) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public void selectNext() {
         Component[] components = contentPanel.getComponents();
         int currentIndex = -1;
