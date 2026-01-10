@@ -1430,6 +1430,21 @@ public class Chrome
         return frame;
     }
 
+    /** Returns an existing open dialog by key, or null if not open. */
+    public @Nullable JDialog getOpenDialog(String key) {
+        return openDialogs.get(key);
+    }
+
+    /** Registers a dialog as open. Call removeOpenDialog when it closes. */
+    public void registerOpenDialog(String key, JDialog dialog) {
+        openDialogs.put(key, dialog);
+    }
+
+    /** Removes a dialog from tracking when it closes. */
+    public void removeOpenDialog(String key) {
+        openDialogs.remove(key);
+    }
+
     /**
      * Shows the inline loading spinner in the output panel.
      */

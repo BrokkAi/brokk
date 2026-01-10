@@ -22,6 +22,12 @@ public class BuildToolConventions {
         UNKNOWN
     }
 
+    /**
+     * Determines the build system based on files present in the project root.
+     * Uses first-match precedence: Maven → Gradle → SBT → NPM → Cargo → CMake →
+     * Ruby → PHP → DOTNET → Poetry → Python → Bazel.
+     * In monorepos with multiple build files, the first matching system wins.
+     */
     public static BuildSystem determineBuildSystem(List<String> rootFilenames) {
         Set<String> names = rootFilenames.stream().map(String::toLowerCase).collect(Collectors.toSet());
 
@@ -55,7 +61,7 @@ public class BuildToolConventions {
         if (names.contains("composer.json")) {
             return BuildSystem.PHP;
         }
-        if (names.stream().anyMatch(n -> n.endsWith(".csproj"))) {
+        if (names.stream().anyMatch(n -> n.endsWith(".sln") || n.endsWith(".csproj"))) {
             return BuildSystem.DOTNET;
         }
         if (names.contains("poetry.lock")) {
