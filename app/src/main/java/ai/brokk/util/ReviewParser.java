@@ -242,7 +242,8 @@ public class ReviewParser {
 
     public record DesignFeedback(String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
 
-    public record TacticalFeedback(String title, String description, CodeExcerpt excerpt, String recommendation) {}
+    public record TacticalFeedback(
+            String title, String description, @Nullable CodeExcerpt excerpt, String recommendation) {}
 
     public record ReviewFeedback(String title, String description, String recommendation) {}
 
@@ -362,14 +363,13 @@ public class ReviewParser {
 
         Integer excerptId = content.excerptIds().isEmpty() ? null : content.excerptIds().getFirst();
         CodeExcerpt excerpt = (excerptId != null) ? resolvedExcerpts.get(excerptId) : null;
-        if (excerpt == null) {
-            excerpt = new CodeExcerpt(
-                    new ProjectFile(java.nio.file.Path.of(".").toAbsolutePath().normalize(), "unknown"),
-                    null,
-                    0,
-                    DiffSide.NEW,
-                    "");
+
+        if (excerpt == null && excerptId != null) {
+            logger.warn("Tactical note '{}' referenced excerpt ID {} but it could not be resolved", title, excerptId);
+        } else if (excerpt == null) {
+            logger.warn("Tactical note '{}' has no excerpt reference", title);
         }
+
         return new TacticalFeedback(title, content.description(), excerpt, content.recommendation());
     }
 
@@ -400,12 +400,17 @@ public class ReviewParser {
                     .toList();
 
             List<TacticalFeedback> tacticalNotes = rawReview.tacticalNotes().stream()
-                    .filter(raw -> resolvedExcerpts.containsKey(raw.excerptId()))
-                    .map(raw -> new TacticalFeedback(
-                            raw.title(),
-                            instance.cleanMetadata(raw.description()),
-                            Objects.requireNonNull(resolvedExcerpts.get(raw.excerptId())),
-                            instance.cleanMetadata(raw.recommendation())))
+                    .map(raw -> {
+                        CodeExcerpt excerpt = resolvedExcerpts.get(raw.excerptId());
+                        if (excerpt == null) {
+                            logger.warn("Tactical note '{}' has missing excerpt ID {}", raw.title(), raw.excerptId());
+                        }
+                        return new TacticalFeedback(
+                                raw.title(),
+                                instance.cleanMetadata(raw.description()),
+                                excerpt,
+                                instance.cleanMetadata(raw.recommendation()));
+                    })
                     .toList();
 
             return new GuidedReview(rawReview.overview(), designNotes, tacticalNotes, rawReview.additionalTests());

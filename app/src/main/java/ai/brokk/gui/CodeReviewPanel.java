@@ -90,7 +90,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         }
 
         for (var tactical : review.tacticalNotes()) {
-            itemExcerpts.put(tactical, List.of(tactical.excerpt()));
+            itemExcerpts.put(tactical, tactical.excerpt() != null ? List.of(tactical.excerpt()) : List.of());
         }
 
         listPanel.displayReview(review);

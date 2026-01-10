@@ -441,9 +441,27 @@ class ReviewParserTest {
 
         assertEquals(1, review.tacticalNotes().size(), "tacticalNotes should have 1 item");
         assertEquals("Fix Null", review.tacticalNotes().get(0).title());
-        assertEquals("code2", review.tacticalNotes().get(0).excerpt().excerpt());
+        var tacticalExcerpt = review.tacticalNotes().get(0).excerpt();
+        assertTrue(tacticalExcerpt != null);
+        assertEquals("code2", tacticalExcerpt.excerpt());
 
         assertEquals(List.of("Test the factory", "Test null input"), review.additionalTests());
+    }
+
+    @Test
+    void testParseMarkdownReview_TacticalWithoutExcerpt() {
+        String markdown = """
+                ## Tactical Notes
+                ### General Improvement
+                This is a tactical observation without a specific code link.
+                **Recommendation:** Consider refactoring global state.
+                """.stripIndent();
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        assertEquals(1, review.tacticalNotes().size());
+        assertEquals("General Improvement", review.tacticalNotes().getFirst().title());
+        assertTrue(review.tacticalNotes().getFirst().excerpt() == null);
     }
 
     @Test
