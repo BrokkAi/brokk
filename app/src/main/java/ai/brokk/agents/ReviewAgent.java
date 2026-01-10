@@ -46,7 +46,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import javax.swing.Timer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -216,14 +215,13 @@ public class ReviewAgent {
             }
             logPhaseTime("Analysis (Turn 1)", turn1Start);
 
-            // --- Turn 1.5: Retry for missing files and non-matching excerpts ---
-            // Returns fully resolved excerpts with line numbers and sides
+            // --- Excerpt Resolution: Retry for missing files and non-matching excerpts ---
             long retryStart = System.currentTimeMillis();
             RetryResult retryResult = retryInStages(turn1Llm, turn1Messages, turn1Result);
             Map<Integer, CodeExcerpt> resolvedExcerpts = retryResult.resolvedExcerpts();
-            logPhaseTime("Excerpt resolution (Turn 1.5)", retryStart);
+            logPhaseTime("Excerpt resolution", retryStart);
 
-            // --- Turn 2: Direct Markdown Parsing ---
+            // --- Directly parse the Markdown review from Turn 1 (with fixes) ---
             String mergedReviewText = retryResult.mergedResponseText();
             String mergedReasoning = requireNonNullElse(
                     requireNonNull(turn1Result.chatResponse()).reasoningContent(), "");

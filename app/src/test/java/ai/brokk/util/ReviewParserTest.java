@@ -406,6 +406,87 @@ class ReviewParserTest {
     }
 
     @Test
+    void testParseMarkdownReview_WellFormed() {
+        String markdown = """
+                ## Overview
+                This is a good change.
+
+                ## Design Notes
+                ### Better Abstraction
+                We should use a factory here. BRK_EXCERPT_1
+                **Recommendation:** Implement the factory.
+
+                ## Tactical Notes
+                ### Fix Null
+                Potential NPE at BRK_EXCERPT_2.
+                **Recommendation:** Add a null check.
+
+                ## Additional Tests
+                - Test the factory
+                - Test null input
+                """.stripIndent();
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var resolved = Map.of(
+                1, new ReviewParser.CodeExcerpt(new ProjectFile(root, "A.java"), null, 1, ReviewParser.DiffSide.NEW, "code1"),
+                2, new ReviewParser.CodeExcerpt(new ProjectFile(root, "B.java"), null, 5, ReviewParser.DiffSide.NEW, "code2"));
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+
+        assertEquals("This is a good change.", review.overview());
+        assertEquals(1, review.designNotes().size());
+        assertEquals("Better Abstraction", review.designNotes().get(0).title());
+        assertEquals("Implement the factory.", review.designNotes().get(0).recommendation());
+        assertEquals(1, review.designNotes().get(0).excerpts().size());
+
+        assertEquals(1, review.tacticalNotes().size(), "tacticalNotes should have 1 item");
+        assertEquals("Fix Null", review.tacticalNotes().get(0).title());
+        assertEquals("code2", review.tacticalNotes().get(0).excerpt().excerpt());
+
+        assertEquals(List.of("Test the factory", "Test null input"), review.additionalTests());
+    }
+
+    @Test
+    void testParseMarkdownReview_MissingSections() {
+        String markdown = """
+            ## Overview
+            Minimal review.
+            """;
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+        assertEquals("Minimal review.", review.overview());
+        assertTrue(review.designNotes().isEmpty());
+        assertTrue(review.tacticalNotes().isEmpty());
+        assertTrue(review.additionalTests().isEmpty());
+    }
+
+    @Test
+    void testParseMarkdownReview_MultipleExcerptsAndEdgeCases() {
+        String markdown = """
+            ## Design Notes
+            ### Complex Issue
+            See BRK_EXCERPT_1 and also BRK_EXCERPT_2.
+            
+            Some more text.
+            **Recommendation:** Fix both.
+            
+            ### Empty Note
+            """;
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var resolved = Map.of(
+            1, new ReviewParser.CodeExcerpt(new ProjectFile(root, "A.java"), null, 1, ReviewParser.DiffSide.NEW, "1"),
+            2, new ReviewParser.CodeExcerpt(new ProjectFile(root, "B.java"), null, 1, ReviewParser.DiffSide.NEW, "2")
+        );
+        
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+        assertEquals(2, review.designNotes().size());
+        assertEquals(2, review.designNotes().get(0).excerpts().size());
+        assertEquals("Fix both.", review.designNotes().get(0).recommendation());
+        assertEquals("", review.designNotes().get(1).recommendation());
+    }
+
+
+    @Test
     void testFromRawCleansExcerptsFromFields() {
         var rawDesign = new ReviewParser.RawDesignFeedback(
                 "Title",

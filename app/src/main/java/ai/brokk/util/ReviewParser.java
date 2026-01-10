@@ -2,6 +2,14 @@ package ai.brokk.util;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import com.vladsch.flexmark.ast.BulletList;
+import com.vladsch.flexmark.ast.BulletListItem;
+import com.vladsch.flexmark.ast.Heading;
+import com.vladsch.flexmark.ast.Paragraph;
+import com.vladsch.flexmark.parser.Parser;
+import com.vladsch.flexmark.util.ast.Node;
+import com.vladsch.flexmark.util.ast.TextCollectingVisitor;
+import com.vladsch.flexmark.util.data.MutableDataSet;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -172,16 +180,10 @@ public class ReviewParser {
         return List.copyOf(segments);
     }
 
-    /**
-     * Finds the index of a closing fence (``` at start of line) starting from the given index.
-     * Returns -1 if no closing fence is found or if another BRK_EXCERPT_ marker is encountered first.
-     */
     private int findClosingFence(String[] lines, int startIndex) {
         for (int j = startIndex; j < lines.length; j++) {
             String l = lines[j];
             String trimmed = l.trim();
-            // If we encounter another excerpt marker before finding a closing fence,
-            // the current block is unclosed
             if (trimmed.startsWith("BRK_EXCERPT_")
                     && !trimmed.contains(" ")
                     && trimmed.length() > "BRK_EXCERPT_".length()
@@ -239,6 +241,137 @@ public class ReviewParser {
     public record TacticalFeedback(String title, String description, CodeExcerpt excerpt, String recommendation) {}
 
     public record ReviewFeedback(String title, String description, String recommendation) {}
+
+    public GuidedReview parseMarkdownReview(String markdown, Map<Integer, CodeExcerpt> resolvedExcerpts) {
+        MutableDataSet options = new MutableDataSet();
+        options.set(Parser.UNDERSCORE_DELIMITER_PROCESSOR, false);
+        Parser parser = Parser.builder(options).build();
+        Node document = parser.parse(markdown);
+
+        String overview = "";
+        List<DesignFeedback> designNotes = new ArrayList<>();
+        List<TacticalFeedback> tacticalNotes = new ArrayList<>();
+        List<String> additionalTests = new ArrayList<>();
+
+        String currentTopLevelSection = "";
+
+        for (Node node = document.getFirstChild(); node != null; node = node.getNext()) {
+            if (node instanceof Heading heading) {
+                String headingText = new TextCollectingVisitor().collectAndGetText(heading).trim();
+
+                if (heading.getLevel() == 2) {
+                    currentTopLevelSection = headingText;
+                } else if (heading.getLevel() == 3) {
+                    if (currentTopLevelSection.equalsIgnoreCase("Design Notes")) {
+                        designNotes.add(parseDesignFeedback(heading, resolvedExcerpts));
+                    } else if (currentTopLevelSection.equalsIgnoreCase("Tactical Notes")) {
+                        tacticalNotes.add(parseTacticalFeedback(heading, resolvedExcerpts));
+                    }
+                }
+            } else if (node instanceof Paragraph p) {
+                if (currentTopLevelSection.equalsIgnoreCase("Overview")) {
+                    overview = new TextCollectingVisitor().collectAndGetText(p).trim();
+                }
+            } else if (node instanceof BulletList list) {
+                if (currentTopLevelSection.equalsIgnoreCase("Additional Tests")) {
+                    for (Node item : list.getChildren()) {
+                        if (item instanceof BulletListItem) {
+                            additionalTests.add(new TextCollectingVisitor().collectAndGetText(item).trim());
+                        }
+                    }
+                }
+            }
+        }
+
+        return new GuidedReview(overview, designNotes, tacticalNotes, additionalTests);
+    }
+
+    private DesignFeedback parseDesignFeedback(Heading heading, Map<Integer, CodeExcerpt> resolvedExcerpts) {
+        String title = new TextCollectingVisitor().collectAndGetText(heading).trim();
+        StringBuilder description = new StringBuilder();
+        StringBuilder recommendation = new StringBuilder();
+        List<Integer> excerptIds = new ArrayList<>();
+        boolean inRecommendation = false;
+
+        Node node = heading.getNext();
+        while (node != null && !(node instanceof Heading h && h.getLevel() <= 3)) {
+            if (node instanceof Paragraph p) {
+                String fullPara = new TextCollectingVisitor().collectAndGetText(p);
+                String rawPara = p.getChars().toString();
+                String lowerPara = fullPara.toLowerCase();
+
+                Matcher m = Pattern.compile("BRK_EXCERPT_(\\d+)").matcher(rawPara);
+                while (m.find()) {
+                    excerptIds.add(Integer.parseInt(m.group(1)));
+                }
+
+                if (lowerPara.contains("recommendation:")) {
+                    inRecommendation = true;
+                    int idx = lowerPara.indexOf("recommendation:");
+                    String beforeRec = fullPara.substring(0, idx).trim();
+                    if (!beforeRec.isEmpty()) {
+                        description.append(beforeRec).append("\n");
+                    }
+                    recommendation.append(fullPara.substring(idx + "recommendation:".length()).trim());
+                } else if (!inRecommendation) {
+                    description.append(fullPara).append("\n");
+                }
+            }
+            node = node.getNext();
+        }
+
+        List<CodeExcerpt> excerpts = excerptIds.stream()
+                .map(resolvedExcerpts::get)
+                .filter(Objects::nonNull)
+                .toList();
+
+        return new DesignFeedback(title, cleanMetadata(description.toString().trim()), excerpts, cleanMetadata(recommendation.toString().trim()));
+    }
+
+    private TacticalFeedback parseTacticalFeedback(Heading heading, Map<Integer, CodeExcerpt> resolvedExcerpts) {
+        String title = new TextCollectingVisitor().collectAndGetText(heading).trim();
+        StringBuilder description = new StringBuilder();
+        String recommendation = "";
+        Integer excerptId = null;
+        Pattern excerptPattern = Pattern.compile("BRK_EXCERPT_(\\d+)");
+
+        Node node = heading.getNext();
+        while (node != null && !(node instanceof Heading h && h.getLevel() <= 3)) {
+            if (node instanceof Paragraph p) {
+                String fullPara = new TextCollectingVisitor().collectAndGetText(p);
+                String rawPara = p.getChars().toString();
+
+                String lowerPara = fullPara.toLowerCase();
+
+                // Extract excerpt ID from ANY paragraph (take the first one found)
+                if (excerptId == null) {
+                    Matcher m = excerptPattern.matcher(rawPara);
+                    if (m.find()) {
+                        excerptId = Integer.parseInt(m.group(1));
+                    }
+                }
+                if (lowerPara.contains("recommendation:")) {
+                    int idx = lowerPara.indexOf("recommendation:");
+                    String beforeRec = fullPara.substring(0, idx).trim();
+                    if (!beforeRec.isEmpty()) {
+                        description.append(beforeRec).append("\n");
+                    }
+                    recommendation = fullPara.substring(idx + "recommendation:".length()).trim();
+                } else {
+                    description.append(fullPara).append("\n");
+                }
+            }
+            node = node.getNext();
+        }
+
+        CodeExcerpt excerpt = (excerptId != null) ? resolvedExcerpts.get(excerptId) : null;
+        if (excerpt == null) {
+            excerpt = new CodeExcerpt(new ProjectFile(java.nio.file.Path.of(".").toAbsolutePath().normalize(), "unknown"), null, 0, DiffSide.NEW, "");
+        }
+        return new TacticalFeedback(title, cleanMetadata(description.toString().trim()),
+                excerpt,
+                cleanMetadata(recommendation));
+    }
 
     public record GuidedReview(
             String overview,
