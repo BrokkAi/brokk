@@ -124,10 +124,14 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
     }
 
     @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
+        return Optional.empty();
+    }
+
+    @Override
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
-        var matches = allClasses.stream()
-                .filter(cu -> cu.fqName().equals(fqName))
-                .collect(java.util.stream.Collectors.toSet());
+        var matches =
+                allClasses.stream().filter(cu -> cu.fqName().equals(fqName)).collect(Collectors.toSet());
         return sortDefinitions(matches);
     }
 

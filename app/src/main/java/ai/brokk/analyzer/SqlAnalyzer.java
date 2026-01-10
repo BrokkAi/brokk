@@ -154,6 +154,12 @@ public class SqlAnalyzer implements IAnalyzer, SkeletonProvider {
     }
 
     @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
+        // TODO
+        return Optional.empty();
+    }
+
+    @Override
     public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range) {
         var declarations = declarationsByFile.get(file);
         if (declarations == null || declarations.isEmpty()) {

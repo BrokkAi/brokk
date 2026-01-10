@@ -1492,6 +1492,16 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
                 return new ButtonConfig(
                         false, "Your GitHub token does not have write permissions for this repository.", null);
             }
+
+            // Check if a PR already exists for this branch
+            try {
+                if (GitHubAuth.getOrCreateInstance(contextManager.getProject()).hasOpenPullRequestForBranch(branch)) {
+                    return new ButtonConfig(false, "A pull request already exists for branch " + branch, null);
+                }
+            } catch (IOException e) {
+                logger.debug("Could not check for existing PRs for branch {}: {}", branch, e.getMessage());
+                // Continue - don't block PR creation just because we couldn't check
+            }
         } catch (IOException e) {
             logger.warn(
                     "Could not check GitHub repository permissions (e.g. invalid token or network issue). Disabling Create PR button.",

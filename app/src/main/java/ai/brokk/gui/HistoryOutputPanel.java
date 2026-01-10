@@ -187,7 +187,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Build combined Output + Instructions panel (Center)
         this.llmStreamArea = new MarkdownOutputPanel();
-        this.llmStreamArea.withContextForLookups(contextManager, chrome);
+        this.llmStreamArea.setShowEmptyState(true);
+        this.llmStreamArea.setContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
         this.copyButton = new MaterialButton();
         this.clearButton = new MaterialButton();
@@ -2076,7 +2077,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Returns the last TaskMeta in the given Context's task history, or null if not present.
      */
-    private @Nullable TaskResult.TaskMeta lastMetaOf(ai.brokk.context.Context ctx) {
+    private @Nullable TaskResult.TaskMeta lastMetaOf(Context ctx) {
         var history = ctx.getTaskHistory();
         if (history.isEmpty()) return null;
         var last = history.getLast();
@@ -2086,12 +2087,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Returns the ModelSpec from the last TaskMeta of the context, or null if unavailable.
      */
-    private @Nullable Service.ModelConfig modelOf(ai.brokk.context.Context ctx) {
+    private @Nullable Service.ModelConfig modelOf(Context ctx) {
         var meta = lastMetaOf(ctx);
         return (meta == null) ? null : meta.primaryModel();
     }
 
-    private @Nullable String taskTypeOf(ai.brokk.context.Context ctx) {
+    private @Nullable String taskTypeOf(Context ctx) {
         var meta = lastMetaOf(ctx);
         return (meta == null) ? null : meta.type().displayName();
     }
@@ -2114,7 +2115,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      *
      * <p>Exposed for use by external renderers such as {@link HistoryCellRenderer}.
      */
-    public String buildTooltipWithModel(@Nullable ai.brokk.context.Context ctx, String base) {
+    public String buildTooltipWithModel(@Nullable Context ctx, String base) {
         if (ctx == null) return base;
         var spec = modelOf(ctx);
         if (spec == null) return base;
@@ -2153,7 +2154,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // but only for AI result contexts.
             try {
                 Object ctxVal = table.getModel().getValueAt(row, 2);
-                if (ctxVal instanceof ai.brokk.context.Context ctx) {
+                if (ctxVal instanceof Context ctx) {
                     var meta = lastMetaOf(ctx);
                     if (comp instanceof JLabel lbl) {
                         if (ctx.isAiResult() && meta != null) {

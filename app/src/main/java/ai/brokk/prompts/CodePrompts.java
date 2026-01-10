@@ -19,6 +19,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -26,6 +27,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -189,11 +191,14 @@ public class CodePrompts {
 
                 3. Give each change as a *SEARCH/REPLACE* block.
 
-                All changes to files must use this *SEARCH/REPLACE* block format.
+                If an appropriate test file is in the Workspace, add or update tests to cover the changes you make.
+                If no such test file exists, only create a new one if instructed to do so.
 
                 If a file is read-only or unavailable, ask the user to add it or make it editable.
 
-                If you are struggling to use a dependency or API correctly, you MUST stop and ask the user for help.
+                If you do not know how to use a dependency or API correctly, you MUST stop and ask the user for help.
+
+                All changes to files must use this *SEARCH/REPLACE* block format.
 
                 <rules>
                 # EXTENDED *SEARCH/REPLACE block* Rules:
@@ -348,7 +353,7 @@ public class CodePrompts {
         sb.append("<instructions>\n");
         sb.append("# SEARCH/REPLACE application results\n\n");
 
-        var successIndices = java.util.stream.IntStream.range(0, blockResults.size())
+        var successIndices = IntStream.range(0, blockResults.size())
                 .filter(i -> blockResults.get(i).succeeded())
                 .mapToObj(i -> "BRK_BLOCK_" + (startingIndex + i + 1))
                 .toList();
@@ -365,7 +370,7 @@ public class CodePrompts {
 
         // Track original block indices (1-based) for each failure
         record IndexedFailure(EditBlock.ApplyResult result, int blockIndex) {}
-        var indexedFailures = java.util.stream.IntStream.range(0, blockResults.size())
+        var indexedFailures = IntStream.range(0, blockResults.size())
                 .filter(i -> !blockResults.get(i).succeeded())
                 .mapToObj(i -> new IndexedFailure(blockResults.get(i), startingIndex + i + 1))
                 .toList();
@@ -375,7 +380,7 @@ public class CodePrompts {
                 .collect(Collectors.groupingBy(
                         f -> requireNonNull(f.result().block().rawFileName()),
                         Collectors.collectingAndThen(Collectors.toList(), list -> list.stream()
-                                .sorted(java.util.Comparator.comparingInt(IndexedFailure::blockIndex))
+                                .sorted(Comparator.comparingInt(IndexedFailure::blockIndex))
                                 .toList())));
 
         String fileDetails = failuresByFile.entrySet().stream()

@@ -12,6 +12,7 @@ import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
+import ai.brokk.git.GitRepo;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dependencies.DependenciesPanel;
 import ai.brokk.gui.dialogs.BlitzForgeProgressDialog;
@@ -23,7 +24,6 @@ import ai.brokk.gui.git.GitLogTab;
 import ai.brokk.gui.git.GitPullRequestsTab;
 import ai.brokk.gui.git.GitWorktreeTab;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
-import ai.brokk.gui.mop.MarkdownOutputPool;
 import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.tests.FileBasedTestRunsStore;
 import ai.brokk.gui.tests.TestRunnerPanel;
@@ -39,6 +39,7 @@ import ai.brokk.init.onboarding.OnboardingStep;
 import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
@@ -57,7 +58,9 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -224,8 +227,10 @@ public class Chrome
         frame.setTitle(title);
 
         // Show initial system message
+        var projectType = getProject() instanceof MainProject ? "project" : "worktree";
         showNotification(
-                NotificationRole.INFO, "Opening project at " + getProject().getRoot());
+                NotificationRole.INFO,
+                "Opening " + projectType + " at " + getProject().getRoot());
 
         // Test runner persistence and panel
         var brokkDir = getProject().getRoot().resolve(AbstractProject.BROKK_DIR);
@@ -344,8 +349,6 @@ public class Chrome
 
         // Now show the window with complete layout
         frame.setVisible(true);
-
-        SwingUtilities.invokeLater(() -> MarkdownOutputPool.instance());
 
         // Defer .gitignore check until initialization completes
         scheduleGitConfigurationAfterInit();
@@ -1021,12 +1024,24 @@ public class Chrome
 
     @Override
     public void close() {
-        logger.info("Closing Chrome UI");
-
+        logger.info("Closing Chrome UI (sync)");
         contextManager.close();
         frame.dispose();
-        // Unregister this instance
         openInstances.remove(this);
+    }
+
+    /**
+     * Asynchronously close Chrome, running cleanup off EDT.
+     * Returns a future that completes when cleanup is done.
+     *
+     * <p><b>Note:</b> This method does NOT dispose the frame. The caller is responsible
+     * for calling {@code getFrame().dispose()} on the EDT after the future completes
+     * to release native window resources.
+     */
+    public CompletableFuture<Void> closeAsync() {
+        logger.info("Closing Chrome UI (async)");
+        openInstances.remove(this);
+        return contextManager.closeAsync(5_000);
     }
 
     private void registerAllListeners() {
@@ -1091,6 +1106,13 @@ public class Chrome
             setContext(newCtx);
             updateContextHistoryTable(newCtx);
         });
+    }
+
+    @Override
+    public void onTaskListChanged(TaskList.TaskListData data) {
+        // Count incomplete tasks and update the badge
+        int incomplete = (int) data.tasks().stream().filter(t -> !t.done()).count();
+        SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
     }
 
     @Override
@@ -1758,7 +1780,7 @@ public class Chrome
                     SwingUtilities.invokeLater(() -> systemNotify(
                             "Error during initialization: " + ex.getMessage(),
                             "Initialization Error",
-                            javax.swing.JOptionPane.ERROR_MESSAGE));
+                            JOptionPane.ERROR_MESSAGE));
                     return null;
                 });
     }
@@ -1824,7 +1846,7 @@ public class Chrome
                         logger.info("[{}] User accepted style regeneration, triggering regeneration", result.stepId());
                         showNotification(IConsoleIO.NotificationRole.INFO, "Regenerating style guide...");
 
-                        var regenerationFuture = contextManager.ensureStyleGuide();
+                        var regenerationFuture = contextManager.regenerateStyleGuideAsync();
                         regenerationFuture
                                 .thenAcceptAsync(styleContent -> {
                                     SwingUtilities.invokeLater(() -> {
@@ -1907,10 +1929,7 @@ public class Chrome
             }
         } catch (Exception e) {
             logger.error("Error during migration dialog: {}", e.getMessage(), e);
-            systemNotify(
-                    "Error during migration: " + e.getMessage(),
-                    "Migration Error",
-                    javax.swing.JOptionPane.ERROR_MESSAGE);
+            systemNotify("Error during migration: " + e.getMessage(), "Migration Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -2435,6 +2454,31 @@ public class Chrome
     }
 
     /**
+     * Refreshes all Git-related UI components after a branch change or significant repo update.
+     * This coordinates updates across the repo state, branch labels, and the review/changes panel.
+     * Also fetches from the upstream default branch if available.
+     */
+    public void refreshGitAndFetch(@Nullable String branchName) {
+        try {
+            var repo = getProject().getRepo();
+            if (repo instanceof GitRepo gitRepo) {
+                String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
+                if (remoteName != null) {
+                    String defaultBranch = gitRepo.getDefaultBranch();
+                    gitRepo.remote().fetchBranch(remoteName, defaultBranch);
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("Failed to fetch upstream default branch", e);
+        }
+
+        updateGitRepo();
+        refreshBranchUi(branchName);
+
+        getRightPanel().requestReviewUpdate();
+    }
+
+    /**
      * Calculates an appropriate initial width for the left sidebar based on content and window size.
      */
     public int computeInitialSidebarWidth() {
@@ -2534,16 +2578,16 @@ public class Chrome
         return dialog;
     }
 
-    private static class ChromeFocusTraversalPolicy extends java.awt.FocusTraversalPolicy {
-        private final java.util.List<java.awt.Component> order;
+    private static class ChromeFocusTraversalPolicy extends FocusTraversalPolicy {
+        private final List<Component> order;
 
-        public ChromeFocusTraversalPolicy(java.util.List<java.awt.Component> order) {
-            this.order = order.stream().filter(Objects::nonNull).collect(java.util.stream.Collectors.toList());
+        public ChromeFocusTraversalPolicy(List<Component> order) {
+            this.order = order.stream().filter(Objects::nonNull).collect(Collectors.toList());
         }
 
-        private int getIndex(java.awt.Component c) {
+        private int getIndex(Component c) {
             // Find component or one of its ancestors in the order list
-            for (java.awt.Component comp = c; comp != null; comp = comp.getParent()) {
+            for (Component comp = c; comp != null; comp = comp.getParent()) {
                 int i = order.indexOf(comp);
                 if (i != -1) {
                     return i;
@@ -2557,15 +2601,15 @@ public class Chrome
          * The Instructions area is skipped when "tab inserts indentation" is enabled,
          * because Tab/Shift+Tab would be trapped for indentation instead of navigation.
          */
-        private boolean shouldIncludeInTraversal(java.awt.Component comp) {
+        private boolean shouldIncludeInTraversal(Component comp) {
             if (!comp.isFocusable() || !comp.isShowing() || !comp.isEnabled()) {
                 return false;
             }
             // Skip Instructions area when tab-for-indentation is enabled (would trap focus)
-            if (comp instanceof javax.swing.JTextArea textArea) {
+            if (comp instanceof JTextArea textArea) {
                 // Check if this is the instructions area by name or other property
                 if ("instructionsArea".equals(textArea.getName())
-                        && ai.brokk.util.GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                        && GlobalUiSettings.isInstructionsTabInsertIndentation()) {
                     return false;
                 }
             }
@@ -2573,7 +2617,7 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getComponentAfter(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+        public Component getComponentAfter(Container focusCycleRoot, Component aComponent) {
             if (order.isEmpty()) return aComponent;
             int idx = getIndex(aComponent);
             if (idx == -1) {
@@ -2581,7 +2625,7 @@ public class Chrome
             }
             for (int i = 1; i <= order.size(); i++) {
                 int nextIdx = (idx + i) % order.size();
-                java.awt.Component nextComp = order.get(nextIdx);
+                Component nextComp = order.get(nextIdx);
                 if (shouldIncludeInTraversal(nextComp)) {
                     return nextComp;
                 }
@@ -2590,7 +2634,7 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getComponentBefore(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+        public Component getComponentBefore(Container focusCycleRoot, Component aComponent) {
             if (order.isEmpty()) return aComponent;
             int idx = getIndex(aComponent);
             if (idx == -1) {
@@ -2598,7 +2642,7 @@ public class Chrome
             }
             for (int i = 1; i <= order.size(); i++) {
                 int prevIdx = (idx - i + order.size()) % order.size();
-                java.awt.Component prevComp = order.get(prevIdx);
+                Component prevComp = order.get(prevIdx);
                 if (shouldIncludeInTraversal(prevComp)) {
                     return prevComp;
                 }
@@ -2607,10 +2651,10 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getFirstComponent(java.awt.Container focusCycleRoot) {
+        public Component getFirstComponent(Container focusCycleRoot) {
             if (order.isEmpty()) return focusCycleRoot;
             for (int i = 0; i < order.size(); i++) {
-                java.awt.Component comp = order.get(i);
+                Component comp = order.get(i);
                 if (shouldIncludeInTraversal(comp)) {
                     return comp;
                 }
@@ -2619,10 +2663,10 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getLastComponent(java.awt.Container focusCycleRoot) {
+        public Component getLastComponent(Container focusCycleRoot) {
             if (order.isEmpty()) return focusCycleRoot;
             for (int i = order.size() - 1; i >= 0; i--) {
-                java.awt.Component comp = order.get(i);
+                Component comp = order.get(i);
                 if (shouldIncludeInTraversal(comp)) {
                     return comp;
                 }
@@ -2631,7 +2675,7 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getDefaultComponent(java.awt.Container focusCycleRoot) {
+        public Component getDefaultComponent(Container focusCycleRoot) {
             return getFirstComponent(focusCycleRoot);
         }
     }
@@ -2688,7 +2732,7 @@ public class Chrome
             }
 
             // Apply focus border
-            var originalBorder = (javax.swing.border.Border) jcomp.getClientProperty("originalBorder");
+            var originalBorder = (Border) jcomp.getClientProperty("originalBorder");
             var focusBorder = BorderFactory.createLineBorder(FOCUS_BORDER_COLOR, 2);
 
             if (originalBorder != null) {
@@ -2704,7 +2748,7 @@ public class Chrome
     private void removeFocusHighlight(Component component) {
         if (component instanceof JComponent jcomp) {
             // Restore original border
-            var originalBorder = (javax.swing.border.Border) jcomp.getClientProperty("originalBorder");
+            var originalBorder = (Border) jcomp.getClientProperty("originalBorder");
             jcomp.setBorder(originalBorder);
             jcomp.repaint();
         }

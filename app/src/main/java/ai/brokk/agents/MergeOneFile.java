@@ -150,7 +150,7 @@ public final class MergeOneFile {
         // Register tools
         var tr = cm.getToolRegistry()
                 .builder()
-                .register(new WorkspaceTools((ContextManager) cm))
+                .register(new WorkspaceTools(((ContextManager) cm).liveContext()))
                 .register(this)
                 .build();
 

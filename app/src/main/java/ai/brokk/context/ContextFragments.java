@@ -27,6 +27,7 @@ import ai.brokk.util.LoggingExecutorService;
 import ai.brokk.util.Messages;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
+import com.github.difflib.unifieddiff.UnifiedDiffParserException;
 import com.github.difflib.unifieddiff.UnifiedDiffReader;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
@@ -797,7 +798,7 @@ public class ContextFragments {
                     }
                 }
                 return files;
-            } catch (IOException e) {
+            } catch (IOException | UnifiedDiffParserException e) {
                 return Set.of();
             }
         }
@@ -1843,6 +1844,9 @@ public class ContextFragments {
         private final List<ChatMessage> messages;
         private final boolean escapeHtml;
 
+        /**
+         * @param description the user instructions or action goal
+         */
         public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description) {
             this(contextManager, messages, description, true);
         }

@@ -55,9 +55,15 @@ public final class MOPBridge {
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable Chrome chrome;
     private volatile @Nullable Component hostComponent;
+    private volatile boolean showEmptyState = false;
 
     public MOPBridge(WebEngine engine) {
+        this(engine, false);
+    }
+
+    public MOPBridge(WebEngine engine, boolean showEmptyState) {
         this.engine = engine;
+        this.showEmptyState = showEmptyState;
         this.xmit = Executors.newSingleThreadScheduledExecutor(r -> {
             var t = new Thread(r, "MOPBridge-" + this.hashCode());
             t.setDaemon(true);
@@ -206,6 +212,12 @@ public final class MOPBridge {
     public void sendHistoryReset() {
         var e = epoch.incrementAndGet();
         eventQueue.add(new BrokkEvent.HistoryReset(e));
+        scheduleSend();
+    }
+
+    public void sendStaticDocument(@Nullable String markdown) {
+        var e = epoch.incrementAndGet();
+        eventQueue.add(new BrokkEvent.StaticDocument(e, markdown));
         scheduleSend();
     }
 
@@ -384,6 +396,14 @@ public final class MOPBridge {
 
     public void setHostComponent(@Nullable Component hostComponent) {
         this.hostComponent = hostComponent;
+    }
+
+    public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
+        var cm = contextManager;
+        if (cm != null) {
+            sendEnvironmentInfo(cm.isAnalyzerReady());
+        }
     }
 
     public void lookupSymbolsAsync(String symbolNamesJson, int seq, String contextId) {
@@ -759,6 +779,7 @@ public final class MOPBridge {
             payload.put("projectName", projectName);
             payload.put("totalFileCount", totalFileCount);
             payload.put("analyzerReady", analyzerReady);
+            payload.put("showEmptyState", showEmptyState);
             if (!analyzerLanguagesInfo.isEmpty()) {
                 payload.put("analyzerLanguages", analyzerLanguagesInfo);
             }

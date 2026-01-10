@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -63,8 +64,8 @@ public class HeadlessExecCli {
             authToken = UUID.randomUUID().toString();
         }
         httpClient = new OkHttpClient.Builder()
-                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
                 .build();
 
         // Create temporary workspace

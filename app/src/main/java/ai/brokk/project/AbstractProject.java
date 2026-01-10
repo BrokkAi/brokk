@@ -31,6 +31,7 @@ import java.util.stream.Collectors;
 import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
@@ -469,6 +470,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    @Blocking
     public Language getBuildLanguage() {
         var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
         if (configured != null && !configured.isBlank()) {
@@ -479,6 +481,23 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             }
         }
         return computeMostCommonLanguage();
+    }
+
+    @Override
+    public Language computedBuildLanguage() {
+        var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
+        if (configured != null && !configured.isBlank()) {
+            try {
+                return Languages.valueOf(configured);
+            } catch (IllegalArgumentException e) {
+                // fall through to cache check
+            }
+        }
+        // If cache is populated, compute from it; otherwise return NONE
+        if (allFilesCache != null) {
+            return computeMostCommonLanguage();
+        }
+        return Languages.NONE;
     }
 
     @Override
@@ -638,6 +657,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    @Blocking
     public boolean isEmptyProject() {
         Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
                 .filter(lang -> lang != Languages.NONE)
@@ -745,6 +765,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    @Blocking
     public final synchronized Set<ProjectFile> getAllFiles() {
         if (allFilesCache == null) {
             allFilesCache = filterExcludedFiles(getAllFilesRaw());

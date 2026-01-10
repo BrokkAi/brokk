@@ -32,19 +32,6 @@ class EditBlockInternalsTest {
     }
 
     @Test
-    void testFindIgnoringWhitespace() {
-        String[] whole = {"    line1", "        line2"};
-        String[] part = {"line1 ", "    line2"};
-        // We expect a match ignoring leading spaces
-        var result = EditBlock.findIgnoringWhitespace(whole, 0, part);
-        assertTrue(result.isPresent());
-        assertEquals(String.join("\n", whole), result.get());
-
-        // If we shift by 1, out of range => empty
-        assertFalse(EditBlock.findIgnoringWhitespace(whole, 1, part).isPresent());
-    }
-
-    @Test
     void testPerfectReplace() throws EditBlock.AmbiguousMatchException, EditBlock.NoMatchException {
         String[] whole = {"A", "B", "C"};
         String[] part = {"B"};

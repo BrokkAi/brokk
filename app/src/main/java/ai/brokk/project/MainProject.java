@@ -1193,8 +1193,8 @@ public final class MainProject extends AbstractProject {
     public boolean performStyleMdToAgentsMdMigration(IConsoleIO io) {
         try {
             var gitTopLevel = getMasterRootPathForConfig();
-            var legacyStyle = new ai.brokk.analyzer.ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
-            var agentsFile = new ai.brokk.analyzer.ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
+            var legacyStyle = new ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
+            var agentsFile = new ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
             var gitRepo = getRepo() instanceof GitRepo g ? g : null;
 
             logger.info(

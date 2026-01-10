@@ -213,7 +213,7 @@ public class ContextAgent {
     @Blocking
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
         var workspaceRepresentation =
-                WorkspacePrompts.getMessagesInAddedOrder(context, java.util.EnumSet.of(SpecialTextType.TASK_LIST));
+                WorkspacePrompts.getMessagesInAddedOrder(context, EnumSet.of(SpecialTextType.TASK_LIST));
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);
@@ -502,8 +502,8 @@ public class ContextAgent {
     private Map<ProjectFile, String> getCachedIdentifiers(Collection<ProjectFile> candidates) {
         return candidates.parallelStream()
                 .distinct()
-                .map(f -> Map.entry(
-                        f, identifiersByFile.computeIfAbsent(f, pf -> Context.buildRelatedIdentifiers(analyzer, pf))))
+                .map(f ->
+                        Map.entry(f, identifiersByFile.computeIfAbsent(f, pf -> analyzer.buildRelatedIdentifiers(pf))))
                 .filter(entry -> !entry.getValue().isEmpty())
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1));
     }

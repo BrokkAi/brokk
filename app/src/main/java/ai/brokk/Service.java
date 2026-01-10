@@ -536,7 +536,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
             logger.debug("Sending STT request to {}", endpoint);
 
-            try (okhttp3.Response response = httpClient.newCall(request).execute()) {
+            try (Response response = httpClient.newCall(request).execute()) {
                 String bodyStr = response.body() != null ? response.body().string() : "";
                 logger.debug("Received STT response, status = {}", response.code());
 

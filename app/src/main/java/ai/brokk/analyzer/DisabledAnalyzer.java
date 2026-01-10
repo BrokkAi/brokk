@@ -62,6 +62,11 @@ public class DisabledAnalyzer implements IAnalyzer {
     }
 
     @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
+        return Optional.empty();
+    }
+
+    @Override
     public IAnalyzer update(Set<ProjectFile> changedFiles) {
         return update();
     }
