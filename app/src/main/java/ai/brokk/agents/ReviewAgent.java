@@ -203,7 +203,7 @@ public class ReviewAgent {
                             .withPinned(diffFragment, true)
                             .addFragments(fragmentsToKeep);
 
-                    logger.info(
+                    logger.debug(
                             "Context too large, reduced non-diff fragments from {} to {}",
                             nonDiffFragments.size(),
                             fragmentsToKeep.size());
@@ -242,7 +242,7 @@ public class ReviewAgent {
 
     private void logPhaseTime(String phaseName, long startTimeMs) {
         double seconds = (System.currentTimeMillis() - startTimeMs) / 1000.0;
-        logger.info("{} completed in {}s", phaseName, String.format("%.1f", seconds));
+        logger.debug("{} completed in {}s", phaseName, String.format("%.1f", seconds));
     }
 
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
@@ -381,6 +381,7 @@ public class ReviewAgent {
             fileResolutionMessages.add(new AiMessage(text, reasoning));
 
             Map<Integer, RawExcerpt> parsed = ReviewParser.instance.parseExcerpts(text);
+            logger.debug("Stage 1 attempt {}: parsed {} excerpts from LLM text", attempts, parsed.size());
             Map<Integer, String> fileResolutionErrors = new HashMap<>();
 
             for (var entry : parsed.entrySet()) {
@@ -392,7 +393,12 @@ public class ReviewAgent {
                 }
             }
 
-            if (fileResolutionErrors.isEmpty() || attempts++ == 2) break;
+            if (fileResolutionErrors.isEmpty() || attempts++ == 2) {
+                if (!fileResolutionErrors.isEmpty()) {
+                    logger.warn("Stage 1 giving up with {} resolution errors", fileResolutionErrors.size());
+                }
+                break;
+            }
 
             String errorList = fileResolutionErrors.entrySet().stream()
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())

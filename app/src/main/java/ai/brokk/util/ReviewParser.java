@@ -10,6 +10,11 @@ import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.ast.Node;
 import com.vladsch.flexmark.util.ast.TextCollectingVisitor;
 import com.vladsch.flexmark.util.data.MutableDataSet;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
+import org.jspecify.annotations.NullMarked;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -18,8 +23,6 @@ import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import org.jetbrains.annotations.Nullable;
-import org.jspecify.annotations.NullMarked;
 
 /**
  * Parses out-of-band code excerpts from LLM responses.
@@ -32,6 +35,7 @@ import org.jspecify.annotations.NullMarked;
  */
 @NullMarked
 public class ReviewParser {
+    private static final Logger logger = LogManager.getLogger(ReviewParser.class);
 
     public static final ReviewParser instance = new ReviewParser();
 
@@ -261,10 +265,13 @@ public class ReviewParser {
 
                 if (heading.getLevel() == 2) {
                     currentTopLevelSection = headingText;
+                    logger.debug("Parser transitioned to section: {}", currentTopLevelSection);
                 } else if (heading.getLevel() == 3) {
                     if (currentTopLevelSection.equalsIgnoreCase("Design Notes")) {
+                        logger.debug("Parsing design note: {}", headingText);
                         designNotes.add(parseDesignFeedback(heading, resolvedExcerpts));
                     } else if (currentTopLevelSection.equalsIgnoreCase("Tactical Notes")) {
+                        logger.debug("Parsing tactical note: {}", headingText);
                         tacticalNotes.add(parseTacticalFeedback(heading, resolvedExcerpts));
                     }
                 }
@@ -302,10 +309,13 @@ public class ReviewParser {
 
                 Matcher m = Pattern.compile("BRK_EXCERPT_(\\d+)").matcher(rawPara);
                 while (m.find()) {
-                    excerptIds.add(Integer.parseInt(m.group(1)));
+                    int id = Integer.parseInt(m.group(1));
+                    excerptIds.add(id);
+                    logger.debug("Design feedback '{}' found excerpt ID: {}", title, id);
                 }
 
                 if (lowerPara.contains("recommendation:")) {
+                    logger.debug("Design feedback '{}' found recommendation keyword", title);
                     inRecommendation = true;
                     int idx = lowerPara.indexOf("recommendation:");
                     String beforeRec = fullPara.substring(0, idx).trim();
@@ -348,9 +358,11 @@ public class ReviewParser {
                     Matcher m = excerptPattern.matcher(rawPara);
                     if (m.find()) {
                         excerptId = Integer.parseInt(m.group(1));
+                        logger.debug("Tactical feedback '{}' found excerpt ID: {}", title, excerptId);
                     }
                 }
                 if (lowerPara.contains("recommendation:")) {
+                    logger.debug("Tactical feedback '{}' found recommendation keyword", title);
                     int idx = lowerPara.indexOf("recommendation:");
                     String beforeRec = fullPara.substring(0, idx).trim();
                     if (!beforeRec.isEmpty()) {
