@@ -565,13 +565,6 @@ public class Environment {
         return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("linux");
     }
 
-    /** Determines if the current runtime is JetBrains Runtime (JBR). */
-    public static boolean isJBR() {
-        var vendor = System.getProperty("java.vendor");
-        var version = System.getProperty("java.runtime.version");
-        return (vendor != null && vendor.contains("JetBrains")) || (version != null && version.contains("JBR"));
-    }
-
     /**
      * Returns a concise description of the current operating system, including
      * name, version, and architecture where available.

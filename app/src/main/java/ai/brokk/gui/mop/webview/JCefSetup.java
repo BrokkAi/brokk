@@ -5,8 +5,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import me.friwi.jcefmaven.CefAppBuilder;
-import org.cef.CefApp;
-import org.cef.CefSettings;
 
 public class JCefSetup {
     /**
@@ -18,19 +16,6 @@ public class JCefSetup {
         var builder = new CefAppBuilder();
         builder.setInstallDir(jcefDir.toFile());
         return builder;
-    }
-
-    /**
-     * Initializes JCEF using JBR's native JCEF (when available).
-     * This avoids jcefmaven's dependency on build_meta.json.
-     */
-    public static CefApp buildNative(CefSettings settings) {
-        if (!Environment.isJBR()) {
-            throw new IllegalStateException("buildNative() requires JBR runtime");
-        }
-        // JBR's JCEF requires startup() before getInstance()
-        CefApp.startup(new String[] {});
-        return CefApp.getInstance(settings);
     }
 
     private static Path getJcefDir() {

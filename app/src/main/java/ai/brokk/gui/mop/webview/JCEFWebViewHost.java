@@ -7,7 +7,6 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.project.MainProject;
-import ai.brokk.util.Environment;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
 import java.util.List;
@@ -22,7 +21,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cef.CefApp;
 import org.cef.CefClient;
-import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.browser.CefMessageRouter;
@@ -305,33 +303,11 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 return existing;
             }
 
-            // Check if running under JBR - use native JCEF to avoid jcefmaven build_meta.json issue
-            if (Environment.isJBR()) {
-                System.out.println("*** JCEF: Initializing CEF with JBR native JCEF ***");
-                logger.info("Initializing JCEF with JBR native JCEF");
-
-                CefSettings settings = new CefSettings();
-                settings.windowless_rendering_enabled = false;
-                settings.background_color = settings.new ColorType(0xFF, 37, 37, 37);
-
-                CefApp app;
-                try {
-                    app = JCefSetup.buildNative(settings);
-                } catch (Exception e) {
-                    throw wrapWithDependencyHint(e);
-                }
-                cefAppRef.set(app);
-
-                System.out.println("*** JCEF: CefApp created with JBR (state: " + app.getState() + ") ***");
-                logger.info("JCEF CefApp created with JBR");
-                return app;
-            }
-
-            // Non-JBR: use jcefmaven
             System.out.println("*** JCEF: Initializing CEF with jcefmaven ***");
             logger.info("Initializing JCEF with jcefmaven");
 
             var builder = JCefSetup.builder();
+            builder.setProgressHandler(new me.friwi.jcefmaven.impl.progress.ConsoleProgressHandler());
             var settings = builder.getCefSettings();
             settings.windowless_rendering_enabled = false;
             settings.background_color = settings.new ColorType(0xFF, 37, 37, 37);
