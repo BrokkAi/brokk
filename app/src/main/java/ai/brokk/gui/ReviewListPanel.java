@@ -5,6 +5,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.GuidedReview;
+import ai.brokk.util.ReviewParser.ReviewFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.BorderLayout;
@@ -101,8 +102,8 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         }
 
         addHeader("Tests");
-        for (String test : review.additionalTests()) {
-            addItem(test, test, false);
+        for (ReviewFeedback test : review.additionalTests()) {
+            addItem(test.title(), test, false);
         }
 
         // Auto-select Overview
@@ -155,6 +156,26 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         item.setForeground(UIManager.getColor("List.selectionForeground"));
         onItemSelected.accept(data);
         repaint();
+    }
+
+    public boolean isLastItemSelected() {
+        Component[] components = contentPanel.getComponents();
+        int currentIndex = -1;
+
+        for (int i = 0; i < components.length; i++) {
+            if (components[i] instanceof JLabel label && label.isOpaque()) {
+                currentIndex = i;
+                break;
+            }
+        }
+        assert currentIndex >= 0 : "isLastItemSelected called with no item selected";
+
+        for (int i = currentIndex + 1; i < components.length; i++) {
+            if (components[i] instanceof JLabel label && label.getCursor().getType() == Cursor.HAND_CURSOR) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void selectNext() {

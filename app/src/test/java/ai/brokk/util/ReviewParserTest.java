@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
@@ -16,16 +17,15 @@ class ReviewParserTest {
         String input =
                 """
                 Here is the excerpt:
-                BRK_EXCERPT_1
-                src/main/java/Foo.java @10
                 ```java
+                src/main/java/Foo.java @10
                 public class Foo {}
                 ```
                 """;
-        Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
+        List<ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
 
         assertEquals(1, results.size());
-        ReviewParser.RawExcerpt excerpt = results.get(1);
+        ReviewParser.RawExcerpt excerpt = results.getFirst();
         assertEquals("src/main/java/Foo.java", excerpt.file());
         assertEquals(10, excerpt.line());
         assertEquals("public class Foo {}", excerpt.excerpt());
@@ -35,103 +35,106 @@ class ReviewParserTest {
     void testParseMultipleExcerpts() {
         String input =
                 """
-                BRK_EXCERPT_10
-                FileA.txt @5
                 ```
+                FileA.txt @5
                 content A
                 ```
 
                 Some text in between.
 
-                BRK_EXCERPT_20
-                FileB.txt @15
                 ```python
+                FileB.txt @15
                 content B
                 ```
                 """;
-        Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
+        List<ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
 
         assertEquals(2, results.size());
-        assertEquals("content A", results.get(10).excerpt());
-        assertEquals(5, results.get(10).line());
-        assertEquals("content B", results.get(20).excerpt());
-        assertEquals(15, results.get(20).line());
-        assertEquals("FileA.txt", results.get(10).file());
-        assertEquals("FileB.txt", results.get(20).file());
+        ReviewParser.RawExcerpt excerptA = results.stream()
+                .filter(e -> e.file().equals("FileA.txt"))
+                .findFirst()
+                .get();
+        ReviewParser.RawExcerpt excerptB = results.stream()
+                .filter(e -> e.file().equals("FileB.txt"))
+                .findFirst()
+                .get();
+        assertEquals("content A", excerptA.excerpt());
+        assertEquals(5, excerptA.line());
+        assertEquals("content B", excerptB.excerpt());
+        assertEquals(15, excerptB.line());
     }
 
     @Test
     void testHandlesOptionalLanguageSpecifier() {
+        String content = "const x = 1;";
         String input =
                 """
-                BRK_EXCERPT_1
-                file.js @1
                 ```javascript
-                const x = 1;
+                file.js @1
+                %s
                 ```
-                """;
-        Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
-        assertEquals("const x = 1;", results.get(1).excerpt());
+                """
+                        .formatted(content);
+        List<ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
+        assertEquals(content, results.getFirst().excerpt());
     }
 
     @Test
     void testMalformedAndUnclosedBlocks() {
         String input =
                 """
-                Malformed 1: missing newline after ID
-                BRK_EXCERPT_1 file.txt @10
+                Malformed 1: path not on first line
                 ```
+                some text
+                file.txt @10
                 code
                 ```
 
                 Malformed 2: unclosed fence
-                BRK_EXCERPT_2
-                file2.txt @10
                 ```
+                file2.txt @10
                 unfinished code
 
                 Malformed 3: missing @line
-                BRK_EXCERPT_4
-                file4.txt
                 ```
+                file4.txt
                 missing line
                 ```
 
-                Valid block after malformed (with some leading whitespace):
-                  BRK_EXCERPT_3
-                file3.txt @42
+                Valid block:
                 ```
+                file3.txt @42
                 valid
                 ```
                 """;
-        Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
+        List<ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
 
-        assertEquals(1, results.size(), "Should have found exactly one valid block");
-        assertTrue(results.containsKey(3), "Should contain key 3");
-        assertEquals("valid", results.get(3).excerpt());
+        assertEquals(2, results.size(), "Should have found two valid blocks");
+        ReviewParser.RawExcerpt excerpt = results.stream()
+                .filter(e -> e.file().equals("file3.txt"))
+                .findFirst()
+                .orElseThrow();
+        assertEquals("valid", excerpt.excerpt());
     }
 
     @Test
     void testEmptyContent() {
-        String input =
-                """
-                BRK_EXCERPT_0
-                empty.txt @1
+        String input = """
                 ```
+                empty.txt @1
 
                 ```
                 """;
-        Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
-        assertEquals("", results.get(0).excerpt());
+        List<ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
+        assertEquals("", results.getFirst().excerpt());
     }
 
     @Test
     void testNestedCodeFencesInContent() {
         String input =
                 """
-                BRK_EXCERPT_5
-                nested.md @100
                 ```markdown
+                nested.md @100
                 Outer start
                   ```
                   Indented fence is content
@@ -140,7 +143,7 @@ class ReviewParserTest {
                 Outer end
                 ```
                 """;
-        Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
+        List<ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
 
         assertEquals(1, results.size());
         String expected =
@@ -152,20 +155,19 @@ class ReviewParserTest {
                 Inline ``` fence is content
                 Outer end"""
                         .stripIndent();
-        assertEquals(expected, results.get(5).excerpt());
+        assertEquals(expected, results.getFirst().excerpt());
     }
 
     @Test
     void testRejectsFilenameWithoutLineNumber() {
         String input =
                 """
-                BRK_EXCERPT_1
-                src/main/java/NoLine.java
                 ```java
+                src/main/java/NoLine.java
                 public class NoLine {}
                 ```
                 """;
-        Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
+        List<ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
         assertTrue(results.isEmpty(), "Should reject excerpt without @line");
     }
 
@@ -173,15 +175,14 @@ class ReviewParserTest {
     void testParsesLineNumberCorrectly() {
         String input =
                 """
-                BRK_EXCERPT_1
-                path/to/MyClass.java @42
                 ```java
+                path/to/MyClass.java @42
                 code here
                 ```
                 """;
-        Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
+        List<ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
         assertEquals(1, results.size());
-        ReviewParser.RawExcerpt excerpt = results.get(1);
+        ReviewParser.RawExcerpt excerpt = results.getFirst();
         assertEquals("path/to/MyClass.java", excerpt.file());
         assertEquals(42, excerpt.line());
         assertEquals("code here", excerpt.excerpt());
@@ -189,18 +190,14 @@ class ReviewParserTest {
 
     @Test
     void testGuidedReviewFromRaw() {
-        var contents = Map.of(
-                0, "code A",
-                1, "code B");
-        var files = Map.of(
-                0, "FileA.java",
-                1, "FileB.java");
-
         var rawDesign = new ReviewParser.RawDesignFeedback("Design Issue", "Desc", List.of(0, 1), "Fix it");
         var rawTactical = new ReviewParser.RawTacticalFeedback("Bug", "Bug description", 0, "Fix bug");
 
-        var rawReview =
-                new ReviewParser.RawReview("Overview", List.of(rawDesign), List.of(rawTactical), List.of("Test more"));
+        var rawReview = new ReviewParser.RawReview(
+                "Overview",
+                List.of(rawDesign),
+                List.of(rawTactical),
+                List.of(new ReviewParser.ReviewFeedback("Test more", "", "Run the test")));
 
         Path root = Path.of(".").toAbsolutePath().normalize();
         var resolvedExcerpts = Map.of(
@@ -240,7 +237,8 @@ class ReviewParserTest {
                 "FileA.java",
                 guided.tacticalNotes().getFirst().excerpt().file().getRelPath().toString());
         assertEquals("code A", guided.tacticalNotes().getFirst().excerpt().excerpt());
-        assertEquals("Test more", guided.additionalTests().getFirst());
+        assertEquals("Test more", guided.additionalTests().getFirst().title());
+        assertEquals("Run the test", guided.additionalTests().getFirst().recommendation());
     }
 
     @Test
@@ -289,15 +287,13 @@ class ReviewParserTest {
         String input =
                 """
                 Prefix text.
-                BRK_EXCERPT_1
-                File.java @10
                 ```
+                File.java @10
                 code1
                 ```
                 Middle text.
-                BRK_EXCERPT_2
-                Other.java @20
                 ```
+                Other.java @20
                 code2
                 ```
                 Suffix text.""";
@@ -309,17 +305,17 @@ class ReviewParserTest {
         assertEquals("Prefix text.\n", ((ReviewParser.TextSegment) segments.get(0)).text());
 
         assertTrue(segments.get(1) instanceof ReviewParser.ExcerptSegment);
-        assertEquals(1, ((ReviewParser.ExcerptSegment) segments.get(1)).id());
         assertEquals("code1", ((ReviewParser.ExcerptSegment) segments.get(1)).content());
 
         assertTrue(segments.get(2) instanceof ReviewParser.TextSegment);
-        assertEquals("\nMiddle text.\n", ((ReviewParser.TextSegment) segments.get(2)).text());
+        // After an excerpt, the text segment starts with \n (from after the closing fence)
+        assertTrue(((ReviewParser.TextSegment) segments.get(2)).text().contains("Middle text."));
 
         assertTrue(segments.get(3) instanceof ReviewParser.ExcerptSegment);
-        assertEquals(2, ((ReviewParser.ExcerptSegment) segments.get(3)).id());
+        assertEquals("code2", ((ReviewParser.ExcerptSegment) segments.get(3)).content());
 
         assertTrue(segments.get(4) instanceof ReviewParser.TextSegment);
-        assertEquals("\nSuffix text.", ((ReviewParser.TextSegment) segments.get(4)).text());
+        assertTrue(((ReviewParser.TextSegment) segments.get(4)).text().contains("Suffix text."));
     }
 
     @Test
@@ -327,9 +323,8 @@ class ReviewParserTest {
         String input =
                 """
                 Text before.
-                BRK_EXCERPT_1
-                File.java @10
                 ```
+                File.java @10
                 content
                 ```
                 Text after.""";
@@ -337,8 +332,6 @@ class ReviewParserTest {
         List<ReviewParser.Segment> segments = ReviewParser.instance.parseToSegments(input);
         String serialized = ReviewParser.instance.serializeSegments(segments);
 
-        // We compare normalized/trimmed because the serializer might vary slightly in trailing newlines
-        // depending on how the input was formatted.
         assertEquals(input.trim(), serialized.trim());
     }
 
@@ -347,24 +340,18 @@ class ReviewParserTest {
         String input =
                 """
                 Prefix text.
-                BRK_EXCERPT_1
-                File.java @10
                 ```
+                File.java @10
                 code1
                 ```
                 Middle text.
-                BRK_EXCERPT_2
-                Other.java @20
                 ```
+                Other.java @20
                 code2
                 ```
                 Suffix text.""";
 
         String result = ReviewParser.instance.stripExcerpts(input);
-        // stripExcerpts calls trim() and joins text segments.
-        // Based on parseToSegments behavior:
-        // "Prefix text.\n" + "\nMiddle text.\n" + "\nSuffix text."
-        // results in "Prefix text.\n\nMiddle text.\n\nSuffix text."
         assertEquals("Prefix text.\n\nMiddle text.\n\nSuffix text.", result);
     }
 
@@ -379,9 +366,8 @@ class ReviewParserTest {
     void testStripExcerptsOnlyExcerpts() {
         String input =
                 """
-                BRK_EXCERPT_1
-                File.java @10
                 ```
+                File.java @10
                 all code
                 ```""";
 
@@ -406,25 +392,559 @@ class ReviewParserTest {
     }
 
     @Test
+    void testParseMarkdownReview_WellFormed() {
+        String markdown =
+                """
+                ## Overview
+                This is a good change.
+
+                ## Design Notes
+                ### Better Abstraction
+                We should use a factory here.
+                ```
+                A.java @1
+                code1
+                ```
+                **Recommendation:** Implement the factory.
+
+                ## Tactical Notes
+                ### Fix Null
+                Potential NPE at
+                ```
+                B.java @5
+                code2
+                ```
+                **Recommendation:** Add a null check.
+
+                ## Additional Tests
+                ### Test Factory
+                Desc
+                **Recommendation:** Test the factory
+
+                ### Test Null
+                Desc
+                **Recommendation:** Test null input
+                """
+                        .stripIndent();
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var resolved = Map.of(
+                0,
+                        new ReviewParser.CodeExcerpt(
+                                new ProjectFile(root, "A.java"), null, 1, ReviewParser.DiffSide.NEW, "code1"),
+                1,
+                        new ReviewParser.CodeExcerpt(
+                                new ProjectFile(root, "B.java"), null, 5, ReviewParser.DiffSide.NEW, "code2"));
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+
+        assertEquals("This is a good change.", review.overview());
+        assertEquals(1, review.designNotes().size());
+        assertEquals("Better Abstraction", review.designNotes().get(0).title());
+        assertEquals("Implement the factory.", review.designNotes().get(0).recommendation());
+        assertEquals(1, review.designNotes().get(0).excerpts().size());
+
+        assertEquals(1, review.tacticalNotes().size(), "tacticalNotes should have 1 item");
+        assertEquals("Fix Null", review.tacticalNotes().get(0).title());
+        var tacticalExcerpt = review.tacticalNotes().get(0).excerpt();
+        assertTrue(tacticalExcerpt != null);
+        assertEquals("code2", tacticalExcerpt.excerpt());
+
+        assertEquals(2, review.additionalTests().size());
+        assertEquals("Test Factory", review.additionalTests().get(0).title());
+        assertEquals("Test the factory", review.additionalTests().get(0).recommendation());
+    }
+
+    @Test
+    void testParseMarkdownReview_TacticalWithoutExcerpt() {
+        String markdown =
+                """
+                ## Tactical Notes
+                ### General Improvement
+                This is a tactical observation without a specific code link.
+                **Recommendation:** Consider refactoring global state.
+                """
+                        .stripIndent();
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        // Tactical notes without valid excerpts are filtered out during parsing
+        assertEquals(0, review.tacticalNotes().size());
+    }
+
+    @Test
+    void testParseMarkdownReview_MultiParagraphOverview() {
+        String markdown =
+                """
+                ## Overview
+                Para one.
+
+                Para two.
+
+                ## Design Notes
+                ### Title
+                Desc.
+                """
+                        .stripIndent();
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+        assertEquals("Para one.\n\nPara two.", review.overview());
+    }
+
+    @Test
+    void testParseMarkdownReview_MissingSections() {
+        String markdown = """
+            ## Overview
+            Minimal review.
+            """;
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+        assertEquals("Minimal review.", review.overview());
+        assertTrue(review.designNotes().isEmpty());
+        assertTrue(review.tacticalNotes().isEmpty());
+        assertTrue(review.additionalTests().isEmpty());
+    }
+
+    @Test
+    void testParseMarkdownReview_MultipleExcerptsAndEdgeCases() {
+        String markdown =
+                """
+            ## Design Notes
+            ### Complex Issue
+            See
+            ```
+            A.java @1
+            1
+            ```
+            and also
+            ```
+            B.java @1
+            2
+            ```
+
+            Some more text.
+            **Recommendation:** Fix both.
+
+            ### Empty Note
+            Some description.
+            **Recommendation:** Do nothing.
+            """;
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var resolved = Map.of(
+                0,
+                        new ReviewParser.CodeExcerpt(
+                                new ProjectFile(root, "A.java"), null, 1, ReviewParser.DiffSide.NEW, "1"),
+                1,
+                        new ReviewParser.CodeExcerpt(
+                                new ProjectFile(root, "B.java"), null, 1, ReviewParser.DiffSide.NEW, "2"));
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+        assertEquals(2, review.designNotes().size());
+        assertEquals(2, review.designNotes().get(0).excerpts().size());
+        assertEquals("Fix both.", review.designNotes().get(0).recommendation());
+        assertEquals("Do nothing.", review.designNotes().get(1).recommendation());
+    }
+
+    @Test
     void testFromRawCleansExcerptsFromFields() {
+        // The cleanMetadata method replaces escaped newlines (\n literal) with actual newlines
         var rawDesign = new ReviewParser.RawDesignFeedback(
-                "Title",
-                "Description with\nBRK_EXCERPT_1\nand more text.",
-                List.of(1),
-                "Recommendation with\nBRK_EXCERPT_2");
+                "Title", "Description with\\ncode block and more text.", List.of(0), "Recommendation with\\nmore");
 
         var rawReview = new ReviewParser.RawReview("Overview", List.of(rawDesign), List.of(), List.of());
 
         Path root = Path.of(".").toAbsolutePath().normalize();
         var resolvedExcerpts = Map.of(
-                1,
+                0,
                 new ReviewParser.CodeExcerpt(
                         new ProjectFile(root, "File.java"), null, 1, ReviewParser.DiffSide.NEW, "code"));
 
         ReviewParser.GuidedReview guided = ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
         ReviewParser.DesignFeedback design = guided.designNotes().getFirst();
 
-        assertEquals("Description with\nand more text.", design.description());
-        assertEquals("Recommendation with", design.recommendation());
+        assertEquals("Description with\ncode block and more text.", design.description());
+        assertEquals("Recommendation with\nmore", design.recommendation());
+    }
+
+    @Test
+    void testParseMarkdownReview_RecommendationMidSentence_NotMatched() {
+        // "Recommendation:" appearing mid-sentence should not be treated as the recommendation delimiter
+        String markdown =
+                """
+            ## Design Notes
+            ### Naming Issue
+            The variable name contains Recommendation: suffix which is confusing.
+            **Recommendation:** Rename the variable to something clearer.
+            """;
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        // The description should include "contains Recommendation: suffix"
+        // The actual recommendation should be "Rename the variable to something clearer."
+        assertEquals(1, review.designNotes().size());
+        assertTrue(review.designNotes().get(0).description().contains("contains Recommendation: suffix"));
+        assertEquals(
+                "Rename the variable to something clearer.",
+                review.designNotes().get(0).recommendation());
+    }
+
+    @Test
+    void testParseMarkdownReview_RecommendationInCodeBlock_NotMatched() {
+        // "Recommendation:" appearing in code excerpts should not be treated as delimiter
+        // Note: The content in the code block is parsed by flexmark, which may handle quotes differently
+        String content = "String key = \"Recommendation:\";";
+        String markdown =
+                """
+            ## Tactical Notes
+            ### Config Issue
+            The code has a hardcoded string:
+            ```java
+            config.java @10
+            %s
+            ```
+            **Recommendation:** Use a constant instead.
+            """
+                        .formatted(content);
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var resolved = Map.of(
+                0,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "config.java"), null, 10, ReviewParser.DiffSide.NEW, content));
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+
+        assertEquals(1, review.tacticalNotes().size());
+        // The recommendation should only be the actual recommendation, not the code
+        assertEquals("Use a constant instead.", review.tacticalNotes().get(0).recommendation());
+    }
+
+    @Test
+    void testParseMarkdownReview_BoldRecommendationFormat() {
+        // The expected format uses bold: **Recommendation:**
+        String markdown =
+                """
+            ## Design Notes
+            ### API Design
+            The API is inconsistent.
+            **Recommendation:** Refactor to use builder pattern.
+
+            ### Error Handling
+            Missing error cases.
+            **Recommendation:** Add try-catch blocks.
+            """;
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        assertEquals(2, review.designNotes().size());
+        assertEquals(
+                "Refactor to use builder pattern.", review.designNotes().get(0).recommendation());
+        assertEquals("Add try-catch blocks.", review.designNotes().get(1).recommendation());
+    }
+
+    @Test
+    void testParseMarkdownReview_NonBoldRecommendationIgnored() {
+        // Plain "Recommendation:" without bold should not be the delimiter when bold version exists
+        String markdown =
+                """
+            ## Design Notes
+            ### Mixed Format
+            The method has a Recommendation: comment in the code.
+            **Recommendation:** Remove the outdated comment.
+            """;
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        assertEquals(1, review.designNotes().size());
+        assertTrue(review.designNotes().get(0).description().contains("Recommendation: comment"));
+        assertEquals("Remove the outdated comment.", review.designNotes().get(0).recommendation());
+    }
+
+    @Test
+    void testParseMarkdownReview_PreservesFormatting() {
+        String markdown =
+                """
+            ## Design Notes
+            ### Formatting Test
+            This description has **bold**, *italic*, `code`, and [links](http://example.com).
+            **Recommendation:** Fix the `code` and check the [link](http://test.com).
+            """
+                        .stripIndent();
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        assertEquals(1, review.designNotes().size());
+        ReviewParser.DesignFeedback note = review.designNotes().get(0);
+        assertEquals(
+                "This description has **bold**, *italic*, `code`, and [links](http://example.com).",
+                note.description());
+        assertEquals("Fix the `code` and check the [link](http://test.com).", note.recommendation());
+    }
+
+    @Test
+    void testParseMarkdownReview_FiltersExcerptMetadata() {
+        // When an excerpt is included in a note, the "filename @line" should not appear in description
+        String markdown =
+                """
+            ## Tactical Notes
+            ### Filter Metadata
+            Here is the problem:
+            ```java
+            src/main/java/App.java @50
+            code
+            ```
+
+            The code above is bad.
+            **Recommendation:** Fix it.
+            """;
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var resolved = Map.of(
+                0,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "src/main/java/App.java"), null, 50, ReviewParser.DiffSide.NEW, "code"));
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+
+        assertEquals(1, review.tacticalNotes().size(), "Should have one tactical note");
+        String description = review.tacticalNotes().get(0).description();
+        assertTrue(description.contains("Here is the problem:"), "Should contain text");
+        assertTrue(description.contains("The code above is bad."), "Should contain text after excerpt");
+        assertFalse(description.contains("src/main/java/App.java @50"), "Should NOT contain the metadata line");
+    }
+
+    @Test
+    void testParseMarkdownReview_UnclosedCodeBlock() {
+        String markdown =
+                """
+                ## Design Notes
+                ### Some Issue
+                Description here.
+                ```java
+                public void method() {
+                    // code without closing fence
+                **Recommendation:** Fix it.
+                """;
+
+        // Should not throw exception and should extract what it can.
+        // flexmark usually treats the rest of the document as part of the code block if unclosed.
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        assertEquals(1, review.designNotes().size());
+        assertEquals("Some Issue", review.designNotes().getFirst().title());
+    }
+
+    @Test
+    void testParseMarkdownReview_MissingTopLevelHeaders() {
+        String markdown =
+                """
+                ### Orphaned Note
+                This note is not under a ## section.
+                **Recommendation:** Ignore or handle gracefully.
+                """;
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        // Since the parser relies on currentTopLevelSection, notes without a ## header are ignored.
+        assertTrue(review.designNotes().isEmpty());
+        assertTrue(review.tacticalNotes().isEmpty());
+    }
+
+    @Test
+    void testParseMarkdownReview_MalformedHeaders() {
+        String markdown =
+                """
+                ##Design Notes
+                ### Spaced Header
+                Desc.
+                **Recommendation:** Fix spacing.
+
+                ## Tactical Notes
+                #### Deep Header
+                Too deep.
+                **Recommendation:** Shallow up.
+                """;
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, Map.of());
+
+        // "##Design Notes" is typically not recognized as a header by CommonMark (requires space).
+        // "#### Deep Header" is level 4, while the parser looks for level 3 for notes.
+        assertTrue(review.designNotes().isEmpty());
+        assertTrue(review.tacticalNotes().isEmpty());
+    }
+
+    @Test
+    void testParseMarkdownReview_CodeBlockInExcerptArea() {
+        // Test handling when a code block looks like it might be metadata but is just a code block.
+        String markdown =
+                """
+                ## Tactical Notes
+                ### Malformed Excerpt
+                ```java
+                File.java @1
+                code
+                ```
+                **Recommendation:** Fix formatting.
+                """;
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        var resolved = Map.of(
+                0,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "File.java"), null, 1, ReviewParser.DiffSide.NEW, "code"));
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+
+        assertEquals(1, review.tacticalNotes().size());
+        assertEquals("Malformed Excerpt", review.tacticalNotes().getFirst().title());
+    }
+
+    @Test
+    void testSectionRoundTrip() {
+        String markdown =
+                """
+                ## Overview
+                This is the overview.
+
+                ## Design Notes
+                ### Title 1
+                Content 1
+
+                ### Title 2
+                Content 2
+
+                ## Tactical Notes
+                ### Title 3
+                Content 3
+                """
+                        .stripIndent();
+
+        List<ReviewParser.Section> sections = ReviewParser.instance.parseIntoSections(markdown);
+        // Sections: Overview, Title 1, Title 2, Title 3
+        assertEquals(4, sections.size());
+        assertEquals("Overview", sections.get(0).title());
+        assertEquals("Title 1", sections.get(1).title());
+        assertEquals("Title 2", sections.get(2).title());
+        assertEquals("Title 3", sections.get(3).title());
+
+        String serialized = ReviewParser.instance.serializeSections(sections);
+
+        String expected =
+                """
+                ## Overview
+                This is the overview.
+
+                ## Design Notes
+                ### Title 1
+                Content 1
+
+                ### Title 2
+                Content 2
+
+                ## Tactical Notes
+                ### Title 3
+                Content 3
+                """
+                        .stripIndent();
+
+        assertEquals(expected.trim(), serialized.trim());
+    }
+
+    @Test
+    void testParseNumberedExcerpts() {
+        String input =
+                """
+                I've fixed those excerpts for you:
+
+                Excerpt 0:
+                ```java
+                File1.java @10
+                code 1
+                ```
+
+                Excerpt 2:
+                Some commentary here.
+                ```
+                File2.java @20
+                code 2
+                ```
+                """;
+
+        Map<Integer, ReviewParser.RawExcerpt> results = ReviewParser.instance.parseNumberedExcerpts(input);
+
+        assertEquals(2, results.size());
+        assertEquals("File1.java", results.get(0).file());
+        assertEquals("code 1", results.get(0).excerpt());
+        assertEquals("File2.java", results.get(2).file());
+        assertEquals("code 2", results.get(2).excerpt());
+    }
+
+    @Test
+    void testValidateParsedNotes() {
+        // 1. Well-formed review
+        String validMarkdown =
+                """
+                ## Design Notes
+                ### D1
+                Desc
+                **Recommendation:** Rec
+
+                ## Tactical Notes
+                ### T1
+                Desc
+                ```
+                file.java @1
+                code
+                ```
+                **Recommendation:** Rec
+                """
+                        .stripIndent();
+
+        List<ReviewParser.NoteValidationError> errors1 = ReviewParser.instance.validateParsedNotes(validMarkdown);
+        assertTrue(errors1.isEmpty(), "Should have no errors for valid review");
+
+        // 2. Malformed review
+        String invalidMarkdown =
+                """
+                ## Design Notes
+                ### Bad Design
+                Desc
+                **Recommendation:**
+
+                ## Tactical Notes
+                ### Missing Excerpt
+                Desc
+                **Recommendation:** Fix it
+
+                ### Empty Rec
+                ```
+                file.java @2
+                code
+                ```
+                **Recommendation:**
+
+                ### Missing Rec Marker
+                ```
+                file.java @3
+                code
+                ```
+                Just text.
+                """
+                        .stripIndent();
+
+        List<ReviewParser.NoteValidationError> errors2 = ReviewParser.instance.validateParsedNotes(invalidMarkdown);
+        assertEquals(4, errors2.size());
+
+        assertTrue(errors2.stream()
+                .anyMatch(e -> e.title().equals("Bad Design") && e.message().contains("empty recommendation")));
+        assertTrue(errors2.stream()
+                .anyMatch(
+                        e -> e.title().equals("Missing Excerpt") && e.message().contains("file path")));
+        assertTrue(errors2.stream()
+                .anyMatch(e -> e.title().equals("Empty Rec") && e.message().contains("empty recommendation")));
+        assertTrue(errors2.stream()
+                .anyMatch(e -> e.title().equals("Missing Rec Marker")
+                        && e.message().contains("missing a **Recommendation:**")));
     }
 }

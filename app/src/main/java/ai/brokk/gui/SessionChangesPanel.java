@@ -972,6 +972,26 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
+    /**
+     * Loads a review from markdown text that was previously generated.
+     * This parses the markdown as a GuidedReview and displays it in the review panels.
+     *
+     * @param markdown The markdown text containing the review
+     * @param context The context associated with this review
+     */
+    public void loadExternalReview(String markdown, ai.brokk.context.Context context) {
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, java.util.Map.of());
+
+        SwingUtilities.invokeLater(() -> {
+            hasGeneratedReview = true;
+            updateReviewPanelVisibility(true);
+            codeReviewPanel.displayReview(review, context);
+            codeReviewPanel.getListPanel().setStalenessNotice("Loaded from history");
+            revalidate();
+            repaint();
+        });
+    }
+
     private void handlePasteReview() {
         try {
             var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();

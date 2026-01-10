@@ -2,6 +2,12 @@ package ai.brokk.util;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import com.vladsch.flexmark.ast.BulletList;
+import com.vladsch.flexmark.ast.Heading;
+import com.vladsch.flexmark.ast.Paragraph;
+import com.vladsch.flexmark.parser.Parser;
+import com.vladsch.flexmark.util.ast.Node;
+import com.vladsch.flexmark.util.data.MutableDataSet;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -10,20 +16,22 @@ import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 /**
- * Parses out-of-band code excerpts from LLM responses.
- * Expected format:
- * BRK_EXCERPT_$ID
- * $filename
+ * Parses code excerpts from LLM responses within standard Markdown.
+ * Expected format within a code block:
  * ```[lang]
+ * path/to/file.java @line
  * $excerptContent
  * ```
  */
 @NullMarked
 public class ReviewParser {
+    private static final Logger logger = LogManager.getLogger(ReviewParser.class);
 
     public static final ReviewParser instance = new ReviewParser();
 
@@ -33,7 +41,7 @@ public class ReviewParser {
 
     public record TextSegment(String text) implements Segment {}
 
-    public record ExcerptSegment(int id, String file, int line, String content) implements Segment {}
+    public record ExcerptSegment(String file, int line, String content) implements Segment {}
 
     public static WhitespaceMatch findBestMatch(List<WhitespaceMatch> matches, int targetLine) {
         var best = matches.getFirst();
@@ -48,120 +56,109 @@ public class ReviewParser {
         return best;
     }
 
-    private enum State {
-        SEARCHING,
-        EXPECTING_FILENAME,
-        EXPECTING_FENCE,
-        IN_CONTENT
-    }
-
     public enum DiffSide {
         OLD,
         NEW
     }
 
     public String stripExcerpts(String text) {
-        return parseToSegments(text).stream()
-                .filter(s -> s instanceof TextSegment)
-                .map(s -> ((TextSegment) s).text())
-                .collect(Collectors.joining())
-                .trim();
-    }
-
-    public Map<Integer, RawExcerpt> parseExcerpts(String text) {
-        Map<Integer, RawExcerpt> results = new HashMap<>();
-        for (Segment segment : parseToSegments(text)) {
-            if (segment instanceof ExcerptSegment es) {
-                results.put(es.id(), new RawExcerpt(es.file(), es.line(), es.content()));
+        StringBuilder result = new StringBuilder();
+        for (Segment s : parseToSegments(text)) {
+            if (s instanceof TextSegment ts) {
+                result.append(ts.text());
+            } else if (s instanceof ExcerptSegment) {
+                // Replace excerpt with a blank line to preserve paragraph separation
+                result.append("\n");
             }
         }
-        return Map.copyOf(results);
+        // Normalize multiple newlines to double newlines and trim
+        return result.toString().replaceAll("\\n{3,}", "\n\n").trim();
+    }
+
+    public List<RawExcerpt> parseExcerpts(String text) {
+        List<RawExcerpt> results = new ArrayList<>();
+        for (Segment segment : parseToSegments(text)) {
+            if (segment instanceof ExcerptSegment es) {
+                results.add(new RawExcerpt(es.file(), es.line(), es.content()));
+            }
+        }
+        return List.copyOf(results);
+    }
+
+    /**
+     * Parses excerpts associated with specific IDs (e.g., "Excerpt 1:").
+     */
+    public Map<Integer, RawExcerpt> parseNumberedExcerpts(String text) {
+        Map<Integer, RawExcerpt> results = new HashMap<>();
+        // Look for "Excerpt N:" followed by a code block
+        Pattern pattern = Pattern.compile("Excerpt\\s+(\\d+):", Pattern.CASE_INSENSITIVE);
+        String[] parts = pattern.split(text, -1);
+        Matcher matcher = pattern.matcher(text);
+
+        int partIdx = 1; // parts[0] is everything before the first match
+        while (matcher.find() && partIdx < parts.length) {
+            int id = Integer.parseInt(matcher.group(1));
+            List<RawExcerpt> excerptsInPart = parseExcerpts(parts[partIdx]);
+            if (!excerptsInPart.isEmpty()) {
+                results.put(id, excerptsInPart.getFirst());
+            }
+            partIdx++;
+        }
+        return results;
     }
 
     private String cleanMetadata(String text) {
-        // Unescape newlines before checking for orphaned BRK_EXCERPT markers
-        String unescaped = text.replace("\\n", "\n");
-        return unescaped
-                .lines()
-                .filter(line -> {
-                    String trimmed = line.trim();
-                    return !(trimmed.startsWith("BRK_EXCERPT_")
-                            && !trimmed.contains(" ")
-                            && trimmed.length() > "BRK_EXCERPT_".length());
-                })
-                .collect(Collectors.joining("\n"));
+        return text.replace("\\n", "\n");
     }
 
     public List<Segment> parseToSegments(String text) {
         List<Segment> segments = new ArrayList<>();
         String[] lines = text.split("\\R", -1);
-        State state = State.SEARCHING;
 
         StringBuilder textAccumulator = new StringBuilder();
-        StringBuilder excerptAccumulator = new StringBuilder();
-
-        Integer currentId = null;
-        String currentFile = null;
-        int currentLineNum = -1;
-        Pattern fileLinePattern = Pattern.compile("^(.*)\\s+@(\\d+)$");
+        // Ensure the filename part doesn't greedily eat the @ symbol
+        // Must have non-whitespace filename, then whitespace, then @, then digits.
+        Pattern fileLinePattern = Pattern.compile("^(\\S.*?)\\s+@(\\d+)$");
 
         for (int i = 0; i < lines.length; i++) {
             String line = lines[i];
             String trimmed = line.trim();
 
-            if (state == State.SEARCHING) {
-                if (trimmed.startsWith("BRK_EXCERPT_")
-                        && !trimmed.contains(" ")
-                        && trimmed.length() > "BRK_EXCERPT_".length()
-                        && trimmed.substring("BRK_EXCERPT_".length()).chars().allMatch(Character::isDigit)) {
-                    int id = Integer.parseInt(trimmed.substring("BRK_EXCERPT_".length()));
-                    // Look ahead for file, fence, and closing fence
-                    if (i + 2 < lines.length) {
-                        Matcher m = fileLinePattern.matcher(lines[i + 1].trim());
-                        if (m.matches() && lines[i + 2].trim().startsWith("```")) {
-                            // Find the closing fence before accepting this excerpt
-                            if (findClosingFence(lines, i + 3) != -1) {
-                                if (!textAccumulator.isEmpty()) {
-                                    segments.add(new TextSegment(textAccumulator.toString()));
-                                    textAccumulator.setLength(0);
-                                }
-                                currentId = id;
-                                currentFile = m.group(1).trim();
-                                currentLineNum = Integer.parseInt(m.group(2));
-                                excerptAccumulator.setLength(0);
-                                state = State.IN_CONTENT;
-                                i += 2; // skip filename and fence
-                                continue;
-                            }
+            // Only start a block if line starts with ``` (not indented) and is either
+            // exactly ``` or ```language (no space after ```)
+            if (line.startsWith("```") && (trimmed.length() == 3 || !Character.isWhitespace(trimmed.charAt(3)))) {
+                // Look ahead for file @line and closing fence
+                if (i + 1 < lines.length) {
+                    Matcher m = fileLinePattern.matcher(lines[i + 1].trim());
+                    int closingIdx = findClosingFence(lines, i + 2, fileLinePattern);
+                    if (m.matches() && closingIdx != -1) {
+                        // Flush text accumulator, but preserve trailing newline for it
+                        if (!textAccumulator.isEmpty()) {
+                            segments.add(new TextSegment(textAccumulator.toString()));
+                            textAccumulator.setLength(0);
                         }
-                    }
-                }
-                textAccumulator.append(line);
-                if (i < lines.length - 1) {
-                    textAccumulator.append("\n");
-                }
-            } else {
-                // IN_CONTENT
-                if (line.equals("```")
-                        || (line.startsWith("```") && line.substring(3).isBlank())) {
-                    segments.add(new ExcerptSegment(
-                            Objects.requireNonNull(currentId),
-                            Objects.requireNonNull(currentFile),
-                            currentLineNum,
-                            excerptAccumulator.toString()));
 
-                    // If there is another line, append the newline following the fence to textAccumulator
-                    if (i < lines.length - 1) {
-                        textAccumulator.setLength(0);
-                        textAccumulator.append("\n");
+                        String currentFile = m.group(1).trim();
+                        int currentLineNum = Integer.parseInt(m.group(2));
+                        StringBuilder content = new StringBuilder();
+                        for (int j = i + 2; j < closingIdx; j++) {
+                            if (!content.isEmpty()) content.append("\n");
+                            content.append(lines[j]);
+                        }
+
+                        String finalContent = content.toString();
+                        segments.add(new ExcerptSegment(currentFile, currentLineNum, finalContent));
+
+                        // After the closing fence, continue from the next line
+                        i = closingIdx;
+                        continue;
                     }
-                    state = State.SEARCHING;
-                } else {
-                    if (!excerptAccumulator.isEmpty()) {
-                        excerptAccumulator.append("\n");
-                    }
-                    excerptAccumulator.append(line);
                 }
+            }
+
+            textAccumulator.append(line);
+            if (i < lines.length - 1) {
+                textAccumulator.append("\n");
             }
         }
 
@@ -172,40 +169,68 @@ public class ReviewParser {
         return List.copyOf(segments);
     }
 
-    /**
-     * Finds the index of a closing fence (``` at start of line) starting from the given index.
-     * Returns -1 if no closing fence is found or if another BRK_EXCERPT_ marker is encountered first.
-     */
-    private int findClosingFence(String[] lines, int startIndex) {
-        for (int j = startIndex; j < lines.length; j++) {
+    private int findClosingFence(String[] lines, int startIndex, Pattern fileLinePattern) {
+        // Limit lookahead to prevent performance issues or infinite loops on pathological input
+        int maxLookahead = 1000;
+        int end = Math.min(lines.length, startIndex + maxLookahead);
+
+        for (int j = startIndex; j < end; j++) {
             String l = lines[j];
-            String trimmed = l.trim();
-            // If we encounter another excerpt marker before finding a closing fence,
-            // the current block is unclosed
-            if (trimmed.startsWith("BRK_EXCERPT_")
-                    && !trimmed.contains(" ")
-                    && trimmed.length() > "BRK_EXCERPT_".length()
-                    && trimmed.substring("BRK_EXCERPT_".length()).chars().allMatch(Character::isDigit)) {
-                return -1;
-            }
-            if (l.equals("```") || (l.startsWith("```") && l.substring(3).isBlank())) {
+            if (l.matches("^```\\s*$")) {
+                // A closing fence must not be followed immediately by a file@line pattern,
+                // which would indicate it's actually an opening fence for a new block.
+                if (j + 1 < lines.length) {
+                    String nextLine = lines[j + 1].trim();
+                    if (fileLinePattern.matcher(nextLine).matches()) {
+                        continue;
+                    }
+                    // Also skip if the next line looks like a bare filename without @line
+                    // (indicating a malformed code block that we shouldn't close into)
+                    if (looksLikeBareFilename(nextLine)) {
+                        continue;
+                    }
+                }
                 return j;
+            }
+            // If we see another opening fence (with language), current block is unclosed
+            if (l.startsWith("```") && l.trim().length() > 3) {
+                return -1;
             }
         }
         return -1;
     }
 
+    private boolean looksLikeBareFilename(String line) {
+        // A line looks like a bare filename (without @line) if it:
+        // - Is non-empty and has no spaces (filenames typically don't have spaces)
+        // - Looks like a path (contains / or \) OR has a file extension pattern
+        // - Is NOT prose (prose typically has spaces and multiple words)
+        if (line.isEmpty() || line.contains(" ")) {
+            return false;
+        }
+        // Must look like a file path or have an extension
+        // Pattern: either contains path separator, or ends with .ext
+        if (line.contains("/") || line.contains("\\")) {
+            return true;
+        }
+        // Check for file extension pattern: word.ext where ext is 1-4 chars
+        return line.matches(".*\\.[a-zA-Z0-9]{1,4}$");
+    }
+
     public String serializeSegments(List<Segment> segments) {
         StringBuilder sb = new StringBuilder();
-        for (Segment segment : segments) {
+        for (int i = 0; i < segments.size(); i++) {
+            Segment segment = segments.get(i);
             if (segment instanceof TextSegment ts) {
                 sb.append(ts.text());
             } else if (segment instanceof ExcerptSegment es) {
-                sb.append("BRK_EXCERPT_").append(es.id()).append("\n");
-                sb.append(es.file()).append(" @").append(es.line()).append("\n");
                 sb.append("```\n");
+                sb.append(es.file()).append(" @").append(es.line()).append("\n");
                 sb.append(es.content()).append("\n");
                 sb.append("```");
+                if (i < segments.size() - 1) {
+                    sb.append("\n");
+                }
             }
         }
         return sb.toString();
@@ -216,15 +241,15 @@ public class ReviewParser {
     public record CodeExcerpt(ProjectFile file, @Nullable CodeUnit codeUnit, int line, DiffSide side, String excerpt) {}
 
     public record RawDesignFeedback(
-            String title, String description, List<Integer> excerptIds, String recommendation) {}
+            String title, String description, List<Integer> excerptIndices, String recommendation) {}
 
-    public record RawTacticalFeedback(String title, String description, int excerptId, String recommendation) {}
+    public record RawTacticalFeedback(String title, String description, int excerptIndex, String recommendation) {}
 
     public record RawReview(
             String overview,
             List<RawDesignFeedback> designNotes,
             List<RawTacticalFeedback> tacticalNotes,
-            List<String> additionalTests) {
+            List<ReviewFeedback> additionalTests) {
         public String toJson() {
             return Json.toJson(this);
         }
@@ -240,11 +265,429 @@ public class ReviewParser {
 
     public record ReviewFeedback(String title, String description, String recommendation) {}
 
+    public record Section(String type, String title, String content) {}
+
+    public List<Section> parseIntoSections(String markdown) {
+        List<Section> sections = new ArrayList<>();
+        String[] lines = markdown.split("\\R", -1);
+
+        String currentTopLevel = "Overview";
+        String currentTitle = "Overview";
+        StringBuilder currentContent = new StringBuilder();
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+
+            if (trimmed.startsWith("## ") && !trimmed.startsWith("### ")) {
+                String content = currentContent.toString().trim();
+                // Add previous section if it has content OR if it wasn't the initial Overview
+                if (!content.isEmpty() || (!currentTitle.equals("Overview") && !currentTitle.equals(currentTopLevel))) {
+                    sections.add(new Section(currentTopLevel, currentTitle, content));
+                }
+
+                currentTopLevel = trimmed.substring(3).trim();
+                currentTitle = currentTopLevel;
+                currentContent.setLength(0);
+            } else if (trimmed.startsWith("### ")) {
+                String content = currentContent.toString().trim();
+                // If content is empty and we're switching from a top-level to a sub-header,
+                // we don't need to save the empty top-level header as a separate section.
+                if (!content.isEmpty() || !currentTitle.equals(currentTopLevel)) {
+                    sections.add(new Section(currentTopLevel, currentTitle, content));
+                }
+
+                currentTitle = trimmed.substring(4).trim();
+                currentContent.setLength(0);
+            } else {
+                if (!currentContent.isEmpty() || !line.isEmpty()) {
+                    if (!currentContent.isEmpty()) {
+                        currentContent.append("\n");
+                    }
+                    currentContent.append(line);
+                }
+            }
+        }
+
+        String finalContent = currentContent.toString().trim();
+        if (!finalContent.isEmpty()
+                || !currentTitle.equals("Overview")
+                || (currentTitle.equals("Overview") && !sections.isEmpty())) {
+            sections.add(new Section(currentTopLevel, currentTitle, finalContent));
+        }
+
+        // Final filter: remove the placeholder "Overview" if it ended up empty and other sections exist
+        if (sections.size() > 1
+                && sections.get(0).title().equals("Overview")
+                && sections.get(0).content().isEmpty()) {
+            sections.remove(0);
+        }
+
+        return List.copyOf(sections);
+    }
+
+    public String serializeSections(List<Section> sections) {
+        StringBuilder sb = new StringBuilder();
+        String lastType = null;
+
+        for (Section s : sections) {
+            boolean emittedTypeHeader = false;
+            if (!s.type().equals(lastType)) {
+                if (!sb.isEmpty()) sb.append("\n\n");
+                sb.append("## ").append(s.type());
+                lastType = s.type();
+                emittedTypeHeader = true;
+            }
+
+            if (!s.title().equals(s.type())) {
+                // If we just emitted a type header, only add single newline before sub-header
+                // Otherwise add double newline to separate from previous section's content
+                if (emittedTypeHeader) {
+                    sb.append("\n");
+                } else if (!sb.isEmpty()) {
+                    sb.append("\n\n");
+                }
+                sb.append("### ").append(s.title());
+            }
+
+            if (!s.content().isEmpty()) {
+                sb.append("\n").append(s.content());
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    public record NoteValidationError(String title, String message) {}
+
+    public List<NoteValidationError> validateParsedNotes(String markdown) {
+        List<NoteValidationError> errors = new ArrayList<>();
+        if (markdown.isBlank()) {
+            return errors;
+        }
+
+        String normalized = markdown.replace("\r\n", "\n").replace("\r", "\n");
+        List<Segment> segments = parseToSegments(normalized);
+
+        validateNotesInSection(normalized, segments, "Design Notes", false, errors);
+        validateNotesInSection(normalized, segments, "Tactical Notes", true, errors);
+
+        return List.copyOf(errors);
+    }
+
+    private void validateNotesInSection(
+            String markdown,
+            List<Segment> segments,
+            String sectionName,
+            boolean requireExcerpt,
+            List<NoteValidationError> errors) {
+        // Find section by scanning lines
+        String[] lines = markdown.split("\n", -1);
+        int sectionStart = -1;
+        String sectionHeader = "## " + sectionName;
+
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].trim().equalsIgnoreCase(sectionHeader)) {
+                sectionStart = i;
+                break;
+            }
+        }
+
+        if (sectionStart == -1) {
+            return;
+        }
+
+        // Find section end (next ## header or end of file)
+        int sectionEnd = lines.length;
+        for (int i = sectionStart + 1; i < lines.length; i++) {
+            String trimmed = lines[i].trim();
+            if (trimmed.startsWith("## ") && !trimmed.startsWith("### ")) {
+                sectionEnd = i;
+                break;
+            }
+        }
+
+        // Find all ### headers within this section
+        for (int i = sectionStart + 1; i < sectionEnd; i++) {
+            String trimmed = lines[i].trim();
+            if (trimmed.startsWith("### ")) {
+                String title = trimmed.substring(4).trim();
+                String noteContent = extractNoteSection(markdown, title);
+                if (noteContent == null) continue;
+
+                // Check recommendation
+                String singularType =
+                        sectionName.endsWith("s") ? sectionName.substring(0, sectionName.length() - 1) : sectionName;
+                if (hasEmptyRecommendation(noteContent)) {
+                    errors.add(new NoteValidationError(title, singularType + " has an empty recommendation."));
+                } else if (!noteContent.contains("**Recommendation:**")) {
+                    errors.add(new NoteValidationError(
+                            title, singularType + " is missing a **Recommendation:** section."));
+                }
+
+                // Check excerpt for tactical notes
+                if (requireExcerpt) {
+                    boolean hasExcerpt = false;
+                    for (Segment s : segments) {
+                        if (s instanceof ExcerptSegment es
+                                && noteContent.contains(es.file())
+                                && noteContent.contains("@" + es.line())) {
+                            hasExcerpt = true;
+                            break;
+                        }
+                    }
+                    if (!hasExcerpt) {
+                        errors.add(new NoteValidationError(
+                                title, "Tactical note must have a code block starting with a file path."));
+                    }
+                }
+            }
+        }
+    }
+
+    private static boolean hasEmptyRecommendation(String noteSection) {
+        Pattern recPattern = Pattern.compile("\\*\\*Recommendation:\\*\\*\\s*(.*)$", Pattern.MULTILINE);
+        Matcher m = recPattern.matcher(noteSection);
+        if (m.find()) {
+            // Check if there's any non-whitespace content after the marker on the same line
+            // or on subsequent lines before the next section
+            String afterMarker = m.group(1).trim();
+            if (!afterMarker.isEmpty()) {
+                return false;
+            }
+            // Check if there's content on subsequent lines (before next header)
+            int endOfMatch = m.end();
+            String rest = noteSection.substring(endOfMatch);
+            String[] restLines = rest.split("\n", -1);
+            for (String line : restLines) {
+                String trimmed = line.trim();
+                if (trimmed.startsWith("###") || trimmed.startsWith("##")) {
+                    break;
+                }
+                if (!trimmed.isEmpty()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false; // No recommendation marker found - different error
+    }
+
+    public static @Nullable String extractNoteSection(String markdown, String noteTitle) {
+        String[] lines = markdown.split("\n", -1);
+        int start = -1;
+        java.util.Locale locale = java.util.Locale.ROOT;
+        String headerLower = ("### " + noteTitle).toLowerCase(locale);
+
+        for (int i = 0; i < lines.length; i++) {
+            if (lines[i].trim().toLowerCase(locale).equals(headerLower)) {
+                start = i;
+                break;
+            }
+        }
+
+        if (start == -1) return null;
+
+        int end = lines.length;
+        for (int i = start + 1; i < lines.length; i++) {
+            String trimmed = lines[i].trim();
+            if (trimmed.startsWith("### ") || trimmed.startsWith("## ")) {
+                end = i;
+                break;
+            }
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = start; i < end; i++) {
+            sb.append(lines[i]);
+            if (i < end - 1 || (end < lines.length)) {
+                sb.append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    public GuidedReview parseMarkdownReview(String markdown, Map<Integer, CodeExcerpt> resolvedExcerpts) {
+        MutableDataSet options = new MutableDataSet();
+        options.set(Parser.UNDERSCORE_DELIMITER_PROCESSOR, false);
+        Parser parser = Parser.builder(options).build();
+        Node document = parser.parse(markdown);
+
+        StringBuilder overviewBuilder = new StringBuilder();
+        List<DesignFeedback> designNotes = new ArrayList<>();
+        List<TacticalFeedback> tacticalNotes = new ArrayList<>();
+        List<ReviewFeedback> additionalTests = new ArrayList<>();
+
+        String currentTopLevelSection = "";
+
+        // Build a map from (file, line) to excerpt index for lookup during parsing
+        List<RawExcerpt> allExcerpts = parseExcerpts(markdown);
+        Map<String, Integer> excerptKeyToIndex = new HashMap<>();
+        for (int i = 0; i < allExcerpts.size(); i++) {
+            RawExcerpt e = allExcerpts.get(i);
+            // Use file + "@" + line as key; first occurrence wins (handles duplicates)
+            String key = e.file() + "@" + e.line();
+            excerptKeyToIndex.putIfAbsent(key, i);
+        }
+
+        for (Node node = document.getFirstChild(); node != null; node = node.getNext()) {
+            if (node instanceof Heading heading) {
+                String headingText = heading.getText().toString().trim();
+
+                if (heading.getLevel() == 2) {
+                    currentTopLevelSection = headingText;
+                    logger.debug("Parser transitioned to section: {}", currentTopLevelSection);
+                } else if (heading.getLevel() == 3) {
+                    ParsedContent content = parseFeedbackContent(heading);
+                    if (currentTopLevelSection.equalsIgnoreCase("Design Notes")) {
+                        logger.debug("Parsing design note: {}", headingText);
+                        List<CodeExcerpt> excerpts = content.excerpts().stream()
+                                .map(raw -> {
+                                    String key = raw.file() + "@" + raw.line();
+                                    Integer idx = excerptKeyToIndex.get(key);
+                                    return idx != null ? resolvedExcerpts.get(idx) : null;
+                                })
+                                .filter(Objects::nonNull)
+                                .toList();
+                        designNotes.add(new DesignFeedback(
+                                headingText, content.description(), excerpts, content.recommendation()));
+                    } else if (currentTopLevelSection.equalsIgnoreCase("Tactical Notes")) {
+                        logger.debug("Parsing tactical note: {}", headingText);
+                        RawExcerpt raw = content.excerpts().isEmpty()
+                                ? null
+                                : content.excerpts().getFirst();
+                        CodeExcerpt excerpt = null;
+                        if (raw != null) {
+                            String key = raw.file() + "@" + raw.line();
+                            Integer idx = excerptKeyToIndex.get(key);
+                            excerpt = idx != null ? resolvedExcerpts.get(idx) : null;
+                        }
+                        if (excerpt != null) {
+                            if (excerpt != null) {
+                                    tacticalNotes.add(new TacticalFeedback(
+                                                    headingText, content.description(), excerpt, content.recommendation()));
+                            }
+                            } else if (raw != null) {
+                            logger.warn(
+                                    "Tactical note '{}' referenced excerpt {} but it could not be resolved",
+                                    headingText,
+                                    raw);
+                        }
+                    } else if (currentTopLevelSection.equalsIgnoreCase("Additional Tests")) {
+                        logger.debug("Parsing additional test: {}", headingText);
+                        additionalTests.add(
+                                new ReviewFeedback(headingText, content.description(), content.recommendation()));
+                    }
+                }
+            } else if (node instanceof Paragraph p) {
+                if (currentTopLevelSection.equalsIgnoreCase("Overview")) {
+                    String pText = p.getChars().toString().trim();
+                    if (!pText.isEmpty()) {
+                        if (!overviewBuilder.isEmpty()) {
+                            overviewBuilder.append("\n\n");
+                        }
+                        overviewBuilder.append(pText);
+                    }
+                }
+            }
+        }
+
+        return new GuidedReview(overviewBuilder.toString(), designNotes, tacticalNotes, additionalTests);
+    }
+
+    private record ParsedContent(String description, String recommendation, List<RawExcerpt> excerpts) {}
+
+    private ParsedContent parseFeedbackContent(Heading heading) {
+        StringBuilder description = new StringBuilder();
+        StringBuilder recommendation = new StringBuilder();
+        List<RawExcerpt> excerpts = new ArrayList<>();
+        boolean inRecommendation = false;
+
+        // Matches the filename @line line that starts a code block
+        Pattern excerptMetadataPattern = Pattern.compile("^\\s*\\S+\\s+@\\d+\\s*$");
+        String recMarker = "**Recommendation:**";
+
+        Node node = heading.getNext();
+        while (node != null && !(node instanceof Heading h && h.getLevel() <= 3)) {
+            String rawChars = node.getChars().toString();
+
+            if (node instanceof com.vladsch.flexmark.ast.FencedCodeBlock fcb) {
+                String content = fcb.getContentChars().toString();
+                // Remove trailing newline if present (flexmark often includes it)
+                if (content.endsWith("\n")) {
+                    content = content.substring(0, content.length() - 1);
+                }
+                String[] lines = content.split("\\R", -1);
+                if (lines.length > 0) {
+                    String firstLine = lines[0].trim();
+                    Matcher m = excerptMetadataPattern.matcher(firstLine);
+                    if (m.matches()) {
+                        int atIdx = firstLine.lastIndexOf("@");
+                        String filePath = firstLine.substring(0, atIdx).trim();
+                        int lineNum =
+                                Integer.parseInt(firstLine.substring(atIdx + 1).trim());
+                        StringBuilder code = new StringBuilder();
+                        for (int i = 1; i < lines.length; i++) {
+                            if (!code.isEmpty()) code.append("\n");
+                            code.append(lines[i]);
+                        }
+                        String finalContent = code.toString();
+                        excerpts.add(new RawExcerpt(filePath, lineNum, finalContent));
+                    }
+                }
+            }
+
+            if (node instanceof Paragraph) {
+                if (!inRecommendation && rawChars.contains(recMarker)) {
+                    inRecommendation = true;
+                    int idx = rawChars.indexOf(recMarker);
+                    String beforeText = rawChars.substring(0, idx).trim();
+                    String afterText =
+                            rawChars.substring(idx + recMarker.length()).trim();
+
+                    if (!beforeText.isEmpty()) {
+                        description
+                                .append(filterMetadataLines(beforeText, excerptMetadataPattern))
+                                .append("\n");
+                    }
+                    if (!afterText.isEmpty()) {
+                        recommendation
+                                .append(filterMetadataLines(afterText, excerptMetadataPattern))
+                                .append("\n");
+                    }
+                } else {
+                    String filtered = filterMetadataLines(rawChars.trim(), excerptMetadataPattern);
+                    if (inRecommendation) {
+                        recommendation.append(filtered).append("\n");
+                    } else {
+                        description.append(filtered).append("\n");
+                    }
+                }
+            } else if (node instanceof BulletList) {
+                // For lists, we just append the raw chars to maintain formatting
+                String filtered = filterMetadataLines(rawChars.trim(), excerptMetadataPattern);
+                if (inRecommendation) {
+                    recommendation.append(filtered).append("\n");
+                } else {
+                    description.append(filtered).append("\n");
+                }
+            }
+            node = node.getNext();
+        }
+
+        return new ParsedContent(
+                cleanMetadata(description.toString().trim()),
+                cleanMetadata(recommendation.toString().trim()),
+                excerpts);
+    }
+
+    private String filterMetadataLines(String text, Pattern pattern) {
+        return text.lines().filter(l -> !pattern.matcher(l).matches()).collect(Collectors.joining("\n"));
+    }
+
     public record GuidedReview(
             String overview,
             List<DesignFeedback> designNotes,
             List<TacticalFeedback> tacticalNotes,
-            List<String> additionalTests) {
+            List<ReviewFeedback> additionalTests) {
 
         public String toJson() {
             return Json.toJson(this);
@@ -259,7 +702,7 @@ public class ReviewParser {
                     .map(raw -> new DesignFeedback(
                             raw.title(),
                             instance.cleanMetadata(raw.description()),
-                            raw.excerptIds().stream()
+                            raw.excerptIndices().stream()
                                     .map(resolvedExcerpts::get)
                                     .filter(Objects::nonNull)
                                     .toList(),
@@ -267,12 +710,18 @@ public class ReviewParser {
                     .toList();
 
             List<TacticalFeedback> tacticalNotes = rawReview.tacticalNotes().stream()
-                    .filter(raw -> resolvedExcerpts.containsKey(raw.excerptId()))
-                    .map(raw -> new TacticalFeedback(
-                            raw.title(),
-                            instance.cleanMetadata(raw.description()),
-                            Objects.requireNonNull(resolvedExcerpts.get(raw.excerptId())),
-                            instance.cleanMetadata(raw.recommendation())))
+                    .map(raw -> {
+                        CodeExcerpt excerpt = resolvedExcerpts.get(raw.excerptIndex());
+                        if (excerpt == null) {
+                            logger.warn(
+                                    "Tactical note '{}' has missing excerpt index {}", raw.title(), raw.excerptIndex());
+                        }
+                        return new TacticalFeedback(
+                                raw.title(),
+                                instance.cleanMetadata(raw.description()),
+                                Objects.requireNonNull(excerpt),
+                                instance.cleanMetadata(raw.recommendation()));
+                    })
                     .toList();
 
             return new GuidedReview(rawReview.overview(), designNotes, tacticalNotes, rawReview.additionalTests());

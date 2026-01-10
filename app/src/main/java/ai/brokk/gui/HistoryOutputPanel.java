@@ -356,7 +356,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                         return;
                     }
                     if (e.getClickCount() == 2 && val instanceof Context context) {
-                        if (context.isAiResult()) {
+                        if (isReviewContext(context)) {
+                            loadReviewFromContext(context);
+                        } else if (context.isAiResult()) {
                             openDiffPreview(context);
                         } else {
                             openOutputWindowFromContext(context);
@@ -568,12 +570,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         resetToHereIncludingHistoryItem.addActionListener(event -> resetContextToIncludingHistory(context));
         popup.add(resetToHereIncludingHistoryItem);
 
-        // Show diff (uses BrokkDiffPanel)
-        JMenuItem showDiffItem = new JMenuItem("Show diff");
-        showDiffItem.addActionListener(event -> openDiffPreview(context));
-        // Enable only if we have a previous context to diff against
-        showDiffItem.setEnabled(contextManager.getContextHistory().previousOf(context) != null);
-        popup.add(showDiffItem);
+        // Show diff or Load Review based on context type
+        if (isReviewContext(context)) {
+            JMenuItem loadReviewItem = new JMenuItem("Load Review");
+            loadReviewItem.addActionListener(event -> loadReviewFromContext(context));
+            popup.add(loadReviewItem);
+        } else {
+            // Show diff (uses BrokkDiffPanel)
+            JMenuItem showDiffItem = new JMenuItem("Show diff");
+            showDiffItem.addActionListener(event -> openDiffPreview(context));
+            // Enable only if we have a previous context to diff against
+            showDiffItem.setEnabled(contextManager.getContextHistory().previousOf(context) != null);
+            popup.add(showDiffItem);
+        }
 
         popup.addSeparator();
 
@@ -2075,6 +2084,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // ---- Centralized TaskMeta / ModelSpec helpers (used by multiple renderers) ----
 
     /**
+     * Returns true if the given Context's most recent task is a REVIEW type.
+     */
+    private boolean isReviewContext(Context ctx) {
+        var meta = lastMetaOf(ctx);
+        return meta != null && meta.type() == TaskResult.Type.REVIEW;
+    }
+
+    /**
      * Returns the last TaskMeta in the given Context's task history, or null if not present.
      */
     private @Nullable TaskResult.TaskMeta lastMetaOf(Context ctx) {
@@ -2229,6 +2246,46 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         } catch (Throwable t) {
             logger.debug("Ignoring error disposing MarkdownOutputPanel during HistoryOutputPanel.dispose()", t);
         }
+    }
+
+    /**
+     * Loads a review from a Context that contains a REVIEW TaskResult.
+     * Extracts the final AI message, parses it as a GuidedReview, and displays it in SessionChangesPanel.
+     */
+    private void loadReviewFromContext(Context context) {
+        var taskHistory = context.getTaskHistory();
+        if (taskHistory.isEmpty()) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review content found in context.");
+            return;
+        }
+
+        var lastEntry = taskHistory.getLast();
+        var log = lastEntry.log();
+        if (log == null) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review content found in context.");
+            return;
+        }
+
+        // Extract the final AI message from the TaskFragment
+        var messages = log.messages();
+        String reviewMarkdown = null;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            var msg = messages.get(i);
+            if (msg.type() == ChatMessageType.AI) {
+                if (msg instanceof dev.langchain4j.data.message.AiMessage aiMsg) {
+                    reviewMarkdown = aiMsg.text();
+                    break;
+                }
+            }
+        }
+
+        if (reviewMarkdown == null || reviewMarkdown.isBlank()) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review content found in context.");
+            return;
+        }
+
+        // Load the review into SessionChangesPanel
+        chrome.getRightPanel().loadReviewFromMarkdown(reviewMarkdown, context);
     }
 
     /** Open a multi-file diff preview window for the given AI result context. */

@@ -3,6 +3,7 @@ package ai.brokk.testutil;
 import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
+import ai.brokk.Llm;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
@@ -176,5 +177,10 @@ public final class TestContextManager implements IContextManager {
     @Override
     public ExecutorService getBackgroundTasks() {
         return backgroundTasks;
+    }
+
+    @Override
+    public Llm getLlm(StreamingChatModel model, String taskDescription) {
+        return new Llm(model, taskDescription, this, false, false, false, false);
     }
 }

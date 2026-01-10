@@ -7,7 +7,6 @@ import static java.util.Objects.requireNonNullElse;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
-import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.Context;
@@ -17,7 +16,6 @@ import ai.brokk.context.SpecialTextType;
 import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
-import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
@@ -42,10 +40,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import javax.swing.Timer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -69,7 +69,6 @@ public class ReviewAgent {
 
     int progressOf100 = 0;
     int SETUP_PROGRESS = 5;
-    int REVIEW_PROGRESS = 90;
 
     @FunctionalInterface
     public interface ProgressUpdater {
@@ -123,11 +122,7 @@ public class ReviewAgent {
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        // Configure model types
-        var architectModel = requireNonNull(cm.getService().getModel(ModelType.ARCHITECT.defaultConfig()));
-        var scanModel = cm.getService().getModel(ModelType.SCAN);
-
-        try (var scope = cm.anonymousScope()) {
+        try (var scope = cm.beginTask("Code Review", true, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
             var instructionsOpt = extractInstructionsFragment(sessionIds);
@@ -144,12 +139,14 @@ public class ReviewAgent {
             logPhaseTime("Context selection", contextStart);
             updateProgress("Analyzing changes", SETUP_PROGRESS);
 
-            var turn1Model = setupResult.isComplex() ? architectModel : scanModel;
-            var turn1Llm = cm.getLlm(turn1Model, "Code Review");
-            turn1Llm.setOutput(io);
+            // Publish the context as it stands after setup but before Turn 1
+            scope.publish(reviewContext);
 
-            var turn2Llm = cm.getLlm(scanModel, "Code Review (Structuring)");
-            turn2Llm.setOutput(io);
+            var turn1ModelConfig =
+                    setupResult.isComplex() ? ModelType.ARCHITECT.defaultConfig() : ModelType.SCAN.defaultConfig();
+            var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
+            var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
+            turn1Llm.setOutput(io);
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
             long turn1Start = System.currentTimeMillis();
@@ -173,7 +170,7 @@ public class ReviewAgent {
                             int lines = linesSeen.addAndGet(
                                     (int) token.chars().filter(ch -> ch == '\n').count());
                             int p = turn1Floor + (lines / 10);
-                            updateProgress("Analyzing changes", min(REVIEW_PROGRESS, p));
+                            updateProgress("Analyzing changes", min(100, p));
                         }
                     }
                 };
@@ -207,7 +204,7 @@ public class ReviewAgent {
                             .withPinned(diffFragment, true)
                             .addFragments(fragmentsToKeep);
 
-                    logger.info(
+                    logger.debug(
                             "Context too large, reduced non-diff fragments from {} to {}",
                             nonDiffFragments.size(),
                             fragmentsToKeep.size());
@@ -219,80 +216,42 @@ public class ReviewAgent {
             }
             logPhaseTime("Analysis (Turn 1)", turn1Start);
 
-            // --- Turn 1.5: Retry for missing files and non-matching excerpts ---
-            // Returns fully resolved excerpts with line numbers and sides
+            // --- Excerpt Resolution: Retry for missing files and non-matching excerpts ---
             long retryStart = System.currentTimeMillis();
             RetryResult retryResult = retryInStages(turn1Llm, turn1Messages, turn1Result);
             Map<Integer, CodeExcerpt> resolvedExcerpts = retryResult.resolvedExcerpts();
-            logPhaseTime("Excerpt resolution (Turn 1.5)", retryStart);
+            logPhaseTime("Excerpt resolution", retryStart);
 
-            // --- Turn 2: Convert Markdown review into structured tool call (fresh context) ---
-            long turn2Start = System.currentTimeMillis();
+            // --- Directly parse the Markdown review from Turn 1 (with fixes) ---
             String mergedReviewText = retryResult.mergedResponseText();
             String mergedReasoning = requireNonNullElse(
                     requireNonNull(turn1Result.chatResponse()).reasoningContent(), "");
 
-            Context turn2Context = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
+            var review = ReviewParser.instance.parseMarkdownReview(mergedReviewText, resolvedExcerpts);
 
-            var turn2Messages = new ArrayList<ChatMessage>();
-            turn2Messages.add(buildTurn2SystemMessage());
-            turn2Messages.addAll(
-                    WorkspacePrompts.getMessagesInAddedOrder(turn2Context, EnumSet.noneOf(SpecialTextType.class)));
-            turn2Messages.add(new AiMessage(mergedReviewText, mergedReasoning));
-            turn2Messages.add(buildReviewRequestMessage());
-
-            var tr = cm.getToolRegistry().builder().register(this).build();
-            var toolSpecs = tr.getTools(List.of("createReview"));
-
-            int turn2Floor = progressOf100;
-            Timer turn2Timer = new Timer(1000, null);
-            AtomicInteger turn2Seconds = new AtomicInteger(0);
-            turn2Timer.addActionListener(e -> {
-                int p = turn2Floor + turn2Seconds.incrementAndGet();
-                updateProgress("Generating review", min(100, p));
-            });
-            turn2Timer.start();
-
-            Llm.StreamingResult turn2Result;
-            try {
-                turn2Result = turn2Llm.sendRequest(turn2Messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
-            } finally {
-                turn2Timer.stop();
-            }
-
-            if (turn2Result.error() != null) {
-                throw new ReviewGenerationException("Failed to generate code review", turn2Result.error());
-            }
-            if (turn2Result.toolRequests().isEmpty()) {
-                throw new ReviewGenerationException("No review generated by model");
-            }
-
-            var reviewCall = turn2Result.toolRequests().getFirst();
-            var executionResult = tr.executeTool(reviewCall);
-
-            if (executionResult.status() != ToolExecutionResult.Status.SUCCESS) {
-                throw new ReviewGenerationException("Failed to process code review: " + executionResult.resultText());
-            }
-
-            var rawReview = ReviewParser.RawReview.fromJson(executionResult.resultText());
-            var review = ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
-
-            logPhaseTime("Structuring (Turn 2)", turn2Start);
             logPhaseTime("Total review generation", startTime);
 
             var publishedMessages = List.of(
                     new UserMessage("Please review this diff"),
                     new AiMessage(ReviewParser.instance.stripExcerpts(mergedReviewText), mergedReasoning));
-            var te = TaskEntry.from(cm, publishedMessages, "Guided Description");
-            reviewContext = reviewContext.addHistoryEntry(te, null);
 
-            return new ReviewResult(review, reviewContext);
+            var result = new ai.brokk.TaskResult(
+                    cm,
+                    "Code Review",
+                    publishedMessages,
+                    reviewContext,
+                    new ai.brokk.TaskResult.StopDetails(ai.brokk.TaskResult.StopReason.SUCCESS),
+                    new ai.brokk.TaskResult.TaskMeta(ai.brokk.TaskResult.Type.REVIEW, turn1ModelConfig));
+
+            scope.append(result);
+
+            return new ReviewResult(review, reviewContext.addHistoryEntry(reviewContext.createTaskEntry(result), null));
         }
     }
 
     private void logPhaseTime(String phaseName, long startTimeMs) {
         double seconds = (System.currentTimeMillis() - startTimeMs) / 1000.0;
-        logger.info("{} completed in {}s", phaseName, String.format("%.1f", seconds));
+        logger.debug("{} completed in {}s", phaseName, String.format("%.1f", seconds));
     }
 
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
@@ -314,18 +273,15 @@ public class ReviewAgent {
                    - Complex: changes spanning multiple subsystems, introducing new abstractions, or with subtle correctness concerns
                    - Straightforward: localized changes, simple refactors, or changes with obvious correctness
 
-                Then identify additional context needed for a thorough code review.
+                Then identify additional context needed for a thorough code review. You will have access to the full
+                diff during the review, so only add code that you need to perform the review, that you cannot infer from the diff alone.
 
-                Add files, summaries, classes, or methods that are:
-                1. Referenced in or closely related to the changes
-                2. Important for understanding correctness and design implications
-                3. Difficult to infer from the diff alone
+                You can get API signatures when you do not need full implementation details using `filesForSummaries`.
 
-                Space is limited, so prioritize:
-                - Use `filesForFullSource` only when you need complete implementation details
-                - Use `filesForSummaries` when you only need API signatures
-                - Use `classNames` for full class implementations
+                You can get complete implementation details with any of the following; use the narrowest scope that you need:
                 - Use `methodNames` for specific method implementations (narrowest scope)
+                - Use `classNames` for full class implementations
+                - Use `filesForFullSource` only when you need the entire file
 
                 Call addFragments once with all needed context.
                 """));
@@ -412,105 +368,136 @@ public class ReviewAgent {
 
     @Blocking
     RetryResult retryInStages(Llm llm, List<ChatMessage> turn1Messages, Llm.StreamingResult turn1Result)
-            throws InterruptedException {
-        // we split up "file resolution" (resolving filenames) and "text resolution" (validating excerpt content)
-        // into two stages so that we can tailor the Context to each
+            throws InterruptedException, ReviewGenerationException {
+        // Stage 0: Note Validation (ensure required structure like Recommendations)
+        String currentResponseText = turn1Result.text();
+        var validationErrors = ReviewParser.instance.validateParsedNotes(currentResponseText);
+        if (!validationErrors.isEmpty()) {
+            currentResponseText = correctFailedNotes(llm, currentResponseText, validationErrors);
+        }
 
-        List<ChatMessage> fileResolutionMessages = new ArrayList<>(turn1Messages);
+        List<ChatMessage> retryMessages = new ArrayList<>(turn1Messages);
         Map<Integer, RawExcerpt> validPathExcerpts = new HashMap<>();
         int totalRetries = 0;
 
         // Stage 1: File Resolution (Validate file paths exist)
         Llm.StreamingResult currentResult = turn1Result;
-        int attempts = 0;
+        final int MAX_ATTEMPTS = 3;
+        int stage1Attempts = 0;
 
-        while (true) {
-            String text = currentResult.text();
-            String reasoning = requireNonNullElse(
-                    requireNonNull(currentResult.chatResponse()).reasoningContent(), "");
-            fileResolutionMessages.add(new AiMessage(text, reasoning));
+        // Parse initial excerpts
+        String textToValidate = currentResponseText;
+        List<RawExcerpt> parsedList = ReviewParser.instance.parseExcerpts(textToValidate);
+        Map<Integer, String> pendingFileErrors = new HashMap<>();
 
-            Map<Integer, RawExcerpt> parsed = ReviewParser.instance.parseExcerpts(text);
-            Map<Integer, String> fileResolutionErrors = new HashMap<>();
-
-            for (var entry : parsed.entrySet()) {
-                RawExcerpt excerpt = entry.getValue();
-                if (fileExists(excerpt.file())) {
-                    validPathExcerpts.put(entry.getKey(), excerpt);
-                } else {
-                    fileResolutionErrors.put(entry.getKey(), "File does not exist: " + excerpt.file());
-                }
+        // Initial pass: identify valid and invalid file paths
+        for (int i = 0; i < parsedList.size(); i++) {
+            RawExcerpt excerpt = parsedList.get(i);
+            if (fileExists(excerpt.file())) {
+                validPathExcerpts.put(i, excerpt);
+            } else {
+                pendingFileErrors.put(i, "File does not exist: " + excerpt.file());
             }
-
-            if (fileResolutionErrors.isEmpty() || attempts++ == 2) break;
-
-            String errorList = fileResolutionErrors.entrySet().stream()
-                    .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
-                    .collect(Collectors.joining("\n"));
-
-            boolean someSucceeded = !validPathExcerpts.isEmpty();
-            String successNote = someSucceeded
-                    ? " for ONLY these excerpts.\nAll other excerpts have been recorded successfully and do not need to be repeated."
-                    : ":";
-
-            fileResolutionMessages.add(new UserMessage(
-                    """
-                    The following excerpts referenced unknown file paths.
-                    Please provide corrected BRK_EXCERPT blocks%s
-
-                    %s
-                    """
-                            .formatted(successNote, errorList)));
-
-            currentResult = llm.sendRequest(fileResolutionMessages);
-            totalRetries++;
-            if (currentResult.error() != null) break;
         }
 
-        // Build merged text by replacing excerpts in original with corrected versions
-        String mergedResponseText = buildMergedResponseText(turn1Result.text(), validPathExcerpts);
+        // Retry loop for file resolution
+        while (!pendingFileErrors.isEmpty() && stage1Attempts < MAX_ATTEMPTS) {
+            String errorList = pendingFileErrors.entrySet().stream()
+                    .map(e -> "Excerpt " + e.getKey() + ": " + e.getValue())
+                    .collect(Collectors.joining("\n"));
+
+            String reasoning = (currentResult.chatResponse() != null)
+                    ? requireNonNullElse(currentResult.chatResponse().reasoningContent(), "")
+                    : "";
+            retryMessages.add(new AiMessage(textToValidate, reasoning));
+            retryMessages.add(new UserMessage(
+                    """
+                    The following excerpts referenced unknown file paths.
+                    Please provide corrected code blocks starting with 'path/to/file @line' for ONLY these excerpts.
+                    All other excerpts have been recorded successfully and do not need to be repeated.
+
+                    %s
+
+                    Use this format:
+                    Excerpt 1:
+                    ```
+                    path/to/file.java @42
+                    corrected code
+                    ```
+                    """
+                            .formatted(errorList)));
+
+            llm.setOutput(io);
+            currentResult = llm.sendRequest(retryMessages);
+            totalRetries++;
+            if (currentResult.error() != null) {
+                throw new ReviewGenerationException("LLM error during file resolution retry", currentResult.error());
+            }
+
+            String resultText = currentResult.text();
+            Map<Integer, RawExcerpt> newlyFixed = ReviewParser.instance.parseNumberedExcerpts(resultText);
+
+            // Update valid excerpts and remove pending errors
+            for (var entry : newlyFixed.entrySet()) {
+                int id = entry.getKey();
+                RawExcerpt fixed = entry.getValue();
+                if (pendingFileErrors.containsKey(id) && fileExists(fixed.file())) {
+                    validPathExcerpts.put(id, fixed);
+                    pendingFileErrors.remove(id);
+                }
+            }
+            stage1Attempts++;
+        }
+
+        // If we still have pending file errors after exhausting retries, log but continue
+        // (Some excerpts may be unfixable, but we can still process the valid ones)
+        if (!pendingFileErrors.isEmpty()) {
+            logger.warn(
+                    "Could not resolve file paths for excerpts after {} retries: {}",
+                    MAX_ATTEMPTS,
+                    pendingFileErrors.keySet());
+        }
+
+        // Build merged text by replacing excerpts in current text with corrected versions
+        String mergedResponseText = buildMergedResponseText(currentResponseText, validPathExcerpts);
 
         // Stage 2: Text Resolution (Validate excerpts match file content)
         Map<Integer, CodeExcerpt> matchedExcerpts = new ConcurrentHashMap<>();
-        List<ChatMessage> textResolutionMessages = new ArrayList<>();
-        attempts = 0;
-        while (true) {
-            Map<Integer, String> textResolutionErrors = validPathExcerpts.entrySet().parallelStream()
-                    .filter(entry -> !matchedExcerpts.containsKey(entry.getKey()))
-                    .map(entry -> {
-                        int id = entry.getKey();
-                        RawExcerpt excerpt = entry.getValue();
-                        FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
-                        if (fileInfo == null) {
-                            return Map.entry(id, "File not in diff: " + excerpt.file());
-                        }
+        Map<Integer, String> pendingTextErrors = new HashMap<>();
+        int stage2Attempts = 0;
 
-                        ExcerptMatch match = matchExcerptInFile(excerpt, fileInfo);
-                        if (match == null) {
-                            return Map.entry(id, "Excerpt text not found in " + excerpt.file());
-                        } else {
-                            var file = cm.toFile(excerpt.file());
-                            int lineCount = (int) match.matchedText().lines().count();
-                            CodeUnit unit = cm.getAnalyzerUninterrupted()
-                                    .enclosingCodeUnit(file, match.line(), match.line() + Math.max(0, lineCount - 1))
-                                    .orElse(null);
-                            logger.debug("Enclosing CodeUnit for excerpt {} is {}", id, unit);
-                            matchedExcerpts.put(
-                                    id, new CodeExcerpt(file, unit, match.line(), match.side(), match.matchedText()));
-                            return null;
-                        }
-                    })
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        // Initial pass: try to match all valid path excerpts
+        for (var entry : validPathExcerpts.entrySet()) {
+            int id = entry.getKey();
+            RawExcerpt excerpt = entry.getValue();
+            FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
+            if (fileInfo == null) {
+                pendingTextErrors.put(id, "File not in diff: " + excerpt.file());
+                continue;
+            }
 
-            if (textResolutionErrors.isEmpty() || attempts++ == 2) break;
+            ExcerptMatch match = matchExcerptInFile(excerpt, fileInfo);
+            if (match == null) {
+                pendingTextErrors.put(id, "Excerpt text not found in " + excerpt.file());
+            } else {
+                var file = cm.toFile(excerpt.file());
+                int lineCount = (int) match.matchedText().lines().count();
+                CodeUnit unit = cm.getAnalyzerUninterrupted()
+                        .enclosingCodeUnit(file, match.line(), match.line() + Math.max(0, lineCount - 1))
+                        .orElse(null);
+                matchedExcerpts.put(id, new CodeExcerpt(file, unit, match.line(), match.side(), match.matchedText()));
+            }
+        }
 
-            String errorList = textResolutionErrors.entrySet().stream()
-                    .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
+        // Retry loop for text resolution
+        while (!pendingTextErrors.isEmpty() && stage2Attempts < MAX_ATTEMPTS) {
+            String errorList = pendingTextErrors.entrySet().stream()
+                    .map(e -> "Excerpt " + e.getKey() + ": " + e.getValue())
                     .collect(Collectors.joining("\n"));
 
-            var filesToInclude = textResolutionErrors.keySet().stream()
+            var filesToInclude = pendingTextErrors.keySet().stream()
                     .map(validPathExcerpts::get)
+                    .filter(Objects::nonNull)
                     .map(RawExcerpt::file)
                     .filter(this::fileExists)
                     .map(cm::toFile)
@@ -519,47 +506,229 @@ public class ReviewAgent {
 
             Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
 
-            // Build messages: system, turn1 prompt, merged result as AiMessage, workspace, text resolution prompt
-            textResolutionMessages.clear();
-            textResolutionMessages.add(buildSystemMessage());
-            textResolutionMessages.add(buildAnalysisRequestMessage());
-            textResolutionMessages.add(new AiMessage(mergedResponseText));
-            textResolutionMessages.addAll(
+            retryMessages.clear();
+            retryMessages.add(buildSystemMessage());
+            retryMessages.add(buildAnalysisRequestMessage());
+            retryMessages.add(new AiMessage(mergedResponseText));
+            retryMessages.addAll(
                     WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
 
-            boolean someMatched = !matchedExcerpts.isEmpty();
-            String successNote = someMatched
-                    ? " for ONLY these excerpts.\nAll other excerpts have been recorded successfully and do not need to be repeated."
-                    : ":";
-
-            textResolutionMessages.add(new UserMessage(
+            retryMessages.add(new UserMessage(
                     """
                     The following excerpts could not be matched in the file content.
-                    Please provide corrected BRK_EXCERPT blocks%s
+                    Please provide corrected code blocks starting with 'path/to/file @line' for ONLY these excerpts.
+                    All other excerpts have been recorded successfully and do not need to be repeated.
 
                     %s
+
+                    Use this format:
+                    Excerpt 1:
+                    ```
+                    path/to/file.java @42
+                    corrected code
+                    ```
                     """
-                            .formatted(successNote, errorList)));
+                            .formatted(errorList)));
 
-            currentResult = llm.sendRequest(textResolutionMessages);
+            llm.setOutput(io);
+            Llm.StreamingResult textResult = llm.sendRequest(retryMessages);
             totalRetries++;
-            if (currentResult.error() != null) break;
+            if (textResult.error() != null) {
+                throw new ReviewGenerationException("LLM error during text resolution retry", textResult.error());
+            }
 
-            String text = currentResult.text();
+            String resultText = textResult.text();
+            Map<Integer, RawExcerpt> newlyFixed = ReviewParser.instance.parseNumberedExcerpts(resultText);
 
-            // Accumulate newly parsed excerpts into validPathExcerpts only if they pass file check
-            Map<Integer, RawExcerpt> newlyParsed = ReviewParser.instance.parseExcerpts(text);
-            for (var entry : newlyParsed.entrySet()) {
-                if (fileExists(entry.getValue().file())) {
-                    validPathExcerpts.put(entry.getKey(), entry.getValue());
+            // Attempt to resolve errors
+            for (var entry : newlyFixed.entrySet()) {
+                int id = entry.getKey();
+                RawExcerpt fixed = entry.getValue();
+                if (!pendingTextErrors.containsKey(id)) {
+                    continue;
+                }
+                if (!fileExists(fixed.file())) {
+                    continue;
+                }
+
+                // Update the validPathExcerpts with the fixed version
+                validPathExcerpts.put(id, fixed);
+
+                FileComparisonInfo fileInfo = findFileComparison(fixed.file(), fileComparisons);
+                if (fileInfo == null) {
+                    continue;
+                }
+
+                ExcerptMatch match = matchExcerptInFile(fixed, fileInfo);
+                if (match != null) {
+                    var file = cm.toFile(fixed.file());
+                    int lineCount = (int) match.matchedText().lines().count();
+                    CodeUnit unit = cm.getAnalyzerUninterrupted()
+                            .enclosingCodeUnit(file, match.line(), match.line() + Math.max(0, lineCount - 1))
+                            .orElse(null);
+                    matchedExcerpts.put(
+                            id, new CodeExcerpt(file, unit, match.line(), match.side(), match.matchedText()));
+                    pendingTextErrors.remove(id);
                 }
             }
 
-            // Update merged text with newly fixed excerpts
-            mergedResponseText = buildMergedResponseText(turn1Result.text(), validPathExcerpts);
+            stage2Attempts++;
+            mergedResponseText = buildMergedResponseText(mergedResponseText, validPathExcerpts);
+        }
+
+        // Log any remaining unresolved excerpts
+        if (!pendingTextErrors.isEmpty()) {
+            logger.warn("Could not match excerpt text after {} retries: {}", MAX_ATTEMPTS, pendingTextErrors.keySet());
         }
 
         return new RetryResult(matchedExcerpts, totalRetries, mergedResponseText);
+    }
+
+    private String correctFailedNotes(Llm llm, String responseText, List<ReviewParser.NoteValidationError> errors)
+            throws InterruptedException {
+        Map<String, List<String>> errorsByNote = errors.stream()
+                .collect(Collectors.groupingBy(
+                        ReviewParser.NoteValidationError::title,
+                        Collectors.mapping(ReviewParser.NoteValidationError::message, Collectors.toList())));
+
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Map<String, CompletableFuture<String>> futures = new HashMap<>();
+
+            for (var entry : errorsByNote.entrySet()) {
+                String title = entry.getKey();
+                List<String> initialIssues = entry.getValue();
+                String noteSection = ReviewParser.extractNoteSection(responseText, title);
+
+                if (noteSection == null) {
+                    logger.warn("Could not find note section for title: {}", title);
+                    continue;
+                }
+
+                futures.put(
+                        title,
+                        CompletableFuture.supplyAsync(
+                                () -> {
+                                    Llm correctionLlm = cm.getLlm(llm.getModel(), "Note Correction");
+                                    correctionLlm.setOutput(io);
+                                    String currentNote = noteSection;
+                                    List<String> currentIssues = initialIssues;
+
+                                    for (int attempt = 1; attempt <= 3; attempt++) {
+                                        List<ChatMessage> messages = List.of(
+                                                buildSystemMessage(),
+                                                buildAnalysisRequestMessage(),
+                                                new UserMessage(
+                                                        """
+                                        I could not parse the following note because: %s.
+                                        Please review the format instructions and give the corrected Markdown text for this note only.
+                                        If you prefer to skip this note entirely rather than fixing it, return empty text.
+
+                                        The note title was: "%s"
+
+                                        Existing malformed note:
+                                        %s
+                                        """
+                                                                .formatted(
+                                                                        String.join(", ", currentIssues),
+                                                                        title,
+                                                                        currentNote)));
+
+                                        try {
+                                            Llm.StreamingResult result = correctionLlm.sendRequest(messages);
+                                            String correctionText = result.text();
+
+                                            // Treat responses with no header as empty/skipped
+                                            if (!correctionText.contains("#") || correctionText.isBlank()) {
+                                                return "";
+                                            }
+
+                                            // Re-validate the correction
+                                            var newErrors =
+                                                    ReviewParser.instance.validateParsedNotes(correctionText).stream()
+                                                            .filter(e ->
+                                                                    e.title().equalsIgnoreCase(title)
+                                                                            || correctionText
+                                                                                    .toLowerCase(java.util.Locale.ROOT)
+                                                                                    .contains(("### " + e.title())
+                                                                                            .toLowerCase(java.util.Locale.ROOT)))
+                                                            .toList();
+
+                                            if (newErrors.isEmpty()) {
+                                                return correctionText;
+                                            }
+
+                                            // Update state for next retry
+                                            currentNote = correctionText;
+                                            currentIssues = newErrors.stream()
+                                                    .map(ReviewParser.NoteValidationError::message)
+                                                    .toList();
+                                            logger.warn(
+                                                    "Correction attempt {} for '{}' failed validation: {}",
+                                                    attempt,
+                                                    title,
+                                                    currentIssues);
+
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                            throw new RuntimeException(e);
+                                        }
+                                    }
+
+                                    logger.warn(
+                                            "Note '{}' still invalid after 3 correction attempts. Skipping.", title);
+                                    return "";
+                                },
+                                executor));
+            }
+
+            String mergedText = responseText.replace("\r\n", "\n").replace("\r", "\n");
+            for (var entry : futures.entrySet()) {
+                String requestedTitle = entry.getKey();
+                String correction = entry.getValue().join();
+                logger.debug("Correction for '{}': {}", requestedTitle, correction);
+
+                // Robustness: the LLM might have changed the title slightly or returned the wrong one in tests.
+                // We try to find which section in the original text this correction actually belongs to.
+                String actualTitle = requestedTitle;
+                if (ReviewParser.extractNoteSection(mergedText, requestedTitle) == null) {
+                    // If requested title isn't found, try to see if the correction contains a known title
+                    for (String title : errorsByNote.keySet()) {
+                        if (correction.toLowerCase(java.util.Locale.ROOT).contains(("### " + title).toLowerCase(java.util.Locale.ROOT))) {
+                            actualTitle = title;
+                            break;
+                        }
+                    }
+                }
+
+                mergedText = replaceNoteSection(mergedText, actualTitle, correction);
+            }
+            return mergedText;
+        }
+    }
+
+    private static String replaceNoteSection(String markdown, String noteTitle, String replacement) {
+        // Normalize line endings to \n for consistent matching
+        String normalized = markdown.replace("\r\n", "\n").replace("\r", "\n");
+        String section = ReviewParser.extractNoteSection(normalized, noteTitle);
+        if (section == null) {
+            logger.warn("Could not find section for note '{}' to replace", noteTitle);
+            return normalized;
+        }
+        String normalizedReplacement =
+                replacement.replace("\r\n", "\n").replace("\r", "\n").trim();
+        // If the original section ended with a newline, preserve it in the replacement
+        if (section.endsWith("\n") && !normalizedReplacement.endsWith("\n")) {
+            normalizedReplacement += "\n";
+        }
+        String result = normalized.replace(section, normalizedReplacement);
+        if (result.equals(normalized)) {
+            logger.warn(
+                    "Replacement had no effect for note '{}'. Section length: {}, sample: [{}]",
+                    noteTitle,
+                    section.length(),
+                    section.substring(0, Math.min(50, section.length())));
+        }
+        return result;
     }
 
     private String buildMergedResponseText(String originalText, Map<Integer, RawExcerpt> correctedExcerpts) {
@@ -567,22 +736,25 @@ public class ReviewAgent {
         logger.debug("Original response segments: {}", segments);
 
         List<ReviewParser.Segment> mergedSegments = new ArrayList<>();
+        int excerptIndex = 0;
         for (var segment : segments) {
-            if (segment instanceof ReviewParser.ExcerptSegment excerptSeg) {
-                RawExcerpt corrected = correctedExcerpts.get(excerptSeg.id());
+            if (segment instanceof ReviewParser.ExcerptSegment) {
+                RawExcerpt corrected = correctedExcerpts.get(excerptIndex);
                 if (corrected != null) {
-                    mergedSegments.add(new ReviewParser.ExcerptSegment(
-                            excerptSeg.id(), corrected.file(), corrected.line(), corrected.excerpt()));
+                    mergedSegments.add(
+                            new ReviewParser.ExcerptSegment(corrected.file(), corrected.line(), corrected.excerpt()));
                 } else {
                     mergedSegments.add(segment);
                 }
+                excerptIndex++;
             } else {
                 mergedSegments.add(segment);
             }
         }
-        logger.debug("Merged response segments: {}", segments);
 
-        return ReviewParser.instance.serializeSegments(mergedSegments);
+        String merged = ReviewParser.instance.serializeSegments(mergedSegments);
+        logger.debug("Merged response text: {}", merged);
+        return merged;
     }
 
     private SystemMessage buildSystemMessage() {
@@ -599,101 +771,49 @@ public class ReviewAgent {
                 """);
     }
 
-    private SystemMessage buildTurn2SystemMessage() {
-        return new SystemMessage(
-                """
-                You are a review transcription assistant.
-
-                You will be given:
-                - The proposed diff
-                - A complete Markdown code review produced by a separate (smarter) model, including BRK_EXCERPT blocks
-
-                Your job is ONLY to convert that existing Markdown review into a single createReview tool call.
-                Do NOT editorialize, expand, paraphrase, add new findings, remove findings, or change priorities.
-                Preserve the wording and intent of the provided review exactly.
-
-                The only exception: where the Markdown review contains excerpt blocks like BRK_EXCERPT_3,
-                remove block (including the BRK_EXCERPT_ marker) and supply the numeric IDs (e.g., 3) in the tool call excerpts fields.
-                """);
-    }
-
     private UserMessage buildAnalysisRequestMessage() {
         return new UserMessage(
                 """
                 <instructions>
                 Write a complete code review in Markdown of the proposed diff, informed by the gathered workspace context.
+                This response will be MACHINE-PARSED. Exact conformance to the header levels and structure in <review_format> is CRITICAL.
 
                 Your goal is to call attention to tricky, subtle, or simply incorrect choices in the diff.
-
-                Tactical notes are simple issues localized to a single method.
-
-                Design notes should focus on a specific higher level area of concern, such as architectural issues,
-                coupling, abstraction problems),
-
-                Design notes may have multiple excerpts highlighting the most important parts of the issue; tactical notes should have exactly one.
+                - Design notes: Higher level concerns (architectural issues, coupling, abstraction problems).
+                - Tactical notes: Simple issues localized to a single method or file.
+                - Design notes MUST have AT LEAST ONE excerpt block illustrating the subject, and may include as many excerpts as are relevant
+                - Tactical notes must include EXACTLY ONE excerpt block.
                 </instructions>
                 <excerpt_format>
-                When referencing code, use BRK_EXCERPT blocks with a unique numeric ID:
+                When referencing code, use standard Markdown code blocks. The first line of the code block MUST be the file path and line number, followed by the excerpt.
 
-                BRK_EXCERPT_$N
-                path/to/file.java @$line
                 ```
+                path/to/file.java @$line
                 $code
                 ```
                 </excerpt_format>
                 <review_format>
                 ## Overview
-                [What the changes accomplish and big-picture analysis]
+                [One or more paragraphs describing what the changes accomplish and big-picture analysis]
 
                 ## Design Notes
-                ### [Title]
-                [Description with multiple inline BRK_EXCERPT blocks]
+                ### [Title of first design note]
+                [Description text. Include code blocks as needed.]
+                **Recommendation:** [Detailed instructions for fixing the design issue. Must be actionable by a developer without further context.]
 
-                **Recommendation:** [What to change, if anything. If included, recommendation must be detailed enough to give to Code Agent as a task, without needing to refer to this diff.]
+                ### [Title of second design note, etc.]
+                ...
 
                 ## Tactical Notes
-                ### [Title]
-                [Description with a single inline BRK_EXCERPT block]
+                ### [Title of first tactical note]
+                [Description text. Include exactly one code block.]
+                **Recommendation:** [Detailed instructions for the fix.]
 
-                **Recommendation:** [What to fix. Must be detailed enough to give to Code Agent as a task, without needing to refer to this diff]
-
-                ## Additional Tests
-                - [Test descriptions in a bulleted list]
+                ## Additional Tests [Omit this if no additional tests are needed]
+                - [Test description 1]
+                - [Test description 2]
+                - [etc]
                 </review_format>
-                """);
-    }
-
-    private UserMessage buildReviewRequestMessage() {
-        return new UserMessage(
-                """
-                Convert the provided Markdown review into a single createReview tool call.
-
-                Critical rules:
-                - Do NOT editorialize or alter the review content.
-                - Do NOT add new findings, remove findings, or change priorities.
-                - Preserve titles, descriptions, recommendations, and test suggestions as closely as possible (copy, do not rewrite).
-                - Only perform the minimal transformation required to populate createReview fields.
-
-                Excerpt handling:
-                The input review contains BRK_EXCERPT_$id blocks embedded inline within Design Notes and Tactical Notes. These
-                must be referenced by id in the review parameters. DO NOT INCLUDE raw excerpt blocks (including the BRK_EXCERPT markers)
-                anywhere in your createReview tool call.
-
-                Mapping rules:
-                - Use the Markdown "## Overview" content as the createReview `overview` argument.
-                - Each "### <Title>" under "## Design Notes" becomes one RawDesignFeedback with:
-                  - title: the "### <Title>" text
-                  - description: the "Description:" content (with BRK_EXCERPT blocks replaced by BRK_EXCERPT_N references)
-                  - recommendation: the "Recommendation:" content
-                  - excerptIds: list of the numeric IDs assigned to excerpts that were embedded in this note
-                - Each "### <Title>" under "## Tactical Notes" becomes one RawTacticalFeedback with:
-                  - title: the "### <Title>" text
-                  - description: the "Description:" content (with BRK_EXCERPT block replaced by BRK_EXCERPT_N reference)
-                  - recommendation: the "Recommendation:" content
-                  - excerptId: the numeric ID assigned to the single excerpt embedded in this note
-                - Use the Markdown "## Additional Tests" bullet list as `additionalTests` (one string per bullet).
-
-                Now call createReview.
                 """);
     }
 
@@ -739,6 +859,7 @@ public class ReviewAgent {
                 .flatMap(h -> h.getHistory().stream()) // Stream<Context>
                 .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
                 .filter(te -> te.log() != null)
+                .filter(te -> te.meta() == null || te.meta().type() != ai.brokk.TaskResult.Type.REVIEW)
                 .sorted(Comparator.comparing(te -> requireNonNull(te.log()).id()))
                 .map(te -> requireNonNull(te.log()).description().join())
                 .filter(desc -> !desc.isBlank())
@@ -755,24 +876,5 @@ public class ReviewAgent {
 
         return Optional.of(new ContextFragments.StringFragment(
                 cm, mergedText, "User Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
-    }
-
-    @Tool("Create a structured code review of the current changes or proposal.")
-    public String createReview(
-            @P(
-                            "Explain your understanding of what these changes are intended to accomplish. Does it accomplish its goals in the simplest way possible?")
-                    String overview,
-            @P(
-                            """
-                    Explain the trickiest parts of the design and how they can be improved.
-                    Remember that you can give multiple excerpts per RawDesignNote!
-                    """)
-                    List<ReviewParser.RawDesignFeedback> designNotes,
-            @P("A list of local bugs or problems.") List<ReviewParser.RawTacticalFeedback> tacticalNotes,
-            @P(
-                            "A list of additional tests that would add significant value. Each string should describe a test to add, referencing specific methods or classes.")
-                    List<String> additionalTests) {
-        var review = new ReviewParser.RawReview(overview, designNotes, tacticalNotes, additionalTests);
-        return review.toJson();
     }
 }

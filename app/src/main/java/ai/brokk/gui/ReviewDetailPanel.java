@@ -38,6 +38,7 @@ import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
+import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -121,13 +122,14 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         listeners.add(listener);
     }
 
-    public void showItem(Object item, List<CodeExcerpt> excerpts) {
+    public void showItem(Object item, List<CodeExcerpt> excerpts, boolean isLast) {
         cardLayout.show(this, CARD_CONTENT);
         clearContent();
 
-        if (item instanceof String overview) {
-            markdownChunks.add(overview);
-            // Add capture button for overview
+        if (item instanceof String text) {
+            // This is the Overview
+            markdownChunks.add(text);
+
             buttonPanel.removeAll();
             buttonPanel.setVisible(true);
 
@@ -148,6 +150,13 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 }
             });
             buttonPanel.add(captureBtn);
+
+            if (!isLast) {
+                var nextBtn = new MaterialButton("Next");
+                nextBtn.addActionListener(e -> onNext.run());
+                buttonPanel.add(Box.createHorizontalStrut(10));
+                buttonPanel.add(nextBtn);
+            }
         } else if (item instanceof DesignFeedback design) {
             markdownChunks.add("### " + design.title());
             markdownChunks.add(design.description());
@@ -155,7 +164,9 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 addExcerptsTable(excerpts);
             }
             if (!design.recommendation().isBlank()) {
-                addRecommendationSection(design.recommendation());
+                markdownChunks.add("**Recommendation:**\n" + design.recommendation());
+                String combinedText = design.description() + "\n\n" + design.recommendation();
+                addRecommendationButtons(design.title(), combinedText, isLast);
             }
         } else if (item instanceof TacticalFeedback tactical) {
             markdownChunks.add("### " + tactical.title());
@@ -164,19 +175,26 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 addExcerptsTable(excerpts);
             }
             if (!tactical.recommendation().isBlank()) {
-                addRecommendationSection(tactical.recommendation());
+                markdownChunks.add("**Recommendation:**\n" + tactical.recommendation());
+                String combinedText = tactical.description() + "\n\n" + tactical.recommendation();
+                addRecommendationButtons(tactical.title(), combinedText, isLast);
             }
         } else if (item instanceof ReviewFeedback feedback) {
             markdownChunks.add("### " + feedback.title());
             markdownChunks.add(feedback.description());
             if (!feedback.recommendation().isBlank()) {
-                addRecommendationSection(feedback.recommendation());
+                markdownChunks.add("**Recommendation:**\n" + feedback.recommendation());
+                String combinedText = feedback.description() + "\n\n" + feedback.recommendation();
+                addRecommendationButtons(feedback.title(), combinedText, isLast);
             }
         } else {
             throw new IllegalArgumentException("Unknown item type: " + item.getClass());
         }
 
         flushContent();
+
+        // Scroll to top when showing new item
+        SwingUtilities.invokeLater(() -> scrollPane.getVerticalScrollBar().setValue(0));
 
         revalidate();
         repaint();
@@ -200,15 +218,13 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         markdownPanel.setStaticDocument(combined);
     }
 
-    private void addRecommendationSection(String recommendation) {
-        markdownChunks.add("**Recommendation:**\n" + recommendation);
-
+    private void addRecommendationButtons(@Nullable String title, String recommendation, boolean isLast) {
         buttonPanel.removeAll();
         buttonPanel.setVisible(true);
 
         SplitButton splitBtn = new SplitButton("Enqueue Task");
         splitBtn.addActionListener(e -> {
-            enqueueTask(recommendation);
+            enqueueTask(title, recommendation);
             onNext.run();
         });
 
@@ -221,7 +237,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                             (Chrome) contextManager.getIo(), "Edit Recommendation", recommendation);
                     if (edited != null && !edited.isBlank()) {
                         SwingUtilities.invokeLater(() -> {
-                            enqueueTask(edited);
+                            enqueueTask(title, edited);
                             onNext.run();
                         });
                     }
@@ -241,13 +257,15 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         buttonPanel.add(Box.createHorizontalStrut(10));
         buttonPanel.add(copyBtn);
 
-        var nextBtn = new MaterialButton("Next");
-        nextBtn.addActionListener(e -> onNext.run());
-        buttonPanel.add(Box.createHorizontalStrut(10));
-        buttonPanel.add(nextBtn);
+        if (!isLast) {
+            var nextBtn = new MaterialButton("Next");
+            nextBtn.addActionListener(e -> onNext.run());
+            buttonPanel.add(Box.createHorizontalStrut(10));
+            buttonPanel.add(nextBtn);
+        }
     }
 
-    private void enqueueTask(String text) {
+    private void enqueueTask(@Nullable String title, String text) {
         var currentData = contextManager.liveContext().getTaskListDataOrEmpty();
         var currentTasks = currentData.tasks();
 
@@ -255,7 +273,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             return;
         }
 
-        var newTasks = Stream.concat(currentTasks.stream(), Stream.of(new TaskList.TaskItem(null, text, false)))
+        var newTasks = Stream.concat(currentTasks.stream(), Stream.of(new TaskList.TaskItem(title, text, false)))
                 .toList();
         contextManager.setTaskListAsync(new TaskList.TaskListData(newTasks));
     }
