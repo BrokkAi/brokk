@@ -28,6 +28,16 @@ public interface IGitRepo {
     Set<ProjectFile> getTrackedFiles();
 
     /**
+     * Returns files available for analysis. For Git repos, returns tracked files with fallback
+     * to filesystem scan if the repo is empty. For local file repos, performs a filesystem walk.
+     *
+     * @return Set of files available for analysis
+     */
+    default Set<ProjectFile> getFilesForAnalysis() {
+        return getTrackedFiles();
+    }
+
+    /**
      * Checks if a file is tracked by git.
      * More efficient than getTrackedFiles().contains(new ProjectFile(...)) for repeated lookups.
      */

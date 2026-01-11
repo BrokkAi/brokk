@@ -2,6 +2,7 @@ package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -82,7 +83,7 @@ public class AccessorNodeTypeTest {
             """);
 
         // Use the TypeScript analyzer to parse the file
-        var project = new ai.brokk.testutil.TestProject(tempDir, Languages.TYPESCRIPT);
+        var project = new TestProject(tempDir, Languages.TYPESCRIPT);
         var analyzer = new TypescriptAnalyzer(project);
 
         // Get all code units for badge (accessors only, not the private field)

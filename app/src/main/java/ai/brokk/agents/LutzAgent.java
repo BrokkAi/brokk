@@ -9,6 +9,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.SearchPrompts.Terminal;
+import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import dev.langchain4j.agent.tool.P;
@@ -152,8 +153,7 @@ public class LutzAgent extends SearchAgent {
             logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }
-        throw new ToolRegistry.ToolCallException(
-                ai.brokk.tools.ToolExecutionResult.Status.INTERNAL_ERROR, stopDetails.explanation());
+        throw new ToolRegistry.ToolCallException(ToolExecutionResult.Status.INTERNAL_ERROR, stopDetails.explanation());
     }
 
     @Override

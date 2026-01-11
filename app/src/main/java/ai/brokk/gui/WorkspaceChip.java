@@ -61,6 +61,7 @@ public class WorkspaceChip extends JPanel {
     // Maximum characters to display on a chip label before truncating.
     private static final int MAX_LABEL_CHARS = 50;
 
+    private float currentAlpha = 1.0f;
     protected boolean closeEnabled = true;
     private Set<ContextFragment> fragments = Set.of();
 
@@ -190,20 +191,23 @@ public class WorkspaceChip extends JPanel {
 
     @Override
     public void paint(java.awt.Graphics g) {
-        float alpha = 1.0f;
+        float desiredAlpha = 1.0f;
         if (getParent() instanceof WorkspaceItemsChipPanel parentPanel) {
             if (parentPanel.isReadOnlyMode()) {
-                alpha = Math.min(alpha, 0.6f);
+                desiredAlpha = Math.min(desiredAlpha, 0.6f);
             }
             var hoveredIds = parentPanel.getHoveredFragmentIds();
             if (!hoveredIds.isEmpty() && !fragments.isEmpty()) {
                 boolean isHovered = fragments.stream().map(ContextFragment::id).anyMatch(hoveredIds::contains);
                 if (!isHovered) {
-                    alpha = Math.min(alpha, 0.5f);
+                    desiredAlpha = Math.min(desiredAlpha, 0.5f);
                 }
             }
         }
-        materialChip.setAlpha(alpha);
+        if (desiredAlpha != currentAlpha) {
+            currentAlpha = desiredAlpha;
+            materialChip.setAlpha(currentAlpha);
+        }
         super.paint(g);
     }
 
@@ -501,7 +505,6 @@ public class WorkspaceChip extends JPanel {
             this.summaryFragments = List.copyOf(summaries);
             ComputedSubscription.disposeAll(this);
             bindComputed();
-            refreshLabelAndTooltip();
         }
 
         @Override

@@ -1,5 +1,6 @@
 package ai.brokk.init.onboarding;
 
+import ai.brokk.analyzer.ProjectFile;
 import com.google.common.base.Splitter;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -70,7 +71,7 @@ public class GitIgnoreUtils {
      * @param gitignoreFile ProjectFile representing the .gitignore file
      * @return true if .brokk is comprehensively ignored
      */
-    public static boolean isBrokkIgnored(ai.brokk.analyzer.ProjectFile gitignoreFile) throws IOException {
+    public static boolean isBrokkIgnored(ProjectFile gitignoreFile) throws IOException {
         return isBrokkIgnored(gitignoreFile.absPath());
     }
 }

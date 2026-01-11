@@ -10,6 +10,7 @@ import ai.brokk.project.ModelProperties.ModelType;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
+import com.google.errorprone.annotations.Immutable;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -17,8 +18,10 @@ import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.model.output.Response;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
 import java.util.function.Function;
@@ -75,7 +78,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     // Helper record to store model name and reasoning level for checking
-    @com.google.errorprone.annotations.Immutable
+    @Immutable
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
         public ModelConfig(String name, ReasoningLevel reasoning) {
             this(name, reasoning, ProcessingTier.DEFAULT);
@@ -792,13 +795,13 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     /** Interface for speech-to-text operations. */
     public interface SpeechToTextModel {
-        String transcribe(java.nio.file.Path audioFile, java.util.Set<String> symbols) throws java.io.IOException;
+        String transcribe(Path audioFile, Set<String> symbols) throws IOException;
     }
 
     /** Stubbed STT model when speech-to-text is unavailable. */
     public static class UnavailableSTT implements SpeechToTextModel {
         @Override
-        public String transcribe(java.nio.file.Path audioFile, java.util.Set<String> symbols) {
+        public String transcribe(Path audioFile, Set<String> symbols) {
             return "Speech-to-text is unavailable (no suitable model found via proxy or connection failed).";
         }
     }
@@ -808,25 +811,25 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         public UnavailableStreamingModel() {}
 
         public void generate(String userMessage, StreamingResponseHandler<AiMessage> handler) {
-            handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
+            handler.onComplete(new Response<>(new AiMessage(UNAVAILABLE)));
         }
 
         public void generate(List<ChatMessage> messages, StreamingResponseHandler<AiMessage> handler) {
-            handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
+            handler.onComplete(new Response<>(new AiMessage(UNAVAILABLE)));
         }
 
         public void generate(
                 List<ChatMessage> messages,
                 List<ToolSpecification> toolSpecifications,
                 StreamingResponseHandler<AiMessage> handler) {
-            handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
+            handler.onComplete(new Response<>(new AiMessage(UNAVAILABLE)));
         }
 
         public void generate(
                 List<ChatMessage> messages,
                 ToolSpecification toolSpecification,
                 StreamingResponseHandler<AiMessage> handler) {
-            handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
+            handler.onComplete(new Response<>(new AiMessage(UNAVAILABLE)));
         }
 
         @Override

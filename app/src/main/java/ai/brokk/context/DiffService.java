@@ -4,6 +4,8 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
+import ai.brokk.git.CommitInfo;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
@@ -11,8 +13,10 @@ import ai.brokk.util.ContentDiffUtils;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
@@ -27,7 +31,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>Uses a global bounded cache of (prev, curr) context pairs to avoid redundant computations across sessions.
  * This service materializes computed values asynchronously as needed via
- * {@link ai.brokk.util.ComputedValue#await(java.time.Duration)}.
+ * {@link ai.brokk.util.ComputedValue#await(Duration)}.
  */
 public final class DiffService {
     private static final Logger logger = LogManager.getLogger(DiffService.class);
@@ -328,13 +332,17 @@ public final class DiffService {
      */
     @Blocking
     public static CumulativeChanges summarizeDiff(
-            IGitRepo repo, String leftRef, String rightRef, Set<IGitRepo.ModifiedFile> files) {
-        if (!(repo instanceof ai.brokk.git.GitRepo gitRepo)) {
-            return new CumulativeChanges(0, 0, 0, List.of());
+            IGitRepo repo,
+            String leftRef,
+            String rightRef,
+            Set<IGitRepo.ModifiedFile> files,
+            List<CommitInfo> commits) {
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return new CumulativeChanges(0, 0, 0, List.of(), commits);
         }
 
         if (files.isEmpty()) {
-            return new CumulativeChanges(0, 0, 0, List.of());
+            return new CumulativeChanges(0, 0, 0, List.of(), commits);
         }
 
         List<DiffEntry> perFileChanges = new ArrayList<>();
@@ -399,7 +407,7 @@ public final class DiffService {
         int totalDeleted =
                 perFileChanges.stream().mapToInt(DiffEntry::linesDeleted).sum();
 
-        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges);
+        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, commits);
     }
 
     /**
@@ -432,11 +440,58 @@ public final class DiffService {
             int totalAdded,
             int totalDeleted,
             List<DiffEntry> perFileChanges,
+            List<CommitInfo> commits,
+            // null when we don't have a GitRepo
             @Nullable GitWorkflow.PushPullState pushPullState) {
 
         /** Convenience constructor without pushPullState. */
-        public CumulativeChanges(int filesChanged, int totalAdded, int totalDeleted, List<DiffEntry> perFileChanges) {
-            this(filesChanged, totalAdded, totalDeleted, perFileChanges, null);
+        public CumulativeChanges(
+                int filesChanged,
+                int totalAdded,
+                int totalDeleted,
+                List<DiffEntry> perFileChanges,
+                List<CommitInfo> commits) {
+            this(filesChanged, totalAdded, totalDeleted, perFileChanges, commits, null);
+        }
+
+        /**
+         * Identifies session IDs that overlap with the commits in this cumulative change.
+         */
+        @Blocking
+        public static List<UUID> findOverlappingSessions(
+                IContextManager cm, List<CommitInfo> commits) {
+            if (commits.isEmpty()) {
+                return List.of();
+            }
+
+            var sessionManager = cm.getProject().getSessionManager();
+            Instant earliestCommit = commits.stream()
+                    .map(CommitInfo::date)
+                    .min(Comparator.naturalOrder())
+                    .orElse(Instant.now());
+            // Buffer by one day to catch sessions that might have started just before the first commit
+            Instant timeBound = earliestCommit.minus(java.time.temporal.ChronoUnit.DAYS.getDuration());
+
+            List<ai.brokk.SessionManager.SessionInfo> shortlisted = sessionManager.listSessions().stream()
+                    .filter(s -> com.github.f4b6a3.uuid.util.UuidUtil.getInstant(s.id()).isAfter(timeBound))
+                    .toList();
+
+            Set<String> changeCommitIds = commits.stream().map(CommitInfo::id).collect(Collectors.toSet());
+            List<UUID> overlappingIds = new ArrayList<>();
+
+            for (var session : shortlisted) {
+                var history = sessionManager.loadHistory(session.id(), cm);
+                if (history == null) continue;
+
+                boolean hasOverlap = history.getGitStates().values().stream()
+                        .map(ContextHistory.GitState::commitHash)
+                        .anyMatch(changeCommitIds::contains);
+
+                if (hasOverlap) {
+                    overlappingIds.add(session.id());
+                }
+            }
+            return overlappingIds;
         }
     }
 

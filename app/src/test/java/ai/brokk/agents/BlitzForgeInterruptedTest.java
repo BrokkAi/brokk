@@ -3,9 +3,11 @@ package ai.brokk.agents;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AbstractService;
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -100,7 +102,7 @@ class BlitzForgeInterruptedTest {
 
         var listener = new BlitzForge.Listener() {
             @Override
-            public ai.brokk.IConsoleIO getConsoleIO(ai.brokk.analyzer.ProjectFile file) {
+            public IConsoleIO getConsoleIO(ProjectFile file) {
                 return new NoOpConsoleIO();
             }
         };
@@ -160,7 +162,7 @@ class BlitzForgeInterruptedTest {
 
         var listener = new BlitzForge.Listener() {
             @Override
-            public ai.brokk.IConsoleIO getConsoleIO(ai.brokk.analyzer.ProjectFile file) {
+            public IConsoleIO getConsoleIO(ProjectFile file) {
                 return new NoOpConsoleIO();
             }
 

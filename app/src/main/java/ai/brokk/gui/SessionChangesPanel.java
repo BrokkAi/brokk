@@ -13,6 +13,7 @@ import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.DiffProjectFileNavigationTarget;
 import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
@@ -33,6 +34,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
@@ -445,12 +447,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private DiffService.CumulativeChanges computeCumulativeChanges(String baselineLabel, BaselineMode baselineMode)
             throws GitAPIException {
         if (baselineMode == BaselineMode.NO_BASELINE) {
-            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), null);
+            return new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of(), null);
         }
 
         Map<ProjectFile, GitRepo.ModifiedFile> fileMap = new HashMap<>();
         String leftCommitSha = null;
         String currentBranch = repo.getCurrentBranch();
+        List<CommitInfo> commits = List.of();
 
         switch (baselineMode) {
             case NON_DEFAULT_BRANCH -> {
@@ -461,6 +464,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     for (var mf : myChanges) {
                         fileMap.putIfAbsent(mf.file(), mf);
                     }
+                    commits = repo.listCommitsBetweenBranches(leftCommitSha, "HEAD", false);
                 } else {
                     leftCommitSha = "HEAD";
                 }
@@ -476,6 +480,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     for (var mf : myChanges) {
                         fileMap.putIfAbsent(mf.file(), mf);
                     }
+                    commits = repo.listCommitsBetweenBranches(leftCommitSha, "HEAD", false);
                 } else {
                     leftCommitSha = "HEAD";
                 }
@@ -498,12 +503,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 for (var mf : repo.getModifiedFiles()) {
                     fileMap.put(mf.file(), mf);
                 }
+                commits = List.of();
             }
             default -> throw new AssertionError();
         }
 
         var fileSet = new HashSet<>(fileMap.values());
-        var summarizedChanges = DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet);
+        var summarizedChanges =
+                DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet, commits);
 
         GitWorkflow.PushPullState pushPullState = null;
         try {
@@ -526,6 +533,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 summarizedChanges.totalAdded(),
                 summarizedChanges.totalDeleted(),
                 summarizedChanges.perFileChanges(),
+                commits,
                 pushPullState);
     }
 
@@ -900,7 +908,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     return;
                 }
 
-                var agent = new ReviewAgent(changes, contextManager, chrome, fileComparisons);
+                List<UUID> sessions;
+                ComparisonTarget target = (ComparisonTarget) baselineDropdown.getSelectedItem();
+                if (target == ComparisonTarget.SESSION) {
+                    sessions = List.of(contextManager.getCurrentSessionId());
+                } else {
+                    sessions = DiffService.CumulativeChanges.findOverlappingSessions(contextManager, changes.commits());
+                }
+
+                var agent = new ReviewAgent(changes, sessions, contextManager, chrome, fileComparisons);
 
                 agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
                     guidedReviewBtn.setProgress(p);

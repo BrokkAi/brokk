@@ -134,7 +134,7 @@ public class CompletionsTest {
             IAnalyzer analyzer = new JavaAnalyzer(testProject);
 
             List<CodeUnit> results = Completions.completeSymbols("Chrome", analyzer);
-            var fqns = results.stream().map(CodeUnit::fqName).collect(java.util.stream.Collectors.toSet());
+            var fqns = results.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
             assertTrue(
                     fqns.contains("ai.brokk.gui.Chrome"),
@@ -160,7 +160,7 @@ public class CompletionsTest {
             IAnalyzer analyzer = new JavaAnalyzer(testProject);
 
             List<CodeUnit> results = Completions.completeSymbols("Chrome", analyzer);
-            var fqns = results.stream().map(CodeUnit::fqName).collect(java.util.stream.Collectors.toSet());
+            var fqns = results.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
             assertTrue(
                     fqns.contains("ai.brokk.gui.Chrome"),
@@ -185,7 +185,7 @@ public class CompletionsTest {
             IAnalyzer analyzer = new JavaAnalyzer(testProject);
 
             List<CodeUnit> results = Completions.completeSymbols("Chrome", analyzer);
-            var fqns = results.stream().map(CodeUnit::fqName).collect(java.util.stream.Collectors.toSet());
+            var fqns = results.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
 
             assertTrue(
                     fqns.contains("ai.brokk.gui.Chrome"),

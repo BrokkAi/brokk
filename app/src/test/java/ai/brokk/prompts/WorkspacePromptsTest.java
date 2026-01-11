@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.Languages;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.testutil.TestConsoleIO;
@@ -15,7 +17,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -54,7 +58,7 @@ class WorkspacePromptsTest {
         ctx = ctx.addFragments(List.of(frag));
 
         WorkspacePrompts.CodeAgentMessages records =
-                WorkspacePrompts.getMessagesForCodeAgent(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST));
+                WorkspacePrompts.getMessagesForCodeAgent(ctx, EnumSet.of(SpecialTextType.TASK_LIST));
 
         assertNotNull(records);
         assertFalse(records.workspace().isEmpty(), "workspace() should return combined messages");
@@ -65,7 +69,7 @@ class WorkspacePromptsTest {
         var ctx = new Context(cm).withBuildResult(false, "Build failed: syntax error on line 42");
 
         WorkspacePrompts.CodeAgentMessages records =
-                WorkspacePrompts.getMessagesForCodeAgent(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST));
+                WorkspacePrompts.getMessagesForCodeAgent(ctx, EnumSet.of(SpecialTextType.TASK_LIST));
 
         assertNotNull(records.buildFailure(), "buildFailure() should be populated when a build fragment exists");
         assertTrue(records.buildFailure().contains("syntax error on line 42"));
@@ -82,10 +86,9 @@ class WorkspacePromptsTest {
         ctx = ctx.withBuildResult(false, "Compilation failed");
 
         WorkspacePrompts.CodeAgentMessages records =
-                WorkspacePrompts.getMessagesForCodeAgent(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST));
+                WorkspacePrompts.getMessagesForCodeAgent(ctx, EnumSet.of(SpecialTextType.TASK_LIST));
 
-        String allText =
-                records.workspace().stream().map(Messages::getText).collect(java.util.stream.Collectors.joining("\n"));
+        String allText = records.workspace().stream().map(Messages::getText).collect(Collectors.joining("\n"));
         int count = (int) allText.split("<workspace_build_status").length - 1;
         assertEquals(1, count, "Should have exactly one build status block in the combined workspace");
     }
@@ -111,7 +114,7 @@ class WorkspacePromptsTest {
         var ctx = new Context(cm).addFragments(List.of(fragC, fragB, fragA));
 
         // Sort and verify order is by mtime (oldest A, then B, then newest C)
-        var sorted = WorkspacePrompts.sortByMtime(ctx.getEditableFragments()).toList();
+        var sorted = ContextFragment.sortByMtime(ctx.getEditableFragments()).toList();
 
         assertEquals(3, sorted.size(), "All three fragments should be present");
         assertEquals(fragA, sorted.get(0), "Oldest file A should be first");
@@ -151,7 +154,7 @@ class WorkspacePromptsTest {
         var ctx = new Context(cm).addFragments(List.of(projectFrag)).addFragments(virtualFrag);
 
         // Sort and verify virtual fragment stays first
-        var sorted = WorkspacePrompts.sortByMtime(ctx.getEditableFragments()).toList();
+        var sorted = ContextFragment.sortByMtime(ctx.getEditableFragments()).toList();
 
         assertEquals(2, sorted.size());
         assertInstanceOf(
@@ -160,7 +163,7 @@ class WorkspacePromptsTest {
     }
 
     // Helper method to create test files
-    private ai.brokk.analyzer.ProjectFile createTestFile(String relativePath, String content) {
+    private ProjectFile createTestFile(String relativePath, String content) {
         try {
             var path = projectRoot.resolve(relativePath);
             Files.createDirectories(path.getParent());

@@ -6,6 +6,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
 import java.awt.Component;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -280,8 +281,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
      * @param rightMap blame information for the right/revised side (may be empty)
      */
     public abstract void applyBlame(
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap);
+            Map<Integer, BlameService.BlameInfo> leftMap, Map<Integer, BlameService.BlameInfo> rightMap);
 
     /** Clear all blame information from this diff panel. */
     public abstract void clearBlame();
@@ -293,7 +293,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
      * @return the absolute path to the file to blame, or null if unavailable
      */
     @Nullable
-    public abstract java.nio.file.Path getTargetPathForBlame();
+    public abstract Path getTargetPathForBlame();
 
     // Font support - every diff panel must implement
 
