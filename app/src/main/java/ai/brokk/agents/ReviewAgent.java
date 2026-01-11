@@ -33,7 +33,6 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.request.ToolChoice;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -134,7 +133,8 @@ public class ReviewAgent {
             var instructionsOpt = extractInstructionsFragment(sessionIds);
             if (instructionsOpt.isPresent()) {
                 var instructionsFragment = instructionsOpt.get();
-                initialContext = initialContext.addFragments(instructionsFragment).withPinned(instructionsFragment, true);
+                initialContext =
+                        initialContext.addFragments(instructionsFragment).withPinned(instructionsFragment, true);
             }
 
             updateProgress("Gathering context", 0);
@@ -725,8 +725,7 @@ public class ReviewAgent {
     }
 
     @Blocking
-    public Optional<ContextFragments.StringFragment> extractInstructionsFragment(
-            List<UUID> sessionIds) {
+    public Optional<ContextFragments.StringFragment> extractInstructionsFragment(List<UUID> sessionIds) {
         if (sessionIds.isEmpty()) {
             return Optional.empty();
         }
@@ -737,8 +736,8 @@ public class ReviewAgent {
         List<String> instructions = sessionIds.stream()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
                 .filter(Objects::nonNull)
-                .flatMap(h -> h.getHistory().stream())  // Stream<Context>
-                .flatMap(ctx -> ctx.getTaskHistory().stream())  // Stream<TaskEntry>
+                .flatMap(h -> h.getHistory().stream()) // Stream<Context>
+                .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
                 .filter(te -> te.log() != null)
                 .sorted(Comparator.comparing(te -> requireNonNull(te.log()).id()))
                 .map(te -> requireNonNull(te.log()).description().join())
@@ -752,15 +751,10 @@ public class ReviewAgent {
             return Optional.empty();
         }
 
-        String mergedText = instructions.stream()
-                .map(desc -> "- " + desc)
-                .collect(Collectors.joining("\n"));
+        String mergedText = instructions.stream().map(desc -> "- " + desc).collect(Collectors.joining("\n"));
 
         return Optional.of(new ContextFragments.StringFragment(
-                cm,
-                mergedText,
-                "User Instructions",
-                SyntaxConstants.SYNTAX_STYLE_NONE));
+                cm, mergedText, "User Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
     }
 
     @Tool("Create a structured code review of the current changes or proposal.")

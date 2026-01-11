@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -29,7 +30,18 @@ public final class FileUtil {
             walk.sorted(Comparator.reverseOrder()).forEach(p -> {
                 try {
                     Files.delete(p);
+                } catch (NoSuchFileException e) {
+                    // Already gone
                 } catch (IOException e) {
+                    // On Windows, Git object files are often read-only. Attempt to make writable and retry.
+                    if (p.toFile().setWritable(true)) {
+                        try {
+                            Files.delete(p);
+                            return;
+                        } catch (IOException ignored) {
+                            // Fall through to log original exception
+                        }
+                    }
                     logger.warn("Failed to delete {}", p, e);
                 }
             });

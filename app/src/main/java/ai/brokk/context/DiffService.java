@@ -16,8 +16,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -458,8 +458,7 @@ public final class DiffService {
          * Identifies session IDs that overlap with the commits in this cumulative change.
          */
         @Blocking
-        public static List<UUID> findOverlappingSessions(
-                IContextManager cm, List<CommitInfo> commits) {
+        public static List<UUID> findOverlappingSessions(IContextManager cm, List<CommitInfo> commits) {
             if (commits.isEmpty()) {
                 return List.of();
             }
@@ -473,7 +472,8 @@ public final class DiffService {
             Instant timeBound = earliestCommit.minus(java.time.temporal.ChronoUnit.DAYS.getDuration());
 
             List<ai.brokk.SessionManager.SessionInfo> shortlisted = sessionManager.listSessions().stream()
-                    .filter(s -> com.github.f4b6a3.uuid.util.UuidUtil.getInstant(s.id()).isAfter(timeBound))
+                    .filter(s -> com.github.f4b6a3.uuid.util.UuidUtil.getInstant(s.id())
+                            .isAfter(timeBound))
                     .toList();
 
             Set<String> changeCommitIds = commits.stream().map(CommitInfo::id).collect(Collectors.toSet());
