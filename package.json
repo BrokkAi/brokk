@@ -10,6 +10,7 @@
     "jdeployPrelaunchVersion": "v0.0.5",
     "jdeploy": {
         "jdk": false,
+        "jdkProvider": "adoptium",
         "minLauncherInitialAppVersion": "0.18.0",
         "files": [{
             "dir": "app/build/libs",
