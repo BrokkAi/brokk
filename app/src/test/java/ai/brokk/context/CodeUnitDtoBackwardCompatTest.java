@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ProjectFile;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,7 @@ public class CodeUnitDtoBackwardCompatTest {
 
         ObjectMapper mapper = new ObjectMapper();
         // Allow comments in the inlined JSON test fixture (some historical fixtures may contain comments)
-        mapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_COMMENTS, true);
+        mapper.configure(JsonParser.Feature.ALLOW_COMMENTS, true);
         // Deserialize into the DTO defined in FragmentDtos
         FragmentDtos.CodeUnitDto dto = mapper.readValue(json, FragmentDtos.CodeUnitDto.class);
 
@@ -86,7 +87,7 @@ public class CodeUnitDtoBackwardCompatTest {
                 pfd, original.kind().name(), original.packageName(), original.shortName(), original.signature());
 
         ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_COMMENTS, true);
+        mapper.configure(JsonParser.Feature.ALLOW_COMMENTS, true);
 
         // Serialize -> JSON -> Deserialize
         String json = mapper.writeValueAsString(dto);
@@ -122,7 +123,7 @@ public class CodeUnitDtoBackwardCompatTest {
                         .formatted(tempDir.toString().replace("\\", "\\\\"));
 
         ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(com.fasterxml.jackson.core.JsonParser.Feature.ALLOW_COMMENTS, true);
+        mapper.configure(JsonParser.Feature.ALLOW_COMMENTS, true);
 
         FragmentDtos.CodeUnitDto dto = mapper.readValue(json, FragmentDtos.CodeUnitDto.class);
 

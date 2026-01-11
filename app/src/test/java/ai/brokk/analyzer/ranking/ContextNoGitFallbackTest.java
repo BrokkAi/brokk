@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -408,7 +409,7 @@ public class ContextNoGitFallbackTest {
         var builder = InlineTestProjectCreator.code("content a", "A.txt").withGit();
         try {
             builder.addCommit("A.txt", "NonExistent.txt");
-            org.junit.jupiter.api.Assertions.fail("Should have thrown IllegalArgumentException");
+            Assertions.fail("Should have thrown IllegalArgumentException");
         } catch (IllegalArgumentException e) {
             assertTrue(e.getMessage().contains("NonExistent.txt"));
         }

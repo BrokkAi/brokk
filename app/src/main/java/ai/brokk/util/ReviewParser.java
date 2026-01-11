@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -78,7 +79,10 @@ public class ReviewParser {
     }
 
     private String cleanMetadata(String text) {
-        return text.lines()
+        // Unescape newlines before checking for orphaned BRK_EXCERPT markers
+        String unescaped = text.replace("\\n", "\n");
+        return unescaped
+                .lines()
                 .filter(line -> {
                     String trimmed = line.trim();
                     return !(trimmed.startsWith("BRK_EXCERPT_")
@@ -141,8 +145,8 @@ public class ReviewParser {
                 if (line.equals("```")
                         || (line.startsWith("```") && line.substring(3).isBlank())) {
                     segments.add(new ExcerptSegment(
-                            java.util.Objects.requireNonNull(currentId),
-                            java.util.Objects.requireNonNull(currentFile),
+                            Objects.requireNonNull(currentId),
+                            Objects.requireNonNull(currentFile),
                             currentLineNum,
                             excerptAccumulator.toString()));
 
@@ -257,7 +261,7 @@ public class ReviewParser {
                             instance.cleanMetadata(raw.description()),
                             raw.excerptIds().stream()
                                     .map(resolvedExcerpts::get)
-                                    .filter(java.util.Objects::nonNull)
+                                    .filter(Objects::nonNull)
                                     .toList(),
                             instance.cleanMetadata(raw.recommendation())))
                     .toList();
@@ -267,7 +271,7 @@ public class ReviewParser {
                     .map(raw -> new TacticalFeedback(
                             raw.title(),
                             instance.cleanMetadata(raw.description()),
-                            java.util.Objects.requireNonNull(resolvedExcerpts.get(raw.excerptId())),
+                            Objects.requireNonNull(resolvedExcerpts.get(raw.excerptId())),
                             instance.cleanMetadata(raw.recommendation())))
                     .toList();
 

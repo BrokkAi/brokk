@@ -213,7 +213,7 @@ public class ContextAgent {
     @Blocking
     public RecommendationResult getRecommendations(Context context) throws InterruptedException {
         var workspaceRepresentation =
-                WorkspacePrompts.getMessagesInAddedOrder(context, java.util.EnumSet.of(SpecialTextType.TASK_LIST));
+                WorkspacePrompts.getMessagesInAddedOrder(context, EnumSet.of(SpecialTextType.TASK_LIST));
 
         // Subtract workspace tokens from both budgets.
         int workspaceTokens = Messages.getApproximateMessageTokens(workspaceRepresentation);

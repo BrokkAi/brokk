@@ -603,7 +603,7 @@ public class ContextHistory {
             if (bytes == null) continue;
             try {
                 byte[] currentBytes = Files.exists(pf.absPath()) ? Files.readAllBytes(pf.absPath()) : null;
-                if (currentBytes == null || !java.util.Arrays.equals(currentBytes, bytes)) {
+                if (currentBytes == null || !Arrays.equals(currentBytes, bytes)) {
                     Files.write(pf.absPath(), bytes);
                     changedFiles.add(pf);
                 }

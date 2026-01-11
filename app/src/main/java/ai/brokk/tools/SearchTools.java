@@ -475,15 +475,14 @@ public class SearchTools {
         if (!GitRepoFactory.hasGitRepo(projectRoot)) {
             return "Cannot search commit messages: Git repository not found for this project.";
         }
+        var gitRepo = (GitRepo) contextManager.getRepo();
 
         List<CommitInfo> matchingCommits;
-        try (var gitRepo = new GitRepo(projectRoot)) {
-            try {
-                matchingCommits = gitRepo.searchCommits(pattern);
-            } catch (GitAPIException e) {
-                logger.error("Error searching commit messages", e);
-                return "Error searching commit messages: " + e.getMessage();
-            }
+        try {
+            matchingCommits = gitRepo.searchCommits(pattern);
+        } catch (GitAPIException e) {
+            logger.error("Error searching commit messages", e);
+            return "Error searching commit messages: " + e.getMessage();
         }
 
         if (matchingCommits.isEmpty()) {
@@ -507,7 +506,7 @@ public class SearchTools {
                 try {
                     List<ProjectFile> changedFilesList;
                     try {
-                        changedFilesList = commit.changedFiles();
+                        changedFilesList = CommitInfo.changedFiles(gitRepo, commit.id());
                     } catch (GitAPIException e) {
                         logger.error("Error retrieving changed files for commit {}", commit.id(), e);
                         changedFilesList = List.of();

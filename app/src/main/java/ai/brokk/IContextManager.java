@@ -13,6 +13,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
@@ -91,7 +92,7 @@ public interface IContextManager {
         void contextChanged(Context newCtx);
 
         /** Called when the task list data has been modified. */
-        default void onTaskListChanged(ai.brokk.tasks.TaskList.TaskListData data) {}
+        default void onTaskListChanged(TaskList.TaskListData data) {}
     }
 
     /**

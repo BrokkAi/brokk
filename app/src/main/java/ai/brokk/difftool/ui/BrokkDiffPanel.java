@@ -9,6 +9,7 @@ import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.git.GitRepo;
+import ai.brokk.gui.PreviewManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
@@ -1102,7 +1103,7 @@ public class BrokkDiffPanel extends JPanel
      * @param manager The PreviewManager to delegate to
      * @param title   The title for the tab
      */
-    public void showInTab(ai.brokk.gui.PreviewManager manager, String title) {
+    public void showInTab(PreviewManager manager, String title) {
         var leftSources =
                 core.getFileComparisons().stream().map(fc -> fc.leftSource()).toList();
         var rightSources =

@@ -9,6 +9,7 @@ import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.DependencyUpdater;
 import ai.brokk.util.FileUtil;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
@@ -68,7 +69,7 @@ class LocalPathDependencyAutoUpdateTest {
                 project.getMasterRootPathForConfig().relativize(depDir));
 
         assertThrows(
-                java.io.IOException.class,
+                IOException.class,
                 () -> DependencyUpdater.updateLocalPathDependencyOnDisk(project, depProjectFile, metadataOpt.get()),
                 "Expected update to fail when source directory is inside dependencies root");
     }

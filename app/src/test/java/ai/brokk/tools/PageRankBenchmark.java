@@ -10,12 +10,14 @@ import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.Callable;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import org.jspecify.annotations.NullMarked;
 import org.jspecify.annotations.Nullable;
@@ -122,7 +124,7 @@ public class PageRankBenchmark implements Callable<Integer> {
                     allPossibleEdges.add(((long) i << 32) | (j & 0xffffffffL));
                 }
             }
-            java.util.Collections.shuffle(allPossibleEdges, random);
+            Collections.shuffle(allPossibleEdges, random);
             allPossibleEdges.stream().limit(targetImportEdges).forEach(edge -> {
                 int src = (int) (edge >> 32);
                 int dst = (int) (edge.longValue());
@@ -141,7 +143,7 @@ public class PageRankBenchmark implements Callable<Integer> {
                     allPossiblePairs.add(((long) i << 32) | (j & 0xffffffffL));
                 }
             }
-            java.util.Collections.shuffle(allPossiblePairs, random);
+            Collections.shuffle(allPossiblePairs, random);
         }
 
         printScenarioHeader(config, targetImportEdges, targetGitPairs);
@@ -317,7 +319,7 @@ public class PageRankBenchmark implements Callable<Integer> {
         String imports = importedIndices.stream()
                 .map(targetIdx -> String.format("import p%d.%s;", targetIdx % 10, allFileNames.get(targetIdx)))
                 .sorted()
-                .collect(java.util.stream.Collectors.joining("\n"));
+                .collect(Collectors.joining("\n"));
 
         return String.join(
                 "\n",

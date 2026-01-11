@@ -9,6 +9,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.cli.MemoryConsole;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService;
@@ -21,26 +22,37 @@ import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.RawExcerpt;
+import ai.brokk.util.WhitespaceMatch;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
+import javax.swing.Timer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 import org.jspecify.annotations.NullMarked;
 
 /**
@@ -51,6 +63,7 @@ public class ReviewAgent {
     private static final Logger logger = LogManager.getLogger(ReviewAgent.class);
 
     private final DiffService.CumulativeChanges changes;
+    private final List<UUID> sessionIds;
 
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
 
@@ -77,20 +90,20 @@ public class ReviewAgent {
 
     public ReviewAgent(
             DiffService.CumulativeChanges changes,
+            List<UUID> sessionIds,
             IContextManager cm,
             IConsoleIO io,
             List<FileComparisonInfo> fileComparisons) {
         this.changes = changes;
+        this.sessionIds = List.copyOf(sessionIds);
         this.cm = cm;
         this.io = io;
         this.fileComparisons = fileComparisons;
     }
 
-    /**
-     * Legacy constructor for tests or cases where only a raw diff string is available.
-     */
-    public ReviewAgent(String diff, IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
-        this(new DiffService.CumulativeChanges(0, 0, 0, List.of()), cm, io, fileComparisons);
+    @TestOnly
+    ReviewAgent(IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
+        this(new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of()), List.of(), cm, io, fileComparisons);
     }
 
     private @Nullable ProgressUpdater progressUpdater;
@@ -106,7 +119,7 @@ public class ReviewAgent {
         // Prepare the initial context with the diff pinned
         var diff = changes.perFileChanges().stream()
                 .map(de -> "File: " + de.title() + "\n" + de.diff())
-                .collect(java.util.stream.Collectors.joining("\n\n"));
+                .collect(Collectors.joining("\n\n"));
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
 
@@ -117,6 +130,12 @@ public class ReviewAgent {
         try (var scope = cm.anonymousScope()) {
             // Turn 0: Context setup and determine complexity
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
+            var instructionsOpt = extractInstructionsFragment(sessionIds);
+            if (instructionsOpt.isPresent()) {
+                var instructionsFragment = instructionsOpt.get();
+                initialContext =
+                        initialContext.addFragments(instructionsFragment).withPinned(instructionsFragment, true);
+            }
 
             updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
@@ -126,10 +145,10 @@ public class ReviewAgent {
             updateProgress("Analyzing changes", SETUP_PROGRESS);
 
             var turn1Model = setupResult.isComplex() ? architectModel : scanModel;
-            var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
+            var turn1Llm = cm.getLlm(turn1Model, "Code Review");
             turn1Llm.setOutput(io);
 
-            var turn2Llm = cm.getLlm(new Llm.Options(scanModel, "Code Review (Structuring)").withEcho());
+            var turn2Llm = cm.getLlm(scanModel, "Code Review (Structuring)");
             turn2Llm.setOutput(io);
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
@@ -145,13 +164,10 @@ public class ReviewAgent {
 
                 int turn1Floor = progressOf100;
                 AtomicInteger linesSeen = new AtomicInteger(0);
-                ai.brokk.cli.MemoryConsole progressConsole = new ai.brokk.cli.MemoryConsole() {
+                MemoryConsole progressConsole = new MemoryConsole() {
                     @Override
                     public void llmOutput(
-                            String token,
-                            dev.langchain4j.data.message.ChatMessageType type,
-                            boolean explicitNewMessage,
-                            boolean isReasoning) {
+                            String token, ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
                         super.llmOutput(token, type, explicitNewMessage, isReasoning);
                         if (token.contains("\n")) {
                             int lines = linesSeen.addAndGet(
@@ -168,7 +184,7 @@ public class ReviewAgent {
                     break;
                 }
 
-                if (turn1Result.error() instanceof dev.langchain4j.exception.ContextTooLargeException) {
+                if (turn1Result.error() instanceof ContextTooLargeException) {
                     // Get non-diff fragments and their files
                     Context currentContext = reviewContext;
                     var nonDiffFragments = currentContext
@@ -229,7 +245,7 @@ public class ReviewAgent {
             var toolSpecs = tr.getTools(List.of("createReview"));
 
             int turn2Floor = progressOf100;
-            javax.swing.Timer turn2Timer = new javax.swing.Timer(1000, null);
+            Timer turn2Timer = new Timer(1000, null);
             AtomicInteger turn2Seconds = new AtomicInteger(0);
             turn2Timer.addActionListener(e -> {
                 int p = turn2Floor + turn2Seconds.incrementAndGet();
@@ -251,15 +267,6 @@ public class ReviewAgent {
                 throw new ReviewGenerationException("No review generated by model");
             }
 
-            // Build messages list for the task entry log
-            turn2Messages.add(new AiMessage(
-                    turn2Result.text(),
-                    requireNonNullElse(
-                            requireNonNull(turn2Result.chatResponse()).reasoningContent(), "")));
-            // clunky way to get a context but that's what it looks like I guess
-            var te = TaskEntry.from(cm, turn2Messages, "Guided Description");
-            reviewContext = reviewContext.addHistoryEntry(te, null);
-
             var reviewCall = turn2Result.toolRequests().getFirst();
             var executionResult = tr.executeTool(reviewCall);
 
@@ -273,6 +280,12 @@ public class ReviewAgent {
             logPhaseTime("Structuring (Turn 2)", turn2Start);
             logPhaseTime("Total review generation", startTime);
 
+            var publishedMessages = List.of(
+                    new UserMessage("Please review this diff"),
+                    new AiMessage(ReviewParser.instance.stripExcerpts(mergedReviewText), mergedReasoning));
+            var te = TaskEntry.from(cm, publishedMessages, "Guided Description");
+            reviewContext = reviewContext.addHistoryEntry(te, null);
+
             return new ReviewResult(review, reviewContext);
         }
     }
@@ -284,7 +297,7 @@ public class ReviewAgent {
 
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
         var scanModel = cm.getService().getModel(ModelType.SCAN);
-        var llm = cm.getLlm(new Llm.Options(scanModel, "Review Context Selection"));
+        var llm = cm.getLlm(scanModel, "Review Context Selection");
         llm.setOutput(io);
 
         var messages = new ArrayList<ChatMessage>();
@@ -369,7 +382,7 @@ public class ReviewAgent {
         // Try NEW content first
         String newContent = fileInfo.rightSource().content();
         String[] newLines = newContent.split("\\R", -1);
-        var newMatches = ai.brokk.util.WhitespaceMatch.findAll(newLines, excerptLines);
+        var newMatches = WhitespaceMatch.findAll(newLines, excerptLines);
         if (!newMatches.isEmpty()) {
             var best = ReviewParser.findBestMatch(newMatches, excerpt.line());
             return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.NEW, best.matchedText());
@@ -378,7 +391,7 @@ public class ReviewAgent {
         // Try OLD content
         String oldContent = fileInfo.leftSource().content();
         String[] oldLines = oldContent.split("\\R", -1);
-        var oldMatches = ai.brokk.util.WhitespaceMatch.findAll(oldLines, excerptLines);
+        var oldMatches = WhitespaceMatch.findAll(oldLines, excerptLines);
         if (!oldMatches.isEmpty()) {
             var best = ReviewParser.findBestMatch(oldMatches, excerpt.line());
             return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.OLD, best.matchedText());
@@ -433,7 +446,7 @@ public class ReviewAgent {
 
             String errorList = fileResolutionErrors.entrySet().stream()
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
-                    .collect(java.util.stream.Collectors.joining("\n"));
+                    .collect(Collectors.joining("\n"));
 
             boolean someSucceeded = !validPathExcerpts.isEmpty();
             String successNote = someSucceeded
@@ -458,7 +471,7 @@ public class ReviewAgent {
         String mergedResponseText = buildMergedResponseText(turn1Result.text(), validPathExcerpts);
 
         // Stage 2: Text Resolution (Validate excerpts match file content)
-        Map<Integer, CodeExcerpt> matchedExcerpts = new java.util.concurrent.ConcurrentHashMap<>();
+        Map<Integer, CodeExcerpt> matchedExcerpts = new ConcurrentHashMap<>();
         List<ChatMessage> textResolutionMessages = new ArrayList<>();
         attempts = 0;
         while (true) {
@@ -487,14 +500,14 @@ public class ReviewAgent {
                             return null;
                         }
                     })
-                    .filter(java.util.Objects::nonNull)
-                    .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
 
             if (textResolutionErrors.isEmpty() || attempts++ == 2) break;
 
             String errorList = textResolutionErrors.entrySet().stream()
                     .map(e -> "- Excerpt " + e.getKey() + ": " + e.getValue())
-                    .collect(java.util.stream.Collectors.joining("\n"));
+                    .collect(Collectors.joining("\n"));
 
             var filesToInclude = textResolutionErrors.keySet().stream()
                     .map(validPathExcerpts::get)
@@ -711,8 +724,37 @@ public class ReviewAgent {
         return "Context updated with requested fragments.";
     }
 
-    private static String fixEscapedNewlines(String s) {
-        return s.replace("\\n", "\n");
+    @Blocking
+    public Optional<ContextFragments.StringFragment> extractInstructionsFragment(List<UUID> sessionIds) {
+        if (sessionIds.isEmpty()) {
+            return Optional.empty();
+        }
+
+        var sessionManager = cm.getProject().getSessionManager();
+
+        // Extract instructions from all matching histories
+        List<String> instructions = sessionIds.stream()
+                .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
+                .filter(Objects::nonNull)
+                .flatMap(h -> h.getHistory().stream()) // Stream<Context>
+                .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
+                .filter(te -> te.log() != null)
+                .sorted(Comparator.comparing(te -> requireNonNull(te.log()).id()))
+                .map(te -> requireNonNull(te.log()).description().join())
+                .filter(desc -> !desc.isBlank())
+                .distinct()
+                .toList();
+
+        logger.debug("Extracted {} instruction fragments", instructions.size());
+
+        if (instructions.isEmpty()) {
+            return Optional.empty();
+        }
+
+        String mergedText = instructions.stream().map(desc -> "- " + desc).collect(Collectors.joining("\n"));
+
+        return Optional.of(new ContextFragments.StringFragment(
+                cm, mergedText, "User Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
     }
 
     @Tool("Create a structured code review of the current changes or proposal.")
@@ -730,25 +772,7 @@ public class ReviewAgent {
             @P(
                             "A list of additional tests that would add significant value. Each string should describe a test to add, referencing specific methods or classes.")
                     List<String> additionalTests) {
-        var fixedDesignNotes = designNotes.stream()
-                .map(d -> new ReviewParser.RawDesignFeedback(
-                        fixEscapedNewlines(d.title()),
-                        fixEscapedNewlines(d.description()),
-                        d.excerptIds(),
-                        fixEscapedNewlines(d.recommendation())))
-                .toList();
-        var fixedTacticalNotes = tacticalNotes.stream()
-                .map(t -> new ReviewParser.RawTacticalFeedback(
-                        fixEscapedNewlines(t.title()),
-                        fixEscapedNewlines(t.description()),
-                        t.excerptId(),
-                        fixEscapedNewlines(t.recommendation())))
-                .toList();
-        var fixedAdditionalTests =
-                additionalTests.stream().map(ReviewAgent::fixEscapedNewlines).toList();
-
-        var review = new ReviewParser.RawReview(
-                fixEscapedNewlines(overview), fixedDesignNotes, fixedTacticalNotes, fixedAdditionalTests);
+        var review = new ReviewParser.RawReview(overview, designNotes, tacticalNotes, additionalTests);
         return review.toJson();
     }
 }

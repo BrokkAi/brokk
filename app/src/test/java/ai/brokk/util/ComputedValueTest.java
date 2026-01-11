@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import org.junit.jupiter.api.Test;
 
 public class ComputedValueTest {
@@ -37,7 +38,7 @@ public class ComputedValueTest {
         }));
 
         var fut = cv.future();
-        var ex = assertThrows(java.util.concurrent.CompletionException.class, fut::join);
+        var ex = assertThrows(CompletionException.class, fut::join);
         assertTrue(ex.getCause() instanceof IllegalStateException);
         assertEquals("boom", ex.getCause().getMessage());
     }

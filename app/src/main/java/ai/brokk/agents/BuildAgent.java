@@ -64,6 +64,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -649,9 +650,9 @@ public class BuildAgent {
             String buildLintCommand,
             String testAllCommand,
             String testSomeCommand,
-            @JsonDeserialize(as = java.util.LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+            @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
-            @JsonDeserialize(as = java.util.LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
+            @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Map<String, String> environmentVariables) {
 
         @VisibleForTesting
@@ -675,7 +676,7 @@ public class BuildAgent {
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
                 @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables) {
             // Migrate legacy excludedDirectories to exclusionPatterns
-            Set<String> patterns = new java.util.LinkedHashSet<>();
+            Set<String> patterns = new LinkedHashSet<>();
             if (exclusionPatterns != null) {
                 patterns.addAll(exclusionPatterns);
             }
@@ -785,9 +786,11 @@ public class BuildAgent {
         boolean isModulesBased = testSomeTemplate.contains("{{#modules}}");
 
         if (!isFilesBased && !isClassesBased && !isModulesBased) {
-            logger.debug(
-                    "Template lacks {{#files}}, {{#classes}}, or {{#modules}}; using build/lint: {}",
-                    details.buildLintCommand());
+            cm.getIo()
+                    .systemNotify(
+                            "The 'test some' command template is misconfigured (missing {{#files}}, {{#classes}}, or {{#modules}}). Please update the build configuration in Settings.",
+                            "Build Configuration Warning",
+                            JOptionPane.WARNING_MESSAGE);
             return details.buildLintCommand();
         }
 

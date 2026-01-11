@@ -4,6 +4,7 @@ import ai.brokk.gui.dialogs.JdkSelector;
 import ai.brokk.project.IProject;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.Arrays;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
@@ -173,6 +174,6 @@ public final class BuildVerifier {
         }
         String[] split = fullOutput.split("\\R", -1);
         int start = Math.max(0, split.length - MAX_OUTPUT_LINES);
-        return java.util.Arrays.stream(split, start, split.length).collect(Collectors.joining("\n"));
+        return Arrays.stream(split, start, split.length).collect(Collectors.joining("\n"));
     }
 }
