@@ -192,6 +192,24 @@ public class Brokk {
     }
 
     /**
+     * Initializes CEF/Xlib multithreading on Linux before any AWT/Swing calls.
+     * This MUST be called before any Xlib calls from the process for windowed rendering to work.
+     * On macOS this loads the CEF framework dynamically.
+     * On Windows this is a no-op.
+     */
+    private static void initializeCefStartupIfNeeded() {
+        try {
+            // CefApp.startup() initializes Xlib multithreading on Linux and loads
+            // CEF framework on macOS. Must be called before any AWT/Swing initialization.
+            org.cef.CefApp.startup(new String[0]);
+        } catch (Throwable t) {
+            // Log but don't fail - CEF will be initialized later via jcefmaven
+            // This early call is just to set up Xlib multithreading
+            logger.debug("CEF early startup: {}", t.getMessage());
+        }
+    }
+
+    /**
      * Initializes JavaFX Platform if needed based on brokk.webview.impl system property.
      * Must be called before any GUI creation.
      */
@@ -436,6 +454,10 @@ public class Brokk {
                             }
                         },
                         "brokk-shutdown-hook"));
+
+        // Initialize CEF/Xlib before any AWT/Swing calls on Linux
+        // This MUST happen before any Xlib calls for windowed rendering to work
+        initializeCefStartupIfNeeded();
 
         logBanner();
         logger.debug("Brokk starting");

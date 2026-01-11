@@ -139,7 +139,8 @@ dependencies {
     implementation("io.methvin:directory-watcher:0.18.0")
 
     // JCEF for Chromium embedded browser
-    implementation("me.friwi:jcefmaven:141.0.10")
+    // Note: 141.0.10 breaks Linux windowed rendering (browser shows detached instead of embedded)
+    implementation("me.friwi:jcefmaven:122.1.10")
 
     // Testing
     testImplementation(platform(libs.junit.bom))
