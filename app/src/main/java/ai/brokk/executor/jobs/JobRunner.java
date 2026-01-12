@@ -657,104 +657,60 @@ public final class JobRunner {
                                             TaskResult reviewResult = reviewDiff(context, plannerModel, annotatedDiff);
                                             scope.append(reviewResult);
 
-                                            // 6. Parse review output
+                                            // 6. Parse review output (JSON only)
                                             String reviewText =
                                                     reviewResult.output().text().join();
 
-                                            // Attempt JSON parsing first (new format)
                                             var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
 
-                                            String summary;
+                                            if (reviewResponse == null) {
+                                                // JSON parsing failed - treat as hard error
+                                                String preview = reviewText.length() > 500
+                                                        ? reviewText.substring(0, 500) + "..."
+                                                        : reviewText;
+                                                logger.error(
+                                                        "PR review response was not valid JSON for job {}. Response preview: {}",
+                                                        jobId,
+                                                        preview);
+                                                throw new IllegalStateException(
+                                                        "PR review response was not valid JSON. Expected JSON object with 'summaryMarkdown' field. Response preview: "
+                                                                + preview);
+                                            }
+
+                                            // JSON parsing succeeded - use structured format
+                                            logger.debug("PR review parsed as JSON successfully");
+                                            String summary = reviewResponse.summaryMarkdown();
+
+                                            // 7. Post summary comment to PR
+                                            PrReviewService.postReviewComment(pr, summary);
+                                            logger.info("Posted PR review summary to PR #{}", prNumber);
+
+                                            // 8. Post inline comments from structured response
                                             int postedComments = 0;
                                             int skippedComments = 0;
 
-                                            if (reviewResponse != null) {
-                                                // JSON parsing succeeded - use structured format
-                                                logger.debug("PR review parsed as JSON successfully");
-                                                summary = reviewResponse.summaryMarkdown();
+                                            for (var comment : reviewResponse.comments()) {
+                                                String path = comment.path();
+                                                int line = comment.line();
+                                                String bodyMarkdown = comment.bodyMarkdown();
 
-                                                // 7. Post summary comment to PR
-                                                PrReviewService.postReviewComment(pr, summary);
-                                                logger.info("Posted PR review summary to PR #{}", prNumber);
-
-                                                // 8. Post inline comments from structured response
-                                                for (var comment : reviewResponse.comments()) {
-                                                    String path = comment.path();
-                                                    int line = comment.line();
-                                                    String bodyMarkdown = comment.bodyMarkdown();
-
-                                                    try {
-                                                        if (!PrReviewService.hasExistingLineComment(pr, path, line)) {
-                                                            PrReviewService.postLineComment(
-                                                                    pr, path, line, bodyMarkdown, headSha);
-                                                            postedComments++;
-                                                            logger.debug("Posted line comment on {}:{}", path, line);
-                                                        } else {
-                                                            skippedComments++;
-                                                            logger.debug(
-                                                                    "Skipped duplicate comment on {}:{}", path, line);
-                                                        }
-                                                    } catch (Exception e) {
-                                                        logger.warn(
-                                                                "Failed to post line comment on {}:{}: {}",
-                                                                path,
-                                                                line,
-                                                                e.getMessage());
+                                                try {
+                                                    if (!PrReviewService.hasExistingLineComment(pr, path, line)) {
+                                                        PrReviewService.postLineComment(
+                                                                pr, path, line, bodyMarkdown, headSha);
+                                                        postedComments++;
+                                                        logger.debug("Posted line comment on {}:{}", path, line);
+                                                    } else {
+                                                        skippedComments++;
+                                                        logger.debug(
+                                                                "Skipped duplicate comment on {}:{}", path, line);
                                                     }
-                                                }
-                                            } else {
-                                                // JSON parsing failed - fall back to legacy parsing
-                                                logger.warn(
-                                                        "PR review JSON parsing failed for job {}, falling back to legacy format",
-                                                        jobId);
-
-                                                // Extract summary (everything before Comments section or full text)
-                                                String commentsSection = "";
-                                                int commentsIdx = reviewText.indexOf("Comments");
-                                                if (commentsIdx > 0) {
-                                                    summary = reviewText
-                                                            .substring(0, commentsIdx)
-                                                            .trim();
-                                                    commentsSection = reviewText.substring(commentsIdx);
-                                                } else {
-                                                    summary = reviewText;
-                                                }
-
-                                                // 7. Post summary comment to PR
-                                                PrReviewService.postReviewComment(pr, summary);
-                                                logger.info("Posted PR review summary to PR #{} (legacy)", prNumber);
-
-                                                // 8. Parse and post line comments (legacy regex)
-                                                Pattern linePattern = Pattern.compile(
-                                                        "^-\\s*file://([^#]+)#L(\\d+)\\s*\\|\\s*(.+)$",
-                                                        Pattern.MULTILINE);
-                                                Matcher matcher = linePattern.matcher(commentsSection);
-
-                                                while (matcher.find()) {
-                                                    String path =
-                                                            matcher.group(1).trim();
-                                                    int line = Integer.parseInt(matcher.group(2));
-                                                    String description =
-                                                            matcher.group(3).trim();
-
-                                                    try {
-                                                        if (!PrReviewService.hasExistingLineComment(pr, path, line)) {
-                                                            PrReviewService.postLineComment(
-                                                                    pr, path, line, description, headSha);
-                                                            postedComments++;
-                                                            logger.debug("Posted line comment on {}:{}", path, line);
-                                                        } else {
-                                                            skippedComments++;
-                                                            logger.debug(
-                                                                    "Skipped duplicate comment on {}:{}", path, line);
-                                                        }
-                                                    } catch (Exception e) {
-                                                        logger.warn(
-                                                                "Failed to post line comment on {}:{}: {}",
-                                                                path,
-                                                                line,
-                                                                e.getMessage());
-                                                    }
+                                                } catch (Exception e) {
+                                                    logger.warn(
+                                                            "Failed to post line comment on {}:{}: {}",
+                                                            path,
+                                                            line,
+                                                            e.getMessage());
                                                 }
                                             }
 
