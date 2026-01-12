@@ -9,6 +9,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.IProject;
@@ -17,6 +18,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -71,12 +73,13 @@ public final class TestContextManager implements IContextManager {
         this.analyzerRef = new AtomicReference<>(analyzer);
         this.editableFiles = new HashSet<>(editableFiles);
 
-        if (repo != null) {
-            this.repo = repo;
-        } else if (project.getRepo() != null) {
-            this.repo = project.getRepo();
-        } else {
-            this.repo = new TestRepo(project.getRoot());
+        IGitRepo repoToSet = null;
+        try {
+            repoToSet = Objects.requireNonNullElseGet(repo, project::getRepo);
+        } catch (UnsupportedOperationException e) {
+            repoToSet = new TestRepo(project.getRoot());
+        } finally {
+            this.repo = repoToSet;
         }
 
         this.consoleIO = consoleIO;
