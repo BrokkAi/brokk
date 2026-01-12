@@ -195,6 +195,7 @@ class ReviewParserTest {
 
         var rawReview = new ReviewParser.RawReview(
                 "Overview",
+                List.of(),
                 List.of(rawDesign),
                 List.of(rawTactical),
                 List.of(new ReviewParser.ReviewFeedback("Test more", "", "Run the test")));
@@ -398,6 +399,14 @@ class ReviewParserTest {
                 ## Overview
                 This is a good change.
 
+                ## Key Changes
+                ### New Logic
+                Added logic for X.
+                ```
+                A.java @10
+                codeX
+                ```
+
                 ## Design Notes
                 ### Better Abstraction
                 We should use a factory here.
@@ -431,14 +440,21 @@ class ReviewParserTest {
         var resolved = Map.of(
                 0,
                         new ReviewParser.CodeExcerpt(
-                                new ProjectFile(root, "A.java"), null, 1, ReviewParser.DiffSide.NEW, "code1"),
+                                new ProjectFile(root, "A.java"), null, 10, ReviewParser.DiffSide.NEW, "codeX"),
                 1,
+                        new ReviewParser.CodeExcerpt(
+                                new ProjectFile(root, "A.java"), null, 1, ReviewParser.DiffSide.NEW, "code1"),
+                2,
                         new ReviewParser.CodeExcerpt(
                                 new ProjectFile(root, "B.java"), null, 5, ReviewParser.DiffSide.NEW, "code2"));
 
         var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
 
         assertEquals("This is a good change.", review.overview());
+        assertEquals(1, review.keyChanges().size());
+        assertEquals("New Logic", review.keyChanges().get(0).title());
+        assertEquals(1, review.keyChanges().get(0).excerpts().size());
+
         assertEquals(1, review.designNotes().size());
         assertEquals("Better Abstraction", review.designNotes().get(0).title());
         assertEquals("Implement the factory.", review.designNotes().get(0).recommendation());
@@ -551,7 +567,7 @@ class ReviewParserTest {
         var rawDesign = new ReviewParser.RawDesignFeedback(
                 "Title", "Description with\\ncode block and more text.", List.of(0), "Recommendation with\\nmore");
 
-        var rawReview = new ReviewParser.RawReview("Overview", List.of(rawDesign), List.of(), List.of());
+        var rawReview = new ReviewParser.RawReview("Overview", List.of(), List.of(rawDesign), List.of(), List.of());
 
         Path root = Path.of(".").toAbsolutePath().normalize();
         var resolvedExcerpts = Map.of(

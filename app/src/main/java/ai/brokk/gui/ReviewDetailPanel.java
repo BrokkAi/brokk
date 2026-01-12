@@ -15,6 +15,7 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.DesignFeedback;
+import ai.brokk.util.ReviewParser.KeyChanges;
 import ai.brokk.util.ReviewParser.ReviewFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
 import java.awt.BorderLayout;
@@ -157,6 +158,13 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 buttonPanel.add(Box.createHorizontalStrut(10));
                 buttonPanel.add(nextBtn);
             }
+        } else if (item instanceof KeyChanges change) {
+            markdownChunks.add("### " + change.title());
+            markdownChunks.add(change.description());
+            if (!excerpts.isEmpty()) {
+                addExcerptsTable(excerpts);
+            }
+            addNavigationButtons(isLast);
         } else if (item instanceof DesignFeedback design) {
             markdownChunks.add("### " + design.title());
             markdownChunks.add(design.description());
@@ -207,6 +215,17 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         buttonPanel.removeAll();
         buttonPanel.setVisible(false);
         markdownPanel.clear();
+    }
+
+    private void addNavigationButtons(boolean isLast) {
+        if (isLast) return;
+
+        buttonPanel.removeAll();
+        buttonPanel.setVisible(true);
+
+        var nextBtn = new MaterialButton("Next");
+        nextBtn.addActionListener(e -> onNext.run());
+        buttonPanel.add(nextBtn);
     }
 
     private void flushContent() {

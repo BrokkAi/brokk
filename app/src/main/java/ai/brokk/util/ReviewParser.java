@@ -247,6 +247,7 @@ public class ReviewParser {
 
     public record RawReview(
             String overview,
+            List<KeyChanges> keyChanges,
             List<RawDesignFeedback> designNotes,
             List<RawTacticalFeedback> tacticalNotes,
             List<ReviewFeedback> additionalTests) {
@@ -258,6 +259,8 @@ public class ReviewParser {
             return Json.fromJson(json, RawReview.class);
         }
     }
+
+    public record KeyChanges(String title, String description, List<CodeExcerpt> excerpts) {}
 
     public record DesignFeedback(String title, String description, List<CodeExcerpt> excerpts, String recommendation) {}
 
@@ -512,6 +515,7 @@ public class ReviewParser {
         Node document = parser.parse(markdown);
 
         StringBuilder overviewBuilder = new StringBuilder();
+        List<KeyChanges> keyChanges = new ArrayList<>();
         List<DesignFeedback> designNotes = new ArrayList<>();
         List<TacticalFeedback> tacticalNotes = new ArrayList<>();
         List<ReviewFeedback> additionalTests = new ArrayList<>();
@@ -537,7 +541,18 @@ public class ReviewParser {
                     logger.debug("Parser transitioned to section: {}", currentTopLevelSection);
                 } else if (heading.getLevel() == 3) {
                     ParsedContent content = parseFeedbackContent(heading);
-                    if (currentTopLevelSection.equalsIgnoreCase("Design Notes")) {
+                    if (currentTopLevelSection.equalsIgnoreCase("Key Changes")) {
+                        logger.debug("Parsing key change: {}", headingText);
+                        List<CodeExcerpt> excerpts = content.excerpts().stream()
+                                .map(raw -> {
+                                    String key = raw.file() + "@" + raw.line();
+                                    Integer idx = excerptKeyToIndex.get(key);
+                                    return idx != null ? resolvedExcerpts.get(idx) : null;
+                                })
+                                .filter(Objects::nonNull)
+                                .toList();
+                        keyChanges.add(new KeyChanges(headingText, content.description(), excerpts));
+                    } else if (currentTopLevelSection.equalsIgnoreCase("Design Notes")) {
                         logger.debug("Parsing design note: {}", headingText);
                         List<CodeExcerpt> excerpts = content.excerpts().stream()
                                 .map(raw -> {
@@ -590,7 +605,8 @@ public class ReviewParser {
             }
         }
 
-        return new GuidedReview(overviewBuilder.toString(), designNotes, tacticalNotes, additionalTests);
+        return new GuidedReview(
+                overviewBuilder.toString(), keyChanges, designNotes, tacticalNotes, additionalTests);
     }
 
     private record ParsedContent(String description, String recommendation, List<RawExcerpt> excerpts) {}
@@ -685,6 +701,7 @@ public class ReviewParser {
 
     public record GuidedReview(
             String overview,
+            List<KeyChanges> keyChanges,
             List<DesignFeedback> designNotes,
             List<TacticalFeedback> tacticalNotes,
             List<ReviewFeedback> additionalTests) {
@@ -724,7 +741,12 @@ public class ReviewParser {
                     })
                     .toList();
 
-            return new GuidedReview(rawReview.overview(), designNotes, tacticalNotes, rawReview.additionalTests());
+            return new GuidedReview(
+                    rawReview.overview(),
+                    rawReview.keyChanges(),
+                    designNotes,
+                    tacticalNotes,
+                    rawReview.additionalTests());
         }
     }
 }
