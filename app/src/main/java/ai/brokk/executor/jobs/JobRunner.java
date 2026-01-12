@@ -607,7 +607,9 @@ public final class JobRunner {
                                                         ie.getMessage());
                                             } catch (Exception ex) {
                                                 logger.warn(
-                                                        "Pre-scan failed for REVIEW job {}: {}", jobId, ex.getMessage());
+                                                        "Pre-scan failed for REVIEW job {}: {}",
+                                                        jobId,
+                                                        ex.getMessage());
                                             }
 
                                             // 5. Call reviewDiff() to get LLM review with enriched context
