@@ -738,6 +738,7 @@ public final class JobRunner {
         try {
             response = llm.sendRequest(messages);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
 
@@ -846,6 +847,7 @@ public final class JobRunner {
         try {
             response = llm.sendRequest(messages);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
 
