@@ -1120,8 +1120,7 @@ public class BuildAgent {
         if (verificationCommand == null || verificationCommand.isBlank()) {
             io.llmOutput(
                     "\nNo verification command specified, skipping build/check.",
-                    ChatMessageType.CUSTOM,
-                    LlmOutputMeta.newMessage());
+                    ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
             return ctx; // unchanged
         }
 

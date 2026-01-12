@@ -583,10 +583,10 @@ public class SearchAgent {
                 addToWorkspace(recommendation);
                 io.llmOutput(
                         "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
-                        ChatMessageType.AI);
+                        ChatMessageType.AI, LlmOutputMeta.DEFAULT);
             }
         } else {
-            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI);
+            io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI, LlmOutputMeta.DEFAULT);
         }
 
         Set<ProjectFile> filesAfterScan = getWorkspaceFileSet();
@@ -657,7 +657,7 @@ public class SearchAgent {
         }
 
         var explanation = ExplanationRenderer.renderExplanation("Adding context to workspace", details);
-        io.llmOutput(explanation, ChatMessageType.AI);
+        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
     }
 
     @Tool("Signal that the initial workspace review is complete and all fragments are relevant.")
@@ -674,7 +674,7 @@ public class SearchAgent {
     @Tool("Abort when you determine the question is not answerable from this codebase or is out of scope.")
     public String abortSearch(
             @P("Clear explanation of why the question cannot be answered from this codebase.") String explanation) {
-        io.llmOutput(explanation, ChatMessageType.AI);
+        io.llmOutput(explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
         return explanation;
     }
 

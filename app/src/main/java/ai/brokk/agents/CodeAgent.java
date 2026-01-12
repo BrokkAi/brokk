@@ -464,7 +464,7 @@ public class CodeAgent {
         io.llmOutput(
                 "\n# Code Agent Finished\n" + message,
                 ChatMessageType.CUSTOM,
-                LlmOutputMeta.terminal());
+                LlmOutputMeta.DEFAULT);
     }
 
     Step parsePhase(

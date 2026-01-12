@@ -640,7 +640,7 @@ public class ArchitectAgent {
 
             // show thinking
             if (!result.text().isBlank()) {
-                io.llmOutput("\n" + result.text(), ChatMessageType.AI);
+                io.llmOutput("\n" + result.text(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
             }
 
             totalUsage = TokenUsage.sum(
@@ -689,7 +689,7 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                     var toolResult = tr.executeTool(answerReq);
-                    io.llmOutput("Project final answer: " + toolResult.resultText(), ChatMessageType.AI);
+                    io.llmOutput("Project final answer: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     return codeAgentSuccessResult();
                 }
             }
@@ -703,7 +703,7 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
                     var toolResult = tr.executeTool(abortReq);
-                    io.llmOutput("Project aborted: " + toolResult.resultText(), ChatMessageType.AI);
+                    io.llmOutput("Project aborted: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     return resultWithMessages(StopReason.LLM_ABORTED);
                 }
             }

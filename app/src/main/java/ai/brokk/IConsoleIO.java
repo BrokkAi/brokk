@@ -72,10 +72,6 @@ public interface IConsoleIO {
 
     void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta);
 
-    default void llmOutput(String token, ChatMessageType type) {
-        llmOutput(token, type, LlmOutputMeta.DEFAULT);
-    }
-
     /**
      * default implementation just forwards to systemOutput but the Chrome GUI implementation wraps JOptionPane;
      * messageType should correspond to JOP (ERROR_MESSAGE, WARNING_MESSAGE, etc)

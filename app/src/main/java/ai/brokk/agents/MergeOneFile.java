@@ -181,7 +181,7 @@ public final class MergeOneFile {
                 break;
             }
             if (!result.text().isBlank()) {
-                io.llmOutput("\n" + result.text(), ChatMessageType.AI);
+                io.llmOutput("\n" + result.text(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
             }
 
             var ai = ToolRegistry.removeDuplicateToolRequests(result.aiMessage());
@@ -201,14 +201,14 @@ public final class MergeOneFile {
 
                 var explanation = tr.getExplanationForToolRequest(req);
                 if (!explanation.isBlank()) {
-                    io.llmOutput("\n" + explanation, ChatMessageType.AI);
+                    io.llmOutput("\n" + explanation, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                 }
 
                 ToolExecutionResult exec = tr.executeTool(req);
 
                 currentSessionMessages.add(exec.toExecutionResultMessage());
                 if (!exec.resultText().isBlank()) {
-                    io.llmOutput(exec.resultText(), ChatMessageType.AI);
+                    io.llmOutput(exec.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                 }
 
                 if ("callCodeAgent".equals(req.name())) {
@@ -224,17 +224,17 @@ public final class MergeOneFile {
                             // Nudge the planner: use full-file replacement next
                             var nudge = buildApplyErrorNudgeMessage();
                             currentSessionMessages.add(new UserMessage(nudge));
-                            io.llmOutput(nudge, ChatMessageType.USER);
+                            io.llmOutput(nudge, ChatMessageType.USER, LlmOutputMeta.DEFAULT);
                         }
                     }
 
                     var textOpt = file.read();
                     if (textOpt.isPresent() && !ConflictAnnotator.containsConflictMarkers(textOpt.get())) {
-                        io.llmOutput("\nConflicts resolved for " + file, ChatMessageType.AI);
+                        io.llmOutput("\nConflicts resolved for " + file, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                         return new Outcome(Status.RESOLVED, null);
                     } else {
                         var details = formatFailure(file, exec.resultText());
-                        io.llmOutput("\nCodeAgent failed to resolve conflicts for " + file, ChatMessageType.AI);
+                        io.llmOutput("\nCodeAgent failed to resolve conflicts for " + file, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                         return new Outcome(Status.UNRESOLVED, details);
                     }
                 }
