@@ -421,6 +421,7 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
     }
 
     private void loadSessionHistory(UUID sessionId) {
+        groupExpandedState.clear();
         // Clear current preview panels
         clearPreviewPanels();
 

@@ -168,6 +168,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
     // Track expand/collapse state for grouped non-LLM action runs
     private final Map<UUID, Boolean> groupExpandedState = new HashMap<>();
 
+    private @Nullable UUID currentSessionId;
+
     // Cache of latest group descriptors used to render the table; used by arrow painter
     private volatile java.util.List<HistoryGrouping.GroupDescriptor> latestDescriptors = java.util.List.of();
 
@@ -643,6 +645,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
                 contextToSelect != null ? contextToSelect.id() : "null");
 
         SwingUtilities.invokeLater(() -> {
+            UUID actualSessionId = contextManager.getCurrentSessionId();
+            if (!java.util.Objects.equals(this.currentSessionId, actualSessionId)) {
+                groupExpandedState.clear();
+                this.currentSessionId = actualSessionId;
+            }
+
             historyModel.setRowCount(0);
             // Reset any per-row height customizations before rebuilding; individual rows that
             // need more space (e.g., with diff summaries) will be expanded explicitly later.
