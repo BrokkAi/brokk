@@ -9,7 +9,6 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitDistance;
@@ -359,41 +358,6 @@ public class ContextNoGitFallbackTest {
             // Should return empty without calling listCommitsDetailed
             List<IAnalyzer.FileRelevance> results = GitDistance.getRelatedFiles(fakeRepo, Map.of(a, 1.0), 5);
             assertTrue(results.isEmpty(), "Results should be empty for untracked seeds");
-        }
-    }
-
-    @Test
-    public void testSummaryFragmentsAreExcludedFromRankingSeeds() throws Exception {
-        try (var project = InlineTestProjectCreator.code("public class A {}", "A.java")
-                .addFileContents("public class B {}", "B.java")
-                .build()) {
-
-            IAnalyzer analyzer = AnalyzerCreator.createTreeSitterAnalyzer(project);
-            ProjectFile a = project.getAllFiles().stream()
-                    .filter(f -> f.toString().endsWith("A.java"))
-                    .findFirst()
-                    .orElseThrow();
-
-            IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
-
-            // 1. Create a context with ONLY a SummaryFragment (SKELETON type)
-            // SummaryFragment is SKELETON type, which is NOT a ranking seed.
-            ContextFragments.SummaryFragment summary =
-                    new ContextFragments.SummaryFragment(cm, "A.java", ContextFragment.SummaryType.FILE_SKELETONS);
-
-            Context ctx = new Context(cm).addFragments(summary);
-
-            // 2. Request relevant files. Since SummaryFragment is not a ranking seed,
-            // weightedSeeds should be empty, and it should return empty immediately.
-            List<ProjectFile> results = ctx.getMostRelevantFiles(5);
-
-            assertTrue(results.isEmpty(), "Ranking should return nothing when only SKELETON fragments are present");
-
-            // 3. Now add a ProjectPathFragment (which IS a ranking seed) and verify it works
-            ctx = ctx.addFragments(new ContextFragments.ProjectPathFragment(a, cm));
-            results = ctx.getMostRelevantFiles(5);
-
-            assertFalse(results.isEmpty(), "Ranking should return results when a proper seed is added");
         }
     }
 

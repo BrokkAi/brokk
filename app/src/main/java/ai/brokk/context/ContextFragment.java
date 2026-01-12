@@ -92,25 +92,6 @@ public interface ContextFragment {
         public boolean includeInProjectGuide() {
             return PROJECT_GUIDE_TYPES.contains(this);
         }
-
-        /**
-         * Returns true if this fragment type represents explicit user-provided or direct file context
-         * that should drive the ranking of related files.
-         */
-        public boolean isRankingSeed() {
-            return switch (this) {
-                case PROJECT_PATH,
-                        GIT_FILE,
-                        EXTERNAL_PATH,
-                        IMAGE_FILE,
-                        CODE,
-                        USAGE,
-                        PASTE_TEXT,
-                        PASTE_IMAGE,
-                        STACKTRACE -> true;
-                case STRING, SKELETON, CALL_GRAPH, HISTORY, TASK, BUILD_LOG -> false;
-            };
-        }
     }
 
     @Blocking
