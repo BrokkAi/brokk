@@ -202,7 +202,7 @@ class ReviewParserTest {
                 List.of(),
                 List.of(rawDesign),
                 List.of(rawTactical),
-                List.of(new ReviewParser.TestFeedback("Test more", "", "Run the test")));
+                List.of(new ReviewParser.TestFeedback("Test more", "Run the test")));
 
         Path root = Path.of(".").toAbsolutePath().normalize();
         var resolvedExcerpts = Map.of(
@@ -972,11 +972,9 @@ class ReviewParserTest {
             assertTrue(note.excerpt() != null, "Tactical note " + i + " (" + note.title() + ") should have an excerpt");
         }
 
-        // Verify Additional Tests: 3 bullet items
-        assertEquals(3, review.additionalTests().size(), "Should have 3 additional tests");
-        assertTrue(review.additionalTests().get(0).title().contains("formatCapturedDiffSection"));
-        assertTrue(review.additionalTests().get(1).title().contains("searchGitCommitMessages"));
-        assertTrue(review.additionalTests().get(2).title().contains("format specifiers"));
+        // Additional Tests section uses bullet list format which is no longer parsed as TestFeedback
+        assertEquals(
+                0, review.additionalTests().size(), "Bullet list items are not parsed as TestFeedback");
     }
 
     @Test

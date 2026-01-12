@@ -815,9 +815,11 @@ public class ReviewAgent {
                 **Recommendation:** [Detailed instructions for the fix.]
 
                 ## Additional Tests [Omit this if no additional tests are needed]
-                - [Test description 1]
-                - [Test description 2]
-                - [etc]
+                ### [Title of first test suggestion]
+                **Recommendation:** [Detailed instructions for what to test and how.]
+
+                ### [Title of second test suggestion, etc.]
+                ...
 
                 ## Overview
                 [One or more paragraphs describing what the changes accomplish and big-picture analysis]

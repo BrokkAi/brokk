@@ -189,11 +189,11 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             }
         } else if (item instanceof TestFeedback feedback) {
             markdownChunks.add("### " + feedback.title());
-            markdownChunks.add(feedback.description());
             if (!feedback.recommendation().isBlank()) {
                 markdownChunks.add("**Recommendation:**\n" + feedback.recommendation());
-                String combinedText = feedback.description() + "\n\n" + feedback.recommendation();
-                addRecommendationButtons(feedback.title(), combinedText, isLast);
+                addRecommendationButtons(feedback.title(), feedback.recommendation(), isLast);
+            } else {
+                addNavigationButtons(isLast);
             }
         } else {
             throw new IllegalArgumentException("Unknown item type: " + item.getClass());

@@ -269,7 +269,7 @@ public class ReviewParser {
 
     public record TacticalFeedback(String title, String description, CodeExcerpt excerpt, String recommendation) {}
 
-    public record TestFeedback(String title, String description, String recommendation) {}
+    public record TestFeedback(String title, String recommendation) {}
 
     public record Section(String type, String title, String content) {}
 
@@ -584,20 +584,7 @@ public class ReviewParser {
                         }
                     } else if (currentTopLevelSection.equalsIgnoreCase("Additional Tests")) {
                         logger.debug("Parsing additional test: {}", headingText);
-                        additionalTests.add(
-                                new TestFeedback(headingText, content.description(), content.recommendation()));
-                    }
-                }
-            } else if (currentTopLevelSection.equalsIgnoreCase("Additional Tests") && node instanceof BulletList bl) {
-                // Handle bullet lists in Additional Tests section - each item becomes a test
-                for (Node item = bl.getFirstChild(); item != null; item = item.getNext()) {
-                    String itemText = item.getChars().toString().trim();
-                    // Remove leading "- " if present
-                    if (itemText.startsWith("- ")) {
-                        itemText = itemText.substring(2).trim();
-                    }
-                    if (!itemText.isEmpty()) {
-                        additionalTests.add(new TestFeedback(itemText, "", ""));
+                        additionalTests.add(new TestFeedback(headingText, content.recommendation()));
                     }
                 }
             } else if (currentTopLevelSection.equalsIgnoreCase("Overview")) {
