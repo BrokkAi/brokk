@@ -30,8 +30,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -702,8 +700,7 @@ public final class JobRunner {
                                                         logger.debug("Posted line comment on {}:{}", path, line);
                                                     } else {
                                                         skippedComments++;
-                                                        logger.debug(
-                                                                "Skipped duplicate comment on {}:{}", path, line);
+                                                        logger.debug("Skipped duplicate comment on {}:{}", path, line);
                                                     }
                                                 } catch (Exception e) {
                                                     logger.warn(
