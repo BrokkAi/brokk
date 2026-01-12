@@ -67,10 +67,6 @@ public final class JobRunner {
             var tags = spec.tags();
             var raw = tags.getOrDefault("mode", "").trim();
             if (raw.isEmpty()) return Mode.ARCHITECT;
-            // Handle legacy "pr_review" tag value - map to REVIEW mode
-            if (raw.equalsIgnoreCase("pr_review")) {
-                return Mode.REVIEW;
-            }
             return Mode.valueOf(raw.toUpperCase(Locale.ROOT));
         } catch (Exception ignore) {
             return Mode.ARCHITECT;

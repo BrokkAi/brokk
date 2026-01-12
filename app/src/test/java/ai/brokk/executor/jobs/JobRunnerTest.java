@@ -7,12 +7,12 @@ import org.junit.jupiter.api.Test;
 
 class JobRunnerTest {
     @Test
-    void testParseModeRecognizesPrReview() {
+    void testParseModeLegacyPrReviewFallsBackToArchitect() {
         var spec = JobSpec.of(
                 "test task", false, false, "test-model", null, null, false, Map.of("mode", "pr_review"), null, null);
 
         var mode = JobRunner.parseMode(spec);
-        assertEquals(JobRunner.Mode.REVIEW, mode);
+        assertEquals(JobRunner.Mode.ARCHITECT, mode);
     }
 
     @Test
@@ -24,9 +24,18 @@ class JobRunnerTest {
     }
 
     @Test
-    void testParseModeCaseInsensitive() {
+    void testParseModeCaseInsensitive_InvalidValueFallsBackToArchitect() {
         var spec = JobSpec.of(
                 "test task", false, false, "test-model", null, null, false, Map.of("mode", "PR_REVIEW"), null, null);
+
+        var mode = JobRunner.parseMode(spec);
+        assertEquals(JobRunner.Mode.ARCHITECT, mode);
+    }
+
+    @Test
+    void testParseModeRecognizesReviewCaseInsensitive() {
+        var spec = JobSpec.of(
+                "test task", false, false, "test-model", null, null, false, Map.of("mode", "ReViEw"), null, null);
 
         var mode = JobRunner.parseMode(spec);
         assertEquals(JobRunner.Mode.REVIEW, mode);
