@@ -5,11 +5,13 @@
   import { zoomStore } from '../stores/zoomStore';
 </script>
 
-{#if $staticDocStore?.tree}
-  <div class="static-document" style="--zoom-level: {$zoomStore}">
-    <HastRenderer tree={$staticDocStore.tree} plugins={rendererPlugins} />
-  </div>
-{/if}
+{#key $staticDocStore?.seq}
+  {#if $staticDocStore?.tree}
+    <div class="static-document" style="--zoom-level: {$zoomStore}">
+      <HastRenderer tree={$staticDocStore.tree} plugins={rendererPlugins} />
+    </div>
+  {/if}
+{/key}
 
 <style>
   .static-document {
