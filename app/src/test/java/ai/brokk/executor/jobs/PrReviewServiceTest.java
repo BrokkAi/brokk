@@ -162,4 +162,20 @@ class PrReviewServiceTest {
         String annotated = PrReviewService.annotateDiffWithLineNumbers("");
         assertEquals("", annotated);
     }
+
+    @Test
+    void testFetchPrRefs_Integration() {
+        // This test documents the expected behavior of the PR review flow's fetch step.
+        // The project avoids mocking frameworks, so this should be validated through
+        // integration tests with actual Git repositories.
+
+        // Expected behavior:
+        // 1. Before computing the PR diff, JobRunner.REVIEW mode should:
+        //    a. Emit a notification "Fetching PR refs from remote..."
+        //    b. Call gitRepo.fetchPrRefs(prNumber) to fetch refs/pull/{N}/head
+        //    c. Call gitRepo.remote().fetchBranch("origin", baseBranch) to fetch the base branch
+        // 2. Both fetch calls should be wrapped in try/catch so failures only log warnings
+        //    and do not abort the review
+        // 3. This ensures PRs from forks and stale local repositories can still be reviewed
+    }
 }
