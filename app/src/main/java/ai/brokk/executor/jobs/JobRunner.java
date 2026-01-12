@@ -731,7 +731,8 @@ public final class JobRunner {
                                                 Matcher matcher = linePattern.matcher(commentsSection);
 
                                                 while (matcher.find()) {
-                                                    String path = matcher.group(1).trim();
+                                                    String path =
+                                                            matcher.group(1).trim();
                                                     int line = Integer.parseInt(matcher.group(2));
                                                     String description =
                                                             matcher.group(3).trim();

@@ -315,8 +315,7 @@ class PrReviewServiceTest {
 
     @Test
     void testParsePrReviewResponse_MissingSummaryField() {
-        String json =
-                """
+        String json = """
                 {
                   "comments": []
                 }
