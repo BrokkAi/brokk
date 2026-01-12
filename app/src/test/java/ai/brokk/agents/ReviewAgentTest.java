@@ -68,13 +68,13 @@ class ReviewAgentTest {
         // Turn 1: Excerpt for file1 is good (index 0), Excerpt for wrong.java is bad (index 1)
         String resp1 =
                 """
+            At `file1.java` line 1:
             ```java
-            file1.java @1
             content1
             ```
 
+            At `wrong.java` line 1:
             ```java
-            wrong.java @1
             content2
             ```
             """;
@@ -84,8 +84,8 @@ class ReviewAgentTest {
         String resp2 =
                 """
             Excerpt 1:
+            At `file2.java` line 1:
             ```java
-            file2.java @1
             content2
             ```
             """;
@@ -114,8 +114,8 @@ class ReviewAgentTest {
         // Always return the same bad excerpt
         String badResp =
                 """
+            At `missing.java` line 1:
             ```java
-            missing.java @1
             content
             ```
             """;
@@ -125,8 +125,8 @@ class ReviewAgentTest {
         String badRetry =
                 """
             Excerpt 0:
+            At `missing.java` line 1:
             ```java
-            missing.java @1
             content
             ```
             """;
@@ -160,12 +160,12 @@ class ReviewAgentTest {
         ReviewAgent agent = new ReviewAgent(cm, cm.getIo(), List.of(info1));
 
         // Path is bad initially
-        String resp1 = "```\nbad.java @1\nc1\n```";
+        String resp1 = "At `bad.java` line 1:\n```\nc1\n```";
         // Stage 1: Fix path on first attempt. Total retries = 1.
-        String resp2 = "Excerpt 0:\n```\nfile1.java @1\nc1\n```";
+        String resp2 = "Excerpt 0:\nAt `file1.java` line 1:\n```\nc1\n```";
         // Stage 2: Content "c1" doesn't match "content1".
         // Let's provide 4 bad content fixes. It should stop after 3.
-        String badContentFix = "Excerpt 0:\n```\nfile1.java @1\nstill-wrong\n```";
+        String badContentFix = "Excerpt 0:\nAt `file1.java` line 1:\n```\nstill-wrong\n```";
 
         var stubModel =
                 new TestScriptedLanguageModel(resp1, resp2, badContentFix, badContentFix, badContentFix, badContentFix);
@@ -193,13 +193,13 @@ class ReviewAgentTest {
         // 1. Content normalization (excerpt has \r\n, file has \n - WhitespaceMatch handles this)
         String resp1 =
                 """
+            At `file.java` line 1:
             ```java
-            file.java @1
             line1\r\nline2-new
             ```
 
+            At `file.java` line 3:
             ```java
-            file.java @3
             line3
             ```
             """;
@@ -218,8 +218,8 @@ class ReviewAgentTest {
         // 3. Stage 1 passes (file exists), but Stage 2 fails (content doesn't match)
         String mismatchContent =
                 """
+            At `file.java` line 1:
             ```java
-            file.java @1
             no-match-here
             ```
             """;
@@ -227,8 +227,8 @@ class ReviewAgentTest {
         String fixContent =
                 """
             Excerpt 0:
+            At `file.java` line 4:
             ```java
-            file.java @4
             line4
             ```
             """;
@@ -265,13 +265,13 @@ class ReviewAgentTest {
         // Initial response: good.java is good, bad.java has bad path
         String resp1 =
                 """
+            At `good.java` line 1:
             ```java
-            good.java @1
             public class Good {}
             ```
 
+            At `bad.java` line 1:
             ```java
-            bad.java @1
             public class Fixed {}
             ```
             """;
@@ -280,8 +280,8 @@ class ReviewAgentTest {
         String resp2 =
                 """
             Excerpt 1:
+            At `fixed.java` line 1:
             ```java
-            fixed.java @1
             public class Fixed {}
             ```
             """;
@@ -321,13 +321,13 @@ class ReviewAgentTest {
         String resp1 =
                 """
                 Before 0.
+                At `file1.java` line 1:
                 ```java
-                file1.java @1
                 content1
                 ```
                 Between 0 and 1.
+                At `missing.java` line 1:
                 ```java
-                missing.java @1
                 content2
                 ```
                 After 1.""";
@@ -336,8 +336,8 @@ class ReviewAgentTest {
         String resp2 =
                 """
                 Excerpt 1:
+                At `file2.java` line 1:
                 ```java
-                file2.java @1
                 content2
                 ```""";
 
@@ -380,8 +380,8 @@ class ReviewAgentTest {
                 + "\n"
                 + "## Tactical Notes\n"
                 + "### Good Note\n"
+                + "At `file.java` line 1:\n"
                 + "```java\n"
-                + "file.java @1\n"
                 + "line1\n"
                 + "```\n"
                 + "Description here.\n"
@@ -414,8 +414,8 @@ class ReviewAgentTest {
         String resp1 =
                 """
                 Intro.
+                At `badpath.java` line 1:
                 ```java
-                badpath.java @1
                 line1
                 ```
                 Outro.""";
@@ -424,8 +424,8 @@ class ReviewAgentTest {
         String resp2 =
                 """
                 Excerpt 0:
+                At `file.java` line 1:
                 ```java
-                file.java @1
                 line1
                 ```""";
 

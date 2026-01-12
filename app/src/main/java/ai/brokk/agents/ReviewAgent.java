@@ -386,15 +386,15 @@ public class ReviewAgent {
             retryMessages.add(new UserMessage(
                     """
                     The following excerpts referenced unknown file paths.
-                    Please provide corrected code blocks starting with 'path/to/file @line' for ONLY these excerpts.
+                    Please provide corrected excerpts for ONLY these excerpts.
                     All other excerpts have been recorded successfully and do not need to be repeated.
 
                     %s
 
                     Use this format:
                     Excerpt 1:
+                    At `path/to/file.java` line 42:
                     ```
-                    path/to/file.java @42
                     corrected code
                     ```
                     """
@@ -489,15 +489,15 @@ public class ReviewAgent {
             retryMessages.add(new UserMessage(
                     """
                     The following excerpts could not be matched in the file content.
-                    Please provide corrected code blocks starting with 'path/to/file @line' for ONLY these excerpts.
+                    Please provide corrected excerpts for ONLY these excerpts.
                     All other excerpts have been recorded successfully and do not need to be repeated.
 
                     %s
 
                     Use this format:
                     Excerpt 1:
+                    At `path/to/file.java` line 42:
                     ```
-                    path/to/file.java @42
                     corrected code
                     ```
                     """
@@ -768,10 +768,10 @@ public class ReviewAgent {
                 Every section except Overview is optional; omit them if there is nothing important to say.
                 </instructions>
                 <excerpt_format>
-                When referencing code, use standard Markdown code blocks. The first line of the code block MUST be the file path and line number, followed by the excerpt.
+                When referencing code, use the following format with the file path and line number on a separate line before the code block:
 
+                At `path/to/file.java` line $line:
                 ```
-                path/to/file.java @$line
                 $code
                 ```
                 </excerpt_format>

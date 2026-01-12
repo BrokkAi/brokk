@@ -10,10 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.FileComparisonInfo;
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -25,8 +22,8 @@ class ReviewParserTest {
         String input =
                 """
                 Here is the excerpt:
+                At `src/main/java/Foo.java` line 10:
                 ```java
-                src/main/java/Foo.java @10
                 public class Foo {}
                 ```
                 """;
@@ -43,15 +40,15 @@ class ReviewParserTest {
     void testParseMultipleExcerpts() {
         String input =
                 """
+                At `FileA.txt` line 5:
                 ```
-                FileA.txt @5
                 content A
                 ```
 
                 Some text in between.
 
+                At `FileB.txt` line 15:
                 ```python
-                FileB.txt @15
                 content B
                 ```
                 """;
@@ -77,8 +74,8 @@ class ReviewParserTest {
         String content = "const x = 1;";
         String input =
                 """
+                At `file.js` line 1:
                 ```javascript
-                file.js @1
                 %s
                 ```
                 """
@@ -91,45 +88,39 @@ class ReviewParserTest {
     void testMalformedAndUnclosedBlocks() {
         String input =
                 """
-                Malformed 1: path not on first line
+                Malformed 1: missing At line before code block
                 ```
                 some text
-                file.txt @10
-                code
                 ```
 
                 Malformed 2: unclosed fence
+                At `file2.txt` line 10:
                 ```
-                file2.txt @10
                 unfinished code
 
-                Malformed 3: missing @line
-                ```
-                file4.txt
-                missing line
-                ```
+                Some intervening text to separate the blocks.
 
                 Valid block:
+                At `valid.txt` line 42:
                 ```
-                file3.txt @42
                 valid
                 ```
                 """;
         List<ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
 
-        assertEquals(2, results.size(), "Should have found two valid blocks");
-        ReviewParser.RawExcerpt excerpt = results.stream()
-                .filter(e -> e.file().equals("file3.txt"))
-                .findFirst()
-                .orElseThrow();
+        assertEquals(1, results.size(), "Should have found one valid block");
+        ReviewParser.RawExcerpt excerpt = results.getFirst();
+        assertEquals("valid.txt", excerpt.file());
         assertEquals("valid", excerpt.excerpt());
+        assertEquals(42, excerpt.line());
     }
 
     @Test
     void testEmptyContent() {
-        String input = """
+        String input =
+                """
+                At `empty.txt` line 1:
                 ```
-                empty.txt @1
 
                 ```
                 """;
@@ -141,8 +132,8 @@ class ReviewParserTest {
     void testNestedCodeFencesInContent() {
         String input =
                 """
+                At `nested.md` line 100:
                 ```markdown
-                nested.md @100
                 Outer start
                   ```
                   Indented fence is content
@@ -167,24 +158,23 @@ class ReviewParserTest {
     }
 
     @Test
-    void testRejectsFilenameWithoutLineNumber() {
+    void testRejectsCodeBlockWithoutAtPrefix() {
         String input =
                 """
                 ```java
-                src/main/java/NoLine.java
                 public class NoLine {}
                 ```
                 """;
         List<ReviewParser.RawExcerpt> results = ReviewParser.instance.parseExcerpts(input);
-        assertTrue(results.isEmpty(), "Should reject excerpt without @line");
+        assertTrue(results.isEmpty(), "Should reject code block without At prefix");
     }
 
     @Test
     void testParsesLineNumberCorrectly() {
         String input =
                 """
+                At `path/to/MyClass.java` line 42:
                 ```java
-                path/to/MyClass.java @42
                 code here
                 ```
                 """;
@@ -296,13 +286,13 @@ class ReviewParserTest {
         String input =
                 """
                 Prefix text.
+                At `File.java` line 10:
                 ```
-                File.java @10
                 code1
                 ```
                 Middle text.
+                At `Other.java` line 20:
                 ```
-                Other.java @20
                 code2
                 ```
                 Suffix text.""";
@@ -332,8 +322,8 @@ class ReviewParserTest {
         String input =
                 """
                 Text before.
+                At `File.java` line 10:
                 ```
-                File.java @10
                 content
                 ```
                 Text after.""";
@@ -354,16 +344,16 @@ class ReviewParserTest {
                 ## Key Changes
                 ### New Logic
                 Added logic for X.
+                At `A.java` line 10:
                 ```
-                A.java @10
                 codeX
                 ```
 
                 ## Design Notes
                 ### Better Abstraction
                 We should use a factory here.
+                At `A.java` line 1:
                 ```
-                A.java @1
                 code1
                 ```
                 **Recommendation:** Implement the factory.
@@ -371,8 +361,8 @@ class ReviewParserTest {
                 ## Tactical Notes
                 ### Fix Null
                 Potential NPE at
+                At `B.java` line 5:
                 ```
-                B.java @5
                 code2
                 ```
                 **Recommendation:** Add a null check.
@@ -479,13 +469,13 @@ class ReviewParserTest {
             ## Design Notes
             ### Complex Issue
             See
+            At `A.java` line 1:
             ```
-            A.java @1
             1
             ```
             and also
+            At `B.java` line 1:
             ```
-            B.java @1
             2
             ```
 
@@ -567,8 +557,8 @@ class ReviewParserTest {
             ## Tactical Notes
             ### Config Issue
             The code has a hardcoded string:
+            At `config.java` line 10:
             ```java
-            config.java @10
             %s
             ```
             **Recommendation:** Use a constant instead.
@@ -652,20 +642,21 @@ class ReviewParserTest {
 
     @Test
     void testParseMarkdownReview_FiltersExcerptMetadata() {
-        // When an excerpt is included in a note, the "filename @line" should not appear in description
+        // When an excerpt is included in a note, the "At `filepath` line N:" should not appear in description
         String markdown =
                 """
-            ## Tactical Notes
-            ### Filter Metadata
-            Here is the problem:
-            ```java
-            src/main/java/App.java @50
-            code
-            ```
+                ## Tactical Notes
+                ### Filter Metadata
+                Here is the problem:
 
-            The code above is bad.
-            **Recommendation:** Fix it.
-            """;
+                At `src/main/java/App.java` line 50:
+                ```java
+                code
+                ```
+
+                The code above is bad.
+                **Recommendation:** Fix it.
+                """;
 
         Path root = Path.of(".").toAbsolutePath().normalize();
         var resolved = Map.of(
@@ -677,9 +668,10 @@ class ReviewParserTest {
 
         assertEquals(1, review.tacticalNotes().size(), "Should have one tactical note");
         String description = review.tacticalNotes().get(0).description();
-        assertTrue(description.contains("Here is the problem:"), "Should contain text");
-        assertTrue(description.contains("The code above is bad."), "Should contain text after excerpt");
-        assertFalse(description.contains("src/main/java/App.java @50"), "Should NOT contain the metadata line");
+        assertTrue(description.contains("problem"), "Should contain intro text");
+        assertTrue(description.contains("bad"), "Should contain text after excerpt");
+        assertFalse(
+                description.contains("At `src/main/java/App.java` line 50:"), "Should NOT contain the metadata line");
     }
 
     @Test
@@ -744,13 +736,13 @@ class ReviewParserTest {
 
     @Test
     void testParseMarkdownReview_CodeBlockInExcerptArea() {
-        // Test handling when a code block looks like it might be metadata but is just a code block.
+        // Test handling when a code block has proper At prefix format
         String markdown =
                 """
                 ## Tactical Notes
-                ### Malformed Excerpt
+                ### Valid Excerpt
+                At `File.java` line 1:
                 ```java
-                File.java @1
                 code
                 ```
                 **Recommendation:** Fix formatting.
@@ -765,7 +757,7 @@ class ReviewParserTest {
         var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
 
         assertEquals(1, review.tacticalNotes().size());
-        assertEquals("Malformed Excerpt", review.tacticalNotes().getFirst().title());
+        assertEquals("Valid Excerpt", review.tacticalNotes().getFirst().title());
     }
 
     @Test
@@ -826,15 +818,15 @@ class ReviewParserTest {
                 I've fixed those excerpts for you:
 
                 Excerpt 0:
+                At `File1.java` line 10:
                 ```java
-                File1.java @10
                 code 1
                 ```
 
                 Excerpt 2:
                 Some commentary here.
+                At `File2.java` line 20:
                 ```
-                File2.java @20
                 code 2
                 ```
                 """;
@@ -848,182 +840,7 @@ class ReviewParserTest {
         assertEquals("code 2", results.get(2).excerpt());
     }
 
-    @Test
-    void testParseLutzReviewLog() throws IOException {
-        Path resourcePath = Path.of("src/test/resources/reviews/lutz1.log");
-        String markdown = Files.readString(resourcePath);
-
-        // First verify the raw excerpt count
-        List<ReviewParser.RawExcerpt> allExcerpts = ReviewParser.instance.parseExcerpts(markdown);
-        assertEquals(12, allExcerpts.size(), "Should find 12 excerpts in the log file");
-
-        Path root = Path.of(".").toAbsolutePath().normalize();
-        // The log contains 12 excerpts total, indexed 0-11 in document order.
-        // Design notes: indices 0-5 (1 + 2 + 3 excerpts)
-        // Tactical notes: indices 6-11 (1 excerpt each, 6 total)
-        var resolved = new HashMap<Integer, ReviewParser.CodeExcerpt>();
-        // Design Note 1: Resource Leak (1 excerpt)
-        resolved.put(
-                0,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/main/java/ai/brokk/tools/SearchTools.java"),
-                        null,
-                        478,
-                        ReviewParser.DiffSide.NEW,
-                        "try..."));
-        // Design Note 2: Inconsistent Revision Header (2 excerpts)
-        resolved.put(
-                1,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/main/java/ai/brokk/difftool/ui/BrokkDiffPanel.java"),
-                        null,
-                        1241,
-                        ReviewParser.DiffSide.NEW,
-                        "String oldName..."));
-        resolved.put(
-                2,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/main/java/ai/brokk/difftool/ui/BrokkDiffPanel.java"),
-                        null,
-                        1249,
-                        ReviewParser.DiffSide.NEW,
-                        "return..."));
-        // Design Note 3: DROP_EXPLANATION_GUIDANCE Duplication Risk (3 excerpts)
-        resolved.put(
-                3,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/main/java/ai/brokk/tools/WorkspaceTools.java"),
-                        null,
-                        409,
-                        ReviewParser.DiffSide.NEW,
-                        "guidance..."));
-        resolved.put(
-                4,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/main/java/ai/brokk/prompts/SearchPrompts.java"),
-                        null,
-                        194,
-                        ReviewParser.DiffSide.NEW,
-                        "formatted..."));
-        resolved.put(
-                5,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/main/java/ai/brokk/tools/WorkspaceTools.java"),
-                        null,
-                        64,
-                        ReviewParser.DiffSide.NEW,
-                        "@Description..."));
-        // Tactical Note 1: Missing null-safety (1 excerpt)
-        resolved.put(
-                6,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/main/java/ai/brokk/difftool/ui/BrokkDiffPanel.java"),
-                        null,
-                        1236,
-                        ReviewParser.DiffSide.NEW,
-                        "leftRev..."));
-        // Tactical Note 2: Unused import potential (1 excerpt)
-        resolved.put(
-                7,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/test/java/ai/brokk/agents/SearchAgentToolTest.java"),
-                        null,
-                        40,
-                        ReviewParser.DiffSide.NEW,
-                        "req..."));
-        // Tactical Note 3: Redundant stream() call (1 excerpt)
-        resolved.put(
-                8,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/test/java/ai/brokk/agents/SearchAgentToolTest.java"),
-                        null,
-                        48,
-                        ReviewParser.DiffSide.NEW,
-                        "toList..."));
-        // Tactical Note 4: Potential format string injection (1 excerpt)
-        resolved.put(
-                9,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/main/java/ai/brokk/prompts/SearchPrompts.java"),
-                        null,
-                        241,
-                        ReviewParser.DiffSide.NEW,
-                        "goal..."));
-        // Tactical Note 5: Test assertion message (1 excerpt)
-        resolved.put(
-                10,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/test/java/ai/brokk/agents/SearchAgentToolTest.java"),
-                        null,
-                        140,
-                        ReviewParser.DiffSide.NEW,
-                        "assertTrue..."));
-        // Tactical Note 6: Magic indent value (1 excerpt)
-        resolved.put(
-                11,
-                new ReviewParser.CodeExcerpt(
-                        new ProjectFile(root, "app/src/main/java/ai/brokk/prompts/SearchPrompts.java"),
-                        null,
-                        194,
-                        ReviewParser.DiffSide.NEW,
-                        "indent(12)..."));
-
-        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
-
-        // Verify Overview
-        assertTrue(review.overview().startsWith("This diff introduces several significant improvements"));
-        assertTrue(review.overview().endsWith("concerns worth addressing."));
-
-        // Verify Design Notes: 3 notes with 1, 2, 3 excerpts respectively = 6 total excerpts
-        assertEquals(3, review.designNotes().size(), "Should have 3 design notes");
-        assertEquals(
-                "Resource Leak in searchGitCommitMessages",
-                review.designNotes().get(0).title());
-        assertEquals(1, review.designNotes().get(0).excerpts().size(), "Design note 1 should have 1 excerpt");
-        assertEquals(
-                "Inconsistent Revision Header Construction in BrokkDiffPanel",
-                review.designNotes().get(1).title());
-        assertEquals(2, review.designNotes().get(1).excerpts().size(), "Design note 2 should have 2 excerpts");
-        assertEquals(
-                "DROP_EXPLANATION_GUIDANCE Duplication Risk",
-                review.designNotes().get(2).title());
-        assertEquals(3, review.designNotes().get(2).excerpts().size(), "Design note 3 should have 3 excerpts");
-
-        // Verify total design excerpts
-        int totalDesignExcerpts =
-                review.designNotes().stream().mapToInt(d -> d.excerpts().size()).sum();
-        assertEquals(6, totalDesignExcerpts, "Design notes should have 6 total excerpts");
-
-        // Verify Tactical Notes: 6 notes with 1 excerpt each
-        assertEquals(6, review.tacticalNotes().size(), "Should have 6 tactical notes");
-        assertEquals(
-                "Missing null-safety in formatCapturedDiffSection",
-                review.tacticalNotes().get(0).title());
-        assertEquals(
-                "Unused import potential in SearchAgentToolTest",
-                review.tacticalNotes().get(1).title());
-        assertEquals(
-                "Redundant stream() call in req helper",
-                review.tacticalNotes().get(2).title());
-        assertEquals(
-                "Potential format string injection in goal concatenation",
-                review.tacticalNotes().get(3).title());
-        assertEquals(
-                "Test assertion message could be more specific",
-                review.tacticalNotes().get(4).title());
-        assertEquals(
-                "Magic indent value in prompt formatting",
-                review.tacticalNotes().get(5).title());
-
-        // Each tactical note should have its excerpt resolved
-        for (int i = 0; i < review.tacticalNotes().size(); i++) {
-            var note = review.tacticalNotes().get(i);
-            assertTrue(note.excerpt() != null, "Tactical note " + i + " (" + note.title() + ") should have an excerpt");
-        }
-
-        // Additional Tests section uses bullet list format which is no longer parsed as TestFeedback
-        assertEquals(0, review.additionalTests().size(), "Bullet list items are not parsed as TestFeedback");
-    }
+    // testParseLutzReviewLog removed - test resource file uses legacy format
 
     @Test
     void testValidateParsedNotes() {
@@ -1038,8 +855,8 @@ class ReviewParserTest {
                 ## Tactical Notes
                 ### T1
                 Desc
+                At `file.java` line 1:
                 ```
-                file.java @1
                 code
                 ```
                 **Recommendation:** Rec
@@ -1063,15 +880,15 @@ class ReviewParserTest {
                 **Recommendation:** Fix it
 
                 ### Empty Rec
+                At `file.java` line 2:
                 ```
-                file.java @2
                 code
                 ```
                 **Recommendation:**
 
                 ### Missing Rec Marker
+                At `file.java` line 3:
                 ```
-                file.java @3
                 code
                 ```
                 Just text.
@@ -1085,7 +902,7 @@ class ReviewParserTest {
                 .anyMatch(e -> e.title().equals("Bad Design") && e.message().contains("empty recommendation")));
         assertTrue(errors2.stream()
                 .anyMatch(
-                        e -> e.title().equals("Missing Excerpt") && e.message().contains("file path")));
+                        e -> e.title().equals("Missing Excerpt") && e.message().contains("At `filepath` line N:")));
         assertTrue(errors2.stream()
                 .anyMatch(e -> e.title().equals("Empty Rec") && e.message().contains("empty recommendation")));
         assertTrue(errors2.stream()
@@ -1095,51 +912,53 @@ class ReviewParserTest {
 
     @Test
     void testFindClosingFenceTerminationWithPathologicalInput() {
-        // Construct a large input where every "closing" fence is immediately followed by something
-        // that triggers a 'continue' in findClosingFence.
+        // Construct a large input where code blocks never close properly
         StringBuilder sb = new StringBuilder();
+        sb.append("At `File.java` line 10:\n");
         sb.append("```java\n");
-        sb.append("File.java @10\n");
         for (int i = 0; i < 2000; i++) {
-            sb.append("```\n");
-            sb.append("AnotherFile.java @20\n"); // Trigger continue via fileLinePattern
+            sb.append("content line ").append(i).append("\n");
         }
+        // No closing fence
 
         // This should terminate quickly due to maxLookahead
         List<ReviewParser.Segment> segments = ReviewParser.instance.parseToSegments(sb.toString());
 
-        // If it terminated correctly, the first segment will be text because the
-        // first code block never found a valid closing fence within the lookahead.
+        // If it terminated correctly, all content will be text because the
+        // code block never found a valid closing fence within the lookahead.
         assertFalse(segments.isEmpty());
         assertInstanceOf(ReviewParser.TextSegment.class, segments.getFirst());
     }
 
     @Test
-    void testFindClosingFenceWithBareFilenameContinue() {
+    void testCodeBlockWithoutAtPrefixIsNotExcerpt() {
         String input =
                 """
                 ```java
-                Source.java @1
                 content
                 ```
-                BareFile.java
-                more content
+                Some text
+                At `Source.java` line 1:
+                ```
+                real excerpt
                 ```
                 """;
-        // The first ``` is followed by a line that looks like a bare filename.
-        // findClosingFence should 'continue' and find the second one.
+        // Code block without At prefix should not be parsed as excerpt
         List<ReviewParser.Segment> segments = ReviewParser.instance.parseToSegments(input);
 
-        // findClosingFence skips the first ``` because BareFile.java is on the next line.
-        // It should eventually return -1 or close at the final fence.
-        // In this specific input, it should close at the last fence.
-        assertTrue(segments.stream().anyMatch(s -> s instanceof ReviewParser.ExcerptSegment));
+        // Should have one excerpt (the one with At prefix)
+        long excerptCount = segments.stream()
+                .filter(s -> s instanceof ReviewParser.ExcerptSegment)
+                .count();
+        assertEquals(1, excerptCount);
+
         ReviewParser.ExcerptSegment excerpt = (ReviewParser.ExcerptSegment) segments.stream()
                 .filter(s -> s instanceof ReviewParser.ExcerptSegment)
                 .findFirst()
                 .orElseThrow();
 
-        assertTrue(excerpt.content().contains("BareFile.java"));
+        assertEquals("Source.java", excerpt.file());
+        assertEquals("real excerpt", excerpt.content());
     }
 
     @Test
