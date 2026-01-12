@@ -2,7 +2,10 @@ package ai.brokk.context;
 
 import ai.brokk.util.ComputedValue;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 import javax.swing.*;
 import javax.swing.event.AncestorEvent;
 import javax.swing.event.AncestorListener;
@@ -93,10 +96,9 @@ public final class ComputedSubscription {
 
         synchronized (owner) {
             @SuppressWarnings("unchecked")
-            java.util.Set<ComputedValue<?>> bound =
-                    (java.util.Set<ComputedValue<?>>) owner.getClientProperty(BOUND_CVS_KEY);
+            Set<ComputedValue<?>> bound = (Set<ComputedValue<?>>) owner.getClientProperty(BOUND_CVS_KEY);
             if (bound == null) {
-                bound = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+                bound = Collections.newSetFromMap(new IdentityHashMap<>());
                 owner.putClientProperty(BOUND_CVS_KEY, bound);
             }
             if (!bound.add(cv)) {

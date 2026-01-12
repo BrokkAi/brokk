@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.GitTestCleanupUtil;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
@@ -77,7 +78,7 @@ class GitDependencyAutoUpdateTest {
         String branch = remoteGit.getRepository().getBranch();
 
         // Seed the dependency directory with an initial clone, mirroring ImportDependencyDialog behavior.
-        try (var ignored = ai.brokk.git.GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch)) {
+        try (var ignored = GitRepoFactory.cloneRepo(remoteUrl, depDir, 1, branch)) {
             // Close GitRepo to release file handles
         }
 

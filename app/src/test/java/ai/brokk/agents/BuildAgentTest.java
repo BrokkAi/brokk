@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.project.MainProject;
+import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -294,7 +295,7 @@ class BuildAgentTest {
         // Create a project with existing exclusion patterns
         Files.createDirectory(tempDir.resolve("src"));
         Files.createDirectory(tempDir.resolve("build"));
-        var testProject = new ai.brokk.testutil.TestProject(tempDir);
+        var testProject = new TestProject(tempDir);
         testProject.setExclusionPatterns(Set.of("*.svg", "*.png", "build"));
 
         // Create a BuildAgent - we don't need LLM for this test

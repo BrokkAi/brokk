@@ -1,15 +1,10 @@
 package ai.brokk.git;
 
-import ai.brokk.analyzer.ProjectFile;
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 public interface ICommitInfo {
-    List<ProjectFile> changedFiles() throws GitAPIException;
-
     String id();
 
     String message();
@@ -31,11 +26,6 @@ public interface ICommitInfo {
 
         public CommitInfoStub(String message) {
             this.message = message;
-        }
-
-        @Override
-        public List<ProjectFile> changedFiles() {
-            return List.of();
         }
 
         @Override

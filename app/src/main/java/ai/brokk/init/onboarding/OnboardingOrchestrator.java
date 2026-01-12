@@ -1,11 +1,13 @@
 package ai.brokk.init.onboarding;
 
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -91,7 +93,7 @@ public class OnboardingOrchestrator {
             // Check .gitignore
             var gitignorePath = configRoot.resolve(".gitignore");
             boolean gitignoreExists = Files.exists(gitignorePath);
-            var gitignoreFile = new ai.brokk.analyzer.ProjectFile(configRoot, ".gitignore");
+            var gitignoreFile = new ProjectFile(configRoot, ".gitignore");
             boolean gitignoreConfigured = GitIgnoreUtils.isBrokkIgnored(gitignoreFile);
 
             // Check if onboarding was already completed (property in workspace.properties)
@@ -100,7 +102,7 @@ public class OnboardingOrchestrator {
             boolean onboardingCompleted = false;
             if (Files.exists(workspacePropsPath)) {
                 try (var reader = Files.newBufferedReader(workspacePropsPath)) {
-                    var props = new java.util.Properties();
+                    var props = new Properties();
                     props.load(reader);
                     onboardingCompleted = "true".equals(props.getProperty("onboardingCompleted"));
                 } catch (IOException ignored) {

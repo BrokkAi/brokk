@@ -6,6 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.GitWorkflow;
@@ -438,9 +439,9 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
         setupChangesTreeDoubleClick();
     }
 
-    private static Stream<ProjectFile> safeChangedFiles(ICommitInfo c) {
+    private static Stream<ProjectFile> safeChangedFiles(GitRepo repo, ICommitInfo c) {
         try {
-            List<ProjectFile> changedFilesList = c.changedFiles();
+            List<ProjectFile> changedFilesList = CommitInfo.changedFiles(repo, c.id());
             return changedFilesList.stream();
         } catch (GitAPIException ex) {
             String commitIdStr = "unknown";
@@ -1061,7 +1062,7 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
 
         contextManager.submitBackgroundTask("Fetching changes for commits", () -> {
             var allChangedFiles = commits.stream()
-                    .flatMap(GitCommitBrowserPanel::safeChangedFiles)
+                    .flatMap((ICommitInfo ci) -> safeChangedFiles(getRepo(), ci))
                     .collect(Collectors.toSet());
             final int changedCount = allChangedFiles.size();
             var newRootNode = new DefaultMutableTreeNode("Changes");
@@ -1491,6 +1492,16 @@ public class GitCommitBrowserPanel extends JPanel implements SettingsChangeListe
             if (!GitHubAuth.getOrCreateInstance(contextManager.getProject()).hasWriteAccess()) {
                 return new ButtonConfig(
                         false, "Your GitHub token does not have write permissions for this repository.", null);
+            }
+
+            // Check if a PR already exists for this branch
+            try {
+                if (GitHubAuth.getOrCreateInstance(contextManager.getProject()).hasOpenPullRequestForBranch(branch)) {
+                    return new ButtonConfig(false, "A pull request already exists for branch " + branch, null);
+                }
+            } catch (IOException e) {
+                logger.debug("Could not check for existing PRs for branch {}: {}", branch, e.getMessage());
+                // Continue - don't block PR creation just because we couldn't check
             }
         } catch (IOException e) {
             logger.warn(

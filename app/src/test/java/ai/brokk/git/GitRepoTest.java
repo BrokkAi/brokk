@@ -296,6 +296,44 @@ public class GitRepoTest {
     }
 
     @Test
+    void testCountCommitsSince_NormalCase() throws Exception {
+        // Record starting commit
+        String startCommit = repo.getCurrentCommitId();
+
+        // Create multiple commits
+        createCommit("file1.txt", "content1", "Commit 1");
+        createCommit("file2.txt", "content2", "Commit 2");
+        createCommit("file3.txt", "content3", "Commit 3");
+        createCommit("file4.txt", "content4", "Commit 4");
+
+        // Verify count from start to HEAD
+        int count = repo.countCommitsSince(startCommit);
+        assertEquals(4, count, "Should count exactly 4 commits since startCommit");
+
+        // Verify count from an intermediate commit
+        String midCommit = repo.getCurrentCommitId();
+        createCommit("file5.txt", "content5", "Commit 5");
+        assertEquals(1, repo.countCommitsSince(midCommit), "Should count 1 commit since midCommit");
+    }
+
+    @Test
+    void testCountCommitsSince_SameCommit() throws Exception {
+        String currentCommit = repo.getCurrentCommitId();
+        int count = repo.countCommitsSince(currentCommit);
+        assertEquals(0, count, "Should return 0 when comparing a commit to itself");
+    }
+
+    @Test
+    void testCountCommitsSince_InvalidHash() {
+        // Test with a completely invalid string
+        assertEquals(0, repo.countCommitsSince("not-a-hash"), "Should return 0 for invalid commit hash string");
+
+        // Test with a valid-looking but non-existent SHA
+        String nonExistentSha = "a".repeat(40);
+        assertEquals(0, repo.countCommitsSince(nonExistentSha), "Should return 0 for non-existent commit hash");
+    }
+
+    @Test
     void testGetCommitMessagesBetween_sameBranch() throws Exception {
         List<String> messages = repo.getCommitMessagesBetween(repo.getCurrentBranch(), repo.getCurrentBranch());
         assertTrue(messages.isEmpty(), "Should be no messages between a branch and itself.");

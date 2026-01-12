@@ -9,11 +9,14 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.*;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -27,6 +30,7 @@ import org.jetbrains.annotations.Nullable;
  *
  */
 public interface ContextFragment {
+    Logger logger = LogManager.getLogger(ContextFragment.class);
 
     @Blocking
     default boolean contentEquals(ContextFragment other) {
@@ -269,5 +273,40 @@ public interface ContextFragment {
     enum SummaryType {
         CODEUNIT_SKELETON,
         FILE_SKELETONS
+    }
+
+    /**
+     * Sorts editable fragments by the minimum file modification time (mtime) across their associated files.
+     * - Fragments with no files or inaccessible mtimes are given an mtime of 0 and will appear first.
+     * - Sorting is ascending (oldest first, newest last).
+     *
+     * @param editableFragments stream of editable fragments (typically from {@link Context#getEditableFragments()})
+     * @return stream of fragments sorted by min mtime
+     */
+    @Blocking
+    static Stream<ContextFragment> sortByMtime(Stream<ContextFragment> editableFragments) {
+        // Materialize min mtime for each fragment first to avoid recomputing during sort comparisons.
+        record Key(ContextFragment fragment, long minMtime) {}
+
+        return editableFragments
+                .map(cf -> {
+                    long minMtime = cf.files().join().stream()
+                            .mapToLong(pf -> {
+                                try {
+                                    return pf.mtime();
+                                } catch (IOException e) {
+                                    logger.warn(
+                                            "Could not get mtime for file in fragment [{}]; using 0",
+                                            cf.shortDescription(),
+                                            e);
+                                    return 0L;
+                                }
+                            })
+                            .min()
+                            .orElse(0L);
+                    return new Key(cf, minMtime);
+                })
+                .sorted(Comparator.comparingLong(k -> k.minMtime))
+                .map(k -> k.fragment);
     }
 }

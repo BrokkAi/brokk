@@ -38,8 +38,8 @@ public record TaskEntry(
         this(sequence, log, summary, null);
     }
 
-    public static TaskEntry from(ContextManager cm, List<ChatMessage> messages) {
-        var fragment = new ContextFragments.TaskFragment(cm, messages, "");
+    public static TaskEntry from(IContextManager cm, List<ChatMessage> messages, String description) {
+        var fragment = new ContextFragments.TaskFragment(cm, messages, description);
         return new TaskEntry(-1, fragment, null, null);
     }
 

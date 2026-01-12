@@ -12,6 +12,7 @@ import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
+import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -313,7 +314,7 @@ public class SummaryFragmentTest {
             var sfA = new SummaryFragment(cm, "ChildA", SummaryType.CODEUNIT_SKELETON);
             var sfB = new SummaryFragment(cm, "ChildB", SummaryType.CODEUNIT_SKELETON);
 
-            String combined = SummaryFragment.combinedText(java.util.List.of(sfA, sfB));
+            String combined = SummaryFragment.combinedText(List.of(sfA, sfB));
 
             // Combined text uses "by package" formatting, so it shouldn't have redundant ancestor headers
             assertFalse(combined.contains("// Direct ancestors"), "Combined text should use flat package formatting");

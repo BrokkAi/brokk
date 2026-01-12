@@ -369,9 +369,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> createGui() {
         assert SwingUtilities.isEventDispatchThread();
 
-        // Ensure style guide is initialized BEFORE creating Chrome
-        // (Chrome's constructor calls scheduleGitConfigurationAfterInit which needs the future)
-        styleGuideFuture = ensureStyleGuide();
+        // Ensure guides are loaded/generated off EDT
+        // (Chrome's constructor calls scheduleGitConfigurationAfterInit which needs the styleGuideFuture)
+        styleGuideFuture = ensureGuidesAsync();
 
         this.io = new Chrome(this);
         this.toolRegistry.register(new UiTools((Chrome) this.io));
@@ -389,8 +389,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                 + "Files that should be ignored may appear in the project.%n%n"
                                 + "To fix this, open the project from within the git repository root.",
                         projectRoot, workTreeRoot);
-                this.io.systemNotify(
-                        message, "Gitignore Configuration Warning", javax.swing.JOptionPane.WARNING_MESSAGE);
+                this.io.systemNotify(message, "Gitignore Configuration Warning", JOptionPane.WARNING_MESSAGE);
             }
         }
 
@@ -422,9 +421,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var contextTask =
                 submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
 
-        // Ensure review guide and build details are loaded/generated asynchronously
-        // (style guide was initialized earlier, before Chrome creation)
-        ensureReviewGuide();
+        // Ensure build details are loaded/generated asynchronously
+        // (style and review guides are handled by ensureGuidesAsync() called earlier)
         ensureBuildDetailsAsync();
         cleanupOldHistoryAsync();
 
@@ -1453,8 +1451,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    public Context setTaskList(TaskList.TaskListData data) {
-        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+    public void setTaskListAsync(TaskList.TaskListData data) {
+        submitContextTask(() -> {
+            pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+        });
     }
 
     public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data) {
@@ -1468,6 +1468,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Notify listeners and UI on the EDT
         SwingUtilities.invokeLater(() -> {
             notifyContextListeners(liveContext());
+
             io.updateContextHistoryTable(liveContext());
             if (io instanceof Chrome) {
                 io.enableActionButtons();
@@ -1686,8 +1687,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.warn("notifyContextListeners called with null context");
             return;
         }
+        var taskList = ctx.getTaskListDataOrEmpty();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
+            listener.onTaskListChanged(taskList);
         }
     }
 
@@ -1695,9 +1698,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public CompletableFuture<String> summarizeTaskForConversation(String input) {
+        return summarize(input, SummarizerPrompts.WORD_BUDGET_5);
+    }
+
+    public CompletableFuture<String> summarize(String input, int words) {
         var future = new CompletableFuture<String>();
 
-        var worker = new SummarizeWorker(this, input, SummarizerPrompts.WORD_BUDGET_5) {
+        var worker = new SummarizeWorker(this, input, words) {
             @Override
             protected void done() {
                 try {
@@ -1917,135 +1924,147 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Removed BuildCommand record
 
-    /** Ensure style guide exists, generating if needed. */
-    public CompletableFuture<String> ensureStyleGuide() {
-        String existingStyleGuide = project.getStyleGuide();
+    /**
+     * Ensure both style and review guides exist, reading from disk off EDT.
+     * Style guide is generated via LLM if missing; review guide uses a default template.
+     * Returns a CompletableFuture for the style guide content.
+     */
+    public CompletableFuture<String> ensureGuidesAsync() {
+        return submitBackgroundTask("Loading project guides", () -> {
+            // Handle review guide off EDT
+            ensureReviewGuide();
 
-        if (!existingStyleGuide.isEmpty()) {
-            logger.info("Style guide already exists; skipping generation");
-            return CompletableFuture.completedFuture(existingStyleGuide);
-        }
+            // Handle style guide off EDT
+            String existingStyleGuide = project.getStyleGuide();
+            if (!existingStyleGuide.isEmpty()) {
+                logger.info("Style guide already exists; skipping generation");
+                return existingStyleGuide;
+            }
 
-        if (!project.hasGit()) {
-            logger.info("No Git repository found, skipping style guide generation.");
-            styleGenerationSkipped = true;
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
-            return CompletableFuture.completedFuture("");
-        }
-
-        return submitBackgroundTask("Generating style guide", () -> {
-            try {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
-                // Use a reasonable limit for style guide generation context
-                var topClasses = GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), 10);
-
-                if (topClasses.isEmpty()) {
-                    io.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "No classes found via PageRank for style guide generation.");
-                    String fallbackContent =
-                            "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n";
-                    project.saveStyleGuide(fallbackContent);
-                    return fallbackContent;
-                }
-
-                var codeForLLM = new StringBuilder();
-                var tokens = 0;
-                int MAX_STYLE_TOKENS = 30000; // Limit context size for style guide
-                for (var file : topClasses) {
-                    if (file.isBinary()) {
-                        continue;
-                    }
-                    String chunk; // Declare chunk once outside the try-catch
-                    var contentOpt = file.read();
-                    // Use project root for relative path display if possible
-                    var relativePath =
-                            project.getRoot().relativize(file.absPath()).toString();
-                    if (contentOpt.isEmpty()) {
-                        logger.warn("Skipping unreadable file {} for style guide", relativePath);
-                        continue;
-                    }
-                    chunk = "<file path=\"%s\">\n%s\n</file>\n".formatted(relativePath, contentOpt.get());
-                    // Calculate tokens and check limits
-                    var chunkTokens = Messages.getApproximateTokens(chunk);
-                    if (tokens > 0 && tokens + chunkTokens > MAX_STYLE_TOKENS) { // Check if adding exceeds limit
-                        logger.debug(
-                                "Style guide context limit ({}) reached after {} tokens.", MAX_STYLE_TOKENS, tokens);
-                        break; // Exit the loop if limit reached
-                    }
-                    if (chunkTokens > MAX_STYLE_TOKENS) { // Skip single large files
-                        logger.debug(
-                                "Skipping large file {} ({} tokens) for style guide context.",
-                                relativePath,
-                                chunkTokens);
-                        continue; // Skip to next file
-                    }
-                    // Append chunk if within limits
-                    codeForLLM.append(chunk);
-                    tokens += chunkTokens;
-                    logger.trace(
-                            "Added {} ({} tokens, total {}) to style guide context", relativePath, chunkTokens, tokens);
-                }
-
-                if (codeForLLM.isEmpty()) {
-                    io.showNotification(
-                            IConsoleIO.NotificationRole.INFO, "No relevant code found for style guide generation");
-                    String fallbackContent = "# Style Guide\n\n(No relevant code found for generation)\n";
-                    project.saveStyleGuide(fallbackContent);
-                    return fallbackContent;
-                }
-
-                var messages = List.of(
-                        new SystemMessage(
-                                "You are an expert software engineer. Your task is to extract a concise coding style guide from the provided code examples."),
-                        new UserMessage(
-                                """
-                                        Based on these code examples, create a concise, clear coding style guide in Markdown format
-                                        that captures the conventions used in this codebase, particularly the ones that leverage new or uncommon features.
-                                        DO NOT repeat what are simply common best practices.
-
-                                        %s
-                                        """
-                                        .formatted(codeForLLM)));
-
-                var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide")
-                        .sendRequest(messages);
-                if (result.error() != null) {
-                    String message =
-                            "Failed to generate style guide: " + result.error().getMessage();
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-                    String fallbackContent = "# Style Guide\n\n(Generation failed)\n";
-                    project.saveStyleGuide(fallbackContent);
-                    return fallbackContent;
-                }
-                var styleGuide = result.text();
-                if (styleGuide.isBlank()) {
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM returned empty style guide.");
-                    String fallbackContent = "# Style Guide\n\n(LLM returned empty result)\n";
-                    project.saveStyleGuide(fallbackContent);
-                    return fallbackContent;
-                }
-                project.saveStyleGuide(styleGuide);
-                styleGenerationSkipped = false; // Reset flag after successful generation
-
-                String savedFileName;
-                Path agentsPath = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
-                if (Files.exists(agentsPath)) {
-                    savedFileName = "AGENTS.md";
-                } else {
-                    savedFileName = ".brokk/style.md";
-                }
+            if (!project.hasGit()) {
+                logger.info("No Git repository found, skipping style guide generation.");
+                styleGenerationSkipped = true;
                 io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
-                return styleGuide;
-            } catch (Exception e) {
-                logger.error("Error generating style guide", e);
-                String fallbackContent = "# Style Guide\n\n(Error during generation)\n";
+                        IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
+                return "";
+            }
+
+            // Generate style guide via LLM
+            return generateStyleGuide();
+        });
+    }
+
+    /** Generate style guide via LLM. Must be called off EDT. */
+    private String generateStyleGuide() {
+        try {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
+            // Use a reasonable limit for style guide generation context
+            if (!(project.getRepo() instanceof GitRepo gitRepo)) {
+                logger.warn(
+                        "Expected GitRepo but found {}",
+                        project.getRepo().getClass().getName());
+                return "";
+            }
+            var topClasses = GitDistance.getMostImportantFiles(gitRepo, 10);
+
+            if (topClasses.isEmpty()) {
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "No classes found via PageRank for style guide generation.");
+                String fallbackContent =
+                        "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n";
                 project.saveStyleGuide(fallbackContent);
                 return fallbackContent;
             }
-        });
+
+            var codeForLLM = new StringBuilder();
+            var tokens = 0;
+            int MAX_STYLE_TOKENS = 30000; // Limit context size for style guide
+            for (var file : topClasses) {
+                if (file.isBinary()) {
+                    continue;
+                }
+                var contentOpt = file.read();
+                // Use project root for relative path display if possible
+                var relativePath = project.getRoot().relativize(file.absPath()).toString();
+                if (contentOpt.isEmpty()) {
+                    logger.warn("Skipping unreadable file {} for style guide", relativePath);
+                    continue;
+                }
+                var chunk = "<file path=\"%s\">\n%s\n</file>\n".formatted(relativePath, contentOpt.get());
+                // Calculate tokens and check limits
+                var chunkTokens = Messages.getApproximateTokens(chunk);
+                if (tokens > 0 && tokens + chunkTokens > MAX_STYLE_TOKENS) {
+                    logger.debug("Style guide context limit ({}) reached after {} tokens.", MAX_STYLE_TOKENS, tokens);
+                    break;
+                }
+                if (chunkTokens > MAX_STYLE_TOKENS) {
+                    logger.debug(
+                            "Skipping large file {} ({} tokens) for style guide context.", relativePath, chunkTokens);
+                    continue;
+                }
+                codeForLLM.append(chunk);
+                tokens += chunkTokens;
+                logger.trace(
+                        "Added {} ({} tokens, total {}) to style guide context", relativePath, chunkTokens, tokens);
+            }
+
+            if (codeForLLM.isEmpty()) {
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "No relevant code found for style guide generation");
+                String fallbackContent = "# Style Guide\n\n(No relevant code found for generation)\n";
+                project.saveStyleGuide(fallbackContent);
+                return fallbackContent;
+            }
+
+            var messages = List.of(
+                    new SystemMessage(
+                            "You are an expert software engineer. Your task is to extract a concise coding style guide from the provided code examples."),
+                    new UserMessage(
+                            """
+                            Based on these code examples, create a concise, clear coding style guide in Markdown format
+                            that captures the conventions used in this codebase, particularly the ones that leverage new or uncommon features.
+                            DO NOT repeat what are simply common best practices.
+
+                            %s
+                            """
+                                    .formatted(codeForLLM)));
+
+            var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide")
+                    .sendRequest(messages);
+            if (result.error() != null) {
+                String message =
+                        "Failed to generate style guide: " + result.error().getMessage();
+                io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                String fallbackContent = "# Style Guide\n\n(Generation failed)\n";
+                project.saveStyleGuide(fallbackContent);
+                return fallbackContent;
+            }
+            var styleGuide = result.text();
+            if (styleGuide.isBlank()) {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM returned empty style guide.");
+                String fallbackContent = "# Style Guide\n\n(LLM returned empty result)\n";
+                project.saveStyleGuide(fallbackContent);
+                return fallbackContent;
+            }
+            project.saveStyleGuide(styleGuide);
+            styleGenerationSkipped = false;
+
+            String savedFileName;
+            Path agentsPath = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
+            if (Files.exists(agentsPath)) {
+                savedFileName = "AGENTS.md";
+            } else {
+                savedFileName = ".brokk/style.md";
+            }
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
+            return styleGuide;
+        } catch (Exception e) {
+            logger.error("Error generating style guide", e);
+            String fallbackContent = "# Style Guide\n\n(Error during generation)\n";
+            project.saveStyleGuide(fallbackContent);
+            return fallbackContent;
+        }
     }
 
     /**
@@ -2064,14 +2083,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return styleGenerationSkipped;
     }
 
-    /** Ensure review guide exists, generating if needed */
+    /** Ensure review guide exists, creating default if needed. Safe to call from any thread. */
     private void ensureReviewGuide() {
         if (!project.getReviewGuide().isEmpty()) {
             return;
         }
-
         project.saveReviewGuide(MainProject.DEFAULT_REVIEW_GUIDE);
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Review guide created at .brokk/review.md");
+    }
+
+    /**
+     * Force regenerate style guide via LLM. Used after Git is configured.
+     * Returns a CompletableFuture for the regenerated style guide content.
+     */
+    public CompletableFuture<String> regenerateStyleGuideAsync() {
+        return submitBackgroundTask("Regenerating style guide", () -> {
+            if (!project.hasGit()) {
+                logger.info("No Git repository found, skipping style guide regeneration.");
+                styleGenerationSkipped = true;
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "No Git repository found, skipping style guide regeneration.");
+                return "";
+            }
+            return generateStyleGuide();
+        });
     }
 
     // Reduced retry count for compression - it's non-critical and shouldn't block session navigation
@@ -2124,12 +2160,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return entry.withSummary(summary);
     }
 
-    /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTaskUngrouped(String input) {
-        return beginTask(input, false, null);
-    }
-
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
+    @Override
     public TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
         // prepare MOP
         var history = liveContext().getTaskHistory();
@@ -2162,7 +2194,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * This means it is the agent's responsibility to propagate any sub-agents' Contexts
      * without losing important history.
      */
-    public final class TaskScope implements AutoCloseable {
+    public class TaskScope implements AutoCloseable {
         private final boolean groupAndCompress;
         private final AtomicBoolean closed = new AtomicBoolean(false);
         private final UUID groupId = UUID.randomUUID();
@@ -2265,6 +2297,28 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             analyzerWrapper.resume();
         }
+    }
+
+    public class AnonymousScope extends TaskScope {
+        private AnonymousScope() {
+            super(false, "");
+        }
+
+        @Override
+        public Context append(TaskResult result) throws InterruptedException {
+            return result.context();
+        }
+
+        @Override
+        public void publish(Context context) {}
+
+        @Override
+        public void close() throws InterruptedException {}
+    }
+
+    @Override
+    public AnonymousScope anonymousScope() {
+        return new AnonymousScope();
     }
 
     public List<Context> getContextHistoryList() {

@@ -12,6 +12,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -312,7 +313,7 @@ class GitRepoIgnoreConfiguratorTest {
                     public synchronized void add(ProjectFile file) throws GitAPIException {}
 
                     @Override
-                    public synchronized void add(java.util.Collection<ProjectFile> files) throws GitAPIException {}
+                    public synchronized void add(Collection<ProjectFile> files) throws GitAPIException {}
 
                     @Override
                     public synchronized void remove(ProjectFile file) throws GitAPIException {}

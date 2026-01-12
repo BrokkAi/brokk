@@ -661,7 +661,6 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 formatSecondsMillis(mergeWall),
                 formatSecondsMillis(totalWall));
 
-        // Post-processing: resolve imports then compute supertypes in a single pipeline
         var postProcessed = runPostProcessing(initialState);
         this.state = postProcessed;
 
@@ -4156,6 +4155,41 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         CUWithDepth best = new CUWithDepth(current, depth);
         for (var child : childrenOf(current)) {
             var candidate = findDeepestEnclosing(child, range, depth + 1);
+            if (candidate != null && candidate.depth > best.depth) {
+                best = candidate;
+            }
+        }
+        return best;
+    }
+
+    @Override
+    public Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine) {
+        if (startLine > endLine) return Optional.empty();
+
+        CodeUnit best = null;
+        int bestDepth = -1;
+
+        for (var top : getTopLevelDeclarations(file)) {
+            var res = findDeepestEnclosingByLine(top, startLine, endLine, 0);
+            if (res != null && res.depth > bestDepth) {
+                best = res.cu;
+                bestDepth = res.depth;
+            }
+        }
+
+        return Optional.ofNullable(best);
+    }
+
+    private @Nullable CUWithDepth findDeepestEnclosingByLine(CodeUnit current, int startLine, int endLine, int depth) {
+        boolean containsCurrent =
+                rangesOf(current).stream().anyMatch(r -> startLine >= r.startLine() && endLine <= r.endLine());
+        if (!containsCurrent) {
+            return null;
+        }
+
+        CUWithDepth best = new CUWithDepth(current, depth);
+        for (var child : childrenOf(current)) {
+            var candidate = findDeepestEnclosingByLine(child, startLine, endLine, depth + 1);
             if (candidate != null && candidate.depth > best.depth) {
                 best = candidate;
             }
