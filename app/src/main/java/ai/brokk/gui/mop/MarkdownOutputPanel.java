@@ -219,11 +219,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void append(String text, ChatMessageType type, boolean isNewMessage) {
-        append(text, type, isNewMessage, false);
-    }
-
-    public void append(String text, ChatMessageType type, LlmOutputMeta meta) {
+    public void append(String text, ChatMessageType type,  LlmOutputMeta meta) {
         if (text.isEmpty()) {
             return;
         }
@@ -231,13 +227,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         boolean isNewMessage = meta.isNewMessage();
         boolean reasoning = meta.isReasoning();
         boolean terminal = meta.isTerminal();
-        append(text, type, isNewMessage, reasoning);
-    }
-
-    public void append(String text, ChatMessageType type, boolean isNewMessage, boolean reasoning) {
-        if (text.isEmpty()) {
-            return;
-        }
 
         // If transient message was visible, this chunk should start a new message
         boolean wasTransientVisible = transientMessageVisible;
