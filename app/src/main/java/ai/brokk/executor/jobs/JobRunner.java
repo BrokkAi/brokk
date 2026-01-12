@@ -596,7 +596,7 @@ public final class JobRunner {
                                             var context = cm.liveContext();
 
                                             // 2. Create GitHubAuth and get PR
-                                            var gitHubAuth = new GitHubAuth(repoOwner, repoName, null);
+                                            var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
                                             var ghRepo = gitHubAuth.getGhRepository();
                                             var pr = ghRepo.getPullRequest(prNumber);
 
