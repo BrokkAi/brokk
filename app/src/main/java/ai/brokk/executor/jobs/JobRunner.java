@@ -20,6 +20,7 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.util.List;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
@@ -582,21 +583,27 @@ public final class JobRunner {
 
                                             try {
                                                 gitRepo.fetchPrRefs(prNumber);
-                                            } catch (Exception e) {
+                                            } catch (GitAPIException e) {
                                                 logger.warn(
                                                         "Failed to fetch PR refs for PR #{}: {}",
                                                         prNumber,
                                                         e.getMessage());
+                                                throw new IllegalStateException(
+                                                        "Failed to fetch PR refs for PR #" + prNumber, e);
                                             }
 
                                             try {
                                                 gitRepo.remote().fetchBranch("origin", baseBranch);
-                                            } catch (Exception e) {
+                                            } catch (GitAPIException e) {
                                                 logger.warn(
                                                         "Failed to fetch base branch '{}' for PR #{}: {}",
                                                         baseBranch,
                                                         prNumber,
                                                         e.getMessage());
+                                                throw new IllegalStateException(
+                                                        "Failed to fetch base branch '" + baseBranch + "' for PR #"
+                                                                + prNumber,
+                                                        e);
                                             }
 
                                             @Nullable
