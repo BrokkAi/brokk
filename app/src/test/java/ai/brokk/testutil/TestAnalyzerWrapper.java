@@ -25,6 +25,9 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
 
     @Override
     public CompletableFuture<IAnalyzer> updateFiles(Set<ProjectFile> relevantFiles) {
+        if (analyzer != null) {
+            return CompletableFuture.completedFuture(analyzer.update(relevantFiles));
+        }
         return CompletableFuture.failedFuture(new UnsupportedOperationException("Not used in this test"));
     }
 
