@@ -56,4 +56,32 @@ public class JavaTestDetectionTest {
                 ContextManager.isTestFile(testFile, analyzer),
                 "ContextManager should classify file as test based on analyzer result");
     }
+
+    @Test
+    void testNullableAnnotationNotDetectedAsTest() throws Exception {
+        String nullableContent =
+                """
+            package com.example;
+            import org.jspecify.annotations.Nullable;
+            public class MyService {
+                public @Nullable String getValue() {
+                    return null;
+                }
+            }
+            """;
+
+        String fileName = "src/com/example/MyService.java";
+
+        var project = InlineTestProjectCreator.code(nullableContent, fileName).build();
+
+        ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+
+        JavaAnalyzer analyzer = new JavaAnalyzer(project);
+        analyzer = (JavaAnalyzer) analyzer.update();
+
+        // @Nullable should NOT be detected as a test marker
+        assertFalse(
+                analyzer.containsTests(file),
+                "@Nullable annotation should NOT be detected as test marker");
+    }
 }
