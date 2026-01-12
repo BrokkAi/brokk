@@ -39,12 +39,15 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * Encapsulates all state that will be sent to the model (prompts, filename context, conversation history).
  */
 public class Context {
     private static final Logger logger = LogManager.getLogger(Context.class);
+
+    private static boolean expandSupportingFragments = true;
 
     private final UUID id;
     public static final Context EMPTY = new Context(new IContextManager() {});
@@ -119,6 +122,11 @@ public class Context {
         return UuidCreator.getTimeOrderedEpoch();
     }
 
+    @TestOnly
+    public static void setExpandSupportingFragments(boolean enabled) {
+        expandSupportingFragments = enabled;
+    }
+
     /**
      * Adds fragments to the context.
      * <p>
@@ -138,8 +146,10 @@ public class Context {
 
         // Expand with supporting fragments
         List<ContextFragment> expanded = new ArrayList<>(toAdd);
-        for (ContextFragment f : toAdd) {
-            expanded.addAll(f.supportingFragments());
+        if (expandSupportingFragments) {
+            for (ContextFragment f : toAdd) {
+                expanded.addAll(f.supportingFragments());
+            }
         }
 
         // 1. Deduplicate the expanded collection internally first.
