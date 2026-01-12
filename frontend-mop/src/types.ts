@@ -4,12 +4,14 @@ export type BrokkEvent =
   | {
       type: 'chunk';
       text: string;
-      isNew: boolean;
-      streaming: boolean;
       msgType: 'USER' | 'AI' | 'SYSTEM';
-      reasoning: boolean;
-      terminal: boolean;
+      streaming: boolean;
       epoch: number;
+      meta: {
+        isNewMessage: boolean;
+        isReasoning: boolean;
+        isTerminal: boolean;
+      };
     }
   | {
       type: 'clear';
