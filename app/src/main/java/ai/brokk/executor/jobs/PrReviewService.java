@@ -2,6 +2,8 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.git.GitRepo;
 import java.io.IOException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -18,6 +20,7 @@ import org.kohsuke.github.HttpException;
  */
 public final class PrReviewService {
     private static final Logger logger = LogManager.getLogger(PrReviewService.class);
+    private static final Pattern HUNK_PATTERN = Pattern.compile("^@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@");
 
     private PrReviewService() {
         throw new UnsupportedOperationException("Utility class");
@@ -134,5 +137,79 @@ public final class PrReviewService {
             }
         }
         return false;
+    }
+
+    /**
+     * Annotates a unified diff with explicit line numbers for LLM review.
+     *
+     * <p>Transforms standard unified diff format into an annotated format where each content line
+     * is prefixed with [OLD:N NEW:N] markers showing the exact line numbers:
+     *
+     * <ul>
+     *   <li>Context lines: [OLD:N NEW:M] (both line numbers)</li>
+     *   <li>Added lines: [OLD:- NEW:N] (only new line number)</li>
+     *   <li>Removed lines: [OLD:N NEW:-] (only old line number)</li>
+     * </ul>
+     *
+     * <p>File headers (diff --git, ---, +++, index) are preserved as-is without annotation.
+     *
+     * @param unifiedDiff the standard unified diff string
+     * @return the annotated diff with line number prefixes
+     */
+    public static String annotateDiffWithLineNumbers(String unifiedDiff) {
+        if (unifiedDiff.isEmpty()) {
+            return "";
+        }
+
+        String[] lines = unifiedDiff.split("\n", -1);
+        StringBuilder result = new StringBuilder();
+        int oldLine = 0;
+        int newLine = 0;
+
+        for (String line : lines) {
+            if (line.startsWith("diff --git") || line.startsWith("---") || line.startsWith("+++")
+                    || line.startsWith("index ")) {
+                result.append(line).append('\n');
+            } else if (line.startsWith("@@")) {
+                Matcher matcher = HUNK_PATTERN.matcher(line);
+                if (matcher.find()) {
+                    oldLine = Integer.parseInt(matcher.group(1));
+                    newLine = Integer.parseInt(matcher.group(2));
+                }
+                result.append(line).append('\n');
+            } else if (line.startsWith(" ")) {
+                result.append("[OLD:")
+                        .append(oldLine)
+                        .append(" NEW:")
+                        .append(newLine)
+                        .append("] ")
+                        .append(line)
+                        .append('\n');
+                oldLine++;
+                newLine++;
+            } else if (line.startsWith("+")) {
+                result.append("[OLD:- NEW:")
+                        .append(newLine)
+                        .append("] ")
+                        .append(line)
+                        .append('\n');
+                newLine++;
+            } else if (line.startsWith("-")) {
+                result.append("[OLD:")
+                        .append(oldLine)
+                        .append(" NEW:-] ")
+                        .append(line)
+                        .append('\n');
+                oldLine++;
+            } else {
+                result.append(line).append('\n');
+            }
+        }
+
+        if (result.length() > 0 && result.charAt(result.length() - 1) == '\n') {
+            result.setLength(result.length() - 1);
+        }
+
+        return result.toString();
     }
 }
