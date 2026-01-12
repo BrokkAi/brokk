@@ -23,7 +23,9 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -31,6 +33,16 @@ public class ContextNoGitFallbackTest {
 
     @TempDir
     Path tempDir;
+
+    @BeforeEach
+    public void disableSupportingFragmentsExpansion() {
+        Context.setExpandSupportingFragments(false);
+    }
+
+    @AfterEach
+    public void restoreSupportingFragmentsExpansion() {
+        Context.setExpandSupportingFragments(true);
+    }
 
     @Test
     public void noGitFallbackUsesImportPageRanker() throws Exception {
