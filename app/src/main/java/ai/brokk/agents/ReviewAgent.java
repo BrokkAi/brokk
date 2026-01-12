@@ -349,7 +349,7 @@ public class ReviewAgent {
             currentResponseText = correctFailedNotes(llm, currentResponseText, validationErrors);
         }
 
-        List<ChatMessage> retryMessages = new ArrayList<>(turn1Messages);
+        List<ChatMessage> retryFileMessages = new ArrayList<>(turn1Messages);
         Map<Integer, RawExcerpt> validPathExcerpts = new HashMap<>();
         int totalRetries = 0;
 
@@ -382,8 +382,8 @@ public class ReviewAgent {
             String reasoning = (currentResult.chatResponse() != null)
                     ? requireNonNullElse(currentResult.chatResponse().reasoningContent(), "")
                     : "";
-            retryMessages.add(new AiMessage(textToValidate, reasoning));
-            retryMessages.add(new UserMessage(
+            retryFileMessages.add(new AiMessage(textToValidate, reasoning));
+            retryFileMessages.add(new UserMessage(
                     """
                     The following excerpts referenced unknown file paths.
                     Please provide corrected excerpts for ONLY these excerpts.
@@ -401,7 +401,7 @@ public class ReviewAgent {
                             .formatted(errorList)));
 
             llm.setOutput(io);
-            currentResult = llm.sendRequest(retryMessages);
+            currentResult = llm.sendRequest(retryFileMessages);
             totalRetries++;
             if (currentResult.error() != null) {
                 throw new ReviewGenerationException("LLM error during file resolution retry", currentResult.error());
@@ -479,14 +479,14 @@ public class ReviewAgent {
 
             Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
 
-            retryMessages.clear();
-            retryMessages.add(buildSystemMessage());
-            retryMessages.add(buildAnalysisRequestMessage());
-            retryMessages.add(new AiMessage(mergedResponseText));
-            retryMessages.addAll(
+            var retryTextMessages = new ArrayList<ChatMessage>();
+            retryTextMessages.add(buildSystemMessage());
+            retryTextMessages.addAll(
                     WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
+            retryTextMessages.add(buildAnalysisRequestMessage());
+            retryTextMessages.add(new AiMessage(mergedResponseText));
 
-            retryMessages.add(new UserMessage(
+            retryTextMessages.add(new UserMessage(
                     """
                     The following excerpts could not be matched in the file content.
                     Please provide corrected excerpts for ONLY these excerpts.
@@ -504,7 +504,7 @@ public class ReviewAgent {
                             .formatted(errorList)));
 
             llm.setOutput(io);
-            Llm.StreamingResult textResult = llm.sendRequest(retryMessages);
+            Llm.StreamingResult textResult = llm.sendRequest(retryTextMessages);
             totalRetries++;
             if (textResult.error() != null) {
                 throw new ReviewGenerationException("LLM error during text resolution retry", textResult.error());
