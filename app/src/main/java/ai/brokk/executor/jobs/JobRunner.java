@@ -606,12 +606,8 @@ public final class JobRunner {
                                                         e);
                                             }
 
-                                            @Nullable
-                                            String remoteName =
-                                                    gitRepo.remote().getOriginRemoteNameWithFallback();
-                                            String baseRef = (remoteName != null)
-                                                    ? remoteName + "/" + baseBranch
-                                                    : baseBranch;
+                                            String baseRef =
+                                                    gitRepo.remote().resolveRemoteTrackingRef(baseBranch);
 
                                             // 4. Compute PR diff
                                             String diff = PrReviewService.computePrDiff(

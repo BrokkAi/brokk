@@ -447,6 +447,20 @@ public class GitRepoRemote {
     }
 
     /**
+     * Resolves the remote tracking branch reference for a given branch name.
+     *
+     * <p>Uses the origin remote (with fallback) to construct a remote tracking ref
+     * like "origin/main". If no remote is available, returns the branch name as-is.
+     *
+     * @param branchName the local branch name (e.g., "main")
+     * @return the remote tracking reference (e.g., "origin/main") or the branch name if no remote
+     */
+    public String resolveRemoteTrackingRef(String branchName) {
+        String remoteName = getOriginRemoteNameWithFallback();
+        return (remoteName != null) ? remoteName + "/" + branchName : branchName;
+    }
+
+    /**
      * Get the URL of the origin remote with fallback to target remote.
      * Preferred for GitHub PR operations.
      */
