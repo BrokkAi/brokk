@@ -73,6 +73,7 @@ import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipArchiveInputStream;
+import org.apache.commons.compress.archivers.zip.ZipArchiveOutputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 
 public class Helper {
@@ -485,6 +486,42 @@ public class Helper {
             }
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    public static final void zip(final List<Path> pathsToZip, final Path zipFile, final boolean includeEmptyDirs) throws IOException {
+        try (ZipArchiveOutputStream zos = new ZipArchiveOutputStream(zipFile.toFile())) {
+            for (Path path : pathsToZip) {
+                if (Files.isDirectory(path)) {
+                    Files.walk(path)
+                         .forEach(p -> {
+                             if (!includeEmptyDirs && Files.isDirectory(p)) {
+                                 return;
+                             }
+                             String name = path.getParent().relativize(p).toString().replace('\\', '/');
+                             if (Files.isDirectory(p) && !name.endsWith("/")) {
+                                 name += "/";
+                             }
+                             ZipArchiveEntry entry = new ZipArchiveEntry(p.toFile(), name);
+                             try {
+                                 zos.putArchiveEntry(entry);
+                                 if (Files.isRegularFile(p)) {
+                                     Files.copy(p, zos);
+                                 }
+                                 zos.closeArchiveEntry();
+                             } catch (IOException e) {
+                                 throw new RuntimeException(e);
+                             }
+                         });
+                } else {
+                    String name = path.getFileName().toString();
+                    ZipArchiveEntry entry = new ZipArchiveEntry(path.toFile(), name);
+                    zos.putArchiveEntry(entry);
+                    Files.copy(path, zos);
+                    zos.closeArchiveEntry();
+                }
+            }
+            zos.finish();
         }
     }
 
