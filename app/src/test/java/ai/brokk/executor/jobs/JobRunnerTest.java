@@ -12,7 +12,7 @@ class JobRunnerTest {
                 "test task", false, false, "test-model", null, null, false, Map.of("mode", "pr_review"), null, null);
 
         var mode = JobRunner.parseMode(spec);
-        assertEquals(JobRunner.Mode.PR_REVIEW, mode);
+        assertEquals(JobRunner.Mode.REVIEW, mode);
     }
 
     @Test
@@ -29,6 +29,6 @@ class JobRunnerTest {
                 "test task", false, false, "test-model", null, null, false, Map.of("mode", "PR_REVIEW"), null, null);
 
         var mode = JobRunner.parseMode(spec);
-        assertEquals(JobRunner.Mode.PR_REVIEW, mode);
+        assertEquals(JobRunner.Mode.REVIEW, mode);
     }
 }
