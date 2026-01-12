@@ -20,7 +20,6 @@ import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
 import java.util.List;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
@@ -33,6 +32,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -565,7 +565,8 @@ public final class JobRunner {
 
                                             // 3a. Fetch PR refs and base branch from a single resolved remote to
                                             // ensure the refs we diff against exist locally.
-                                            var gitRepo = (GitRepo) cm.getProject().getRepo();
+                                            var gitRepo =
+                                                    (GitRepo) cm.getProject().getRepo();
 
                                             String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
                                             if (remoteName == null) {
@@ -578,7 +579,8 @@ public final class JobRunner {
                                                         jobId,
                                                         JobEvent.of(
                                                                 "NOTIFICATION",
-                                                                "Fetching PR refs from remote '" + remoteName + "'..."));
+                                                                "Fetching PR refs from remote '" + remoteName
+                                                                        + "'..."));
                                             } catch (IOException ioe) {
                                                 logger.warn(
                                                         "Failed to append fetch notification event for job {}: {}",
@@ -595,8 +597,8 @@ public final class JobRunner {
                                                         remoteName,
                                                         e.getMessage());
                                                 throw new IllegalStateException(
-                                                        "Failed to fetch PR ref for PR #" + prNumber
-                                                                + " from remote '" + remoteName + "'",
+                                                        "Failed to fetch PR ref for PR #" + prNumber + " from remote '"
+                                                                + remoteName + "'",
                                                         e);
                                             }
 
