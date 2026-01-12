@@ -1044,16 +1044,26 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         // Parse and display
-        var rawReview = ReviewParser.RawReview.fromJson(json);
-        var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(contextManager, clipboardData);
-        var guidedReview = ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
-
-        SwingUtilities.invokeLater(() -> {
-            hasGeneratedReview = true;
-            requestUpdate(); // Re-trigger refreshUI to handle card layout and panel visibility
-            codeReviewPanel.displayReview(guidedReview, Context.EMPTY);
-            codeReviewPanel.getListPanel().setStalenessNotice(null);
-        });
+        CompletableFuture.supplyAsync(() -> {
+                    var rawReview = ReviewParser.RawReview.fromJson(json);
+                    var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(contextManager, clipboardData);
+                    return ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
+                })
+                .thenAccept(guidedReview -> {
+                    SwingUtilities.invokeLater(() -> {
+                        hasGeneratedReview = true;
+                        requestUpdate(); // Re-trigger refreshUI to handle card layout and panel visibility
+                        codeReviewPanel.displayReview(guidedReview, Context.EMPTY);
+                        codeReviewPanel.getListPanel().setStalenessNotice(null);
+                    });
+                })
+                .exceptionally(ex -> {
+                    logger.warn("Failed to parse pasted review", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.toolError("Failed to parse review from clipboard: " + ex.getMessage());
+                    });
+                    return null;
+                });
     }
 
     private @Nullable String formatStalenessMessage(StalenessInfo staleness) {
