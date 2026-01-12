@@ -846,6 +846,7 @@ public class Brokk {
                     // Walk the cause chain to find the most informative message
                     // (e.g., our friendly Linux library error messages)
                     var userMessage = findUserFriendlyMessage(ex);
+                    boolean isFatalDependencyError = userMessage != null; // DependencyException found
                     String errorMessage;
                     if (userMessage != null) {
                         // Use the friendly message directly without extra wrapper
@@ -865,6 +866,10 @@ public class Brokk {
                         hideSplashScreen(); // Hide splash before showing error dialog
                         JOptionPane.showMessageDialog(
                                 null, errorMessage, "Project Open Error", JOptionPane.ERROR_MESSAGE);
+                        if (isFatalDependencyError) {
+                            // Fatal dependency errors (missing native libs) are unrecoverable - exit immediately
+                            System.exit(1);
+                        }
                     });
                     openCompletionFuture.complete(false);
                     return null;
