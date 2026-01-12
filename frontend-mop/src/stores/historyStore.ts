@@ -60,9 +60,10 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                         type: msg.msgType,
                         markdown: msg.text,
                         streaming: false,
-                        reasoning: isReasoning,
-                        reasoningComplete: isReasoning,
-                        isCollapsed: isReasoning,
+                        reasoningState: isReasoning ? {
+                            complete: true,
+                            isCollapsed: true,
+                        } : undefined,
                     });
                 });
 

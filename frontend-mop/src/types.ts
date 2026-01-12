@@ -62,18 +62,21 @@ export interface BufferItem {
   args?: unknown[];
 }
 
+export type ReasoningState = {
+  startTime?: number;           // ms timestamp when the reasoning started
+  complete: boolean;            // true when the reasoning stream ends (was reasoningComplete)
+  duration?: number;            // calculated duration in seconds
+  isCollapsed: boolean;         // for UI state
+};
+
 export type BubbleState = Bubble & {
   threadId: number;
   hast?: ResultMsg['tree'];     // latest parsed tree
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing
 
-  // Properties for Reasoning bubbles
-  reasoning?: boolean;
-  startTime?: number;           // ms timestamp when the reasoning started
-  reasoningComplete?: boolean;  // true when the reasoning stream ends
-  duration?: number;            // calculated duration in seconds
-  isCollapsed?: boolean;        // for UI state
+  // Optional reasoning state - presence indicates this is a reasoning bubble
+  reasoningState?: ReasoningState;
 };
 
 /**

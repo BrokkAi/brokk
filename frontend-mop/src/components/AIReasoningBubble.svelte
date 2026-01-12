@@ -9,29 +9,31 @@
     const hlVar = '--message-border-ai-reasoning';
     const bgVar = '--message-background';
 
+    const reasoningState = bubble.reasoningState;
+
     // Round to 1 decimal as the UI displays
-    $: displayDuration = bubble.duration != null ? Number(bubble.duration.toFixed(1)) : 0;
+    $: displayDuration = reasoningState?.duration != null ? Number(reasoningState.duration.toFixed(1)) : 0;
 
     // Show "Thoughts" when the rounded display is 0.0
-    $: showThoughtsLabel = bubble.reasoningComplete && displayDuration === 0;
+    $: showThoughtsLabel = !!reasoningState?.complete && displayDuration === 0;
 
     function toggleCollapse() {
         // Only allow toggling when reasoning is complete.
-        if (bubble.reasoningComplete) {
+        if (reasoningState?.complete) {
             toggleBubbleCollapsed(bubble.seq);
         }
     }
 </script>
 
-<BaseBubble {bubble} {hlVar} {bgVar} collapsed={!!bubble.isCollapsed}>
+<BaseBubble {bubble} {hlVar} {bgVar} collapsed={!!reasoningState?.isCollapsed}>
     <div
         slot="header"
-        class="reasoning-header {bubble.isCollapsed ? 'collapsed' : ''}"
-        style:color={bubble.reasoningComplete ? 'var(--ai-reasoning-header-foreground)' : `var(${hlVar})`}
+        class="reasoning-header {reasoningState?.isCollapsed ? 'collapsed' : ''}"
+        style:color={reasoningState?.complete ? 'var(--ai-reasoning-header-foreground)' : `var(${hlVar})`}
         on:click={toggleCollapse}
     >
-        {#if bubble.reasoningComplete}
-            <Icon icon={bubble.isCollapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'}
+        {#if reasoningState?.complete}
+            <Icon icon={reasoningState.isCollapsed ? 'mdi:chevron-right' : 'mdi:chevron-down'}
                   style="margin-right: 0.35em;"/>
             <span class="title">
                 {#if showThoughtsLabel}

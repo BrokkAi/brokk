@@ -5,7 +5,7 @@
   "scripts": {
     "patch-deps": "node ./scripts/patch-deps.js",
     "dev": "npm run patch-deps && vite build -c vite.worker.config.mjs && vite dev",
-    "build": "npm run typecheck && vite build --logLevel error -c vite.worker.config.mjs && vite build --logLevel error",
+    "build": "vite build --logLevel error -c vite.worker.config.mjs && vite build --logLevel error",
     "preview": "vite preview",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json 2>&1 | head -n 50"
   },

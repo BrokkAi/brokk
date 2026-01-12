@@ -40,17 +40,17 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 const lastBubble = list.at(-1);
                 // If the last message was a streaming reasoning bubble and the new one is not,
                 // mark the reasoning as complete, immutably.
-                if (lastBubble?.reasoning && !lastBubble.reasoningComplete && !evt.reasoning) {
+                if (lastBubble?.reasoningState && !lastBubble.reasoningState.complete && !evt.meta.isReasoning) {
                     const updatedBubble = finalizeReasoningBubble(lastBubble);
                     list = [...list.slice(0, -1), updatedBubble];
                 }
 
                 const isStreaming = evt.streaming ?? false;
                 // Decide if we append or start a new bubble
-                const needNew = evt.isNew ||
+                const needNew = evt.meta.isNewMessage ||
                     list.length === 0 ||
                     evt.msgType !== lastBubble?.type ||
-                    evt.reasoning !== (lastBubble?.reasoning ?? false);
+                    evt.meta.isReasoning !== !!lastBubble?.reasoningState;
 
 
                 let bubble: BubbleState;
@@ -63,13 +63,12 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         markdown: evt.text ?? '',
                         epoch: evt.epoch,
                         streaming: isStreaming,
-                        reasoning: evt.reasoning ?? false,
+                        reasoningState: evt.meta.isReasoning ? {
+                            startTime: Date.now(),
+                            complete: false,
+                            isCollapsed: false,
+                        } : undefined,
                     };
-                    if (bubble.reasoning) {
-                        bubble.startTime = Date.now();
-                        bubble.reasoningComplete = false;
-                        bubble.isCollapsed = false;
-                    }
                     list = [...list, bubble];
                     if (isStreaming) {
                         // clear with flush (boundary for next message)
@@ -146,24 +145,38 @@ export function reparseAll(contextId = 'main-context'): void {
 export function toggleBubbleCollapsed(seq: number): void {
     bubblesStore.update(list => {
         return list.map(bubble => {
-            if (bubble.seq === seq) {
-                return {...bubble, isCollapsed: !bubble.isCollapsed};
+            if (bubble.seq !== seq) {
+                return bubble;
             }
-            return bubble;
+            if (!bubble.reasoningState) {
+                return bubble;
+            }
+            return {
+                ...bubble,
+                reasoningState: {
+                    ...bubble.reasoningState,
+                    isCollapsed: !bubble.reasoningState.isCollapsed,
+                },
+            };
         });
     });
 }
 
 /* ─── helpers ─────────────────────────────────────────── */
 function finalizeReasoningBubble(b: BubbleState): BubbleState {
-    if (!b.reasoning) return b;
-    const durationInMs = b.startTime ? Date.now() - b.startTime : 0;
+    if (!b.reasoningState) return b;
+
+    const durationInMs = b.reasoningState.startTime ? Date.now() - b.reasoningState.startTime : 0;
+
     return {
         ...b,
         streaming: false,
-        reasoningComplete: true,
-        duration: durationInMs / 1000,
-        isCollapsed: true,
+        reasoningState: {
+            ...b.reasoningState,
+            complete: true,
+            duration: durationInMs / 1000,
+            isCollapsed: true,
+        },
     };
 }
 
@@ -188,7 +201,7 @@ export function setLiveTaskInProgress(inProgress: boolean): void {
             if (b.streaming) {
                 updated = {...updated, streaming: false};
             }
-            if (b.reasoning && !b.reasoningComplete) {
+            if (b.reasoningState && !b.reasoningState.complete) {
                 updated = finalizeReasoningBubble(updated);
             }
             return updated;
