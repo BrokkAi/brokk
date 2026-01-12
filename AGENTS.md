@@ -1,6 +1,6 @@
-# Coding Style Guide
+# Brokk Coding Guide
 
-## General principles
+## Null Safety
 
 1. **Null Away**: This project is built with Null Away: fields, parameter, and return values are non-null by default. 
 Annotate exceptions to this rule with @Nullable (imported from org.jetbrains.annotations). Use requireNonNull 
@@ -11,6 +11,10 @@ returned by Collectors.partitioningBy. You do not need either requireNonNull or 
 or return value is not annotated @Nullable.
 1. **RedundantNullCheck**: Try to resolve `RedundantNullCheck` warnings by either removing the redundant null check or by annotating the reported variable or method with @Nullable (imported from org.jetbrains.annotations). Do NOT suppress the `RedundantNullCheck` warnings.
 1. **@NullMarked**: Add `@org.jspecify.annotations.NullMarked` to `package-info.java` for any new Java source code packages.
+1. **Optional**: Prefer returning Optional from methods to @Nullable; the opposite is generally the case for method parameters.
+
+## General Principles
+
 1. **Java 21 features**: The codebase leverages Java features up to JDK 21. Embrace the lambdas! and also getFirst/getLast, Collectors.toList, pattern matching for instanceof, records and record patterns, etc.
 1. **Prefer functional streams to manual loops**: Leverage streams for transforming collections, joining to Strings, etc.
 1. **Favor Immutable Data Structures**: Prefer `List.of` and `Map.of`, as well as the Stream Collectors.
