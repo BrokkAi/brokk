@@ -1,10 +1,19 @@
 package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.executor.jobs.PrReviewService.PrDetails;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitTestCleanupUtil;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Tests for PrReviewService.
@@ -35,13 +44,61 @@ class PrReviewServiceTest {
     }
 
     @Test
-    void testComputePrDiff_ThrowsWhenNoMergeBase() {
-        // This test would require mocking GitRepo, which the project avoids.
-        // In practice, this scenario should be tested in integration tests
-        // where a real GitRepo with unrelated branches is set up.
+    void testComputePrDiff_ThrowsWhenNoMergeBase(@TempDir Path tempDir) throws Exception {
+        Git git = null;
+        GitRepo repo = null;
 
-        // Placeholder to document expected behavior:
-        // When getMergeBase returns null, computePrDiff should throw IllegalStateException
+        try {
+            // Initialize git repository
+            git = Git.init().setDirectory(tempDir.toFile()).call();
+
+            // Configure user for commits
+            git.getRepository().getConfig().setString("user", null, "name", "Test User");
+            git.getRepository().getConfig().setString("user", null, "email", "test@example.com");
+            git.getRepository().getConfig().setBoolean("commit", null, "gpgsign", false);
+            git.getRepository().getConfig().save();
+
+            // Create initial commit on master branch
+            Path initialFile = tempDir.resolve("initial.txt");
+            Files.writeString(initialFile, "initial content\n", StandardCharsets.UTF_8);
+            git.add().addFilepattern("initial.txt").call();
+            git.commit().setMessage("Initial commit on master").setSign(false).call();
+
+            // Create orphan branch with no common history
+            git.checkout().setOrphan(true).setName("orphan-branch").call();
+
+            // Create a file on the orphan branch
+            Path orphanFile = tempDir.resolve("orphan.txt");
+            Files.writeString(orphanFile, "orphan content\n", StandardCharsets.UTF_8);
+            git.add().addFilepattern("orphan.txt").call();
+            git.commit().setMessage("Orphan commit").setSign(false).call();
+
+            // Create GitRepo instance
+            repo = new GitRepo(tempDir);
+
+            // Assert precondition: no merge-base exists between master and orphan-branch
+            assertNull(
+                    repo.getMergeBase("master", "orphan-branch"),
+                    "Should have no merge-base between unrelated branches");
+
+            // Test that computePrDiff throws IllegalStateException
+            final GitRepo repoForLambda = repo;
+            IllegalStateException exception = assertThrows(
+                    IllegalStateException.class,
+                    () -> PrReviewService.computePrDiff(repoForLambda, "master", "orphan-branch"),
+                    "Should throw IllegalStateException when no merge-base exists");
+
+            // Verify exception message contains expected content
+            String message = exception.getMessage();
+            assertTrue(message.contains("No merge-base found"), "Message should contain 'No merge-base found'");
+            assertTrue(message.contains("base branch 'master'"), "Message should contain 'base branch 'master''");
+            assertTrue(
+                    message.contains("head ref 'orphan-branch'"),
+                    "Message should contain 'head ref 'orphan-branch''");
+
+        } finally {
+            GitTestCleanupUtil.cleanupGitResources(repo, git);
+        }
     }
 
     @Test
