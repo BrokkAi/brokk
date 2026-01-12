@@ -35,8 +35,9 @@ public final class PrReviewService {
 
     /** Structured PR review response from LLM. */
     public record PrReviewResponse(String summaryMarkdown, List<InlineComment> comments) {
-        public PrReviewResponse {
-            comments = List.copyOf(comments);
+        public PrReviewResponse(String summaryMarkdown, @Nullable List<InlineComment> comments) {
+            this.summaryMarkdown = summaryMarkdown;
+            this.comments = comments == null ? List.of() : List.copyOf(comments);
         }
 
         public PrReviewResponse(String summaryMarkdown) {
