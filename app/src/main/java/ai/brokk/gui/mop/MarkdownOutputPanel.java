@@ -4,6 +4,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.webview.MOPBridge;
@@ -220,6 +221,17 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public void append(String text, ChatMessageType type, boolean isNewMessage) {
         append(text, type, isNewMessage, false);
+    }
+
+    public void append(String text, ChatMessageType type, LlmOutputMeta meta) {
+        if (text.isEmpty()) {
+            return;
+        }
+
+        boolean isNewMessage = meta.isNewMessage();
+        boolean reasoning = meta.isReasoning();
+        boolean terminal = meta.isTerminal();
+        append(text, type, isNewMessage, reasoning);
     }
 
     public void append(String text, ChatMessageType type, boolean isNewMessage, boolean reasoning) {

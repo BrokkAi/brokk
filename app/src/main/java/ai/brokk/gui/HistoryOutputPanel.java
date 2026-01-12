@@ -1332,7 +1332,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         // Apply any staged preset exactly once before the first token of the next stream
         applyPresetIfNeeded();
 
-        llmStreamArea.append(text, type, meta.isNewMessage(), meta.isReasoning());
+        llmStreamArea.append(text, type, meta);
     }
 
     /**
