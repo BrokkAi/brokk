@@ -34,6 +34,7 @@
 (attribute_list) @annotation
 
 ; Test detection markers
+; Filtering for specific test attributes (e.g., [Test], [Fact]) is handled in CSharpAnalyzer.java
 (method_declaration
   (attribute_list
     (attribute
