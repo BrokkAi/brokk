@@ -2,10 +2,14 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -195,9 +199,10 @@ class ReviewParserTest {
 
         var rawReview = new ReviewParser.RawReview(
                 "Overview",
+                List.of(),
                 List.of(rawDesign),
                 List.of(rawTactical),
-                List.of(new ReviewParser.ReviewFeedback("Test more", "", "Run the test")));
+                List.of(new ReviewParser.TestFeedback("Test more", "Run the test")));
 
         Path root = Path.of(".").toAbsolutePath().normalize();
         var resolvedExcerpts = Map.of(
@@ -398,6 +403,14 @@ class ReviewParserTest {
                 ## Overview
                 This is a good change.
 
+                ## Key Changes
+                ### New Logic
+                Added logic for X.
+                ```
+                A.java @10
+                codeX
+                ```
+
                 ## Design Notes
                 ### Better Abstraction
                 We should use a factory here.
@@ -431,14 +444,21 @@ class ReviewParserTest {
         var resolved = Map.of(
                 0,
                         new ReviewParser.CodeExcerpt(
-                                new ProjectFile(root, "A.java"), null, 1, ReviewParser.DiffSide.NEW, "code1"),
+                                new ProjectFile(root, "A.java"), null, 10, ReviewParser.DiffSide.NEW, "codeX"),
                 1,
+                        new ReviewParser.CodeExcerpt(
+                                new ProjectFile(root, "A.java"), null, 1, ReviewParser.DiffSide.NEW, "code1"),
+                2,
                         new ReviewParser.CodeExcerpt(
                                 new ProjectFile(root, "B.java"), null, 5, ReviewParser.DiffSide.NEW, "code2"));
 
         var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
 
         assertEquals("This is a good change.", review.overview());
+        assertEquals(1, review.keyChanges().size());
+        assertEquals("New Logic", review.keyChanges().get(0).title());
+        assertEquals(1, review.keyChanges().get(0).excerpts().size());
+
         assertEquals(1, review.designNotes().size());
         assertEquals("Better Abstraction", review.designNotes().get(0).title());
         assertEquals("Implement the factory.", review.designNotes().get(0).recommendation());
@@ -551,7 +571,7 @@ class ReviewParserTest {
         var rawDesign = new ReviewParser.RawDesignFeedback(
                 "Title", "Description with\\ncode block and more text.", List.of(0), "Recommendation with\\nmore");
 
-        var rawReview = new ReviewParser.RawReview("Overview", List.of(rawDesign), List.of(), List.of());
+        var rawReview = new ReviewParser.RawReview("Overview", List.of(), List.of(rawDesign), List.of(), List.of());
 
         Path root = Path.of(".").toAbsolutePath().normalize();
         var resolvedExcerpts = Map.of(
@@ -881,6 +901,183 @@ class ReviewParserTest {
     }
 
     @Test
+    void testParseLutzReviewLog() throws IOException {
+        Path resourcePath = Path.of("src/test/resources/reviews/lutzreview.log");
+        String markdown = Files.readString(resourcePath);
+
+        // First verify the raw excerpt count
+        List<ReviewParser.RawExcerpt> allExcerpts = ReviewParser.instance.parseExcerpts(markdown);
+        assertEquals(12, allExcerpts.size(), "Should find 12 excerpts in the log file");
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        // The log contains 12 excerpts total, indexed 0-11 in document order.
+        // Design notes: indices 0-5 (1 + 2 + 3 excerpts)
+        // Tactical notes: indices 6-11 (1 excerpt each, 6 total)
+        var resolved = new HashMap<Integer, ReviewParser.CodeExcerpt>();
+        // Design Note 1: Resource Leak (1 excerpt)
+        resolved.put(
+                0,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/main/java/ai/brokk/tools/SearchTools.java"),
+                        null,
+                        478,
+                        ReviewParser.DiffSide.NEW,
+                        "try..."));
+        // Design Note 2: Inconsistent Revision Header (2 excerpts)
+        resolved.put(
+                1,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/main/java/ai/brokk/difftool/ui/BrokkDiffPanel.java"),
+                        null,
+                        1241,
+                        ReviewParser.DiffSide.NEW,
+                        "String oldName..."));
+        resolved.put(
+                2,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/main/java/ai/brokk/difftool/ui/BrokkDiffPanel.java"),
+                        null,
+                        1249,
+                        ReviewParser.DiffSide.NEW,
+                        "return..."));
+        // Design Note 3: DROP_EXPLANATION_GUIDANCE Duplication Risk (3 excerpts)
+        resolved.put(
+                3,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/main/java/ai/brokk/tools/WorkspaceTools.java"),
+                        null,
+                        409,
+                        ReviewParser.DiffSide.NEW,
+                        "guidance..."));
+        resolved.put(
+                4,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/main/java/ai/brokk/prompts/SearchPrompts.java"),
+                        null,
+                        194,
+                        ReviewParser.DiffSide.NEW,
+                        "formatted..."));
+        resolved.put(
+                5,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/main/java/ai/brokk/tools/WorkspaceTools.java"),
+                        null,
+                        64,
+                        ReviewParser.DiffSide.NEW,
+                        "@Description..."));
+        // Tactical Note 1: Missing null-safety (1 excerpt)
+        resolved.put(
+                6,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/main/java/ai/brokk/difftool/ui/BrokkDiffPanel.java"),
+                        null,
+                        1236,
+                        ReviewParser.DiffSide.NEW,
+                        "leftRev..."));
+        // Tactical Note 2: Unused import potential (1 excerpt)
+        resolved.put(
+                7,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/test/java/ai/brokk/agents/SearchAgentToolTest.java"),
+                        null,
+                        40,
+                        ReviewParser.DiffSide.NEW,
+                        "req..."));
+        // Tactical Note 3: Redundant stream() call (1 excerpt)
+        resolved.put(
+                8,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/test/java/ai/brokk/agents/SearchAgentToolTest.java"),
+                        null,
+                        48,
+                        ReviewParser.DiffSide.NEW,
+                        "toList..."));
+        // Tactical Note 4: Potential format string injection (1 excerpt)
+        resolved.put(
+                9,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/main/java/ai/brokk/prompts/SearchPrompts.java"),
+                        null,
+                        241,
+                        ReviewParser.DiffSide.NEW,
+                        "goal..."));
+        // Tactical Note 5: Test assertion message (1 excerpt)
+        resolved.put(
+                10,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/test/java/ai/brokk/agents/SearchAgentToolTest.java"),
+                        null,
+                        140,
+                        ReviewParser.DiffSide.NEW,
+                        "assertTrue..."));
+        // Tactical Note 6: Magic indent value (1 excerpt)
+        resolved.put(
+                11,
+                new ReviewParser.CodeExcerpt(
+                        new ProjectFile(root, "app/src/main/java/ai/brokk/prompts/SearchPrompts.java"),
+                        null,
+                        194,
+                        ReviewParser.DiffSide.NEW,
+                        "indent(12)..."));
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+
+        // Verify Overview
+        assertTrue(review.overview().startsWith("This diff introduces several significant improvements"));
+        assertTrue(review.overview().endsWith("concerns worth addressing."));
+
+        // Verify Design Notes: 3 notes with 1, 2, 3 excerpts respectively = 6 total excerpts
+        assertEquals(3, review.designNotes().size(), "Should have 3 design notes");
+        assertEquals(
+                "Resource Leak in searchGitCommitMessages",
+                review.designNotes().get(0).title());
+        assertEquals(1, review.designNotes().get(0).excerpts().size(), "Design note 1 should have 1 excerpt");
+        assertEquals(
+                "Inconsistent Revision Header Construction in BrokkDiffPanel",
+                review.designNotes().get(1).title());
+        assertEquals(2, review.designNotes().get(1).excerpts().size(), "Design note 2 should have 2 excerpts");
+        assertEquals(
+                "DROP_EXPLANATION_GUIDANCE Duplication Risk",
+                review.designNotes().get(2).title());
+        assertEquals(3, review.designNotes().get(2).excerpts().size(), "Design note 3 should have 3 excerpts");
+
+        // Verify total design excerpts
+        int totalDesignExcerpts =
+                review.designNotes().stream().mapToInt(d -> d.excerpts().size()).sum();
+        assertEquals(6, totalDesignExcerpts, "Design notes should have 6 total excerpts");
+
+        // Verify Tactical Notes: 6 notes with 1 excerpt each
+        assertEquals(6, review.tacticalNotes().size(), "Should have 6 tactical notes");
+        assertEquals(
+                "Missing null-safety in formatCapturedDiffSection",
+                review.tacticalNotes().get(0).title());
+        assertEquals(
+                "Unused import potential in SearchAgentToolTest",
+                review.tacticalNotes().get(1).title());
+        assertEquals(
+                "Redundant stream() call in req helper",
+                review.tacticalNotes().get(2).title());
+        assertEquals(
+                "Potential format string injection in goal concatenation",
+                review.tacticalNotes().get(3).title());
+        assertEquals(
+                "Test assertion message could be more specific",
+                review.tacticalNotes().get(4).title());
+        assertEquals(
+                "Magic indent value in prompt formatting",
+                review.tacticalNotes().get(5).title());
+
+        // Each tactical note should have its excerpt resolved
+        for (int i = 0; i < review.tacticalNotes().size(); i++) {
+            var note = review.tacticalNotes().get(i);
+            assertTrue(note.excerpt() != null, "Tactical note " + i + " (" + note.title() + ") should have an excerpt");
+        }
+
+        // Additional Tests section uses bullet list format which is no longer parsed as TestFeedback
+        assertEquals(0, review.additionalTests().size(), "Bullet list items are not parsed as TestFeedback");
+    }
+
+    @Test
     void testValidateParsedNotes() {
         // 1. Well-formed review
         String validMarkdown =
@@ -946,5 +1143,54 @@ class ReviewParserTest {
         assertTrue(errors2.stream()
                 .anyMatch(e -> e.title().equals("Missing Rec Marker")
                         && e.message().contains("missing a **Recommendation:**")));
+    }
+
+    @Test
+    void testFindClosingFenceTerminationWithPathologicalInput() {
+        // Construct a large input where every "closing" fence is immediately followed by something
+        // that triggers a 'continue' in findClosingFence.
+        StringBuilder sb = new StringBuilder();
+        sb.append("```java\n");
+        sb.append("File.java @10\n");
+        for (int i = 0; i < 2000; i++) {
+            sb.append("```\n");
+            sb.append("AnotherFile.java @20\n"); // Trigger continue via fileLinePattern
+        }
+
+        // This should terminate quickly due to maxLookahead
+        List<ReviewParser.Segment> segments = ReviewParser.instance.parseToSegments(sb.toString());
+
+        // If it terminated correctly, the first segment will be text because the
+        // first code block never found a valid closing fence within the lookahead.
+        assertFalse(segments.isEmpty());
+        assertInstanceOf(ReviewParser.TextSegment.class, segments.getFirst());
+    }
+
+    @Test
+    void testFindClosingFenceWithBareFilenameContinue() {
+        String input =
+                """
+                ```java
+                Source.java @1
+                content
+                ```
+                BareFile.java
+                more content
+                ```
+                """;
+        // The first ``` is followed by a line that looks like a bare filename.
+        // findClosingFence should 'continue' and find the second one.
+        List<ReviewParser.Segment> segments = ReviewParser.instance.parseToSegments(input);
+
+        // findClosingFence skips the first ``` because BareFile.java is on the next line.
+        // It should eventually return -1 or close at the final fence.
+        // In this specific input, it should close at the last fence.
+        assertTrue(segments.stream().anyMatch(s -> s instanceof ReviewParser.ExcerptSegment));
+        ReviewParser.ExcerptSegment excerpt = (ReviewParser.ExcerptSegment) segments.stream()
+                .filter(s -> s instanceof ReviewParser.ExcerptSegment)
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(excerpt.content().contains("BareFile.java"));
     }
 }

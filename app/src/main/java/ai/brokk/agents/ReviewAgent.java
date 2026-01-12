@@ -781,11 +781,18 @@ public class ReviewAgent {
                 Write a complete code review in Markdown of the proposed diff, informed by the gathered workspace context.
                 This response will be MACHINE-PARSED. Exact conformance to the header levels and structure in <review_format> is CRITICAL.
 
-                Your goal is to call attention to tricky, subtle, or simply incorrect choices in the diff.
+                Your goal is to surface the most important changes and call attention to tricky, subtle, or simply incorrect choices in the diff.
+                - Key changes: highlight the most important changes, especially to data structures.
                 - Design notes: Higher level concerns (architectural issues, coupling, abstraction problems).
                 - Tactical notes: Simple issues localized to a single method or file.
-                - Design notes MUST have AT LEAST ONE excerpt block illustrating the subject, and may include as many excerpts as are relevant
-                - Tactical notes must include EXACTLY ONE excerpt block.
+                - Each design note MUST have AT LEAST ONE excerpt block illustrating the subject, and may include as many excerpts as are relevant
+                - Each Tactical note must include EXACTLY ONE excerpt block.
+
+                All titles should be 3-6 words.
+
+                Overview comes LAST, after you've had time to think through the design.
+
+                Every section except Overview is optional; omit them if there is nothing important to say.
                 </instructions>
                 <excerpt_format>
                 When referencing code, use standard Markdown code blocks. The first line of the code block MUST be the file path and line number, followed by the excerpt.
@@ -796,8 +803,12 @@ public class ReviewAgent {
                 ```
                 </excerpt_format>
                 <review_format>
-                ## Overview
-                [One or more paragraphs describing what the changes accomplish and big-picture analysis]
+                ## Key Changes
+                ### [Title of first key change]
+                [Description of what changed and why it matters. Include code blocks showing the key code.]
+
+                ### [Title of second key change, etc.]
+                ...
 
                 ## Design Notes
                 ### [Title of first design note]
@@ -813,9 +824,14 @@ public class ReviewAgent {
                 **Recommendation:** [Detailed instructions for the fix.]
 
                 ## Additional Tests [Omit this if no additional tests are needed]
-                - [Test description 1]
-                - [Test description 2]
-                - [etc]
+                ### [Title of first test suggestion]
+                **Recommendation:** [Detailed instructions for what to test and how.]
+
+                ### [Title of second test suggestion, etc.]
+                ...
+
+                ## Overview
+                [One or more paragraphs describing what the changes accomplish and big-picture analysis]
                 </review_format>
                 """);
     }

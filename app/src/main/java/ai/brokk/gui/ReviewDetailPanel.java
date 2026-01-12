@@ -15,8 +15,9 @@ import ai.brokk.tasks.TaskList;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.DesignFeedback;
-import ai.brokk.util.ReviewParser.ReviewFeedback;
+import ai.brokk.util.ReviewParser.KeyChanges;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
+import ai.brokk.util.ReviewParser.TestFeedback;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Dimension;
@@ -32,7 +33,6 @@ import javax.swing.Box;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
-import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
@@ -51,7 +51,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final Runnable onNext;
 
     private final MarkdownOutputPanel markdownPanel;
-    private final JScrollPane scrollPane;
 
     private final JPanel excerptsPanel;
     private final JPanel buttonPanel;
@@ -82,10 +81,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         markdownPanel = new MarkdownOutputPanel();
         markdownPanel.updateTheme(MainProject.getTheme());
 
-        scrollPane = new JScrollPane(markdownPanel);
-        scrollPane.setBorder(null);
-        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-
         excerptsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
         excerptsPanel.setOpaque(false);
         excerptsPanel.setBorder(new EmptyBorder(10, 10, 0, 10));
@@ -99,7 +94,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         var contentCard = new JPanel(new BorderLayout());
         contentCard.setOpaque(true);
         contentCard.add(excerptsPanel, BorderLayout.NORTH);
-        contentCard.add(scrollPane, BorderLayout.CENTER);
+        contentCard.add(markdownPanel, BorderLayout.CENTER);
         contentCard.add(buttonPanel, BorderLayout.SOUTH);
 
         add(placeholderArea, CARD_PLACEHOLDER);
@@ -157,6 +152,13 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 buttonPanel.add(Box.createHorizontalStrut(10));
                 buttonPanel.add(nextBtn);
             }
+        } else if (item instanceof KeyChanges change) {
+            markdownChunks.add("### " + change.title());
+            markdownChunks.add(change.description());
+            if (!excerpts.isEmpty()) {
+                addExcerptsTable(excerpts);
+            }
+            addNavigationButtons(isLast);
         } else if (item instanceof DesignFeedback design) {
             markdownChunks.add("### " + design.title());
             markdownChunks.add(design.description());
@@ -179,22 +181,19 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 String combinedText = tactical.description() + "\n\n" + tactical.recommendation();
                 addRecommendationButtons(tactical.title(), combinedText, isLast);
             }
-        } else if (item instanceof ReviewFeedback feedback) {
+        } else if (item instanceof TestFeedback feedback) {
             markdownChunks.add("### " + feedback.title());
-            markdownChunks.add(feedback.description());
             if (!feedback.recommendation().isBlank()) {
                 markdownChunks.add("**Recommendation:**\n" + feedback.recommendation());
-                String combinedText = feedback.description() + "\n\n" + feedback.recommendation();
-                addRecommendationButtons(feedback.title(), combinedText, isLast);
+                addRecommendationButtons(feedback.title(), feedback.recommendation(), isLast);
+            } else {
+                addNavigationButtons(isLast);
             }
         } else {
             throw new IllegalArgumentException("Unknown item type: " + item.getClass());
         }
 
         flushContent();
-
-        // Scroll to top when showing new item
-        SwingUtilities.invokeLater(() -> scrollPane.getVerticalScrollBar().setValue(0));
 
         revalidate();
         repaint();
@@ -207,6 +206,17 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         buttonPanel.removeAll();
         buttonPanel.setVisible(false);
         markdownPanel.clear();
+    }
+
+    private void addNavigationButtons(boolean isLast) {
+        if (isLast) return;
+
+        buttonPanel.removeAll();
+        buttonPanel.setVisible(true);
+
+        var nextBtn = new MaterialButton("Next");
+        nextBtn.addActionListener(e -> onNext.run());
+        buttonPanel.add(nextBtn);
     }
 
     private void flushContent() {
@@ -341,6 +351,11 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             return new Dimension(pref.width, (int) (split.getHeight() * 0.4));
         }
         return pref;
+    }
+
+    @Override
+    public Dimension getMinimumSize() {
+        return new Dimension(0, 0);
     }
 
     @Override
