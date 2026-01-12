@@ -67,4 +67,29 @@ public class CSharpTestDetectionTest {
                 ContextManager.isTestFile(nonTestFile, analyzer),
                 "ContextManager should not identify plain file as test file");
     }
+
+    @Test
+    void testNonTestAttributesDoNotTriggerDetection() throws Exception {
+        String code =
+                """
+                public class MyClass {
+                    [Obsolete("Use NewMethod instead")]
+                    public void OldMethod() {}
+
+                    [Serializable]
+                    public void OtherMethod() {}
+                }
+                """;
+        String path = "Logic/Service.cs";
+
+        IProject project = InlineTestProjectCreator.code(code, path).build();
+        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+        analyzer = (CSharpAnalyzer) analyzer.update();
+
+        ProjectFile file = new ProjectFile(project.getRoot(), path);
+
+        assertFalse(
+                analyzer.containsTests(file),
+                "File with non-test attributes ([Obsolete], [Serializable]) should not be marked as containing tests");
+    }
 }
