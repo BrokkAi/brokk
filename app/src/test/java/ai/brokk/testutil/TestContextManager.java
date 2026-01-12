@@ -84,24 +84,7 @@ public final class TestContextManager implements IContextManager {
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
         this.liveContext = new Context(this).addFragments(toPathFragments(editableFiles));
-
-        this.analyzerWrapper = new IAnalyzerWrapper() {
-            @Override
-            public IAnalyzer get() {
-                return analyzerRef.get();
-            }
-
-            @Override
-            public @Nullable IAnalyzer getNonBlocking() {
-                return analyzerRef.get();
-            }
-
-            @Override
-            public CompletableFuture<IAnalyzer> updateFiles(Set<ProjectFile> relevantFiles) {
-                analyzerRef.set(analyzerRef.get().update(relevantFiles));
-                return CompletableFuture.completedFuture(analyzerRef.get());
-            }
-        };
+        this.analyzerWrapper = new TestAnalyzerWrapper(analyzer);
     }
 
     public TestContextManager(IProject project) {
