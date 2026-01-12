@@ -44,11 +44,9 @@ public final class UsagePromptBuilder {
         // Candidate text is the raw snippet for this single usage
         String candidateText = hit.snippet();
 
-        // Metadata comments
-        sb.append("<!-- shortName: ").append(shortName).append(" -->\n");
-        sb.append("<!-- codeUnit: ")
-                .append(codeUnitTarget.toString())
-                .append(" -->\n\n");
+        // Metadata headers
+        sb.append("Short Name: ").append(shortName).append("\n");
+        sb.append("Code Unit: ").append(codeUnitTarget.toString()).append("\n");
 
         sb.append("File: ")
                 .append(hit.file().absPath().toString())

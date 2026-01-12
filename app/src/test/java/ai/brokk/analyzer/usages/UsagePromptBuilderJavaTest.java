@@ -88,6 +88,8 @@ public class UsagePromptBuilderJavaTest {
 
         String text = prompt.promptText();
         assertNotNull(text, "promptText should not be null");
+        assertTrue(text.contains("Short Name: A.method2"), "Expected 'Short Name: ' header");
+        assertTrue(text.contains("Code Unit: " + target.toString()), "Expected 'Code Unit: ' header");
         assertTrue(text.contains("File: " + file.absPath().toString()), "Expected 'File: ' followed by path");
         assertTrue(text.contains("```java"), "Expected fenced code block for java");
         assertTrue(text.contains("// snippet of method test.A"), "Expected snippet comment with enclosing class");
@@ -126,6 +128,8 @@ public class UsagePromptBuilderJavaTest {
                 UsagePromptBuilder.buildPrompt(hit, target, analyzer, "A.method2", 10_000);
 
         String text = prompt.promptText();
+        assertTrue(text.contains("Short Name: "), "Expected Short Name: prefix");
+        assertTrue(text.contains("Code Unit: "), "Expected Code Unit: prefix");
         assertTrue(text.contains("File: "), "Expected File: prefix");
         assertTrue(text.contains("```"), "Expected Markdown code fence");
         assertTrue(text.contains(file.absPath().toString()), "Expected the correct file path in prompt");
