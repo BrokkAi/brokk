@@ -11,6 +11,7 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.HistoryCellRenderer;
 import ai.brokk.gui.HistoryGrouping;
 import ai.brokk.gui.WorkspaceItemsChipPanel;
 import ai.brokk.gui.components.LoadingTextBox;
@@ -20,7 +21,7 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
-import dev.langchain4j.data.message.ChatMessageType;
+import ai.brokk.util.ComputedValue;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -52,10 +53,14 @@ import javax.swing.table.DefaultTableModel;
 import org.jetbrains.annotations.Nullable;
 
 /** Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview */
-public class SessionsDialog extends BaseThemedDialog {
+public class SessionsDialog extends BaseThemedDialog implements ActivityTableRenderers.HistoryTableHost {
     private static final int SEARCH_DEBOUNCE_DELAY = 300;
     private final Chrome chrome;
     private final ContextManager contextManager;
+
+    private final Map<UUID, Boolean> groupExpandedState = new HashMap<>();
+    private volatile java.util.List<HistoryGrouping.GroupDescriptor> latestDescriptors = java.util.List.of();
+    private @Nullable ContextHistory currentHistory;
 
     // Column index constants
     // Sessions table model: [Active, Session Name, Date, SessionInfo]
@@ -183,16 +188,16 @@ public class SessionsDialog extends BaseThemedDialog {
         activityTable
                 .getColumnModel()
                 .getColumn(ACT_COL_ICON)
-                .setCellRenderer(new ActivityTableRenderers.IconCellRenderer());
+                .setCellRenderer(new ActivityTableRenderers.IndentedIconRenderer());
         activityTable
                 .getColumnModel()
                 .getColumn(ACT_COL_ACTION)
-                .setCellRenderer(new ActivityTableRenderers.ActionCellRenderer());
+                .setCellRenderer(new HistoryCellRenderer(this, contextManager, chrome));
 
         // Adjust activity table column widths
-        activityTable.getColumnModel().getColumn(ACT_COL_ICON).setPreferredWidth(30);
-        activityTable.getColumnModel().getColumn(ACT_COL_ICON).setMinWidth(30);
-        activityTable.getColumnModel().getColumn(ACT_COL_ICON).setMaxWidth(30);
+        activityTable.getColumnModel().getColumn(ACT_COL_ICON).setPreferredWidth(44);
+        activityTable.getColumnModel().getColumn(ACT_COL_ICON).setMinWidth(44);
+        activityTable.getColumnModel().getColumn(ACT_COL_ICON).setMaxWidth(44);
         activityTable.getColumnModel().getColumn(ACT_COL_ACTION).setPreferredWidth(250);
         activityTable.getColumnModel().getColumn(ACT_COL_CONTEXT).setMinWidth(0);
         activityTable.getColumnModel().getColumn(ACT_COL_CONTEXT).setMaxWidth(0);
@@ -200,6 +205,19 @@ public class SessionsDialog extends BaseThemedDialog {
 
         // Add mouse listener for right-click context menu on activity table
         activityTable.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int row = activityTable.rowAtPoint(e.getPoint());
+                if (row < 0) return;
+
+                if (SwingUtilities.isLeftMouseButton(e)) {
+                    Object val = activityTableModel.getValueAt(row, ACT_COL_CONTEXT);
+                    if (val instanceof ActivityTableRenderers.GroupRow) {
+                        toggleGroupRow(row);
+                    }
+                }
+            }
+
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
@@ -424,35 +442,75 @@ public class SessionsDialog extends BaseThemedDialog {
     }
 
     private void populateActivityTable(ContextHistory history) {
+        this.currentHistory = history;
         activityTableModel.setRowCount(0);
 
         if (history.getHistory().isEmpty()) {
             arrowLayerUI.setResetEdges(List.of());
+            latestDescriptors = List.of();
             return;
         }
 
-        // Add rows for each context in history
-        Context previous = null;
-        for (var ctx : history.getHistory()) {
-            // Add icon for AI responses, null for user actions
-            boolean hasAiMessages = ctx.getParsedOutput() != null
-                    && ctx.getParsedOutput().messages().stream()
-                            .anyMatch(chatMessage -> chatMessage.type() == ChatMessageType.AI);
-            Icon iconEmoji = hasAiMessages ? Icons.CHAT_BUBBLE : null;
+        var contexts = history.getHistory();
+        var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, history);
+        latestDescriptors = descriptors;
 
-            var actionCv = ctx.getAction(previous);
-            ComputedSubscription.bind(actionCv, activityTable, activityTable::repaint);
+        var resetEdges = history.getResetEdges();
+        var resetTargetIds =
+                resetEdges.stream().map(ContextHistory.ResetEdge::targetId).collect(Collectors.toSet());
 
-            var actionVal = new ai.brokk.gui.HistoryOutputPanel.ActionText(actionCv, 0);
+        for (var descriptor : descriptors) {
+            var children = descriptor.children();
+
+            if (!descriptor.shouldShowHeader()) {
+                var ctx = children.getFirst();
+                Context prev = history.previousOf(ctx);
+
+                ComputedValue<String> description = resetTargetIds.contains(ctx.id())
+                        ? ComputedValue.completed("Copy From History")
+                        : ctx.getAction(prev);
+
+                ComputedSubscription.bind(description, activityTable, activityTable::repaint);
+                var actionVal = new ActivityTableRenderers.ActionText(description, 0);
+
+                Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
+
+                activityTableModel.addRow(new Object[] {icon, actionVal, ctx});
+                continue;
+            }
+
+            // Group header
+            var uuidKey = UUID.fromString(descriptor.key());
+            boolean expandedDefault = descriptor.isLastGroup();
+            boolean expanded = groupExpandedState.computeIfAbsent(uuidKey, k -> expandedDefault);
+
+            boolean containsClearHistory = children.stream().anyMatch(c -> {
+                var prev = history.previousOf(c);
+                return prev != null
+                        && !prev.getTaskHistory().isEmpty()
+                        && c.getTaskHistory().isEmpty();
+            });
+
+            var groupRow = new ActivityTableRenderers.GroupRow(uuidKey, expanded, containsClearHistory);
+            var headerLabel = descriptor.label();
+            ComputedSubscription.bind(headerLabel, activityTable, activityTable::repaint);
 
             activityTableModel.addRow(
-                    new Object[] {iconEmoji, actionVal, ctx // Store the actual context object in hidden column
-                    });
-            previous = ctx;
+                    new Object[] {new ActivityTableRenderers.TriangleIcon(expanded), headerLabel, groupRow});
+
+            if (expanded) {
+                for (Context child : children) {
+                    Context prev = history.previousOf(child);
+                    var childDesc = child.getAction(prev);
+                    ComputedSubscription.bind(childDesc, activityTable, activityTable::repaint);
+                    var childAction = new ActivityTableRenderers.ActionText(childDesc, 1);
+                    Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
+                    activityTableModel.addRow(new Object[] {childIcon, childAction, child});
+                }
+            }
         }
 
         // Update reset edges for arrow painter
-        var resetEdges = history.getResetEdges();
         arrowLayerUI.setResetEdges(resetEdges);
 
         // Select the most recent item (last row) if available
@@ -463,6 +521,19 @@ public class SessionsDialog extends BaseThemedDialog {
                 activityTable.scrollRectToVisible(activityTable.getCellRect(lastRow, ACT_COL_ICON, true));
             }
         });
+    }
+
+    private void toggleGroupRow(int row) {
+        Object val = activityTableModel.getValueAt(row, ACT_COL_CONTEXT);
+        if (!(val instanceof ActivityTableRenderers.GroupRow groupRow)) {
+            return;
+        }
+        boolean newState = !groupExpandedState.getOrDefault(groupRow.key(), groupRow.expanded());
+        groupExpandedState.put(groupRow.key(), newState);
+
+        if (currentHistory != null) {
+            populateActivityTable(currentHistory);
+        }
     }
 
     private void updatePreviewPanels(Context context) {
@@ -759,7 +830,7 @@ public class SessionsDialog extends BaseThemedDialog {
                 return;
             }
 
-            Map<UUID, Integer> contextIdToRow = HistoryGrouping.buildContextToRowMap(java.util.List.of(), table);
+            Map<UUID, Integer> contextIdToRow = HistoryGrouping.buildContextToRowMap(latestDescriptors, table);
 
             // 1. Build list of all possible arrows with their geometry
             List<Arrow> arrows = new ArrayList<>();
@@ -852,6 +923,39 @@ public class SessionsDialog extends BaseThemedDialog {
     }
 
     // ---------- Static helpers for other UI components ----------
+    @Override
+    public void adjustRowHeightForContext(Context ctx) {
+        assert SwingUtilities.isEventDispatchThread() : "adjustRowHeightForContext must be called on EDT";
+
+        int targetRow = -1;
+        for (int row = 0; row < activityTableModel.getRowCount(); row++) {
+            Object val = activityTableModel.getValueAt(row, ACT_COL_CONTEXT);
+            if (val == ctx) {
+                targetRow = row;
+                break;
+            }
+        }
+        if (targetRow < 0) {
+            return;
+        }
+
+        int actionCol = ACT_COL_ACTION;
+        if (actionCol >= activityTable.getColumnCount()) {
+            return;
+        }
+
+        var renderer = activityTable.getCellRenderer(targetRow, actionCol);
+        Component comp = activityTable.prepareRenderer(renderer, targetRow, actionCol);
+
+        int colWidth = activityTable.getColumnModel().getColumn(actionCol).getWidth();
+        comp.setSize(colWidth, Short.MAX_VALUE);
+        int prefHeight = Math.max(18, comp.getPreferredSize().height + 2);
+
+        if (activityTable.getRowHeight(targetRow) != prefHeight) {
+            activityTable.setRowHeight(targetRow, prefHeight);
+        }
+    }
+
     public static void renameCurrentSession(Component parent, Chrome chrome, ContextManager contextManager) {
         var sessionManager = contextManager.getProject().getSessionManager();
         var currentId = contextManager.getCurrentSessionId();

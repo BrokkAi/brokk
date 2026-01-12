@@ -12,6 +12,11 @@ import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
+import ai.brokk.gui.ActivityTableRenderers.ActionText;
+import ai.brokk.gui.ActivityTableRenderers.GroupRow;
+import ai.brokk.gui.ActivityTableRenderers.HistoryTableHost;
+import ai.brokk.gui.ActivityTableRenderers.IndentedIconRenderer;
+import ai.brokk.gui.ActivityTableRenderers.TriangleIcon;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -70,7 +75,7 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
-public class HistoryOutputPanel extends JPanel implements ThemeAware {
+public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTableHost {
     private static final Logger logger = LogManager.getLogger(HistoryOutputPanel.class);
 
     private final Chrome chrome;
@@ -320,7 +325,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         historyTable
                 .getColumnModel()
                 .getColumn(1)
-                .setCellRenderer(new HistoryCellRenderer(this, contextManager, chrome, historyTable));
+                .setCellRenderer(new HistoryCellRenderer(this, contextManager, chrome));
 
         // Add selection listener to preview context (ignore group header rows)
         historyTable.getSelectionModel().addListSelectionListener(e -> {
@@ -791,7 +796,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * <p>This method must be called on the EDT and performs no work if the context is
      * not currently represented in the table.
      */
-    void adjustRowHeightForContext(Context ctx) {
+    @Override
+    public void adjustRowHeightForContext(Context ctx) {
         assert SwingUtilities.isEventDispatchThread() : "adjustRowHeightForContext must be called on EDT";
 
         int targetRow = -1;
@@ -2051,170 +2057,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    // Centralized icon mapping for task types; future-proofed for differentiation.
-    private javax.swing.Icon iconFor(TaskResult.Type type) {
-        switch (type) {
-            case ARCHITECT -> {
-                return Icons.ARCHITECT;
-            }
-            case CODE -> {
-                return Icons.CODE;
-            }
-            case ASK -> {
-                return Icons.ASK;
-            }
-            case SEARCH -> {
-                return Icons.SEARCH;
-            }
-            case CONTEXT -> {
-                return Icons.CONTEXT;
-            }
-            case MERGE -> {
-                return Icons.MERGE;
-            }
-            case BLITZFORGE -> {
-                return Icons.BLITZFORGE;
-            }
-            default -> {
-                return Icons.CHAT_BUBBLE;
-            }
-        }
-    }
-
-    // ---- Centralized TaskMeta / ModelSpec helpers (used by multiple renderers) ----
-
     /**
      * Returns true if the given Context's most recent task is a REVIEW type.
      */
     private boolean isReviewContext(Context ctx) {
-        var meta = lastMetaOf(ctx);
+        var meta = ActivityTableRenderers.lastMetaOf(ctx);
         return meta != null && meta.type() == TaskResult.Type.REVIEW;
-    }
-
-    /**
-     * Returns the last TaskMeta in the given Context's task history, or null if not present.
-     */
-    private @Nullable TaskResult.TaskMeta lastMetaOf(Context ctx) {
-        var history = ctx.getTaskHistory();
-        if (history.isEmpty()) return null;
-        var last = history.getLast();
-        return last.meta();
-    }
-
-    /**
-     * Returns the ModelSpec from the last TaskMeta of the context, or null if unavailable.
-     */
-    private @Nullable Service.ModelConfig modelOf(Context ctx) {
-        var meta = lastMetaOf(ctx);
-        return (meta == null) ? null : meta.primaryModel();
-    }
-
-    private @Nullable String taskTypeOf(Context ctx) {
-        var meta = lastMetaOf(ctx);
-        return (meta == null) ? null : meta.type().displayName();
-    }
-
-    /**
-     * Returns a short, human-friendly model string: "name (reasoning)" or just "name".
-     */
-    private static String summarizeModel(Service.ModelConfig spec) {
-        var name = spec.name();
-        var rl = spec.reasoning().name();
-        if (!rl.isBlank()) {
-            return name + " (" + rl + ")";
-        }
-        return name;
-    }
-
-    /**
-     * Builds a tooltip that prepends the model summary on its own line when available,
-     * followed by the provided base text ("normal tooltip").
-     *
-     * <p>Exposed for use by external renderers such as {@link HistoryCellRenderer}.
-     */
-    public String buildTooltipWithModel(@Nullable Context ctx, String base) {
-        if (ctx == null) return base;
-        var spec = modelOf(ctx);
-        if (spec == null) return base;
-        var taskType = taskTypeOf(ctx);
-        var tt = taskType == null ? "" : taskType + " ";
-
-        var header = "[" + summarizeModel(spec) + "]";
-        return "<html>" + escapeHtml(tt + header) + "<br/>" + escapeHtml(base) + "</html>";
-    }
-
-    /**
-     * Icon renderer that mirrors the Action column's indentation for nested rows.
-     */
-    private class IndentedIconRenderer extends ActivityTableRenderers.IconCellRenderer {
-        @Override
-        public Component getTableCellRendererComponent(
-                JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            // Retrieve the action value from column 1; derive indent level from ActionText if present
-            Object actionVal = table.getModel().getValueAt(row, 1);
-            Object actionForCheck =
-                    (actionVal instanceof ActionText atTmp) ? atTmp.text().renderNowOr(Context.SUMMARIZING) : actionVal;
-
-            // Detect group header rows from column 2
-            Object contextCol2 = table.getModel().getValueAt(row, 2);
-            boolean isHeader = (contextCol2 instanceof GroupRow);
-
-            // Preserve separator and header behavior by delegating to the base renderer unchanged
-            if (ActivityTableRenderers.isSeparatorAction(actionForCheck) || isHeader) {
-                return super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-            }
-
-            int indentLevel = (actionVal instanceof ActionText at) ? Math.max(0, at.indentLevel()) : 0;
-            Component comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-
-            // Attempt to override the icon based on TaskMeta.type() of the most recent TaskEntry,
-            // but only for AI result contexts.
-            try {
-                Object ctxVal = table.getModel().getValueAt(row, 2);
-                if (ctxVal instanceof Context ctx) {
-                    var meta = lastMetaOf(ctx);
-                    if (comp instanceof JLabel lbl) {
-                        if (ctx.isAiResult() && meta != null) {
-                            var chosen = iconFor(meta.type());
-                            lbl.setIcon(chosen);
-                        } else if (!ctx.isAiResult()) {
-                            // Ensure non-AI rows have no type icon override
-                            lbl.setIcon(null);
-                        }
-                    }
-
-                    // Compute tooltip: include model details only for AI + meta; otherwise use plain action text
-                    String actionText;
-                    Object col1 = table.getModel().getValueAt(row, 1);
-                    if (col1 instanceof ActionText at2) {
-                        actionText = at2.text().renderNowOr(Context.SUMMARIZING);
-                    } else {
-                        actionText = (col1 != null) ? col1.toString() : "";
-                    }
-                    if (comp instanceof JComponent jc) {
-                        if (ctx.isAiResult() && meta != null) {
-                            jc.setToolTipText(buildTooltipWithModel(ctx, actionText));
-                        } else {
-                            jc.setToolTipText(actionText);
-                        }
-                    }
-                }
-            } catch (Throwable ignored) {
-                // Best-effort icon override only; fall back silently on any errors
-            }
-
-            // Apply inset: top-level rows get a base margin; nested rows align exactly with action indent
-            if (comp instanceof JComponent jc) {
-                int perLevelInset = indentLevel * Constants.H_GAP * 4;
-                int inset = (indentLevel == 0) ? (Constants.H_GAP * 2) : perLevelInset;
-                jc.setBorder(new EmptyBorder(0, inset, 0, 0));
-            }
-            // Align icon left only for non-header, non-separator rows
-            if (comp instanceof JLabel lbl) {
-                lbl.setHorizontalAlignment(JLabel.LEFT);
-            }
-            return comp;
-        }
     }
 
     @Override
@@ -2520,76 +2368,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // --- Tree-like grouping support types and helpers ---
 
-    public record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
-
-    /**
-     * Structural action text + indent data for history table rendering.
-     */
-    public record ActionText(ComputedValue<String> text, int indentLevel) {}
-
     private enum PendingSelectionType {
         NONE,
         CLEAR,
         FIRST_IN_GROUP
-    }
-
-    private static final class TriangleIcon implements Icon {
-        private final boolean expanded;
-        private final int size;
-
-        TriangleIcon(boolean expanded) {
-            this(expanded, 12);
-        }
-
-        TriangleIcon(boolean expanded, int size) {
-            this.expanded = expanded;
-            this.size = size;
-        }
-
-        @Override
-        public void paintIcon(Component c, Graphics g, int x, int y) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-                int triW = 8;
-                int triH = 8;
-                int cx = x + (getIconWidth() - triW) / 2;
-                int cy = y + (getIconHeight() - triH) / 2;
-
-                Polygon p = new Polygon();
-                if (expanded) {
-                    // down triangle
-                    p.addPoint(cx, cy);
-                    p.addPoint(cx + triW, cy);
-                    p.addPoint(cx + triW / 2, cy + triH);
-                } else {
-                    // right triangle
-                    p.addPoint(cx, cy);
-                    p.addPoint(cx + triW, cy + triH / 2);
-                    p.addPoint(cx, cy + triH);
-                }
-
-                Color color = c.isEnabled()
-                        ? UIManager.getColor("Label.foreground")
-                        : UIManager.getColor("Label.disabledForeground");
-                if (color == null) color = Color.DARK_GRAY;
-                g2.setColor(color);
-                g2.fillPolygon(p);
-            } finally {
-                g2.dispose();
-            }
-        }
-
-        @Override
-        public int getIconWidth() {
-            return size;
-        }
-
-        @Override
-        public int getIconHeight() {
-            return size;
-        }
     }
 
     private void toggleGroupRow(int row) {

@@ -42,12 +42,9 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
     private final ActivityTableRenderers.ActionCellRenderer fallback = new ActivityTableRenderers.ActionCellRenderer();
     private final Font smallFont = new Font(Font.DIALOG, Font.PLAIN, 11);
 
-    private final HistoryOutputPanel historyOutputPanel;
+    private final ActivityTableRenderers.HistoryTableHost historyTableHost;
     private final ContextManager contextManager;
     private final Chrome chrome;
-
-    @SuppressWarnings("unused")
-    private final JTable historyTable;
 
     // Flyweight components reused for all cells
     private final JPanel outerPanel;
@@ -57,17 +54,15 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
     /**
      * Creates a new HistoryCellRenderer.
      *
-     * @param historyOutputPanel owning HistoryOutputPanel (used for tooltip helpers)
+     * @param historyTableHost   owning host (used for row adjustments)
      * @param contextManager     context manager used to obtain diff services
      * @param chrome             chrome instance used for theme lookups
-     * @param historyTable       the history JTable instance
      */
     public HistoryCellRenderer(
-            HistoryOutputPanel historyOutputPanel, ContextManager contextManager, Chrome chrome, JTable historyTable) {
-        this.historyOutputPanel = historyOutputPanel;
+            ActivityTableRenderers.HistoryTableHost historyTableHost, ContextManager contextManager, Chrome chrome) {
+        this.historyTableHost = historyTableHost;
         this.contextManager = contextManager;
         this.chrome = chrome;
-        this.historyTable = historyTable;
 
         this.outerPanel = new JPanel(new BorderLayout());
         outerPanel.setOpaque(true);
@@ -84,7 +79,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         // Extract action text and indent level.
         int indentLevel = 0;
         String actionText;
-        if (value instanceof HistoryOutputPanel.ActionText at) {
+        if (value instanceof ActivityTableRenderers.ActionText at) {
             actionText = at.text().renderNowOr(Context.SUMMARIZING);
             indentLevel = Math.max(0, at.indentLevel());
         } else if (value instanceof ComputedValue<?> cv) {
@@ -128,7 +123,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
                     return;
                 }
                 SwingUtilities.invokeLater(() -> {
-                    historyOutputPanel.adjustRowHeightForContext(ctx);
+                    historyTableHost.adjustRowHeightForContext(ctx);
                     table.repaint();
                 });
             });
@@ -151,7 +146,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         outerPanel.add(actionComp, BorderLayout.NORTH);
 
         // Ensure tooltip is visible even though we return a composite panel.
-        outerPanel.setToolTipText(historyOutputPanel.buildTooltipWithModel(ctx, actionText));
+        outerPanel.setToolTipText(ActivityTableRenderers.buildTooltipWithModel(ctx, actionText));
 
         List<DiffService.DiffEntry> diffs = cachedOpt.orElseGet(List::of);
         if (!diffs.isEmpty()) {

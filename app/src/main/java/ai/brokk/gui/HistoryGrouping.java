@@ -331,7 +331,7 @@ public final class HistoryGrouping {
         // Second pass: for collapsed group headers, map each child to the header row
         for (int row = 0; row < model.getRowCount(); row++) {
             var val = model.getValueAt(row, 2);
-            if (val instanceof HistoryOutputPanel.GroupRow gr && !gr.expanded()) {
+            if (val instanceof ActivityTableRenderers.GroupRow gr && !gr.expanded()) {
                 var gd = byKey.get(gr.key());
                 if (gd == null || !gd.shouldShowHeader()) {
                     continue;
