@@ -1,7 +1,10 @@
 package ai.brokk.util;
 
+import ai.brokk.ContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.project.MainProject;
 import com.vladsch.flexmark.ast.BulletList;
 import com.vladsch.flexmark.ast.Heading;
 import com.vladsch.flexmark.ast.Paragraph;
@@ -39,6 +42,26 @@ public class ReviewParser {
     public static final ReviewParser instance = new ReviewParser();
 
     private ReviewParser() {}
+
+    public record ExcerptMatch(int line, DiffSide side, String matchedText) {}
+
+    public static @Nullable ExcerptMatch matchExcerptInFile(RawExcerpt excerpt, FileComparisonInfo fileInfo) {
+        // Try NEW content first
+        String newContent = fileInfo.rightSource().content();
+        var newMatch = matchExcerptInContent(excerpt, newContent);
+        if (newMatch != null) {
+            return new ExcerptMatch(newMatch.line(), DiffSide.NEW, newMatch.matchedText());
+        }
+
+        // Try OLD content
+        String oldContent = fileInfo.leftSource().content();
+        var oldMatch = matchExcerptInContent(excerpt, oldContent);
+        if (oldMatch != null) {
+            return new ExcerptMatch(oldMatch.line(), DiffSide.OLD, oldMatch.matchedText());
+        }
+
+        return null;
+    }
 
     public sealed interface Segment permits TextSegment, ExcerptSegment {}
 
@@ -79,13 +102,11 @@ public class ReviewParser {
     }
 
     public List<RawExcerpt> parseExcerpts(String text) {
-        List<RawExcerpt> results = new ArrayList<>();
-        for (Segment segment : parseToSegments(text)) {
-            if (segment instanceof ExcerptSegment es) {
-                results.add(new RawExcerpt(es.file(), es.line(), es.content()));
-            }
-        }
-        return List.copyOf(results);
+        return parseToSegments(text).stream()
+                .filter(ExcerptSegment.class::isInstance)
+                .map(ExcerptSegment.class::cast)
+                .map(es -> new RawExcerpt(es.file(), es.line(), es.content()))
+                .toList();
     }
 
     /**
@@ -753,6 +774,75 @@ public class ReviewParser {
         }
     }
 
+    /**
+     * Resolves raw excerpts from text into CodeExcerpts using a lightweight, trust-the-source approach.
+     * <p>
+     * This method parses excerpt code blocks and creates CodeExcerpt objects from the declared
+     * file paths and line numbers. It attempts to match the excerpt text against the current file
+     * content using whitespace-insensitive matching.
+     * All excerpts are assigned {@link DiffSide#NEW} since the original side information is not preserved
+     * in the serialized review format.
+     *
+     * FIXME: we should either only allow references to the NEW side, or preserve OLD side somehow so that we can
+     * recover it. In both cases this method can go away and we can use the canonical resolver for loading from history.
+     */
+    public static Map<Integer, ReviewParser.CodeExcerpt> resolveExcerptsNewOnly(ContextManager cm, String text) {
+        List<ReviewParser.RawExcerpt> raws = ReviewParser.instance.parseExcerpts(text);
+        Map<Integer, ReviewParser.CodeExcerpt> resolved = new HashMap<>();
+
+        for (int i = 0; i < raws.size(); i++) {
+            ReviewParser.RawExcerpt raw = raws.get(i);
+            ProjectFile pf;
+            try {
+                pf = cm.toFile(raw.file());
+            } catch (IllegalArgumentException e) {
+                logger.debug("Failed to resolve file for excerpt: {}", raw.file());
+                continue;
+            }
+
+            String content = pf.read().orElse(null);
+            if (content == null) {
+                logger.debug("Could not read file for excerpt: {}", raw.file());
+                continue;
+            }
+
+            var match = matchExcerptInContent(raw, content);
+            if (match == null) {
+                logger.debug("Excerpt text not found in file: {}", raw.file());
+                continue;
+            }
+
+            int lineCount = (int) match.matchedText().lines().count();
+            CodeUnit unit = cm.getAnalyzerUninterrupted()
+                    .enclosingCodeUnit(pf, match.line(), match.line() + Math.max(0, lineCount - 1))
+                    .orElse(null);
+            resolved.put(i, new CodeExcerpt(pf, unit, match.line(), DiffSide.NEW, match.matchedText()));
+        }
+        return resolved;
+    }
+
+    /**
+     * Match an excerpt against file content (NEW side only).
+     * Returns null if no match found.
+     */
+    public static @Nullable ExcerptMatchResult matchExcerptInContent(RawExcerpt excerpt, String content) {
+        String[] excerptLines = excerpt.excerpt().split("\\R", -1);
+        String[] contentLines = content.split("\\R", -1);
+
+        var matches = WhitespaceMatch.findAll(contentLines, excerptLines);
+        if (matches.isEmpty()) {
+            return null;
+        }
+
+        var best = findBestMatch(matches, excerpt.line());
+        return new ExcerptMatchResult(best.startLine() + 1, best.matchedText());
+    }
+
+    /**
+     * Result of matching an excerpt in content, without side information.
+     */
+    public record ExcerptMatchResult(int line, String matchedText) {}
+
     public static void main(String[] args) throws IOException {
         if (args.length < 1) {
             System.err.println("Usage: ReviewParser <markdown-file>");
@@ -768,16 +858,8 @@ public class ReviewParser {
         String content = Files.readString(path);
 
         // Parse raw excerpts and resolve them to [non-validated] CodeExcerpts for structural validation/JSON preview
-        List<RawExcerpt> raws = instance.parseExcerpts(content);
-        Map<Integer, CodeExcerpt> resolvedExcerpts = new HashMap<>();
-        Path root = Objects.requireNonNullElse(path.toAbsolutePath().getParent(), Path.of("."));
-
-        for (int i = 0; i < raws.size(); i++) {
-            RawExcerpt raw = raws.get(i);
-            resolvedExcerpts.put(
-                    i,
-                    new CodeExcerpt(new ProjectFile(root, raw.file()), null, raw.line(), DiffSide.NEW, raw.excerpt()));
-        }
+        Map<Integer, CodeExcerpt> resolvedExcerpts =
+                resolveExcerptsNewOnly(new ContextManager(new MainProject(Path.of("."))), content);
 
         GuidedReview review = instance.parseMarkdownReview(content, resolvedExcerpts);
         System.out.println(review.toJson());

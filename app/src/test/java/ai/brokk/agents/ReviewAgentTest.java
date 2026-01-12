@@ -1,7 +1,6 @@
 package ai.brokk.agents;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -45,46 +44,6 @@ class ReviewAgentTest {
         assertEquals(info, ReviewAgent.findFileComparison("old_path.java", comparisons));
         assertEquals(info, ReviewAgent.findFileComparison("new_path.java", comparisons));
         assertNull(ReviewAgent.findFileComparison("other.java", comparisons));
-    }
-
-    @Test
-    void testMatchExcerptInFile() {
-        var left = new BufferSource.StringSource("line1\nline2\nline3", "OLD", "test.java");
-        var right = new BufferSource.StringSource("line1\nline2-new\nline3", "NEW", "test.java");
-        var info = new FileComparisonInfo(null, left, right);
-
-        // Match in NEW
-        var excerptNew = new ReviewParser.RawExcerpt("test.java", 2, "line2-new");
-        var matchNew = ReviewAgent.matchExcerptInFile(excerptNew, info);
-        assertNotNull(matchNew);
-        assertEquals(2, matchNew.line());
-        assertEquals(ReviewParser.DiffSide.NEW, matchNew.side());
-
-        // Match in OLD (not in new)
-        var excerptOld = new ReviewParser.RawExcerpt("test.java", 2, "line2");
-        var matchOld = ReviewAgent.matchExcerptInFile(excerptOld, info);
-        assertNotNull(matchOld);
-        assertEquals(2, matchOld.line());
-        assertEquals(ReviewParser.DiffSide.OLD, matchOld.side());
-
-        // Whitespace insensitive
-        var excerptWS = new ReviewParser.RawExcerpt("test.java", 1, "  line1  ");
-        var matchWS = ReviewAgent.matchExcerptInFile(excerptWS, info);
-        assertNotNull(matchWS);
-        assertEquals(1, matchWS.line());
-
-        // No match
-        var excerptNone = new ReviewParser.RawExcerpt("test.java", 1, "garbage");
-        assertNull(ReviewAgent.matchExcerptInFile(excerptNone, info));
-
-        // Multi-line match
-        var multiLeft = new BufferSource.StringSource("a\nb\nc\nd\ne", "OLD", "multi.java");
-        var multiInfo = new FileComparisonInfo(null, multiLeft, multiLeft);
-        var multiExcerpt = new ReviewParser.RawExcerpt("multi.java", 3, "b\nc\nd");
-        var multiMatch = ReviewAgent.matchExcerptInFile(multiExcerpt, multiInfo);
-        assertNotNull(multiMatch);
-        assertEquals(2, multiMatch.line()); // Starts at line 2
-        assertEquals("b\nc\nd", multiMatch.matchedText());
     }
 
     @Test
@@ -217,25 +176,6 @@ class ReviewAgentTest {
         // Stage 1 took 1 retry. Stage 2 took 3 retries (limit). Total = 4.
         assertEquals(4, result.retryCount());
         assertTrue(result.resolvedExcerpts().isEmpty());
-    }
-
-    @Test
-    void testMatchExcerptInFile_emptyAndFull() {
-        var emptySource = new BufferSource.StringSource("", "NEW", "empty.java");
-        var info = new FileComparisonInfo(null, emptySource, emptySource);
-        var excerpt = new ReviewParser.RawExcerpt("empty.java", 1, "content");
-
-        assertNull(ReviewAgent.matchExcerptInFile(excerpt, info));
-
-        // Excerpt spans entire file
-        var content = "line1\nline2";
-        var source = new BufferSource.StringSource(content, "NEW", "full.java");
-        var fullInfo = new FileComparisonInfo(null, source, source);
-        var fullExcerpt = new ReviewParser.RawExcerpt("full.java", 1, content);
-
-        var match = ReviewAgent.matchExcerptInFile(fullExcerpt, fullInfo);
-        assertNotNull(match);
-        assertEquals(1, match.line());
     }
 
     @Test

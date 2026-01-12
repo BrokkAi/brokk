@@ -20,7 +20,6 @@ import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.RawExcerpt;
-import ai.brokk.util.WhitespaceMatch;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -320,7 +319,8 @@ public class ReviewAgent {
         }
     }
 
-    static @Nullable FileComparisonInfo findFileComparison(String relPath, List<FileComparisonInfo> fileComparisons) {
+    public static @Nullable FileComparisonInfo findFileComparison(
+            String relPath, List<FileComparisonInfo> fileComparisons) {
         return fileComparisons.stream()
                 .filter(info ->
                         (info.file() != null && relPath.equals(info.file().toString()))
@@ -328,32 +328,6 @@ public class ReviewAgent {
                                 || relPath.equals(info.leftSource().filename()))
                 .findFirst()
                 .orElse(null);
-    }
-
-    record ExcerptMatch(int line, ReviewParser.DiffSide side, String matchedText) {}
-
-    static @Nullable ExcerptMatch matchExcerptInFile(RawExcerpt excerpt, FileComparisonInfo fileInfo) {
-        String[] excerptLines = excerpt.excerpt().split("\\R", -1);
-
-        // Try NEW content first
-        String newContent = fileInfo.rightSource().content();
-        String[] newLines = newContent.split("\\R", -1);
-        var newMatches = WhitespaceMatch.findAll(newLines, excerptLines);
-        if (!newMatches.isEmpty()) {
-            var best = ReviewParser.findBestMatch(newMatches, excerpt.line());
-            return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.NEW, best.matchedText());
-        }
-
-        // Try OLD content
-        String oldContent = fileInfo.leftSource().content();
-        String[] oldLines = oldContent.split("\\R", -1);
-        var oldMatches = WhitespaceMatch.findAll(oldLines, excerptLines);
-        if (!oldMatches.isEmpty()) {
-            var best = ReviewParser.findBestMatch(oldMatches, excerpt.line());
-            return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.OLD, best.matchedText());
-        }
-
-        return null;
     }
 
     boolean fileExists(String text) {
@@ -476,7 +450,7 @@ public class ReviewAgent {
                 continue;
             }
 
-            ExcerptMatch match = matchExcerptInFile(excerpt, fileInfo);
+            ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(excerpt, fileInfo);
             if (match == null) {
                 pendingTextErrors.put(id, "Excerpt text not found in " + excerpt.file());
             } else {
@@ -559,7 +533,7 @@ public class ReviewAgent {
                     continue;
                 }
 
-                ExcerptMatch match = matchExcerptInFile(fixed, fileInfo);
+                ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fixed, fileInfo);
                 if (match != null) {
                     var file = cm.toFile(fixed.file());
                     int lineCount = (int) match.matchedText().lines().count();
