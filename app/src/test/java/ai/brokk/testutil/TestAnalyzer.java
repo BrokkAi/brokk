@@ -127,7 +127,8 @@ public class TestAnalyzer implements IAnalyzer, SkeletonProvider, LintingProvide
 
     @Override
     public SequencedSet<CodeUnit> getDefinitions(String fqName) {
-        var matches = allClasses.stream().filter(cu -> cu.fqName().equals(fqName)).collect(Collectors.toSet());
+        var matches =
+                allClasses.stream().filter(cu -> cu.fqName().equals(fqName)).collect(Collectors.toSet());
         return sortDefinitions(matches);
     }
 

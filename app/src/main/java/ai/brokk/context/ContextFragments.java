@@ -25,7 +25,6 @@ import ai.brokk.util.FragmentUtils;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.LoggingExecutorService;
 import ai.brokk.util.Messages;
-import java.util.Collection;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
 import com.github.difflib.unifieddiff.UnifiedDiffParserException;
@@ -39,6 +38,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -93,7 +93,6 @@ public class ContextFragments {
                         contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
                 .collect(Collectors.toSet());
     }
-
 
     public static byte @Nullable [] convertToByteArray(@Nullable List<Byte> imageBytes) {
         if (imageBytes == null) {

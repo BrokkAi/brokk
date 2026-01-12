@@ -4,10 +4,10 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.util.*;
 import java.io.IOException;

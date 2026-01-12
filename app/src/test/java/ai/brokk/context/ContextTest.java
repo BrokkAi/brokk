@@ -4,10 +4,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
