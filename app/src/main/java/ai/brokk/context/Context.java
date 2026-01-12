@@ -54,7 +54,6 @@ public class Context {
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
     private final transient IContextManager contextManager;
-    private boolean expandSupportingFragments = true;
 
     // Unified list for all fragments (paths and virtuals)
     final List<ContextFragment> fragments;
@@ -120,10 +119,6 @@ public class Context {
         return UuidCreator.getTimeOrderedEpoch();
     }
 
-    public void setExpandSupportingFragments(boolean enabled) {
-        this.expandSupportingFragments = enabled;
-    }
-
     /**
      * Adds fragments to the context.
      * <p>
@@ -143,10 +138,8 @@ public class Context {
 
         // Expand with supporting fragments
         List<ContextFragment> expanded = new ArrayList<>(toAdd);
-        if (expandSupportingFragments) {
-            for (ContextFragment f : toAdd) {
-                expanded.addAll(f.supportingFragments());
-            }
+        for (ContextFragment f : toAdd) {
+            expanded.addAll(f.supportingFragments());
         }
 
         // 1. Deduplicate the expanded collection internally first.

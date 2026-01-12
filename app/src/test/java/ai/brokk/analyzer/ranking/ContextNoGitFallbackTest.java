@@ -130,7 +130,6 @@ public class ContextNoGitFallbackTest {
             };
 
             Context ctx = new Context(cm);
-            ctx.setExpandSupportingFragments(false);
             ContextFragments.ProjectPathFragment seedFragment = new ContextFragments.ProjectPathFragment(a, cm);
             ctx = ctx.addFragments(seedFragment);
 
@@ -196,7 +195,6 @@ public class ContextNoGitFallbackTest {
                     new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, project.getRepo());
 
             Context ctx = new Context(cm);
-            ctx.setExpandSupportingFragments(false);
             ctx = ctx.addFragments(new ContextFragments.ProjectPathFragment(a, cm));
 
             // We want topK = 3.
@@ -289,7 +287,6 @@ public class ContextNoGitFallbackTest {
             IContextManager cm =
                     new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, project.getRepo());
             Context ctx = new Context(cm);
-            ctx.setExpandSupportingFragments(false);
             ctx = ctx.addFragments(new ContextFragments.ProjectPathFragment(a, cm));
 
             List<ProjectFile> results = ctx.getMostRelevantFiles(2);
