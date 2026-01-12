@@ -323,7 +323,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
         historyTable.setTableHeader(null);
 
         // Set up custom renderers for history table columns
-        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setCellRenderer(new IndentedIconRenderer());
+        historyTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_ICON)
+                .setCellRenderer(new IndentedIconRenderer());
         historyTable
                 .getColumnModel()
                 .getColumn(ActivityTableRenderers.COL_ACTION)
@@ -400,10 +403,22 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
         historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setPreferredWidth(38);
         historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setMinWidth(38);
         historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setMaxWidth(38);
-        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ACTION).setPreferredWidth(150);
-        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_CONTEXT).setMinWidth(0);
-        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_CONTEXT).setMaxWidth(0);
-        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_CONTEXT).setWidth(0);
+        historyTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_ACTION)
+                .setPreferredWidth(150);
+        historyTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_CONTEXT)
+                .setMinWidth(0);
+        historyTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_CONTEXT)
+                .setMaxWidth(0);
+        historyTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_CONTEXT)
+                .setWidth(0);
 
         // Add table to scroll pane with AutoScroller
         this.historyScrollPane = new JScrollPane(historyTable);
@@ -754,12 +769,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
             } else if (rowToSelect >= 0) {
                 historyTable.setRowSelectionInterval(rowToSelect, rowToSelect);
                 if (!suppress) {
-                    historyTable.scrollRectToVisible(historyTable.getCellRect(rowToSelect, ActivityTableRenderers.COL_ICON, true));
+                    historyTable.scrollRectToVisible(
+                            historyTable.getCellRect(rowToSelect, ActivityTableRenderers.COL_ICON, true));
                 }
             } else if (!suppress && historyModel.getRowCount() > 0) {
                 int lastRow = historyModel.getRowCount() - 1;
                 historyTable.setRowSelectionInterval(lastRow, lastRow);
-                historyTable.scrollRectToVisible(historyTable.getCellRect(lastRow, ActivityTableRenderers.COL_ICON, true));
+                historyTable.scrollRectToVisible(
+                        historyTable.getCellRect(lastRow, ActivityTableRenderers.COL_ICON, true));
             }
 
             // Restore viewport if requested
@@ -2340,7 +2357,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
                 }
             }
 
-            int iconColWidth = table.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).getWidth();
+            int iconColWidth = table.getColumnModel()
+                    .getColumn(ActivityTableRenderers.COL_ICON)
+                    .getWidth();
             int arrowHeadLength = 5;
             int arrowLeadIn = 1; // length of the line segment before the arrowhead
             int arrowRightMargin = -2; // margin from the right edge of the column

@@ -69,8 +69,6 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
     private static final int COL_DATE = 2;
     private static final int COL_INFO = 3; // hidden SessionInfo column
 
-    // Activity table model: [Icon, Action, Context] uses ActivityTableRenderers.COL_*
-
     // Sessions table components
     private JTable sessionsTable;
     private DefaultTableModel sessionsTableModel;
@@ -192,13 +190,34 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
                 .setCellRenderer(new HistoryCellRenderer(this, contextManager, chrome));
 
         // Adjust activity table column widths
-        activityTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setPreferredWidth(44);
-        activityTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setMinWidth(44);
-        activityTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setMaxWidth(44);
-        activityTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ACTION).setPreferredWidth(250);
-        activityTable.getColumnModel().getColumn(ActivityTableRenderers.COL_CONTEXT).setMinWidth(0);
-        activityTable.getColumnModel().getColumn(ActivityTableRenderers.COL_CONTEXT).setMaxWidth(0);
-        activityTable.getColumnModel().getColumn(ActivityTableRenderers.COL_CONTEXT).setWidth(0);
+        activityTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_ICON)
+                .setPreferredWidth(44);
+        activityTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_ICON)
+                .setMinWidth(44);
+        activityTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_ICON)
+                .setMaxWidth(44);
+        activityTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_ACTION)
+                .setPreferredWidth(250);
+        activityTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_CONTEXT)
+                .setMinWidth(0);
+        activityTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_CONTEXT)
+                .setMaxWidth(0);
+        activityTable
+                .getColumnModel()
+                .getColumn(ActivityTableRenderers.COL_CONTEXT)
+                .setWidth(0);
 
         // Add mouse listener for right-click context menu on activity table
         activityTable.addMouseListener(new MouseAdapter() {
@@ -342,7 +361,8 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
             if (!e.getValueIsAdjusting()) {
                 int row = activityTable.getSelectedRow();
                 if (row >= 0 && row < activityTable.getRowCount()) {
-                    selectedActivityContext = (Context) activityTableModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
+                    selectedActivityContext =
+                            (Context) activityTableModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
                     updatePreviewPanels(selectedActivityContext);
                 } else {
                     clearPreviewPanels();
@@ -516,7 +536,8 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
             if (activityTableModel.getRowCount() > 0) {
                 int lastRow = activityTableModel.getRowCount() - 1;
                 activityTable.setRowSelectionInterval(lastRow, lastRow);
-                activityTable.scrollRectToVisible(activityTable.getCellRect(lastRow, ActivityTableRenderers.COL_ICON, true));
+                activityTable.scrollRectToVisible(
+                        activityTable.getCellRect(lastRow, ActivityTableRenderers.COL_ICON, true));
             }
         });
     }
@@ -886,7 +907,9 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
                 }
             }
 
-            int iconColWidth = table.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).getWidth();
+            int iconColWidth = table.getColumnModel()
+                    .getColumn(ActivityTableRenderers.COL_ICON)
+                    .getWidth();
             int arrowHeadLength = 5;
             int arrowLeadIn = 1; // length of the line segment before the arrowhead
             int arrowRightMargin = -2; // margin from the right edge of the column
