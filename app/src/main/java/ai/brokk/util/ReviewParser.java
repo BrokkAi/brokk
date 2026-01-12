@@ -560,7 +560,8 @@ public class ReviewParser {
 
                     if (currentTopLevelSection.equalsIgnoreCase("Key Changes")) {
                         logger.debug("Parsing key change: {}", headingText);
-                        keyChanges.add(new KeyChanges(headingText, content.description(), List.copyOf(resolvedForNote)));
+                        keyChanges.add(
+                                new KeyChanges(headingText, content.description(), List.copyOf(resolvedForNote)));
                     } else if (currentTopLevelSection.equalsIgnoreCase("Design Notes")) {
                         logger.debug("Parsing design note: {}", headingText);
                         designNotes.add(new DesignFeedback(
@@ -608,8 +609,7 @@ public class ReviewParser {
             }
         }
 
-        return new GuidedReview(
-                overviewBuilder.toString(), keyChanges, designNotes, tacticalNotes, additionalTests);
+        return new GuidedReview(overviewBuilder.toString(), keyChanges, designNotes, tacticalNotes, additionalTests);
     }
 
     private record ParsedContent(String description, String recommendation, List<RawExcerpt> excerpts) {}
@@ -770,18 +770,13 @@ public class ReviewParser {
         // Parse raw excerpts and resolve them to [non-validated] CodeExcerpts for structural validation/JSON preview
         List<RawExcerpt> raws = instance.parseExcerpts(content);
         Map<Integer, CodeExcerpt> resolvedExcerpts = new HashMap<>();
-        Path root = path.getParent().toAbsolutePath();
+        Path root = Objects.requireNonNullElse(path.toAbsolutePath().getParent(), Path.of("."));
 
         for (int i = 0; i < raws.size(); i++) {
             RawExcerpt raw = raws.get(i);
             resolvedExcerpts.put(
                     i,
-                    new CodeExcerpt(
-                            new ProjectFile(root, raw.file()),
-                            null,
-                            raw.line(),
-                            DiffSide.NEW,
-                            raw.excerpt()));
+                    new CodeExcerpt(new ProjectFile(root, raw.file()), null, raw.line(), DiffSide.NEW, raw.excerpt()));
         }
 
         GuidedReview review = instance.parseMarkdownReview(content, resolvedExcerpts);
