@@ -572,7 +572,45 @@ public final class JobRunner {
                                                     (GitRepo) cm.getProject().getRepo();
                                             String diff = PrReviewService.computePrDiff(gitRepo, baseBranch);
 
-                                            // 5. Call reviewDiff() to get LLM review
+                                            // Pre-scan to load related context from the diff
+                                            try {
+                                                store.appendEvent(
+                                                        jobId,
+                                                        JobEvent.of(
+                                                                "NOTIFICATION",
+                                                                "Brokk Context Engine: analyzing repository context for PR review..."));
+
+                                                var scanGoal =
+                                                        "Analyzing changes in this PR diff to identify related code context:\n```diff\n"
+                                                                + diff + "\n```";
+                                                var searchAgent = new LutzAgent(
+                                                        context,
+                                                        scanGoal,
+                                                        Objects.requireNonNull(
+                                                                reviewScanModel,
+                                                                "scan model unavailable for REVIEW pre-scan"),
+                                                        SearchPrompts.Objective.ANSWER_ONLY,
+                                                        scope);
+
+                                                context = searchAgent.scanContext();
+
+                                                store.appendEvent(
+                                                        jobId,
+                                                        JobEvent.of(
+                                                                "NOTIFICATION",
+                                                                "Brokk Context Engine: complete — contextual insights added to Workspace."));
+                                            } catch (InterruptedException ie) {
+                                                Thread.currentThread().interrupt();
+                                                logger.warn(
+                                                        "Pre-scan interrupted for REVIEW job {}: {}",
+                                                        jobId,
+                                                        ie.getMessage());
+                                            } catch (Exception ex) {
+                                                logger.warn(
+                                                        "Pre-scan failed for REVIEW job {}: {}", jobId, ex.getMessage());
+                                            }
+
+                                            // 5. Call reviewDiff() to get LLM review with enriched context
                                             var plannerModel = Objects.requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
                                             TaskResult reviewResult = reviewDiff(context, plannerModel, diff);
