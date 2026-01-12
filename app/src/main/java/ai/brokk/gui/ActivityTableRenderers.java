@@ -23,6 +23,10 @@ import org.jetbrains.annotations.Nullable;
 public final class ActivityTableRenderers {
     private static final Logger logger = LogManager.getLogger(ActivityTableRenderers.class);
 
+    public static final int COL_ICON = 0;
+    public static final int COL_ACTION = 1;
+    public static final int COL_CONTEXT = 2;
+
     private ActivityTableRenderers() {
         // Prevent instantiation
     }
@@ -58,7 +62,7 @@ public final class ActivityTableRenderers {
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            Object actionValue = table.getModel().getValueAt(row, 1);
+            Object actionValue = table.getModel().getValueAt(row, COL_ACTION);
             if (isSeparatorAction(actionValue)) {
                 separatorPainter.setAction(normalizedAction(actionValue));
                 separatorPainter.setCellContext(table, row, column);
@@ -120,13 +124,13 @@ public final class ActivityTableRenderers {
         @Override
         public Component getTableCellRendererComponent(
                 JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            // Retrieve the action value from column 1; derive indent level from ActionText if present
-            Object actionVal = table.getModel().getValueAt(row, 1);
+            // Retrieve the action value from column COL_ACTION; derive indent level from ActionText if present
+            Object actionVal = table.getModel().getValueAt(row, COL_ACTION);
             Object actionForCheck =
                     (actionVal instanceof ActionText atTmp) ? atTmp.text().renderNowOr(Context.SUMMARIZING) : actionVal;
 
-            // Detect group header rows from column 2
-            Object contextCol2 = table.getModel().getValueAt(row, 2);
+            // Detect group header rows from column COL_CONTEXT
+            Object contextCol2 = table.getModel().getValueAt(row, COL_CONTEXT);
             boolean isHeader = (contextCol2 instanceof GroupRow);
 
             // Preserve separator and header behavior by delegating to the base renderer unchanged
@@ -140,7 +144,7 @@ public final class ActivityTableRenderers {
             // Attempt to override the icon based on TaskMeta.type() of the most recent TaskEntry,
             // but only for AI result contexts.
             try {
-                Object ctxVal = table.getModel().getValueAt(row, 2);
+                Object ctxVal = table.getModel().getValueAt(row, COL_CONTEXT);
                 if (ctxVal instanceof Context ctx) {
                     var meta = lastMetaOf(ctx);
                     if (comp instanceof JLabel lbl) {
@@ -155,7 +159,7 @@ public final class ActivityTableRenderers {
 
                     // Compute tooltip: include model details only for AI + meta; otherwise use plain action text
                     String actionText;
-                    Object col1 = table.getModel().getValueAt(row, 1);
+                    Object col1 = table.getModel().getValueAt(row, COL_ACTION);
                     if (col1 instanceof ActionText at2) {
                         actionText = at2.text().renderNowOr(Context.SUMMARIZING);
                     } else {
@@ -363,7 +367,7 @@ public final class ActivityTableRenderers {
             }
 
             int totalWidth = table.getWidth();
-            int iconColumnWidth = table.getColumnModel().getColumn(0).getWidth();
+            int iconColumnWidth = table.getColumnModel().getColumn(COL_ICON).getWidth();
             int margin = iconColumnWidth / 2;
             int ruleStartX = margin;
             int ruleEndX = totalWidth - margin - 1;

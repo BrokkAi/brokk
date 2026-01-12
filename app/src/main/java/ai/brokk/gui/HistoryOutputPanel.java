@@ -323,10 +323,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
         historyTable.setTableHeader(null);
 
         // Set up custom renderers for history table columns
-        historyTable.getColumnModel().getColumn(0).setCellRenderer(new IndentedIconRenderer());
+        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setCellRenderer(new IndentedIconRenderer());
         historyTable
                 .getColumnModel()
-                .getColumn(1)
+                .getColumn(ActivityTableRenderers.COL_ACTION)
                 .setCellRenderer(new HistoryCellRenderer(this, contextManager, chrome));
 
         // Add selection listener to preview context (ignore group header rows)
@@ -334,7 +334,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
             if (!e.getValueIsAdjusting()) {
                 int row = historyTable.getSelectedRow();
                 if (row >= 0 && row < historyTable.getRowCount()) {
-                    var val = historyModel.getValueAt(row, 2);
+                    var val = historyModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
                     if (val instanceof Context ctx) {
                         contextManager.setSelectedContext(ctx);
                         // setContext is for *previewing* a context without changing selection state in the manager
@@ -354,7 +354,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
             public void mouseClicked(MouseEvent e) {
                 int row = historyTable.rowAtPoint(e.getPoint());
                 if (row < 0) return;
-                var val = historyModel.getValueAt(row, 2);
+                var val = historyModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
 
                 if (SwingUtilities.isLeftMouseButton(e)) {
                     if (val instanceof GroupRow) {
@@ -397,13 +397,13 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
 
         // Adjust column widths - set emoji column width and hide the context object column
         // Increase to 44 to accommodate one indent level (~15px) + possibly 24px themed icon, ensuring no clipping.
-        historyTable.getColumnModel().getColumn(0).setPreferredWidth(38);
-        historyTable.getColumnModel().getColumn(0).setMinWidth(38);
-        historyTable.getColumnModel().getColumn(0).setMaxWidth(38);
-        historyTable.getColumnModel().getColumn(1).setPreferredWidth(150);
-        historyTable.getColumnModel().getColumn(2).setMinWidth(0);
-        historyTable.getColumnModel().getColumn(2).setMaxWidth(0);
-        historyTable.getColumnModel().getColumn(2).setWidth(0);
+        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setPreferredWidth(38);
+        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setMinWidth(38);
+        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).setMaxWidth(38);
+        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_ACTION).setPreferredWidth(150);
+        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_CONTEXT).setMinWidth(0);
+        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_CONTEXT).setMaxWidth(0);
+        historyTable.getColumnModel().getColumn(ActivityTableRenderers.COL_CONTEXT).setWidth(0);
 
         // Add table to scroll pane with AutoScroller
         this.historyScrollPane = new JScrollPane(historyTable);
@@ -509,7 +509,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
         int row = historyTable.rowAtPoint(e.getPoint());
         if (row < 0) return;
 
-        Object val = historyModel.getValueAt(row, 2);
+        Object val = historyModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
 
         // Direct Context row: select and show popup
         if (val instanceof Context context) {
@@ -528,7 +528,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
                 if (headerRow >= 0) {
                     int firstChildRow = headerRow + 1;
                     if (firstChildRow < historyModel.getRowCount()) {
-                        Object childVal = historyModel.getValueAt(firstChildRow, 2);
+                        Object childVal = historyModel.getValueAt(firstChildRow, ActivityTableRenderers.COL_CONTEXT);
                         if (childVal instanceof Context ctx) {
                             historyTable.setRowSelectionInterval(firstChildRow, firstChildRow);
                             showPopupForContext(ctx, e.getX(), e.getY());
@@ -553,7 +553,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
 
     private int findGroupHeaderRow(UUID groupKey) {
         for (int i = 0; i < historyModel.getRowCount(); i++) {
-            var v = historyModel.getValueAt(i, 2);
+            var v = historyModel.getValueAt(i, ActivityTableRenderers.COL_CONTEXT);
             if (v instanceof GroupRow gr && gr.key().equals(groupKey)) {
                 return i;
             }
@@ -739,7 +739,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
                 int headerRow = findGroupHeaderRow(pendingSelectionGroupKey);
                 int candidate = headerRow >= 0 ? headerRow + 1 : -1;
                 if (candidate >= 0 && candidate < historyModel.getRowCount()) {
-                    Object v = historyModel.getValueAt(candidate, 2);
+                    Object v = historyModel.getValueAt(candidate, ActivityTableRenderers.COL_CONTEXT);
                     if (v instanceof Context) {
                         rowToSelect = candidate;
                     }
@@ -754,12 +754,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
             } else if (rowToSelect >= 0) {
                 historyTable.setRowSelectionInterval(rowToSelect, rowToSelect);
                 if (!suppress) {
-                    historyTable.scrollRectToVisible(historyTable.getCellRect(rowToSelect, 0, true));
+                    historyTable.scrollRectToVisible(historyTable.getCellRect(rowToSelect, ActivityTableRenderers.COL_ICON, true));
                 }
             } else if (!suppress && historyModel.getRowCount() > 0) {
                 int lastRow = historyModel.getRowCount() - 1;
                 historyTable.setRowSelectionInterval(lastRow, lastRow);
-                historyTable.scrollRectToVisible(historyTable.getCellRect(lastRow, 0, true));
+                historyTable.scrollRectToVisible(historyTable.getCellRect(lastRow, ActivityTableRenderers.COL_ICON, true));
             }
 
             // Restore viewport if requested
@@ -779,7 +779,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
             // Adjust row heights for any Context rows that already have cached, non-empty
             // diff summaries so their per-fragment diff panels are fully visible.
             for (int row = 0; row < historyModel.getRowCount(); row++) {
-                Object v = historyModel.getValueAt(row, 2);
+                Object v = historyModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
                 if (v instanceof Context ctxRow) {
                     var diffsOpt = diffService.peek(ctxRow);
                     if (diffsOpt.isPresent() && !diffsOpt.get().isEmpty()) {
@@ -810,7 +810,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
 
         int targetRow = -1;
         for (int row = 0; row < historyModel.getRowCount(); row++) {
-            Object val = historyModel.getValueAt(row, 2);
+            Object val = historyModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
             if (val == ctx) {
                 targetRow = row;
                 break;
@@ -820,7 +820,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
             return;
         }
 
-        int actionCol = 1;
+        int actionCol = ActivityTableRenderers.COL_ACTION;
         if (actionCol >= historyTable.getColumnCount()) {
             return;
         }
@@ -2290,8 +2290,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
                 Integer sourceRow = contextIdToRow.get(edge.sourceId());
                 Integer targetRow = contextIdToRow.get(edge.targetId());
                 if (sourceRow != null && targetRow != null) {
-                    var sourceRect = table.getCellRect(sourceRow, 0, true);
-                    var targetRect = table.getCellRect(targetRow, 0, true);
+                    var sourceRect = table.getCellRect(sourceRow, ActivityTableRenderers.COL_ICON, true);
+                    var targetRect = table.getCellRect(targetRow, ActivityTableRenderers.COL_ICON, true);
                     int y1 = sourceRect.y + sourceRect.height / 2;
                     int y2 = targetRect.y + targetRect.height / 2;
                     arrows.add(new Arrow(edge, sourceRow, targetRow, Math.abs(y1 - y2)));
@@ -2340,7 +2340,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
                 }
             }
 
-            int iconColWidth = table.getColumnModel().getColumn(0).getWidth();
+            int iconColWidth = table.getColumnModel().getColumn(ActivityTableRenderers.COL_ICON).getWidth();
             int arrowHeadLength = 5;
             int arrowLeadIn = 1; // length of the line segment before the arrowhead
             int arrowRightMargin = -2; // margin from the right edge of the column
@@ -2383,7 +2383,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
     }
 
     private void toggleGroupRow(int row) {
-        var val = historyModel.getValueAt(row, 2);
+        var val = historyModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
         if (!(val instanceof GroupRow groupRow)) {
             return;
         }
@@ -2422,7 +2422,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
         if (last < 0) last = historyTable.getRowCount() - 1;
 
         for (int row = first; row <= last; row++) {
-            Object v = historyModel.getValueAt(row, 2);
+            Object v = historyModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
             if (v instanceof Context ctx) {
                 ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
             }
@@ -2430,7 +2430,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware, HistoryTab
 
         int sel = historyTable.getSelectedRow();
         if (sel >= 0 && sel < historyTable.getRowCount()) {
-            Object sv = historyModel.getValueAt(sel, 2);
+            Object sv = historyModel.getValueAt(sel, ActivityTableRenderers.COL_CONTEXT);
             if (sv instanceof Context sctx) {
                 ds.diff(sctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(sctx)));
             }
