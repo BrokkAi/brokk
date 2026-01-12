@@ -71,15 +71,14 @@ public final class TestContextManager implements IContextManager {
         this.analyzerRef = new AtomicReference<>(analyzer);
         this.editableFiles = new HashSet<>(editableFiles);
 
-        IGitRepo repoToSet = null;
+        IGitRepo repoToSet = new TestRepo(project.getRoot());
         try {
             repoToSet = Objects.requireNonNullElseGet(repo, project::getRepo);
         } catch (UnsupportedOperationException e) {
-            repoToSet = new TestRepo(project.getRoot());
-        } finally {
-            this.repo = repoToSet;
+            // ignore, we will fallback on default
         }
 
+        this.repo = repoToSet;
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
         this.analyzerWrapper = new TestAnalyzerWrapper(analyzer);
