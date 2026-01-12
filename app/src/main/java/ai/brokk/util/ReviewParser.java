@@ -715,12 +715,12 @@ public class ReviewParser {
             List<DesignFeedback> designNotes = rawReview.designNotes().stream()
                     .map(raw -> new DesignFeedback(
                             raw.title(),
-                            instance.cleanMetadata(raw.description()),
+                            instance.cleanMetadata(Objects.requireNonNullElse(raw.description(), "")),
                             raw.excerptIndices().stream()
                                     .map(resolvedExcerpts::get)
                                     .filter(Objects::nonNull)
                                     .toList(),
-                            instance.cleanMetadata(raw.recommendation())))
+                            instance.cleanMetadata(Objects.requireNonNullElse(raw.recommendation(), ""))))
                     .toList();
 
             List<TacticalFeedback> tacticalNotes = rawReview.tacticalNotes().stream()
@@ -735,9 +735,9 @@ public class ReviewParser {
                         }
                         return Stream.of(new TacticalFeedback(
                                 raw.title(),
-                                instance.cleanMetadata(raw.description()),
+                                instance.cleanMetadata(Objects.requireNonNullElse(raw.description(), "")),
                                 excerpt,
-                                instance.cleanMetadata(raw.recommendation())));
+                                instance.cleanMetadata(Objects.requireNonNullElse(raw.recommendation(), ""))));
                     })
                     .toList();
 
