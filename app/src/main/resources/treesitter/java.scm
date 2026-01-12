@@ -119,13 +119,13 @@
 
 ; Test markers for JUnit/TestNG detection
 ; Tree-sitter-java represents "@Test" (no args) as marker_annotation, and "@Test(...)" as annotation.
+; Filtering for specific test annotation names is performed in the analyzer.
 [
   (marker_annotation
     name: [
       (identifier) @test_marker
       (scoped_identifier name: (identifier) @test_marker)
     ]
-    (#match? @test_marker "^(Test|ParameterizedTest|RepeatedTest)$")
   )
 
   (annotation
@@ -133,6 +133,5 @@
       (identifier) @test_marker
       (scoped_identifier name: (identifier) @test_marker)
     ]
-    (#match? @test_marker "^(Test|ParameterizedTest|RepeatedTest)$")
   )
 ]
