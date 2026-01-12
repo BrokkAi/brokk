@@ -576,6 +576,9 @@ public final class JobRunner {
                                                     (GitRepo) cm.getProject().getRepo();
                                             String diff = PrReviewService.computePrDiff(gitRepo, baseBranch, prDetails.headRef());
 
+                                            // 4a. Annotate diff with line numbers for LLM review
+                                            String annotatedDiff = PrReviewService.annotateDiffWithLineNumbers(diff);
+
                                             // Pre-scan to load related context from the diff
                                             try {
                                                 store.appendEvent(
@@ -586,7 +589,7 @@ public final class JobRunner {
 
                                                 var scanGoal =
                                                         "Analyzing changes in this PR diff to identify related code context:\n```diff\n"
-                                                                + diff + "\n```";
+                                                                + annotatedDiff + "\n```";
                                                 var searchAgent = new LutzAgent(
                                                         context,
                                                         scanGoal,
@@ -619,7 +622,7 @@ public final class JobRunner {
                                             // 5. Call reviewDiff() to get LLM review with enriched context
                                             var plannerModel = Objects.requireNonNull(
                                                     reviewPlannerModel, "planner model unavailable for REVIEW jobs");
-                                            TaskResult reviewResult = reviewDiff(context, plannerModel, diff);
+                                            TaskResult reviewResult = reviewDiff(context, plannerModel, annotatedDiff);
                                             scope.append(reviewResult);
 
                                             // 6. Parse review output
