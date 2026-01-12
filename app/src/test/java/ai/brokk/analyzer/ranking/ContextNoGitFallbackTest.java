@@ -192,7 +192,8 @@ public class ContextNoGitFallbackTest {
             ProjectFile c = byName.get("c.java");
             ProjectFile d = byName.get("d.java");
 
-            IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+            IContextManager cm =
+                    new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, project.getRepo());
 
             Context ctx = new Context(cm);
             ctx.setExpandSupportingFragments(false);
@@ -285,7 +286,8 @@ public class ContextNoGitFallbackTest {
             ProjectFile b = files.get("B.java");
             ProjectFile c = files.get("C.java");
 
-            IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+            IContextManager cm =
+                    new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, project.getRepo());
             Context ctx = new Context(cm);
             ctx.setExpandSupportingFragments(false);
             ctx = ctx.addFragments(new ContextFragments.ProjectPathFragment(a, cm));
