@@ -44,7 +44,7 @@ public final class TestContextManager implements IContextManager {
     private final IAnalyzerWrapper analyzerWrapper;
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO) {
-        this(new TestProject(projectRoot, Languages.JAVA), consoleIO, Set.of(), new TestAnalyzer());
+        this(new TestProject(projectRoot, Languages.JAVA), consoleIO, Set.of(), new TestAnalyzer(), null);
     }
 
     public TestContextManager(Path projectRoot, IConsoleIO consoleIO, IAnalyzer analyzer) {
@@ -52,7 +52,8 @@ public final class TestContextManager implements IContextManager {
                 analyzer instanceof TestAnalyzer ? new TestProject(projectRoot, Languages.JAVA) : analyzer.getProject(),
                 consoleIO,
                 Set.of(),
-                analyzer);
+                analyzer,
+                null);
     }
 
     public TestContextManager(
@@ -102,7 +103,7 @@ public final class TestContextManager implements IContextManager {
     }
 
     public TestContextManager(IProject project) {
-        this(project, new TestConsoleIO(), Set.of(), new TestAnalyzer());
+        this(project, new TestConsoleIO(), Set.of(), new TestAnalyzer(), null);
     }
 
     public TestContextManager(Path projectRoot, Set<String> editableFiles) {
@@ -112,7 +113,8 @@ public final class TestContextManager implements IContextManager {
                 new HashSet<>(editableFiles.stream()
                         .map(s -> new ProjectFile(projectRoot, s))
                         .toList()),
-                new TestAnalyzer());
+                new TestAnalyzer(),
+                null);
     }
 
     @Override
