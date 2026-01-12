@@ -45,12 +45,10 @@ public final class UsagePromptBuilder {
         String candidateText = hit.snippet();
 
         // Metadata headers
-        sb.append("Short Name: ").append(shortName).append("\n");
-        sb.append("Code Unit: ").append(codeUnitTarget.toString()).append("\n");
+        sb.append("Short Name of Search: ").append(shortName).append("\n");
+        sb.append("Code Unit Target: ").append(codeUnitTarget).append("\n");
 
-        sb.append("File: ")
-                .append(hit.file().absPath().toString())
-                .append("\n");
+        sb.append("File of Hit: ").append(hit.file().getRelPath()).append("\n");
 
         // Gather imports (best effort)
         List<String> imports;
@@ -70,7 +68,7 @@ public final class UsagePromptBuilder {
             sb.append("\n");
         }
 
-        sb.append("// snippet of method ")
+        sb.append("// snippet of method containing possible usage ")
                 .append(hit.enclosing().fqName())
                 .append("\n");
         sb.append(candidateText).append("\n");

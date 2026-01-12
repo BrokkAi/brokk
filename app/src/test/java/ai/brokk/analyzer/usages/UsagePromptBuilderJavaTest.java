@@ -7,6 +7,7 @@ import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.AssertionHelperUtil;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -69,7 +70,7 @@ public class UsagePromptBuilderJavaTest {
     public void buildReturnsSingleRecordWithExpectedFields() {
         // Given a single file with a snippet containing XML special chars
         ProjectFile file = fileInProject("A.java");
-        String snippet = "line1\n<T> & \"quotes\" and 'single'\nline3";
+        String snippet = "{ // line1\n\tA.method2();//<T> & \"quotes\" and 'single'\n} // line3";
         CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
         CodeUnit target = CodeUnit.fn(file, "test", "method2");
         UsageHit hit = new UsageHit(file, 10, 0, snippet.length(), enclosing, 1.0, snippet);
@@ -77,7 +78,7 @@ public class UsagePromptBuilderJavaTest {
         // When
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
                 hit, target, analyzer, "A.method2", 10_000 // generous token budget
-        );
+                );
 
         // Field-level assertions
         assertNotNull(prompt.filterDescription(), "filterDescription should not be null");
@@ -87,14 +88,22 @@ public class UsagePromptBuilderJavaTest {
         assertEquals(snippet, prompt.candidateText(), "candidateText should equal the usage snippet");
 
         String text = prompt.promptText();
-        assertNotNull(text, "promptText should not be null");
-        assertTrue(text.contains("Short Name: A.method2"), "Expected 'Short Name: ' header");
-        assertTrue(text.contains("Code Unit: " + target.toString()), "Expected 'Code Unit: ' header");
-        assertTrue(text.contains("File: " + file.absPath().toString()), "Expected 'File: ' followed by path");
-        assertTrue(text.contains("```java"), "Expected fenced code block for java");
-        assertTrue(text.contains("// snippet of method test.A"), "Expected snippet comment with enclosing class");
-        assertTrue(text.contains(snippet), "Snippet content should be present unescaped");
-        assertTrue(text.contains("// rest of class"), "Expected 'rest of class' comment");
+        AssertionHelperUtil.assertCodeEquals(
+                """
+                Short Name of Search: A.method2
+                Code Unit Target: FUNCTION[test.method2]
+                File of Hit: A.java
+                ```java
+                import java.util.function.Function;
+
+                // snippet of method containing possible usage test.A
+                { // line1
+                	A.method2();//<T> & "quotes" and 'single'
+                } // line3
+                // rest of class
+                ```
+                """,
+                text);
     }
 
     @Test
@@ -107,12 +116,8 @@ public class UsagePromptBuilderJavaTest {
         UsageHit hit = new UsageHit(file, 1, 0, largeSnippet.length(), enclosing, 1.0, largeSnippet);
 
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit,
-                target,
-                analyzer,
-                "A.method2",
-                32 // ~128 chars budget to trigger truncation
-        );
+                hit, target, analyzer, "A.method2", 32 // ~128 chars budget to trigger truncation
+                );
 
         assertTrue(prompt.promptText().contains("truncated due to token limit"), "Expected truncation note in prompt");
     }
@@ -124,8 +129,7 @@ public class UsagePromptBuilderJavaTest {
         CodeUnit target = CodeUnit.fn(file, "", "A.method2");
         UsageHit hit = new UsageHit(file, 5, 0, 3, enclosing, 1.0, "sa");
 
-        UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(hit, target, analyzer, "A.method2", 10_000);
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(hit, target, analyzer, "A.method2", 10_000);
 
         String text = prompt.promptText();
         assertTrue(text.contains("Short Name: "), "Expected Short Name: prefix");
