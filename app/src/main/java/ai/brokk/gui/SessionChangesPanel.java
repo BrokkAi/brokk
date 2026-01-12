@@ -28,7 +28,6 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
-import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -244,8 +243,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         pullBtn.addActionListener(e -> performPull());
         pushBtn.addActionListener(e -> performPush());
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
-        pasteBtn.addActionListener(e -> handlePasteReview());
-        copyBtn.addActionListener(e -> handleCopyReview());
+
+        if (Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"))) {
+            pasteBtn.addActionListener(e -> handlePasteReview());
+            copyBtn.addActionListener(e -> handleCopyReview());
+        }
 
         SwingUtil.applyPrimaryButtonStyle(commitBtn);
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
