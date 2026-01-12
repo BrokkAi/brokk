@@ -23,9 +23,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -33,16 +31,6 @@ public class ContextNoGitFallbackTest {
 
     @TempDir
     Path tempDir;
-
-    @BeforeEach
-    public void disableSupportingFragmentsExpansion() {
-        Context.setExpandSupportingFragments(false);
-    }
-
-    @AfterEach
-    public void restoreSupportingFragmentsExpansion() {
-        Context.setExpandSupportingFragments(true);
-    }
 
     @Test
     public void noGitFallbackUsesImportPageRanker() throws Exception {
@@ -142,6 +130,7 @@ public class ContextNoGitFallbackTest {
             };
 
             Context ctx = new Context(cm);
+            ctx.setExpandSupportingFragments(false);
             ContextFragments.ProjectPathFragment seedFragment = new ContextFragments.ProjectPathFragment(a, cm);
             ctx = ctx.addFragments(seedFragment);
 
@@ -205,7 +194,9 @@ public class ContextNoGitFallbackTest {
 
             IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
-            Context ctx = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(a, cm));
+            Context ctx = new Context(cm);
+            ctx.setExpandSupportingFragments(false);
+            ctx = ctx.addFragments(new ContextFragments.ProjectPathFragment(a, cm));
 
             // We want topK = 3.
             // 1. Git Distance will find D (co-committed with A).
@@ -295,7 +286,9 @@ public class ContextNoGitFallbackTest {
             ProjectFile c = files.get("C.java");
 
             IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
-            Context ctx = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(a, cm));
+            Context ctx = new Context(cm);
+            ctx.setExpandSupportingFragments(false);
+            ctx = ctx.addFragments(new ContextFragments.ProjectPathFragment(a, cm));
 
             List<ProjectFile> results = ctx.getMostRelevantFiles(2);
 

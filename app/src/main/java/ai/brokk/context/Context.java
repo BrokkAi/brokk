@@ -39,15 +39,12 @@ import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 
 /**
  * Encapsulates all state that will be sent to the model (prompts, filename context, conversation history).
  */
 public class Context {
     private static final Logger logger = LogManager.getLogger(Context.class);
-
-    private static boolean expandSupportingFragments = true;
 
     private final UUID id;
     public static final Context EMPTY = new Context(new IContextManager() {});
@@ -57,6 +54,7 @@ public class Context {
     public static final long CONTEXT_ACTION_SUMMARY_TIMEOUT_SECONDS = 5;
 
     private final transient IContextManager contextManager;
+    private boolean expandSupportingFragments = true;
 
     // Unified list for all fragments (paths and virtuals)
     final List<ContextFragment> fragments;
@@ -122,9 +120,8 @@ public class Context {
         return UuidCreator.getTimeOrderedEpoch();
     }
 
-    @TestOnly
-    public static void setExpandSupportingFragments(boolean enabled) {
-        expandSupportingFragments = enabled;
+    public void setExpandSupportingFragments(boolean enabled) {
+        this.expandSupportingFragments = enabled;
     }
 
     /**
