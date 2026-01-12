@@ -1723,8 +1723,7 @@ public class ContextFragments {
                 text = "No summary found for: " + targetIdentifier;
             } else {
                 text = new SkeletonFragmentFormatter()
-                        .format(new SkeletonFragmentFormatter.Request(
-                                null, List.of(), skeletonsMap, SummaryType.FILE_SKELETONS));
+                        .format(new SkeletonFragmentFormatter.Request(null, List.of(), skeletonsMap, summaryType));
                 if (text.isEmpty()) text = "No summary found for: " + targetIdentifier;
             }
 
