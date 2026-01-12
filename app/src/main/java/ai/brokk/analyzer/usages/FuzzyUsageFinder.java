@@ -137,12 +137,9 @@ public final class FuzzyUsageFinder {
             try {
                 var tasks = new ArrayList<RelevanceTask>(hits.size());
                 var mapping = new ArrayList<UsageHit>(hits.size());
-                var alternatives = matchingCodeUnits.stream()
-                        .filter(cu -> !cu.fqName().equals(target.fqName()))
-                        .collect(Collectors.toList());
                 for (var hit : hits) {
-                    var prompt = UsagePromptBuilder.buildPrompt(hit, target, alternatives, analyzer, identifier, 8_000);
-                    // Use the rich prompt text (includes <candidates>) as the candidate text for classification
+                    var prompt = UsagePromptBuilder.buildPrompt(hit, target, analyzer, identifier, 8_000);
+                    // Use the rich prompt text as the candidate text for classification
                     tasks.add(new RelevanceTask(prompt.filterDescription(), prompt.promptText()));
                     mapping.add(hit);
                 }

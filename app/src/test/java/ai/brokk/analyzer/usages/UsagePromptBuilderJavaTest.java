@@ -77,8 +77,8 @@ public class UsagePromptBuilderJavaTest {
 
         // When
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit, target, Collections.emptyList(), analyzer, "A.method2", 10_000 // generous token budget
-                );
+                hit, target, analyzer, "A.method2", 10_000 // generous token budget
+        );
 
         // Then: record has the three expected accessors and nothing else
         RecordComponent[] components = prompt.getClass().getRecordComponents();
@@ -97,18 +97,11 @@ public class UsagePromptBuilderJavaTest {
 
         String text = prompt.promptText();
         assertNotNull(text, "promptText should not be null");
-        assertTrue(text.contains("<file path=\""), "Expected <file> tag with path");
-        assertTrue(text.contains(file.absPath().toString()), "Expected absolute path in file tag");
-        assertTrue(text.contains("<imports>") && text.contains("</imports>"), "Expected imports section");
-        assertTrue(text.contains("<usage>") && text.contains("</usage>"), "Expected a single <usage> block");
-        assertFalse(text.contains("id="), "No id attributes should be present");
-
-        // Ensure special chars are escaped
-        assertTrue(text.contains("&lt;T&gt;"), "Expected '<' and '>' to be escaped");
-        assertTrue(text.contains("&amp;"), "Expected '&' to be escaped");
-        assertTrue(text.contains("&quot;quotes&quot;"), "Expected '\"' to be escaped");
-        assertTrue(
-                text.contains("&apos;single&apos;") || text.contains("&#39;single&#39;"), "Expected ''' to be escaped");
+        assertTrue(text.contains("File: " + file.absPath().toString()), "Expected 'File: ' followed by path");
+        assertTrue(text.contains("```java"), "Expected fenced code block for java");
+        assertTrue(text.contains("// snippet of method test.A"), "Expected snippet comment with enclosing class");
+        assertTrue(text.contains(snippet), "Snippet content should be present unescaped");
+        assertTrue(text.contains("// rest of class"), "Expected 'rest of class' comment");
     }
 
     @Test
@@ -123,28 +116,27 @@ public class UsagePromptBuilderJavaTest {
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
                 hit,
                 target,
-                Collections.emptyList(),
                 analyzer,
                 "A.method2",
                 32 // ~128 chars budget to trigger truncation
-                );
+        );
 
         assertTrue(prompt.promptText().contains("truncated due to token limit"), "Expected truncation note in prompt");
     }
 
     @Test
-    public void buildHasNoIdsInPromptText() {
+    public void buildHasMarkdownStructure() {
         ProjectFile file = fileInProject("A.java");
         CodeUnit enclosing = CodeUnit.cls(file, "", "A");
         CodeUnit target = CodeUnit.fn(file, "", "A.method2");
         UsageHit hit = new UsageHit(file, 5, 0, 3, enclosing, 1.0, "sa");
 
         UsagePrompt prompt =
-                UsagePromptBuilder.buildPrompt(hit, target, Collections.emptyList(), analyzer, "A.method2", 10_000);
+                UsagePromptBuilder.buildPrompt(hit, target, analyzer, "A.method2", 10_000);
 
         String text = prompt.promptText();
-        assertTrue(text.contains("<usage>") && text.contains("</usage>"), "Expected a single <usage> block");
-        assertFalse(text.contains("id="), "No id attributes should be present");
+        assertTrue(text.contains("File: "), "Expected File: prefix");
+        assertTrue(text.contains("```"), "Expected Markdown code fence");
         assertTrue(text.contains(file.absPath().toString()), "Expected the correct file path in prompt");
     }
 }
