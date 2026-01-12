@@ -217,6 +217,21 @@ public class GitRepoRemote {
     }
 
     /**
+     * Fetches a GitHub Pull Request ref from a remote.
+     *
+     * @param prNumber The PR number to fetch.
+     * @param remoteName The name of the remote (e.g., "origin").
+     * @throws GitAPIException if a Git error occurs.
+     */
+    @org.jetbrains.annotations.Blocking
+    public void fetchPrRef(int prNumber, String remoteName) throws GitAPIException {
+        var refSpec = new RefSpec("+refs/pull/" + prNumber + "/head:refs/remotes/" + remoteName + "/pr/" + prNumber);
+        var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(refSpec);
+        repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
+        fetchCommand.call();
+    }
+
+    /**
      * Checks if a branch needs to be fetched by comparing local and remote SHAs.
      * Uses ls-remote to query the remote without downloading objects.
      *
