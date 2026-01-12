@@ -788,6 +788,8 @@ public class ReviewAgent {
                 - Each design note MUST have AT LEAST ONE excerpt block illustrating the subject, and may include as many excerpts as are relevant
                 - Each Tactical note must include EXACTLY ONE excerpt block.
 
+                All titles should be 3-6 words.
+
                 Overview comes LAST, after you've had time to think through the design.
 
                 Every section except Overview is optional; omit them if there is nothing important to say.
