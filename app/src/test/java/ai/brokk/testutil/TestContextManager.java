@@ -121,12 +121,16 @@ public final class TestContextManager implements IContextManager {
 
     @Override
     public IAnalyzer getAnalyzerUninterrupted() {
+        IAnalyzer fromWrapper = analyzerWrapper.getNonBlocking();
+        if (fromWrapper != null) {
+            return fromWrapper;
+        }
         return analyzerRef.get();
     }
 
     @Override
     public IAnalyzer getAnalyzer() {
-        return analyzerRef.get();
+        return getAnalyzerUninterrupted();
     }
 
     @Override

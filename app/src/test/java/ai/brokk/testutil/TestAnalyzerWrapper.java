@@ -10,7 +10,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class TestAnalyzerWrapper implements IAnalyzerWrapper {
 
-    private final @Nullable IAnalyzer analyzer;
+    private @Nullable IAnalyzer analyzer;
     private final AtomicInteger pauseCount = new AtomicInteger(0);
     private final AtomicInteger resumeCount = new AtomicInteger(0);
     private final AtomicInteger rebuildCount = new AtomicInteger(0);
@@ -26,7 +26,9 @@ public class TestAnalyzerWrapper implements IAnalyzerWrapper {
     @Override
     public CompletableFuture<IAnalyzer> updateFiles(Set<ProjectFile> relevantFiles) {
         if (analyzer != null) {
-            return CompletableFuture.completedFuture(analyzer.update(relevantFiles));
+            IAnalyzer updated = analyzer.update(relevantFiles);
+            this.analyzer = updated;
+            return CompletableFuture.completedFuture(updated);
         }
         return CompletableFuture.failedFuture(new UnsupportedOperationException("Not used in this test"));
     }
