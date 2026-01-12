@@ -8,6 +8,9 @@ import com.vladsch.flexmark.ast.Paragraph;
 import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.ast.Node;
 import com.vladsch.flexmark.util.data.MutableDataSet;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -284,7 +287,7 @@ public class ReviewParser {
             if (trimmed.startsWith("## ") && !trimmed.startsWith("### ")) {
                 String content = currentContent.toString().trim();
                 // Add previous section if it has content OR if it wasn't the initial Overview
-                if (!content.isEmpty() || (!currentTitle.equals("Overview") && !currentTitle.equals(currentTopLevel))) {
+                if (!content.isEmpty() || !currentTitle.equals(currentTopLevel)) {
                     sections.add(new Section(currentTopLevel, currentTitle, content));
                 }
 
@@ -522,15 +525,10 @@ public class ReviewParser {
 
         String currentTopLevelSection = "";
 
-        // Build a map from (file, line) to excerpt index for lookup during parsing
+        // Get all excerpts in sequence to match them against nodes during parsing.
+        // Track which global indices have been consumed to handle duplicates correctly.
         List<RawExcerpt> allExcerpts = parseExcerpts(markdown);
-        Map<String, Integer> excerptKeyToIndex = new HashMap<>();
-        for (int i = 0; i < allExcerpts.size(); i++) {
-            RawExcerpt e = allExcerpts.get(i);
-            // Use file + "@" + line as key; first occurrence wins (handles duplicates)
-            String key = e.file() + "@" + e.line();
-            excerptKeyToIndex.putIfAbsent(key, i);
-        }
+        var consumedIndices = new java.util.HashSet<Integer>();
 
         for (Node node = document.getFirstChild(); node != null; node = node.getNext()) {
             if (node instanceof Heading heading) {
@@ -541,50 +539,48 @@ public class ReviewParser {
                     logger.debug("Parser transitioned to section: {}", currentTopLevelSection);
                 } else if (heading.getLevel() == 3) {
                     ParsedContent content = parseFeedbackContent(heading);
+                    List<CodeExcerpt> resolvedForNote = new ArrayList<>();
+                    for (RawExcerpt raw : content.excerpts()) {
+                        // Find the first unconsumed global index matching this excerpt
+                        for (int i = 0; i < allExcerpts.size(); i++) {
+                            if (consumedIndices.contains(i)) {
+                                continue;
+                            }
+                            RawExcerpt global = allExcerpts.get(i);
+                            if (global.file().equals(raw.file()) && global.line() == raw.line()) {
+                                CodeExcerpt resolved = resolvedExcerpts.get(i);
+                                if (resolved != null) {
+                                    resolvedForNote.add(resolved);
+                                }
+                                consumedIndices.add(i);
+                                break;
+                            }
+                        }
+                    }
+
                     if (currentTopLevelSection.equalsIgnoreCase("Key Changes")) {
                         logger.debug("Parsing key change: {}", headingText);
-                        List<CodeExcerpt> excerpts = content.excerpts().stream()
-                                .map(raw -> {
-                                    String key = raw.file() + "@" + raw.line();
-                                    Integer idx = excerptKeyToIndex.get(key);
-                                    return idx != null ? resolvedExcerpts.get(idx) : null;
-                                })
-                                .filter(Objects::nonNull)
-                                .toList();
-                        keyChanges.add(new KeyChanges(headingText, content.description(), excerpts));
+                        keyChanges.add(new KeyChanges(headingText, content.description(), List.copyOf(resolvedForNote)));
                     } else if (currentTopLevelSection.equalsIgnoreCase("Design Notes")) {
                         logger.debug("Parsing design note: {}", headingText);
-                        List<CodeExcerpt> excerpts = content.excerpts().stream()
-                                .map(raw -> {
-                                    String key = raw.file() + "@" + raw.line();
-                                    Integer idx = excerptKeyToIndex.get(key);
-                                    return idx != null ? resolvedExcerpts.get(idx) : null;
-                                })
-                                .filter(Objects::nonNull)
-                                .toList();
                         designNotes.add(new DesignFeedback(
-                                headingText, content.description(), excerpts, content.recommendation()));
+                                headingText,
+                                content.description(),
+                                List.copyOf(resolvedForNote),
+                                content.recommendation()));
                     } else if (currentTopLevelSection.equalsIgnoreCase("Tactical Notes")) {
                         logger.debug("Parsing tactical note: {}", headingText);
-                        RawExcerpt raw = content.excerpts().isEmpty()
-                                ? null
-                                : content.excerpts().getFirst();
-                        CodeExcerpt excerpt = null;
-                        if (raw != null) {
-                            String key = raw.file() + "@" + raw.line();
-                            Integer idx = excerptKeyToIndex.get(key);
-                            excerpt = idx != null ? resolvedExcerpts.get(idx) : null;
-                        }
-                        if (excerpt != null) {
-                            if (excerpt != null) {
-                                tacticalNotes.add(new TacticalFeedback(
-                                        headingText, content.description(), excerpt, content.recommendation()));
-                            }
-                        } else if (raw != null) {
+                        if (!resolvedForNote.isEmpty()) {
+                            tacticalNotes.add(new TacticalFeedback(
+                                    headingText,
+                                    content.description(),
+                                    resolvedForNote.getFirst(),
+                                    content.recommendation()));
+                        } else if (!content.excerpts().isEmpty()) {
                             logger.warn(
                                     "Tactical note '{}' referenced excerpt {} but it could not be resolved",
                                     headingText,
-                                    raw);
+                                    content.excerpts().getFirst());
                         }
                     } else if (currentTopLevelSection.equalsIgnoreCase("Additional Tests")) {
                         logger.debug("Parsing additional test: {}", headingText);
@@ -592,14 +588,34 @@ public class ReviewParser {
                                 new ReviewFeedback(headingText, content.description(), content.recommendation()));
                     }
                 }
-            } else if (node instanceof Paragraph p) {
-                if (currentTopLevelSection.equalsIgnoreCase("Overview")) {
+            } else if (currentTopLevelSection.equalsIgnoreCase("Additional Tests") && node instanceof BulletList bl) {
+                // Handle bullet lists in Additional Tests section - each item becomes a test
+                for (Node item = bl.getFirstChild(); item != null; item = item.getNext()) {
+                    String itemText = item.getChars().toString().trim();
+                    // Remove leading "- " if present
+                    if (itemText.startsWith("- ")) {
+                        itemText = itemText.substring(2).trim();
+                    }
+                    if (!itemText.isEmpty()) {
+                        additionalTests.add(new ReviewFeedback(itemText, "", ""));
+                    }
+                }
+            } else if (currentTopLevelSection.equalsIgnoreCase("Overview")) {
+                if (node instanceof Paragraph p) {
                     String pText = p.getChars().toString().trim();
                     if (!pText.isEmpty()) {
                         if (!overviewBuilder.isEmpty()) {
                             overviewBuilder.append("\n\n");
                         }
                         overviewBuilder.append(pText);
+                    }
+                } else if (node instanceof com.vladsch.flexmark.ast.ListBlock lb) {
+                    String listText = lb.getChars().toString().trim();
+                    if (!listText.isEmpty()) {
+                        if (!overviewBuilder.isEmpty()) {
+                            overviewBuilder.append("\n\n");
+                        }
+                        overviewBuilder.append(listText);
                     }
                 }
             }
@@ -748,5 +764,40 @@ public class ReviewParser {
                     tacticalNotes,
                     rawReview.additionalTests());
         }
+    }
+
+    public static void main(String[] args) throws IOException {
+        if (args.length < 1) {
+            System.err.println("Usage: ReviewParser <markdown-file>");
+            System.exit(1);
+        }
+
+        Path path = Path.of(args[0]);
+        if (!Files.exists(path)) {
+            System.err.println("File not found: " + path);
+            System.exit(1);
+        }
+
+        String content = Files.readString(path);
+
+        // Parse raw excerpts and resolve them to [non-validated] CodeExcerpts for structural validation/JSON preview
+        List<RawExcerpt> raws = instance.parseExcerpts(content);
+        Map<Integer, CodeExcerpt> resolvedExcerpts = new HashMap<>();
+        Path root = path.getParent().toAbsolutePath();
+
+        for (int i = 0; i < raws.size(); i++) {
+            RawExcerpt raw = raws.get(i);
+            resolvedExcerpts.put(
+                    i,
+                    new CodeExcerpt(
+                            new ProjectFile(root, raw.file()),
+                            null,
+                            raw.line(),
+                            DiffSide.NEW,
+                            raw.excerpt()));
+        }
+
+        GuidedReview review = instance.parseMarkdownReview(content, resolvedExcerpts);
+        System.out.println(review.toJson());
     }
 }

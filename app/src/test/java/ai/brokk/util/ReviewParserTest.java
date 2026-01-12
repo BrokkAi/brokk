@@ -5,7 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.ProjectFile;
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -894,6 +897,85 @@ class ReviewParserTest {
         assertEquals("code 1", results.get(0).excerpt());
         assertEquals("File2.java", results.get(2).file());
         assertEquals("code 2", results.get(2).excerpt());
+    }
+
+    @Test
+    void testParseLutzReviewLog() throws IOException {
+        Path resourcePath = Path.of("src/test/resources/reviews/lutzreview.log");
+        String markdown = Files.readString(resourcePath);
+
+        // First verify the raw excerpt count
+        List<ReviewParser.RawExcerpt> allExcerpts = ReviewParser.instance.parseExcerpts(markdown);
+        assertEquals(12, allExcerpts.size(), "Should find 12 excerpts in the log file");
+
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        // The log contains 12 excerpts total, indexed 0-11 in document order.
+        // Design notes: indices 0-5 (1 + 2 + 3 excerpts)
+        // Tactical notes: indices 6-11 (1 excerpt each, 6 total)
+        var resolved = new HashMap<Integer, ReviewParser.CodeExcerpt>();
+        // Design Note 1: Resource Leak (1 excerpt)
+        resolved.put(0, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/main/java/ai/brokk/tools/SearchTools.java"), null, 478, ReviewParser.DiffSide.NEW, "try..."));
+        // Design Note 2: Inconsistent Revision Header (2 excerpts)
+        resolved.put(1, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/main/java/ai/brokk/difftool/ui/BrokkDiffPanel.java"), null, 1241, ReviewParser.DiffSide.NEW, "String oldName..."));
+        resolved.put(2, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/main/java/ai/brokk/difftool/ui/BrokkDiffPanel.java"), null, 1249, ReviewParser.DiffSide.NEW, "return..."));
+        // Design Note 3: DROP_EXPLANATION_GUIDANCE Duplication Risk (3 excerpts)
+        resolved.put(3, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/main/java/ai/brokk/tools/WorkspaceTools.java"), null, 409, ReviewParser.DiffSide.NEW, "guidance..."));
+        resolved.put(4, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/main/java/ai/brokk/prompts/SearchPrompts.java"), null, 194, ReviewParser.DiffSide.NEW, "formatted..."));
+        resolved.put(5, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/main/java/ai/brokk/tools/WorkspaceTools.java"), null, 64, ReviewParser.DiffSide.NEW, "@Description..."));
+        // Tactical Note 1: Missing null-safety (1 excerpt)
+        resolved.put(6, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/main/java/ai/brokk/difftool/ui/BrokkDiffPanel.java"), null, 1236, ReviewParser.DiffSide.NEW, "leftRev..."));
+        // Tactical Note 2: Unused import potential (1 excerpt)
+        resolved.put(7, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/test/java/ai/brokk/agents/SearchAgentToolTest.java"), null, 40, ReviewParser.DiffSide.NEW, "req..."));
+        // Tactical Note 3: Redundant stream() call (1 excerpt)
+        resolved.put(8, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/test/java/ai/brokk/agents/SearchAgentToolTest.java"), null, 48, ReviewParser.DiffSide.NEW, "toList..."));
+        // Tactical Note 4: Potential format string injection (1 excerpt)
+        resolved.put(9, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/main/java/ai/brokk/prompts/SearchPrompts.java"), null, 241, ReviewParser.DiffSide.NEW, "goal..."));
+        // Tactical Note 5: Test assertion message (1 excerpt)
+        resolved.put(10, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/test/java/ai/brokk/agents/SearchAgentToolTest.java"), null, 140, ReviewParser.DiffSide.NEW, "assertTrue..."));
+        // Tactical Note 6: Magic indent value (1 excerpt)
+        resolved.put(11, new ReviewParser.CodeExcerpt(new ProjectFile(root, "app/src/main/java/ai/brokk/prompts/SearchPrompts.java"), null, 194, ReviewParser.DiffSide.NEW, "indent(12)..."));
+
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolved);
+
+        // Verify Overview
+        assertTrue(review.overview().startsWith("This diff introduces several significant improvements"));
+        assertTrue(review.overview().endsWith("concerns worth addressing."));
+
+        // Verify Design Notes: 3 notes with 1, 2, 3 excerpts respectively = 6 total excerpts
+        assertEquals(3, review.designNotes().size(), "Should have 3 design notes");
+        assertEquals("Resource Leak in searchGitCommitMessages", review.designNotes().get(0).title());
+        assertEquals(1, review.designNotes().get(0).excerpts().size(), "Design note 1 should have 1 excerpt");
+        assertEquals("Inconsistent Revision Header Construction in BrokkDiffPanel", review.designNotes().get(1).title());
+        assertEquals(2, review.designNotes().get(1).excerpts().size(), "Design note 2 should have 2 excerpts");
+        assertEquals("DROP_EXPLANATION_GUIDANCE Duplication Risk", review.designNotes().get(2).title());
+        assertEquals(3, review.designNotes().get(2).excerpts().size(), "Design note 3 should have 3 excerpts");
+
+        // Verify total design excerpts
+        int totalDesignExcerpts = review.designNotes().stream()
+                .mapToInt(d -> d.excerpts().size())
+                .sum();
+        assertEquals(6, totalDesignExcerpts, "Design notes should have 6 total excerpts");
+
+        // Verify Tactical Notes: 6 notes with 1 excerpt each
+        assertEquals(6, review.tacticalNotes().size(), "Should have 6 tactical notes");
+        assertEquals("Missing null-safety in formatCapturedDiffSection", review.tacticalNotes().get(0).title());
+        assertEquals("Unused import potential in SearchAgentToolTest", review.tacticalNotes().get(1).title());
+        assertEquals("Redundant stream() call in req helper", review.tacticalNotes().get(2).title());
+        assertEquals("Potential format string injection in goal concatenation", review.tacticalNotes().get(3).title());
+        assertEquals("Test assertion message could be more specific", review.tacticalNotes().get(4).title());
+        assertEquals("Magic indent value in prompt formatting", review.tacticalNotes().get(5).title());
+
+        // Each tactical note should have its excerpt resolved
+        for (int i = 0; i < review.tacticalNotes().size(); i++) {
+            var note = review.tacticalNotes().get(i);
+            assertTrue(note.excerpt() != null, "Tactical note " + i + " (" + note.title() + ") should have an excerpt");
+        }
+
+        // Verify Additional Tests: 3 bullet items
+        assertEquals(3, review.additionalTests().size(), "Should have 3 additional tests");
+        assertTrue(review.additionalTests().get(0).title().contains("formatCapturedDiffSection"));
+        assertTrue(review.additionalTests().get(1).title().contains("searchGitCommitMessages"));
+        assertTrue(review.additionalTests().get(2).title().contains("format specifiers"));
     }
 
     @Test
