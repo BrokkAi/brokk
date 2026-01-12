@@ -14,7 +14,6 @@ import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
-import ai.brokk.project.IProject;
 import ai.brokk.testutil.AnalyzerCreator;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestConsoleIO;
@@ -107,8 +106,7 @@ public class ContextNoGitFallbackTest {
                 }
             };
 
-            IContextManager cm =
-                    new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, stubRepo);
+            IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, stubRepo);
 
             Context ctx = new Context(cm);
             ContextFragments.ProjectPathFragment seedFragment = new ContextFragments.ProjectPathFragment(a, cm);
