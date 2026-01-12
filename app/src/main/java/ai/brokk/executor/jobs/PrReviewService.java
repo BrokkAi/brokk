@@ -2,10 +2,14 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.git.GitRepo;
 import java.io.IOException;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 import org.kohsuke.github.GHPullRequest;
+import org.kohsuke.github.GHPullRequestReviewComment;
 import org.kohsuke.github.GHRepository;
+import org.kohsuke.github.HttpException;
 
 /**
  * Helper class for GitHub PR operations used by the executor.
@@ -13,6 +17,8 @@ import org.kohsuke.github.GHRepository;
  * <p>All methods are blocking and perform network I/O or git operations.
  */
 public final class PrReviewService {
+    private static final Logger logger = LogManager.getLogger(PrReviewService.class);
+
     private PrReviewService() {
         throw new UnsupportedOperationException("Utility class");
     }
@@ -71,5 +77,68 @@ public final class PrReviewService {
     @Blocking
     public static void postReviewComment(GHPullRequest pr, String body) throws IOException {
         pr.comment(body);
+    }
+
+    /**
+     * Posts an inline review comment on a specific line of a file in the pull request.
+     *
+     * <p>If the inline comment fails with HTTP 422 (e.g., line not part of the diff), falls back
+     * to posting a regular PR comment with file and line context.
+     *
+     * @param pr the GitHub pull request
+     * @param path the file path relative to repository root
+     * @param line the line number in the file (1-indexed)
+     * @param body the comment body in markdown
+     * @param commitId the commit SHA to comment on
+     * @throws IOException if the GitHub API call fails (other than HTTP 422)
+     */
+    @Blocking
+    public static void postLineComment(
+            GHPullRequest pr, String path, int line, String body, String commitId)
+            throws IOException {
+        try {
+            pr.createReviewComment()
+                    .body(body)
+                    .commitId(commitId)
+                    .path(path)
+                    .line(line)
+                    .create();
+            logger.info("Posted inline comment on {}:{} in PR #{}", path, line, pr.getNumber());
+        } catch (HttpException e) {
+            if (e.getResponseCode() == 422) {
+                logger.warn(
+                        "Failed to post inline comment on {}:{} (HTTP 422), falling back to regular comment",
+                        path,
+                        line);
+                String fallbackBody =
+                        String.format(
+                                "**Comment on `%s` line %d:**\n\n%s", path, line, body);
+                pr.comment(fallbackBody);
+                logger.info(
+                        "Posted fallback comment for {}:{} in PR #{}", path, line, pr.getNumber());
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Checks if an existing review comment already exists on the specified line of a file.
+     *
+     * @param pr the GitHub pull request
+     * @param path the file path relative to repository root
+     * @param line the line number in the file (1-indexed)
+     * @return true if a comment already exists on that line, false otherwise
+     * @throws IOException if the GitHub API call fails
+     */
+    @Blocking
+    public static boolean hasExistingLineComment(GHPullRequest pr, String path, int line)
+            throws IOException {
+        for (GHPullRequestReviewComment comment : pr.listReviewComments()) {
+            if (path.equals(comment.getPath()) && line == comment.getLine()) {
+                return true;
+            }
+        }
+        return false;
     }
 }
