@@ -136,20 +136,23 @@ public class Context {
             return this;
         }
 
-        // Expand with supporting fragments
+        // Expand with supporting fragments while guarding against cycles and redundancy.
         IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
-        List<ContextFragment> expanded = new ArrayList<>(toAdd);
-        for (ContextFragment f : toAdd) {
-            expanded.addAll(f.supportingFragments(analyzer));
-        }
+        LinkedHashSet<ContextFragment> expanded = new LinkedHashSet<>();
+        Deque<ContextFragment> queue = new ArrayDeque<>(toAdd);
 
-        // 1. Deduplicate the expanded collection internally first.
-        var uniqueInputs = new ArrayList<ContextFragment>();
-        for (var f : expanded) {
-            if (uniqueInputs.stream().noneMatch(existing -> existing.hasSameSource(f))) {
-                uniqueInputs.add(f);
+        while (!queue.isEmpty()) {
+            ContextFragment f = queue.poll();
+            // Check if we've already added a fragment with the same source
+            if (expanded.stream().noneMatch(f::hasSameSource)) {
+                expanded.add(f);
+                for (ContextFragment support : f.supportingFragments(analyzer)) {
+                    queue.add(support);
+                }
             }
         }
+
+        var uniqueInputs = expanded;
 
         // 2. Identify files that are being added as full PATH fragments.
         // These will "kill" any existing SKELETON fragments for the same files.

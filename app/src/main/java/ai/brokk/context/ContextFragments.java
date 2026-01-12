@@ -1695,7 +1695,13 @@ public class ContextFragments {
             if (summaryType != SummaryType.CODEUNIT_SKELETON) {
                 return Set.of();
             }
-            return resolveAncestorFragments(analyzer.getDefinitions(targetIdentifier), contextManager, analyzer);
+
+            return analyzer.getDefinitions(targetIdentifier).stream()
+                    .filter(CodeUnit::isClass)
+                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                    .filter(anc -> !anc.isAnonymous())
+                    .map(anc -> new SummaryFragment(contextManager, anc.fqName(), SummaryType.CODEUNIT_SKELETON))
+                    .collect(Collectors.toSet());
         }
 
         private static ContentSnapshot computeSnapshotFor(
