@@ -85,6 +85,10 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         itemExcerpts.clear();
         itemExcerpts.put(review.overview(), List.of());
 
+        for (var change : review.keyChanges()) {
+            itemExcerpts.put(change, change.excerpts());
+        }
+
         for (var design : review.designNotes()) {
             itemExcerpts.put(design, design.excerpts());
         }

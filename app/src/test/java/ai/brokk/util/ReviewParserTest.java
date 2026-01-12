@@ -902,7 +902,7 @@ class ReviewParserTest {
 
     @Test
     void testParseLutzReviewLog() throws IOException {
-        Path resourcePath = Path.of("src/test/resources/reviews/lutzreview.log");
+        Path resourcePath = Path.of("src/test/resources/reviews/lutz1.log");
         String markdown = Files.readString(resourcePath);
 
         // First verify the raw excerpt count
