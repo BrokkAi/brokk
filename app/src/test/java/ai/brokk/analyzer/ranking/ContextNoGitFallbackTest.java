@@ -9,6 +9,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitDistance;
@@ -22,7 +23,6 @@ import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -374,31 +374,7 @@ public class ContextNoGitFallbackTest {
                     .findFirst()
                     .orElseThrow();
 
-            AtomicInteger rankerInvocations = new AtomicInteger(0);
-
-            IGitRepo stubRepo = new IGitRepo() {
-                @Override
-                public Set<ProjectFile> getTrackedFiles() {
-                    return Set.of(a);
-                }
-            };
-
-            IContextManager cm = new IContextManager() {
-                @Override
-                public IAnalyzer getAnalyzer() {
-                    return analyzer;
-                }
-
-                @Override
-                public IProject getProject() {
-                    return project;
-                }
-
-                @Override
-                public IGitRepo getRepo() {
-                    return stubRepo;
-                }
-            };
+            IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
             // 1. Create a context with ONLY a SummaryFragment (SKELETON type)
             // SummaryFragment is SKELETON type, which is NOT a ranking seed.
