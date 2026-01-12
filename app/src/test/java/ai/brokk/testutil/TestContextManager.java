@@ -9,6 +9,7 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.git.IGitRepo;
 import ai.brokk.git.TestRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.tasks.TaskList;
@@ -33,7 +34,7 @@ import org.jetbrains.annotations.Nullable;
 public final class TestContextManager implements IContextManager {
     private final IProject project;
     private final AtomicReference<IAnalyzer> analyzerRef;
-    private final TestRepo repo;
+    private final IGitRepo repo;
     private final Set<ProjectFile> editableFiles;
     private final IConsoleIO consoleIO;
     private final TestService stubService;
@@ -56,11 +57,27 @@ public final class TestContextManager implements IContextManager {
 
     public TestContextManager(
             IProject project, IConsoleIO consoleIO, Set<ProjectFile> editableFiles, IAnalyzer analyzer) {
+        this(project, consoleIO, editableFiles, analyzer, null);
+    }
+
+    public TestContextManager(
+            IProject project,
+            IConsoleIO consoleIO,
+            Set<ProjectFile> editableFiles,
+            IAnalyzer analyzer,
+            @Nullable IGitRepo repo) {
         this.project = project;
         this.analyzerRef = new AtomicReference<>(analyzer);
         this.editableFiles = new HashSet<>(editableFiles);
 
-        this.repo = new TestRepo(project.getRoot());
+        if (repo != null) {
+            this.repo = repo;
+        } else if (project.getRepo() != null) {
+            this.repo = project.getRepo();
+        } else {
+            this.repo = new TestRepo(project.getRoot());
+        }
+
         this.consoleIO = consoleIO;
         this.stubService = new TestService(this.project);
         this.liveContext = new Context(this).addFragments(toPathFragments(editableFiles));
@@ -104,7 +121,7 @@ public final class TestContextManager implements IContextManager {
     }
 
     @Override
-    public TestRepo getRepo() {
+    public IGitRepo getRepo() {
         return repo;
     }
 
