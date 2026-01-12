@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitRepo;
 import ai.brokk.project.FileFilteringService;
 import ai.brokk.project.MainProject;
 import java.io.IOException;
@@ -17,6 +18,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -1363,8 +1365,7 @@ class ProjectFilteringGitRepoTest {
         Files.writeString(globalGitignore, "*.log\n*.db\n");
 
         // Configure git to use this global gitignore
-        var repo = org.eclipse.jgit.storage.file.FileRepositoryBuilder.create(
-                tempDir.resolve(".git").toFile());
+        var repo = FileRepositoryBuilder.create(tempDir.resolve(".git").toFile());
         var config = repo.getConfig();
         config.setString("core", null, "excludesfile", globalGitignore.toString());
         config.save();
@@ -1412,8 +1413,7 @@ class ProjectFilteringGitRepoTest {
         Path xdgIgnore = xdgConfig.resolve("ignore");
         Files.writeString(xdgIgnore, "*.log\n");
 
-        var repo = org.eclipse.jgit.storage.file.FileRepositoryBuilder.create(
-                tempDir.resolve(".git").toFile());
+        var repo = FileRepositoryBuilder.create(tempDir.resolve(".git").toFile());
         var config = repo.getConfig();
         config.setString("core", null, "excludesfile", xdgIgnore.toString());
         config.save();
@@ -1453,8 +1453,7 @@ class ProjectFilteringGitRepoTest {
         Path globalGitignore = tempDir.resolve("global-gitignore");
         Files.writeString(globalGitignore, "*.log\n");
 
-        var repo = org.eclipse.jgit.storage.file.FileRepositoryBuilder.create(
-                tempDir.resolve(".git").toFile());
+        var repo = FileRepositoryBuilder.create(tempDir.resolve(".git").toFile());
         var config = repo.getConfig();
         config.setString("core", null, "excludesfile", globalGitignore.toString());
         config.save();
@@ -1502,8 +1501,7 @@ class ProjectFilteringGitRepoTest {
         // Create a path with tilde that should be expanded
         // Note: JGit's FS.resolve() handles tilde expansion, but in tests we can't mock the actual home
         // So we'll use an absolute path for this test to verify the mechanism works
-        var repo = org.eclipse.jgit.storage.file.FileRepositoryBuilder.create(
-                tempDir.resolve(".git").toFile());
+        var repo = FileRepositoryBuilder.create(tempDir.resolve(".git").toFile());
         var config = repo.getConfig();
         // Use absolute path here since we can't change the actual user home in tests
         config.setString("core", null, "excludesfile", globalGitignore.toString());
@@ -1637,7 +1635,7 @@ class ProjectFilteringGitRepoTest {
         var repo = project.getRepo();
 
         // For regular repos (non-worktrees), getWorkTreeRoot() should return the project root
-        if (repo instanceof ai.brokk.git.GitRepo gitRepo) {
+        if (repo instanceof GitRepo gitRepo) {
             var workTreeRoot = gitRepo.getWorkTreeRoot();
             assertEquals(
                     tempDir.toRealPath(),

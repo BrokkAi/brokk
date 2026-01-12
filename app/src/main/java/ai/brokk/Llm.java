@@ -1492,7 +1492,8 @@ public class Llm {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };
             logger.trace("Writing history to file {}", filePath);
-            Files.writeString(filePath, formattedRequest + formattedTools + formattedResponse, options);
+            Files.writeString(
+                    filePath, formattedRequest + "\n\n" + formattedTools + "\n\n" + formattedResponse, options);
         } catch (IOException e) {
             logger.error("Failed to write LLM response history file", e);
         }
@@ -1725,11 +1726,40 @@ public class Llm {
                         .formatted(formatThrowable(error), contentToShow);
             }
 
+            AiMessage ai = aiMessage();
+            String toolRequestsJson = "[]";
+            String metadataJson = "{}";
+
             try {
-                return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(originalResponse());
+                toolRequestsJson =
+                        objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(ai.toolExecutionRequests());
+                if (originalResponse() != null) {
+                    metadataJson = objectMapper
+                            .writerWithDefaultPrettyPrinter()
+                            .writeValueAsString(originalResponse().metadata());
+                }
             } catch (JsonProcessingException e) {
-                return String.valueOf(originalResponse());
+                logger.error("Failed to serialize components for formatted()", e);
             }
+
+            return """
+                ## text
+                %s
+
+                ## reasoningContent
+                %s
+
+                ## toolExecutionRequests
+                %s
+
+                ## metadata
+                %s
+                """
+                    .formatted(
+                            ai.text() == null ? "" : ai.text(),
+                            ai.reasoningContent() == null ? "" : ai.reasoningContent(),
+                            toolRequestsJson,
+                            metadataJson);
         }
 
         private String formatThrowable(Throwable th) {

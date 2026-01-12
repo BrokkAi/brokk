@@ -9,6 +9,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -775,7 +776,7 @@ class HeadlessExecutorMainIntegrationTest {
     // ============================================================================
 
     private byte[] createEmptyZip() throws IOException {
-        var out = new java.io.ByteArrayOutputStream();
+        var out = new ByteArrayOutputStream();
         try (var zos = new ZipOutputStream(out)) {
             // Create valid V4 session format with fragments-v4.json
             var fragmentsEntry = new ZipEntry("fragments-v4.json");

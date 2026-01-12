@@ -39,6 +39,7 @@ import ai.brokk.init.onboarding.OnboardingStep;
 import ai.brokk.init.onboarding.PostGitStyleRegenerationStep;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.MainProject;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.util.*;
 import com.formdev.flatlaf.util.SystemInfo;
 import com.formdev.flatlaf.util.UIScale;
@@ -57,7 +58,9 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -1106,7 +1109,7 @@ public class Chrome
     }
 
     @Override
-    public void onTaskListChanged(ai.brokk.tasks.TaskList.TaskListData data) {
+    public void onTaskListChanged(TaskList.TaskListData data) {
         // Count incomplete tasks and update the badge
         int incomplete = (int) data.tasks().stream().filter(t -> !t.done()).count();
         SwingUtilities.invokeLater(() -> rightPanel.updateBuildTabBadge(incomplete));
@@ -1777,7 +1780,7 @@ public class Chrome
                     SwingUtilities.invokeLater(() -> systemNotify(
                             "Error during initialization: " + ex.getMessage(),
                             "Initialization Error",
-                            javax.swing.JOptionPane.ERROR_MESSAGE));
+                            JOptionPane.ERROR_MESSAGE));
                     return null;
                 });
     }
@@ -1926,10 +1929,7 @@ public class Chrome
             }
         } catch (Exception e) {
             logger.error("Error during migration dialog: {}", e.getMessage(), e);
-            systemNotify(
-                    "Error during migration: " + e.getMessage(),
-                    "Migration Error",
-                    javax.swing.JOptionPane.ERROR_MESSAGE);
+            systemNotify("Error during migration: " + e.getMessage(), "Migration Error", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -2578,16 +2578,16 @@ public class Chrome
         return dialog;
     }
 
-    private static class ChromeFocusTraversalPolicy extends java.awt.FocusTraversalPolicy {
-        private final java.util.List<java.awt.Component> order;
+    private static class ChromeFocusTraversalPolicy extends FocusTraversalPolicy {
+        private final List<Component> order;
 
-        public ChromeFocusTraversalPolicy(java.util.List<java.awt.Component> order) {
-            this.order = order.stream().filter(Objects::nonNull).collect(java.util.stream.Collectors.toList());
+        public ChromeFocusTraversalPolicy(List<Component> order) {
+            this.order = order.stream().filter(Objects::nonNull).collect(Collectors.toList());
         }
 
-        private int getIndex(java.awt.Component c) {
+        private int getIndex(Component c) {
             // Find component or one of its ancestors in the order list
-            for (java.awt.Component comp = c; comp != null; comp = comp.getParent()) {
+            for (Component comp = c; comp != null; comp = comp.getParent()) {
                 int i = order.indexOf(comp);
                 if (i != -1) {
                     return i;
@@ -2601,15 +2601,15 @@ public class Chrome
          * The Instructions area is skipped when "tab inserts indentation" is enabled,
          * because Tab/Shift+Tab would be trapped for indentation instead of navigation.
          */
-        private boolean shouldIncludeInTraversal(java.awt.Component comp) {
+        private boolean shouldIncludeInTraversal(Component comp) {
             if (!comp.isFocusable() || !comp.isShowing() || !comp.isEnabled()) {
                 return false;
             }
             // Skip Instructions area when tab-for-indentation is enabled (would trap focus)
-            if (comp instanceof javax.swing.JTextArea textArea) {
+            if (comp instanceof JTextArea textArea) {
                 // Check if this is the instructions area by name or other property
                 if ("instructionsArea".equals(textArea.getName())
-                        && ai.brokk.util.GlobalUiSettings.isInstructionsTabInsertIndentation()) {
+                        && GlobalUiSettings.isInstructionsTabInsertIndentation()) {
                     return false;
                 }
             }
@@ -2617,7 +2617,7 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getComponentAfter(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+        public Component getComponentAfter(Container focusCycleRoot, Component aComponent) {
             if (order.isEmpty()) return aComponent;
             int idx = getIndex(aComponent);
             if (idx == -1) {
@@ -2625,7 +2625,7 @@ public class Chrome
             }
             for (int i = 1; i <= order.size(); i++) {
                 int nextIdx = (idx + i) % order.size();
-                java.awt.Component nextComp = order.get(nextIdx);
+                Component nextComp = order.get(nextIdx);
                 if (shouldIncludeInTraversal(nextComp)) {
                     return nextComp;
                 }
@@ -2634,7 +2634,7 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getComponentBefore(java.awt.Container focusCycleRoot, java.awt.Component aComponent) {
+        public Component getComponentBefore(Container focusCycleRoot, Component aComponent) {
             if (order.isEmpty()) return aComponent;
             int idx = getIndex(aComponent);
             if (idx == -1) {
@@ -2642,7 +2642,7 @@ public class Chrome
             }
             for (int i = 1; i <= order.size(); i++) {
                 int prevIdx = (idx - i + order.size()) % order.size();
-                java.awt.Component prevComp = order.get(prevIdx);
+                Component prevComp = order.get(prevIdx);
                 if (shouldIncludeInTraversal(prevComp)) {
                     return prevComp;
                 }
@@ -2651,10 +2651,10 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getFirstComponent(java.awt.Container focusCycleRoot) {
+        public Component getFirstComponent(Container focusCycleRoot) {
             if (order.isEmpty()) return focusCycleRoot;
             for (int i = 0; i < order.size(); i++) {
-                java.awt.Component comp = order.get(i);
+                Component comp = order.get(i);
                 if (shouldIncludeInTraversal(comp)) {
                     return comp;
                 }
@@ -2663,10 +2663,10 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getLastComponent(java.awt.Container focusCycleRoot) {
+        public Component getLastComponent(Container focusCycleRoot) {
             if (order.isEmpty()) return focusCycleRoot;
             for (int i = order.size() - 1; i >= 0; i--) {
-                java.awt.Component comp = order.get(i);
+                Component comp = order.get(i);
                 if (shouldIncludeInTraversal(comp)) {
                     return comp;
                 }
@@ -2675,7 +2675,7 @@ public class Chrome
         }
 
         @Override
-        public java.awt.Component getDefaultComponent(java.awt.Container focusCycleRoot) {
+        public Component getDefaultComponent(Container focusCycleRoot) {
             return getFirstComponent(focusCycleRoot);
         }
     }
@@ -2732,7 +2732,7 @@ public class Chrome
             }
 
             // Apply focus border
-            var originalBorder = (javax.swing.border.Border) jcomp.getClientProperty("originalBorder");
+            var originalBorder = (Border) jcomp.getClientProperty("originalBorder");
             var focusBorder = BorderFactory.createLineBorder(FOCUS_BORDER_COLOR, 2);
 
             if (originalBorder != null) {
@@ -2748,7 +2748,7 @@ public class Chrome
     private void removeFocusHighlight(Component component) {
         if (component instanceof JComponent jcomp) {
             // Restore original border
-            var originalBorder = (javax.swing.border.Border) jcomp.getClientProperty("originalBorder");
+            var originalBorder = (Border) jcomp.getClientProperty("originalBorder");
             jcomp.setBorder(originalBorder);
             jcomp.repaint();
         }

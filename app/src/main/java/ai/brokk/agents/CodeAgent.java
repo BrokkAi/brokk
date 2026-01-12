@@ -50,6 +50,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.SequencedSet;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
@@ -67,6 +68,7 @@ import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Manages interactions with a Language Model (LLM) to generate and apply code modifications based on user instructions.
@@ -1574,7 +1576,7 @@ public class CodeAgent {
          * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
          * history compaction without depending on the diff library package structure at compile time.
          */
-        @org.jetbrains.annotations.VisibleForTesting
+        @VisibleForTesting
         SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
             var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
@@ -1730,7 +1732,7 @@ public class CodeAgent {
 
         private static String joinLines(List<String> lines, int start, int end) {
             if (lines.isEmpty() || start > end) return "";
-            var sj = new java.util.StringJoiner("\n");
+            var sj = new StringJoiner("\n");
             for (int i = start; i <= end; i++) {
                 sj.add(lines.get(i));
             }

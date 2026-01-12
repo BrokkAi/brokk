@@ -4,8 +4,10 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.util.ComputedValue;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import javax.swing.JTable;
 
 /**
  * Unified grouping model for context history rendering.
@@ -233,20 +235,17 @@ public final class HistoryGrouping {
             }
 
             // We combine the futures of all child actions.
-            var futures =
-                    cvs.stream().map(ComputedValue::future).toArray(java.util.concurrent.CompletableFuture[]::new);
+            var futures = cvs.stream().map(ComputedValue::future).toArray(CompletableFuture[]::new);
 
-            return new ai.brokk.util.ComputedValue<>(
-                    "header-aggregate",
-                    java.util.concurrent.CompletableFuture.allOf(futures).thenApply(v -> {
+            return new ComputedValue<>(
+                    "header-aggregate", CompletableFuture.allOf(futures).thenApply(v -> {
                         // All are done now. Re-calculate the label using completed strings.
                         List<String> words = cvs.stream()
                                 .map(cv -> safeFirstWord(cv.renderNowOr(Context.SUMMARIZING)))
                                 .toList();
 
                         Map<String, Long> counts = words.stream()
-                                .collect(java.util.stream.Collectors.groupingBy(
-                                        w -> w, LinkedHashMap::new, java.util.stream.Collectors.counting()));
+                                .collect(Collectors.groupingBy(w -> w, LinkedHashMap::new, Collectors.counting()));
 
                         List<String> formatted = counts.entrySet().stream()
                                 .map(e -> e.getValue() > 1 ? e.getKey() + " x" + e.getValue() : e.getKey())
@@ -306,20 +305,19 @@ public final class HistoryGrouping {
      * If descriptors are empty, maps only currently visible Context rows (collapsed children cannot be
      * resolved to headers without descriptors).
      */
-    public static java.util.Map<java.util.UUID, Integer> buildContextToRowMap(
-            java.util.List<GroupDescriptor> descriptors, javax.swing.JTable table) {
+    public static Map<UUID, Integer> buildContextToRowMap(List<GroupDescriptor> descriptors, JTable table) {
         // Index descriptors by UUID key (groupId for id-groups; first-child id for legacy action groups)
-        var byKey = new HashMap<java.util.UUID, GroupDescriptor>();
+        var byKey = new HashMap<UUID, GroupDescriptor>();
         for (var gd : descriptors) {
             try {
-                var keyUuid = java.util.UUID.fromString(gd.key());
+                var keyUuid = UUID.fromString(gd.key());
                 byKey.put(keyUuid, gd);
             } catch (IllegalArgumentException ignored) {
                 // skip malformed keys
             }
         }
 
-        var result = new HashMap<java.util.UUID, Integer>();
+        var result = new HashMap<UUID, Integer>();
 
         var model = table.getModel();
         // First pass: map visible Context rows directly

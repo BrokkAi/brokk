@@ -464,7 +464,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 String nameText = sourceContent.substringFrom(nameNode).strip();
                 if (!nameText.isEmpty()) {
                     // Remove the identifier token (token-boundary) to avoid clobbering template names
-                    raw = raw.replaceAll("\\b" + java.util.regex.Pattern.quote(nameText) + "\\b", "")
+                    raw = raw.replaceAll("\\b" + Pattern.quote(nameText) + "\\b", "")
                             .strip();
                 }
             } else {
@@ -473,7 +473,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
                 if (toks.length > 1) {
                     String last = toks[toks.length - 1];
                     if (!last.isEmpty() && Character.isJavaIdentifierStart(last.charAt(0))) {
-                        raw = String.join(" ", java.util.Arrays.copyOf(toks, toks.length - 1))
+                        raw = String.join(" ", Arrays.copyOf(toks, toks.length - 1))
                                 .strip();
                     }
                 }
@@ -782,7 +782,7 @@ public class CppAnalyzer extends TreeSitterAnalyzer {
      * @return true if the keyword is found as a standalone word
      */
     private boolean hasKeywordWithBoundary(String text, String keyword) {
-        var pattern = java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(keyword) + "\\b");
+        var pattern = Pattern.compile("\\b" + Pattern.quote(keyword) + "\\b");
         return pattern.matcher(text).find();
     }
 

@@ -5,14 +5,19 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.project.ModelProperties;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -26,10 +31,10 @@ public class ContextAgentTest {
     @Test
     void testRecommendationsBecomeFileSkeletonSummaryFragments() throws InterruptedException {
         Path root = tempDir.toAbsolutePath();
-        var analyzer = new TestAnalyzer(List.of(), java.util.Map.of());
+        var analyzer = new TestAnalyzer(List.of(), Map.of());
         var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
 
-        StreamingChatModel model = cm.getService().getModel(ai.brokk.project.ModelProperties.ModelType.SUMMARIZE);
+        StreamingChatModel model = cm.getService().getModel(ModelProperties.ModelType.SUMMARIZE);
         var agent = new ContextAgent(cm, model, "test");
 
         var testFile = cm.toFile("src/test/java/pkg/FooTest.java");
@@ -52,7 +57,7 @@ public class ContextAgentTest {
     @Test
     void duplicatesBetweenFilesAndTestsPreferProjectPathFragment_andDoNotDuplicate() throws InterruptedException {
         Path root = tempDir.toAbsolutePath();
-        var analyzer = new TestAnalyzer(List.of(), java.util.Map.of());
+        var analyzer = new TestAnalyzer(List.of(), Map.of());
         var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
 
         StreamingChatModel model = cm.getService().quickestModel();
@@ -82,7 +87,7 @@ public class ContextAgentTest {
     @Test
     void alreadyExistingWorkspacePathsAreNotReadded_asTestOrFile() throws InterruptedException {
         Path root = tempDir.toAbsolutePath();
-        var analyzer = new TestAnalyzer(List.of(), java.util.Map.of());
+        var analyzer = new TestAnalyzer(List.of(), Map.of());
         var cm = new TestContextManager(root, new TestConsoleIO(), analyzer);
 
         StreamingChatModel model = cm.getService().quickestModel();
@@ -98,22 +103,18 @@ public class ContextAgentTest {
 
     @Test
     void filterAnonymousSummaries_removesAnonEntries() {
-        var file = new ai.brokk.analyzer.ProjectFile(tempDir, "src/pkg/Foo.java");
+        var file = new ProjectFile(tempDir, "src/pkg/Foo.java");
 
-        var regular = ai.brokk.analyzer.CodeUnit.cls(file, "pkg", "Foo");
-        var anon = ai.brokk.analyzer.CodeUnit.cls(file, "pkg", "Foo$anon$1");
+        var regular = CodeUnit.cls(file, "pkg", "Foo");
+        var anon = CodeUnit.cls(file, "pkg", "Foo$anon$1");
 
-        var input = new java.util.LinkedHashMap<ai.brokk.analyzer.CodeUnit, String>();
+        var input = new LinkedHashMap<CodeUnit, String>();
         input.put(regular, "class Foo {}");
         input.put(anon, "class Foo$anon$1 {}");
 
         var out = input.entrySet().stream()
                 .filter(e -> !e.getKey().isAnonymous())
-                .collect(Collectors.toMap(
-                        java.util.Map.Entry::getKey,
-                        java.util.Map.Entry::getValue,
-                        (v1, v2) -> v1,
-                        java.util.LinkedHashMap::new));
+                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (v1, v2) -> v1, LinkedHashMap::new));
 
         assertTrue(out.containsKey(regular));
         assertFalse(out.containsKey(anon));

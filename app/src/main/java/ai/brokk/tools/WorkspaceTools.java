@@ -446,7 +446,7 @@ public class WorkspaceTools {
 
         var lines = IntStream.range(0, tasks.size())
                 .mapToObj(i -> (i + 1) + ". " + tasks.get(i))
-                .collect(java.util.stream.Collectors.joining("\n"));
+                .collect(Collectors.joining("\n"));
         var formattedTaskList = "# Task List\n" + lines + "\n";
 
         var io = cm.getIo();

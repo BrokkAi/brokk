@@ -7,10 +7,14 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import ai.brokk.ContextManager;
 import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.analyzer.IAnalyzer;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.testutil.TestProject;
+import java.awt.GraphicsEnvironment;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.prefs.Preferences;
 import javax.swing.SwingUtilities;
 import org.jetbrains.annotations.Nullable;
@@ -50,9 +54,8 @@ class ChromeTest {
         // Set a default analyzer wrapper to avoid NPE during closeAsync/shutdown
         contextManager.setAnalyzerWrapper(new IAnalyzerWrapper() {
             @Override
-            public java.util.concurrent.CompletableFuture<IAnalyzer> updateFiles(
-                    java.util.Set<ai.brokk.analyzer.ProjectFile> relevantFiles) {
-                return java.util.concurrent.CompletableFuture.completedFuture(null);
+            public CompletableFuture<IAnalyzer> updateFiles(Set<ProjectFile> relevantFiles) {
+                return CompletableFuture.completedFuture(null);
             }
 
             @Override
@@ -89,7 +92,7 @@ class ChromeTest {
 
     @Test
     void testChromeInstantiation() throws Exception {
-        assumeFalse(java.awt.GraphicsEnvironment.isHeadless(), "Skipping GUI test in headless environment");
+        assumeFalse(GraphicsEnvironment.isHeadless(), "Skipping GUI test in headless environment");
 
         // Chrome constructor must run on EDT
         SwingUtilities.invokeAndWait(() -> {
@@ -102,7 +105,7 @@ class ChromeTest {
 
     @Test
     void testCollapsedSidebarNeverBelowIconStripWidth() throws Exception {
-        assumeFalse(java.awt.GraphicsEnvironment.isHeadless(), "Skipping GUI test in headless environment");
+        assumeFalse(GraphicsEnvironment.isHeadless(), "Skipping GUI test in headless environment");
         assertNotNull(projectPrefs);
 
         projectPrefs.putBoolean(PREF_KEY_SIDEBAR_OPEN, false);

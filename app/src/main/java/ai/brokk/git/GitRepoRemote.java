@@ -626,8 +626,7 @@ public class GitRepoRemote {
 
         logger.debug("SHA {} not available locally - fetching {} from {}", sha, refSpec, remoteName);
         try {
-            var fetchCommand =
-                    git.fetch().setRemote(remoteName).setRefSpecs(new org.eclipse.jgit.transport.RefSpec(refSpec));
+            var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(new RefSpec(refSpec));
             repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
             fetchCommand.call();
             if (repo.isCommitLocallyAvailable(sha)) {

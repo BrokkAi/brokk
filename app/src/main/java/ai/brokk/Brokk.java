@@ -1036,6 +1036,7 @@ public class Brokk {
                 }
 
                 if (!project.hasGit()) {
+                    SwingUtil.runOnEdt(Brokk::hideSplashScreen);
                     int response = castNonNull(SwingUtil.runOnEdt(
                             () -> JOptionPane.showConfirmDialog(
                                     null,

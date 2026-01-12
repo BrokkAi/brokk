@@ -28,6 +28,8 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -139,7 +141,7 @@ public final class JobRunner {
                 // Mutable holder for completion result (modified in lambda, read after join)
                 Object[] completionResultHolder = {null};
 
-                var completed = new java.util.concurrent.atomic.AtomicInteger(0);
+                var completed = new AtomicInteger(0);
 
                 var rawCodeModelName = spec.codeModel();
                 var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();

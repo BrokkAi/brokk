@@ -10,8 +10,10 @@ import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -531,10 +533,8 @@ public class CppAnalyzerTest {
 
         // Verify each has unique signature
         var skeletons = analyzer.getSkeletons(duplicatesFile);
-        var signatures = overloads.stream()
-                .map(skeletons::get)
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toList());
+        var signatures =
+                overloads.stream().map(skeletons::get).filter(Objects::nonNull).collect(Collectors.toList());
 
         logger.debug("Found {} skeleton signatures for overloads", signatures.size());
         signatures.forEach(sig -> logger.debug("  Signature: {}", sig));
@@ -542,7 +542,7 @@ public class CppAnalyzerTest {
         assertEquals(3, signatures.size(), "Each overload should have a skeleton");
 
         // Convert to set to check uniqueness
-        var uniqueSignatures = new java.util.HashSet<>(signatures);
+        var uniqueSignatures = new HashSet<>(signatures);
         assertEquals(3, uniqueSignatures.size(), "Each overload should have a unique signature");
 
         // Verify specific parameter patterns exist
@@ -757,10 +757,10 @@ public class CppAnalyzerTest {
         // Ensure parameter type snippets are present in signatures (normalized)
         var signatures = overloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
         boolean hasMap = signatures.stream()
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .anyMatch(sig -> sig.contains("map") || sig.contains("std::map"));
         boolean hasVectorPair = signatures.stream()
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .anyMatch(sig -> sig.contains("pair") || sig.contains("std::pair"));
         assertTrue(hasMap, "Should include std::map parameter in at least one signature");
         assertTrue(hasVectorPair, "Should include std::pair parameter in at least one signature");
@@ -938,7 +938,7 @@ public class CppAnalyzerTest {
         // Ensure at least one member operator signature contains 'const' qualifier
         boolean memberHasConst = memberCallOps.stream()
                 .map(CodeUnit::signature)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .anyMatch(sig -> sig.contains("const"));
         assertTrue(memberHasConst, "Member operator() signature should include 'const' qualifier");
 
@@ -955,7 +955,7 @@ public class CppAnalyzerTest {
 
         boolean eqHasIntParams = nonMemberEq.stream()
                 .map(CodeUnit::signature)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .anyMatch(sig -> sig.contains("int"));
         assertTrue(eqHasIntParams, "operator== signature should include int parameters");
     }
@@ -1094,7 +1094,7 @@ public class CppAnalyzerTest {
         // Deduplicate by signature to avoid double-captures of the same definition
         var uniqueOutOfLineSigs = outOfLineFuncs.stream()
                 .map(CodeUnit::signature)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
         assertEquals(

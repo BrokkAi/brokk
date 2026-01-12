@@ -1,14 +1,18 @@
 package ai.brokk.gui;
 
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.GuidedReview;
+import ai.brokk.util.ReviewParser.ReviewFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
+import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Cursor;
+import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -17,6 +21,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,7 +49,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         stalenessPanel.setBorder(new EmptyBorder(8, 12, 8, 12));
         stalenessPanel.setVisible(false);
 
-        var warningIcon = new com.formdev.flatlaf.extras.FlatSVGIcon("ai/brokk/gui/icons/warning.svg", 16, 16);
+        var warningIcon = new FlatSVGIcon("ai/brokk/gui/icons/warning.svg", 16, 16);
         stalenessLabel = new JLabel();
         stalenessLabel.setIcon(warningIcon);
         stalenessLabel.setFont(stalenessLabel.getFont().deriveFont(Font.BOLD, 11f));
@@ -75,7 +80,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
             if (c instanceof JLabel label) {
                 label.setOpaque(false);
                 label.setBackground(null);
-                label.setForeground(javax.swing.UIManager.getColor("Label.foreground"));
+                label.setForeground(UIManager.getColor("Label.foreground"));
             }
         }
         repaint();
@@ -97,8 +102,8 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         }
 
         addHeader("Tests");
-        for (String test : review.additionalTests()) {
-            addItem(test, test, false);
+        for (ReviewFeedback test : review.additionalTests()) {
+            addItem(test.title(), test, false);
         }
 
         // Auto-select Overview
@@ -118,7 +123,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         header.setFont(header.getFont().deriveFont(Font.BOLD, 12f));
         header.setBorder(new EmptyBorder(15, 15, 5, 15));
         header.setAlignmentX(Component.LEFT_ALIGNMENT);
-        header.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, header.getPreferredSize().height));
+        header.setMaximumSize(new Dimension(Integer.MAX_VALUE, header.getPreferredSize().height));
         contentPanel.add(header);
     }
 
@@ -133,7 +138,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         }
         item.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         item.setAlignmentX(Component.LEFT_ALIGNMENT);
-        item.setMaximumSize(new java.awt.Dimension(Integer.MAX_VALUE, item.getPreferredSize().height));
+        item.setMaximumSize(new Dimension(Integer.MAX_VALUE, item.getPreferredSize().height));
 
         item.addMouseListener(new MouseAdapter() {
             @Override
@@ -147,10 +152,30 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
     private void selectItem(JLabel item, Object data) {
         clearSelection();
         item.setOpaque(true);
-        item.setBackground(javax.swing.UIManager.getColor("List.selectionBackground"));
-        item.setForeground(javax.swing.UIManager.getColor("List.selectionForeground"));
+        item.setBackground(UIManager.getColor("List.selectionBackground"));
+        item.setForeground(UIManager.getColor("List.selectionForeground"));
         onItemSelected.accept(data);
         repaint();
+    }
+
+    public boolean isLastItemSelected() {
+        Component[] components = contentPanel.getComponents();
+        int currentIndex = -1;
+
+        for (int i = 0; i < components.length; i++) {
+            if (components[i] instanceof JLabel label && label.isOpaque()) {
+                currentIndex = i;
+                break;
+            }
+        }
+        assert currentIndex >= 0 : "isLastItemSelected called with no item selected";
+
+        for (int i = currentIndex + 1; i < components.length; i++) {
+            if (components[i] instanceof JLabel label && label.getCursor().getType() == Cursor.HAND_CURSOR) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void selectNext() {
@@ -181,9 +206,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         setBackground(
-                guiTheme.isDarkTheme()
-                        ? ai.brokk.gui.mop.ThemeColors.getPanelBackground()
-                        : javax.swing.UIManager.getColor("Panel.background"));
+                guiTheme.isDarkTheme() ? ThemeColors.getPanelBackground() : UIManager.getColor("Panel.background"));
         contentPanel.setBackground(getBackground());
 
         // Use a warning/staleness color scheme

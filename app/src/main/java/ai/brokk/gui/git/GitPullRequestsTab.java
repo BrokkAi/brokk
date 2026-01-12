@@ -6,6 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.git.IGitRepo.ModificationType;
@@ -345,8 +346,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         if (modelRow < currentPrCommitDetailsList.size()) {
                             var commitInfo = currentPrCommitDetailsList.get(modelRow);
                             try {
-                                var projectFiles = commitInfo.changedFiles();
-                                // projectFiles from ICommitInfo.changedFiles -> GitRepo.listFilesChangedInCommit
+                                var projectFiles =
+                                        CommitInfo.changedFiles((GitRepo) contextManager.getRepo(), commitInfo.id());
+                                // projectFiles from CommitInfo.changedFiles -> GitRepo.listFilesChangedInCommit
                                 // is guaranteed to return at least List.of(), not null.
                                 // So, a null check on projectFiles is not strictly necessary here based on current
                                 // impl.
@@ -2014,7 +2016,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 if (row < currentPrCommitDetailsList.size()) {
                     ICommitInfo commitInfo = currentPrCommitDetailsList.get(row);
                     try {
-                        var projectFiles = commitInfo.changedFiles();
+                        var projectFiles = CommitInfo.changedFiles((GitRepo) contextManager.getRepo(), commitInfo.id());
                         for (var file : projectFiles) {
                             allChangedFiles.add(file.toString());
                         }

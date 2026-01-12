@@ -10,6 +10,7 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -204,7 +205,7 @@ public final class JobStore {
         }
 
         // Ensure deterministic ordering even if the underlying file ordering is not strictly monotonic
-        result.sort(java.util.Comparator.comparingLong(JobEvent::seq));
+        result.sort(Comparator.comparingLong(JobEvent::seq));
 
         if (limit > 0 && result.size() > limit) {
             return result.subList(0, limit);

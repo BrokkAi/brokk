@@ -770,6 +770,26 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     /**
+     * Loads a review from markdown text into the SessionChangesPanel.
+     * Selects the Review tab and displays the parsed review.
+     *
+     * @param markdown The markdown text containing the review
+     * @param context The context associated with this review
+     */
+    public void loadReviewFromMarkdown(String markdown, ai.brokk.context.Context context) {
+        // Select the Review tab
+        int reviewIdx = buildReviewTabs.indexOfTab("Review");
+        if (reviewIdx != -1) {
+            buildReviewTabs.setSelectedIndex(reviewIdx);
+        }
+
+        // Load the review into SessionChangesPanel
+        if (reviewTabComponent instanceof SessionChangesPanel scp) {
+            scp.loadExternalReview(markdown, context);
+        }
+    }
+
+    /**
      * Updates the "Build" tab icon with a numeric badge showing the incomplete task count.
      * @param count The number of incomplete tasks.
      */

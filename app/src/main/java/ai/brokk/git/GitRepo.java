@@ -1,5 +1,6 @@
 package ai.brokk.git;
 
+import static ai.brokk.project.AbstractProject.BROKK_DIR;
 import static ai.brokk.project.FileFilteringService.toUnixPath;
 import static java.util.Objects.requireNonNull;
 
@@ -538,6 +539,16 @@ public class GitRepo implements Closeable, IGitRepo {
         trackedPathsCache =
                 trackedFilesCache.stream().map(ProjectFile::getRelPath).collect(Collectors.toSet());
         return trackedFilesCache;
+    }
+
+    @Override
+    public Set<ProjectFile> getFilesForAnalysis() {
+        var tracked = getTrackedFiles();
+        if (tracked.isEmpty()) {
+            logger.info("No Git-tracked files found in {}, using filesystem scan", projectRoot);
+            return FileSystemWalker.walk(projectRoot, Set.of(".git", BROKK_DIR));
+        }
+        return tracked;
     }
 
     @Override
@@ -2141,7 +2152,6 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Factory method to create CommitInfo from a JGit RevCommit. Assumes this is NOT a stash commit. */
     public CommitInfo fromRevCommit(RevCommit commit) {
         return new CommitInfo(
-                this,
                 commit.getName(),
                 commit.getShortMessage(),
                 commit.getAuthorIdent().getName(),
@@ -2151,7 +2161,6 @@ public class GitRepo implements Closeable, IGitRepo {
     /** Factory method to create CommitInfo for a stash entry from a JGit RevCommit. */
     public CommitInfo fromStashCommit(RevCommit commit, int index) {
         return new CommitInfo(
-                this,
                 commit.getName(),
                 commit.getShortMessage(),
                 commit.getAuthorIdent().getName(),

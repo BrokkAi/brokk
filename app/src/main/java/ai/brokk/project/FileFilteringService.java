@@ -99,7 +99,7 @@ public final class FileFilteringService {
     /**
      * Determine if a path (file or directory) is ignored by gitignore rules.
      * Returns false on error or if no git repo.
-     * This method calls {@link java.nio.file.Files#isDirectory} to determine directory status.
+     * This method calls {@link Files#isDirectory} to determine directory status.
      */
     public boolean isGitignored(Path relPath) {
         if (!(repo instanceof GitRepo gitRepo)) {
