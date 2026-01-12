@@ -65,6 +65,20 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
     private volatile java.util.List<HistoryGrouping.GroupDescriptor> latestDescriptors = java.util.List.of();
     private @Nullable ContextHistory currentHistory;
 
+    // Selection directives applied after a table rebuild (for expand/collapse UX)
+    private PendingSelectionType pendingSelectionType = PendingSelectionType.NONE;
+    private @Nullable UUID pendingSelectionGroupKey = null;
+
+    // Viewport preservation flags for group expand/collapse operations
+    private boolean suppressScrollOnNextUpdate = false;
+    private @Nullable Point pendingViewportPosition = null;
+
+    private enum PendingSelectionType {
+        NONE,
+        CLEAR,
+        FIRST_IN_GROUP
+    }
+
     // Column index constants
     // Sessions table model: [Active, Session Name, Date, SessionInfo]
     private static final int COL_ACTIVE = 0;
@@ -512,14 +526,50 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
         // Update reset edges for arrow painter
         arrowLayerUI.setResetEdges(resetEdges);
 
-        // Select the most recent item (last row) if available
-        SwingUtilities.invokeLater(() -> {
-            if (activityTableModel.getRowCount() > 0) {
-                int lastRow = activityTableModel.getRowCount() - 1;
-                activityTable.setRowSelectionInterval(lastRow, lastRow);
-                activityTable.scrollRectToVisible(activityTable.getCellRect(lastRow, COL_ICON, true));
+        // Apply pending selection directive, if any
+        boolean suppress = suppressScrollOnNextUpdate;
+        int rowToSelect = -1;
+
+        if (pendingSelectionType == PendingSelectionType.FIRST_IN_GROUP && pendingSelectionGroupKey != null) {
+            int headerRow = findGroupHeaderRow(pendingSelectionGroupKey);
+            int candidate = headerRow >= 0 ? headerRow + 1 : -1;
+            if (candidate >= 0 && candidate < activityTableModel.getRowCount()) {
+                Object v = activityTableModel.getValueAt(candidate, COL_CONTEXT);
+                if (v instanceof Context) {
+                    rowToSelect = candidate;
+                }
             }
-        });
+        }
+
+        if (pendingSelectionType == PendingSelectionType.CLEAR) {
+            activityTable.clearSelection();
+        } else if (rowToSelect >= 0) {
+            activityTable.setRowSelectionInterval(rowToSelect, rowToSelect);
+            if (!suppress) {
+                activityTable.scrollRectToVisible(activityTable.getCellRect(rowToSelect, COL_ICON, true));
+            }
+        } else if (!suppress && activityTableModel.getRowCount() > 0) {
+            int lastRow = activityTableModel.getRowCount() - 1;
+            activityTable.setRowSelectionInterval(lastRow, lastRow);
+            activityTable.scrollRectToVisible(activityTable.getCellRect(lastRow, COL_ICON, true));
+        }
+
+        // Restore viewport if requested
+        if (suppress && pendingViewportPosition != null) {
+            Point desired = pendingViewportPosition;
+            var scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, activityTable);
+            if (scrollPane != null) {
+                SwingUtilities.invokeLater(() -> {
+                    scrollPane.getViewport().setViewPosition(clampViewportPosition(scrollPane, desired));
+                });
+            }
+        }
+
+        // Reset directives after applying
+        pendingSelectionType = PendingSelectionType.NONE;
+        pendingSelectionGroupKey = null;
+        suppressScrollOnNextUpdate = false;
+        pendingViewportPosition = null;
     }
 
     private void toggleGroupRow(int row) {
@@ -530,9 +580,48 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
         boolean newState = !groupExpandedState.getOrDefault(groupRow.key(), groupRow.expanded());
         groupExpandedState.put(groupRow.key(), newState);
 
+        // Set selection directive
+        if (newState) {
+            pendingSelectionType = PendingSelectionType.FIRST_IN_GROUP;
+        } else {
+            pendingSelectionType = PendingSelectionType.CLEAR;
+        }
+        pendingSelectionGroupKey = groupRow.key();
+
+        // Preserve viewport
+        var scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, activityTable);
+        if (scrollPane != null) {
+            pendingViewportPosition = scrollPane.getViewport().getViewPosition();
+        }
+        suppressScrollOnNextUpdate = true;
+
         if (currentHistory != null) {
             populateActivityTable(currentHistory);
         }
+    }
+
+    private int findGroupHeaderRow(UUID groupKey) {
+        for (int i = 0; i < activityTableModel.getRowCount(); i++) {
+            var v = activityTableModel.getValueAt(i, COL_CONTEXT);
+            if (v instanceof ActivityTableRenderers.GroupRow gr && gr.key().equals(groupKey)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static Point clampViewportPosition(JScrollPane sp, Point desired) {
+        JViewport vp = sp.getViewport();
+        if (vp == null) return desired;
+        Component view = vp.getView();
+        if (view == null) return desired;
+        Dimension viewSize = view.getSize();
+        Dimension extent = vp.getExtentSize();
+        int maxX = Math.max(0, viewSize.width - extent.width);
+        int maxY = Math.max(0, viewSize.height - extent.height);
+        int x = Math.max(0, Math.min(desired.x, maxX));
+        int y = Math.max(0, Math.min(desired.y, maxY));
+        return new Point(x, y);
     }
 
     private void updatePreviewPanels(Context context) {
