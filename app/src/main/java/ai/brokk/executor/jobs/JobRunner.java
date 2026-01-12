@@ -30,7 +30,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -142,9 +141,6 @@ public final class JobRunner {
             try {
                 // Determine execution mode (default ARCHITECT)
                 Mode mode = parseMode(spec);
-
-                // Mutable holder for completion result (modified in lambda, read after join)
-                var completionResultHolder = new AtomicReference<Object>(null);
 
                 var completed = new AtomicInteger(0);
 
@@ -754,7 +750,7 @@ public final class JobRunner {
                         current = current.cancelled();
                         logger.info("Job {} marked as CANCELLED", jobId);
                     } else {
-                        current = current.completed(completionResultHolder.get());
+                        current = current.completed(null);
                         logger.info("Job {} completed successfully", jobId);
                     }
                     if (console != null) {
