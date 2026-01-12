@@ -19,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -433,7 +434,7 @@ class ContextTest {
                 new ContextFragments.StringFragment(
                         contextManager, "primary", "primary", SyntaxConstants.SYNTAX_STYLE_NONE) {
                     @Override
-                    public Set<ContextFragment> supportingFragments(IAnalyzer analyzer) {
+                    public Set<ContextFragment> supportingFragments(@Nullable IAnalyzer analyzer) {
                         return Set.of(supporting);
                     }
                 };

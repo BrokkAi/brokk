@@ -117,9 +117,9 @@ public interface ContextFragment {
      * <p>
      * This method is called during {@link Context#addFragments(Collection)} to expand a fragment with related context.
      *
-     * @param analyzer the analyzer to use for resolving related context.
+     * @param analyzer the analyzer to use for resolving related context. If null, will return an empty set.
      */
-    default Set<ContextFragment> supportingFragments(IAnalyzer analyzer) {
+    default Set<ContextFragment> supportingFragments(@Nullable IAnalyzer analyzer) {
         return Set.of();
     }
 

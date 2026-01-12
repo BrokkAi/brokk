@@ -482,7 +482,10 @@ public class ContextFragments {
         }
 
         @Override
-        public Set<ContextFragment> supportingFragments(IAnalyzer analyzer) {
+        public Set<ContextFragment> supportingFragments(@Nullable IAnalyzer analyzer) {
+            if (analyzer == null) {
+                return Set.of();
+            }
             return resolveAncestorFragments(analyzer.getDeclarations(file), contextManager, analyzer);
         }
     }
@@ -1458,7 +1461,10 @@ public class ContextFragments {
         }
 
         @Override
-        public Set<ContextFragment> supportingFragments(IAnalyzer analyzer) {
+        public Set<ContextFragment> supportingFragments(@Nullable IAnalyzer analyzer) {
+            if (analyzer == null) {
+                return Set.of();
+            }
             return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager, analyzer);
         }
     }
@@ -1690,8 +1696,8 @@ public class ContextFragments {
         }
 
         @Override
-        public Set<ContextFragment> supportingFragments(IAnalyzer analyzer) {
-            if (summaryType != SummaryType.CODEUNIT_SKELETON) {
+        public Set<ContextFragment> supportingFragments(@Nullable IAnalyzer analyzer) {
+            if (analyzer == null || summaryType != SummaryType.CODEUNIT_SKELETON) {
                 return Set.of();
             }
 
