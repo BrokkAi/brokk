@@ -9,7 +9,6 @@ plugins {
     alias(libs.plugins.shadow)
     alias(libs.plugins.buildconfig)
     alias(libs.plugins.spotless)
-    alias(libs.plugins.javafx)
     alias(libs.plugins.node)
 }
 
@@ -34,11 +33,6 @@ application {
         add("--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED")
         add("--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED")
     }
-}
-
-javafx {
-    version = libs.versions.javafx.get()
-    modules = listOf("javafx.controls", "javafx.fxml", "javafx.swing", "javafx.web")
 }
 
 node {

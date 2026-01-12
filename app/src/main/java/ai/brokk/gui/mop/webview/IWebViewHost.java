@@ -12,9 +12,14 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Common interface for WebView host implementations.
- * Allows switching between JavaFX WebView (MOPWebViewHost) and JCEF (JCEFWebViewHost).
+ * Uses JCEF (JCEFWebViewHost) for Chromium-based rendering.
  */
 public interface IWebViewHost {
+
+    /**
+     * Represents the state of a search operation.
+     */
+    record SearchState(int totalMatches, int currentDisplayIndex) {}
 
     /**
      * Get the Swing component to add to the UI.
@@ -91,9 +96,9 @@ public interface IWebViewHost {
 
     void scrollToCurrent();
 
-    void addSearchStateListener(Consumer<MOPBridge.SearchState> listener);
+    void addSearchStateListener(Consumer<SearchState> listener);
 
-    void removeSearchStateListener(Consumer<MOPBridge.SearchState> listener);
+    void removeSearchStateListener(Consumer<SearchState> listener);
 
     // Context manager integration
     void setContextManager(@Nullable ContextManager contextManager);

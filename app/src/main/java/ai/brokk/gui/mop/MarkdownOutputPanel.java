@@ -9,7 +9,6 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.webview.IWebViewHost;
 import ai.brokk.gui.mop.webview.JCEFWebViewHost;
-import ai.brokk.gui.mop.webview.MOPBridge;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
@@ -355,11 +354,11 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.resetZoom();
     }
 
-    public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
+    public void addSearchStateListener(Consumer<IWebViewHost.SearchState> l) {
         webHost.addSearchStateListener(l);
     }
 
-    public void removeSearchStateListener(Consumer<MOPBridge.SearchState> l) {
+    public void removeSearchStateListener(Consumer<IWebViewHost.SearchState> l) {
         webHost.removeSearchStateListener(l);
     }
 

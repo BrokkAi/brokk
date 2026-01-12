@@ -64,11 +64,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
-import javafx.application.Application;
-import javafx.application.Platform;
-import javafx.scene.input.Clipboard;
-import javafx.scene.input.ClipboardContent;
-import javafx.scene.paint.Color;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
@@ -370,10 +365,6 @@ public class Helper {
         }
     }
 
-    public static final String colorToCss(final Color color) {
-        return color.toString().replace("0x", "#");
-    }
-
     public static final boolean isUriValid(final String uri) {
         final HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
@@ -572,13 +563,6 @@ public class Helper {
         return optJDKUpdate;
     }
 
-    public static final void copyToClipBoard(final String text) {
-        Clipboard clipboard = Clipboard.getSystemClipboard();
-        ClipboardContent content = new ClipboardContent();
-        content.putString(text);
-        clipboard.setContent(content);
-    }
-
     public static final String unescapeHTML(final String source) {
         String result = source;
         for (Entry<String, String> entry : Constants.HTML_ENTITIES.entrySet()) {
@@ -637,10 +621,6 @@ public class Helper {
         return projectsFound.stream()
                 .sorted(Comparator.comparing(Project::description))
                 .collect(Collectors.toList());
-    }
-
-    public static final void openInDefaultBrowser(final Application app, final String url) {
-        Platform.runLater(() -> app.getHostServices().showDocument(url));
     }
 
     public static long getFolderSize(final String folderName) throws IOException {

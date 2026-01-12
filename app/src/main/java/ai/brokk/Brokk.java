@@ -41,7 +41,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
-import javafx.application.Platform;
 import javax.swing.*;
 import javax.swing.border.Border;
 import org.apache.logging.log4j.LogManager;
@@ -187,8 +186,6 @@ public class Brokk {
                 }
             }
         }
-
-        // JavaFX initialization handled conditionally by initializeJavaFxIfNeeded()
     }
 
     /**
@@ -206,30 +203,6 @@ public class Brokk {
             // Log but don't fail - CEF will be initialized later via jcefmaven
             // This early call is just to set up Xlib multithreading
             logger.debug("CEF early startup: {}", t.getMessage());
-        }
-    }
-
-    /**
-     * Initializes JavaFX Platform if needed based on brokk.webview.impl system property.
-     * Must be called before any GUI creation.
-     */
-    public static void initializeJavaFxIfNeeded() {
-        var webviewImpl = System.getProperty("brokk.webview.impl", "jcef");
-        if ("javafx".equalsIgnoreCase(webviewImpl)) {
-            try {
-                Platform.startup(() -> {});
-                Platform.setImplicitExit(false);
-                logger.info("JavaFX Platform initialized (brokk.webview.impl=javafx)");
-            } catch (IllegalStateException e) {
-                var msg = e.getMessage();
-                if (msg == null || !msg.contains("Toolkit already initialized")) {
-                    throw e;
-                }
-                // Platform already initialized - this is fine
-                logger.debug("JavaFX Platform was already initialized");
-            }
-        } else {
-            logger.debug("Using JCEF WebView (brokk.webview.impl={})", webviewImpl);
         }
     }
 
@@ -467,7 +440,6 @@ public class Brokk {
         BrokkConfigPaths.attemptMigration();
 
         setupSystemPropertiesAndIcon();
-        // initializeJavaFxIfNeeded();
 
         if (MainProject.initializeOomFlag()) {
             logger.warn("Detected OutOfMemoryError from last session, clearing active sessions.");
