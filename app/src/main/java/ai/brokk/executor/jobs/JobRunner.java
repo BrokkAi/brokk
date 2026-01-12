@@ -599,9 +599,16 @@ public final class JobRunner {
                                                         e.getMessage());
                                             }
 
+                                            @Nullable
+                                            String remoteName =
+                                                    gitRepo.remote().getOriginRemoteNameWithFallback();
+                                            String baseRef = (remoteName != null)
+                                                    ? remoteName + "/" + baseBranch
+                                                    : baseBranch;
+
                                             // 4. Compute PR diff
                                             String diff = PrReviewService.computePrDiff(
-                                                    gitRepo, baseBranch, prDetails.headRef());
+                                                    gitRepo, baseRef, prDetails.headRef());
 
                                             // 4a. Annotate diff with line numbers for LLM review
                                             String annotatedDiff = PrReviewService.annotateDiffWithLineNumbers(diff);
