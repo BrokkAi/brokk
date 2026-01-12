@@ -572,23 +572,36 @@ public final class JobRunner {
                                             String headSha = prDetails.headSha();
 
                                             // 3a. Fetch PR refs from remote to ensure they are available locally
-                                            var gitRepo = (GitRepo) cm.getProject().getRepo();
+                                            var gitRepo =
+                                                    (GitRepo) cm.getProject().getRepo();
                                             try {
-                                                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", "Fetching PR refs from remote..."));
+                                                store.appendEvent(
+                                                        jobId,
+                                                        JobEvent.of("NOTIFICATION", "Fetching PR refs from remote..."));
                                             } catch (IOException ioe) {
-                                                logger.warn("Failed to append fetch notification event for job {}: {}", jobId, ioe.getMessage());
+                                                logger.warn(
+                                                        "Failed to append fetch notification event for job {}: {}",
+                                                        jobId,
+                                                        ioe.getMessage());
                                             }
 
                                             try {
                                                 gitRepo.fetchPrRefs(prNumber);
                                             } catch (Exception e) {
-                                                logger.warn("Failed to fetch PR refs for PR #{}: {}", prNumber, e.getMessage());
+                                                logger.warn(
+                                                        "Failed to fetch PR refs for PR #{}: {}",
+                                                        prNumber,
+                                                        e.getMessage());
                                             }
 
                                             try {
                                                 gitRepo.remote().fetchBranch("origin", baseBranch);
                                             } catch (Exception e) {
-                                                logger.warn("Failed to fetch base branch '{}' for PR #{}: {}", baseBranch, prNumber, e.getMessage());
+                                                logger.warn(
+                                                        "Failed to fetch base branch '{}' for PR #{}: {}",
+                                                        baseBranch,
+                                                        prNumber,
+                                                        e.getMessage());
                                             }
 
                                             // 4. Compute PR diff

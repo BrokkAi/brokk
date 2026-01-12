@@ -23,7 +23,10 @@ public class GitRepoRemoteTest {
 
         assertTrue(refSpec.isForceUpdate(), "RefSpec should be a force update (+)");
         assertEquals(expectedSource, refSpec.getSource(), "Source should be refs/pull/{prNumber}/head");
-        assertEquals(expectedDestination, refSpec.getDestination(), "Destination should be refs/remotes/{remoteName}/pr/{prNumber}");
+        assertEquals(
+                expectedDestination,
+                refSpec.getDestination(),
+                "Destination should be refs/remotes/{remoteName}/pr/{prNumber}");
     }
 
     @Test

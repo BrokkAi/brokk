@@ -93,8 +93,7 @@ class PrReviewServiceTest {
             assertTrue(message.contains("No merge-base found"), "Message should contain 'No merge-base found'");
             assertTrue(message.contains("base branch 'master'"), "Message should contain 'base branch 'master''");
             assertTrue(
-                    message.contains("head ref 'orphan-branch'"),
-                    "Message should contain 'head ref 'orphan-branch''");
+                    message.contains("head ref 'orphan-branch'"), "Message should contain 'head ref 'orphan-branch''");
 
         } finally {
             GitTestCleanupUtil.cleanupGitResources(repo, git);
