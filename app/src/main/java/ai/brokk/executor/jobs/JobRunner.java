@@ -574,7 +574,7 @@ public final class JobRunner {
                                             // 4. Compute PR diff
                                             var gitRepo =
                                                     (GitRepo) cm.getProject().getRepo();
-                                            String diff = PrReviewService.computePrDiff(gitRepo, baseBranch);
+                                            String diff = PrReviewService.computePrDiff(gitRepo, baseBranch, prDetails.headRef());
 
                                             // Pre-scan to load related context from the diff
                                             try {

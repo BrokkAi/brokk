@@ -44,26 +44,26 @@ public final class PrReviewService {
     }
 
     /**
-     * Computes the diff between the current branch and the base branch.
+     * Computes the diff between the base branch and the PR head ref.
      *
      * @param repo the git repository
-     * @param baseBranch the base branch to diff against
+     * @param baseBranch the base branch to diff against (e.g., "main", "origin/main")
+     * @param headRef the PR head ref or SHA to diff from
      * @return the annotated diff string with file headers
      * @throws IllegalStateException if no merge-base exists between branches
      * @throws GitAPIException if git operations fail
      */
     @Blocking
-    public static String computePrDiff(GitRepo repo, String baseBranch) throws GitAPIException {
-        String currentBranch = repo.getCurrentBranch();
-        String mergeBase = repo.getMergeBase(baseBranch, currentBranch);
+    public static String computePrDiff(GitRepo repo, String baseBranch, String headRef) throws GitAPIException {
+        String mergeBase = repo.getMergeBase(baseBranch, headRef);
         if (mergeBase == null) {
             throw new IllegalStateException("No merge-base found between base branch '"
                     + baseBranch
-                    + "' and current branch '"
-                    + currentBranch
+                    + "' and head ref '"
+                    + headRef
                     + "'");
         }
-        return repo.getDiff(mergeBase, currentBranch);
+        return repo.getDiff(mergeBase, headRef);
     }
 
     /**
