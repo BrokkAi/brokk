@@ -60,11 +60,8 @@ public final class PrReviewService {
     public static String computePrDiff(GitRepo repo, String baseBranch, String headRef) throws GitAPIException {
         String mergeBase = repo.getMergeBase(baseBranch, headRef);
         if (mergeBase == null) {
-            throw new IllegalStateException("No merge-base found between base branch '"
-                    + baseBranch
-                    + "' and head ref '"
-                    + headRef
-                    + "'");
+            throw new IllegalStateException(
+                    "No merge-base found between base branch '" + baseBranch + "' and head ref '" + headRef + "'");
         }
         return repo.getDiff(mergeBase, headRef);
     }
@@ -167,7 +164,9 @@ public final class PrReviewService {
         int newLine = 0;
 
         for (String line : lines) {
-            if (line.startsWith("diff --git") || line.startsWith("---") || line.startsWith("+++")
+            if (line.startsWith("diff --git")
+                    || line.startsWith("---")
+                    || line.startsWith("+++")
                     || line.startsWith("index ")) {
                 result.append(line).append('\n');
             } else if (line.startsWith("@@")) {

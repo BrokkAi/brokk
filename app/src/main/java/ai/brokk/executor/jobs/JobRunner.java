@@ -574,7 +574,8 @@ public final class JobRunner {
                                             // 4. Compute PR diff
                                             var gitRepo =
                                                     (GitRepo) cm.getProject().getRepo();
-                                            String diff = PrReviewService.computePrDiff(gitRepo, baseBranch, prDetails.headRef());
+                                            String diff = PrReviewService.computePrDiff(
+                                                    gitRepo, baseBranch, prDetails.headRef());
 
                                             // 4a. Annotate diff with line numbers for LLM review
                                             String annotatedDiff = PrReviewService.annotateDiffWithLineNumbers(diff);
