@@ -563,13 +563,22 @@ public final class JobRunner {
                                             String baseBranch = prDetails.baseBranch();
                                             String headSha = prDetails.headSha();
 
-                                            // 3a. Fetch PR refs from remote to ensure they are available locally
-                                            var gitRepo =
-                                                    (GitRepo) cm.getProject().getRepo();
+                                            // 3a. Fetch PR refs and base branch from a single resolved remote to
+                                            // ensure the refs we diff against exist locally.
+                                            var gitRepo = (GitRepo) cm.getProject().getRepo();
+
+                                            String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
+                                            if (remoteName == null) {
+                                                throw new IllegalStateException(
+                                                        "PR review requires a configured git remote (no remote found; expected 'origin' or a fallback remote)");
+                                            }
+
                                             try {
                                                 store.appendEvent(
                                                         jobId,
-                                                        JobEvent.of("NOTIFICATION", "Fetching PR refs from remote..."));
+                                                        JobEvent.of(
+                                                                "NOTIFICATION",
+                                                                "Fetching PR refs from remote '" + remoteName + "'..."));
                                             } catch (IOException ioe) {
                                                 logger.warn(
                                                         "Failed to append fetch notification event for job {}: {}",
@@ -578,36 +587,39 @@ public final class JobRunner {
                                             }
 
                                             try {
-                                                gitRepo.fetchPrRefs(prNumber);
+                                                gitRepo.remote().fetchPrRef(prNumber, remoteName);
                                             } catch (GitAPIException e) {
                                                 logger.warn(
-                                                        "Failed to fetch PR refs for PR #{}: {}",
+                                                        "Failed to fetch PR ref for PR #{} from remote '{}': {}",
                                                         prNumber,
+                                                        remoteName,
                                                         e.getMessage());
                                                 throw new IllegalStateException(
-                                                        "Failed to fetch PR refs for PR #" + prNumber, e);
-                                            }
-
-                                            try {
-                                                gitRepo.remote().fetchBranch("origin", baseBranch);
-                                            } catch (GitAPIException e) {
-                                                logger.warn(
-                                                        "Failed to fetch base branch '{}' for PR #{}: {}",
-                                                        baseBranch,
-                                                        prNumber,
-                                                        e.getMessage());
-                                                throw new IllegalStateException(
-                                                        "Failed to fetch base branch '" + baseBranch + "' for PR #"
-                                                                + prNumber,
+                                                        "Failed to fetch PR ref for PR #" + prNumber
+                                                                + " from remote '" + remoteName + "'",
                                                         e);
                                             }
 
-                                            String baseRef =
-                                                    gitRepo.remote().resolveRemoteTrackingRef(baseBranch);
+                                            try {
+                                                gitRepo.remote().fetchBranch(remoteName, baseBranch);
+                                            } catch (GitAPIException e) {
+                                                logger.warn(
+                                                        "Failed to fetch base branch '{}' for PR #{} from remote '{}': {}",
+                                                        baseBranch,
+                                                        prNumber,
+                                                        remoteName,
+                                                        e.getMessage());
+                                                throw new IllegalStateException(
+                                                        "Failed to fetch base branch '" + baseBranch + "' for PR #"
+                                                                + prNumber + " from remote '" + remoteName + "'",
+                                                        e);
+                                            }
 
-                                            // 4. Compute PR diff
-                                            String diff = PrReviewService.computePrDiff(
-                                                    gitRepo, baseRef, prDetails.headRef());
+                                            String baseRef = remoteName + "/" + baseBranch;
+                                            String prRef = remoteName + "/pr/" + prNumber;
+
+                                            // 4. Compute PR diff using fetched refs
+                                            String diff = PrReviewService.computePrDiff(gitRepo, baseRef, prRef);
 
                                             // 4a. Annotate diff with line numbers for LLM review
                                             String annotatedDiff = PrReviewService.annotateDiffWithLineNumbers(diff);

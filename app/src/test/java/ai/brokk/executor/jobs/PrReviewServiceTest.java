@@ -228,12 +228,16 @@ class PrReviewServiceTest {
 
         // Expected behavior:
         // 1. Before computing the PR diff, JobRunner.REVIEW mode should:
-        //    a. Emit a notification "Fetching PR refs from remote..."
-        //    b. Call gitRepo.fetchPrRefs(prNumber) to fetch refs/pull/{N}/head
-        //    c. Call gitRepo.remote().fetchBranch("origin", baseBranch) to fetch the base branch
-        // 2. Both fetch calls should be wrapped in try/catch so failures only log warnings
-        //    and do not abort the review
-        // 3. This ensures PRs from forks and stale local repositories can still be reviewed
+        //    a. Resolve a single remote name via gitRepo.remote().getOriginRemoteNameWithFallback()
+        //       (prefer "origin", otherwise fall back to the target remote).
+        //    b. Emit a notification "Fetching PR refs from remote '<remoteName>'..."
+        //    c. Call gitRepo.remote().fetchPrRef(prNumber, remoteName), which stores into:
+        //       refs/remotes/<remoteName>/pr/<N>
+        //    d. Call gitRepo.remote().fetchBranch(remoteName, baseBranch), which stores into:
+        //       refs/remotes/<remoteName>/<baseBranch>
+        // 2. The diff computation should use refs guaranteed to exist locally after fetch:
+        //    baseRef = "<remoteName>/<baseBranch>"
+        //    prRef   = "<remoteName>/pr/<N>"
     }
 
     @Test
