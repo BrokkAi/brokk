@@ -645,12 +645,13 @@ public class ReviewAgent {
                                             // Re-validate the correction
                                             var newErrors =
                                                     ReviewParser.instance.validateParsedNotes(correctionText).stream()
-                                                            .filter(e ->
-                                                                    e.title().equalsIgnoreCase(title)
-                                                                            || correctionText
-                                                                                    .toLowerCase(java.util.Locale.ROOT)
-                                                                                    .contains(("### " + e.title())
-                                                                                            .toLowerCase(java.util.Locale.ROOT)))
+                                                            .filter(e -> e.title()
+                                                                            .equalsIgnoreCase(title)
+                                                                    || correctionText
+                                                                            .toLowerCase(java.util.Locale.ROOT)
+                                                                            .contains(("### " + e.title())
+                                                                                    .toLowerCase(
+                                                                                            java.util.Locale.ROOT)))
                                                             .toList();
 
                                             if (newErrors.isEmpty()) {
@@ -693,7 +694,9 @@ public class ReviewAgent {
                 if (ReviewParser.extractNoteSection(mergedText, requestedTitle) == null) {
                     // If requested title isn't found, try to see if the correction contains a known title
                     for (String title : errorsByNote.keySet()) {
-                        if (correction.toLowerCase(java.util.Locale.ROOT).contains(("### " + title).toLowerCase(java.util.Locale.ROOT))) {
+                        if (correction
+                                .toLowerCase(java.util.Locale.ROOT)
+                                .contains(("### " + title).toLowerCase(java.util.Locale.ROOT))) {
                             actualTitle = title;
                             break;
                         }

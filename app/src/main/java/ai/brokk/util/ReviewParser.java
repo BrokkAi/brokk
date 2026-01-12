@@ -562,10 +562,10 @@ public class ReviewParser {
                         }
                         if (excerpt != null) {
                             if (excerpt != null) {
-                                    tacticalNotes.add(new TacticalFeedback(
-                                                    headingText, content.description(), excerpt, content.recommendation()));
+                                tacticalNotes.add(new TacticalFeedback(
+                                        headingText, content.description(), excerpt, content.recommendation()));
                             }
-                            } else if (raw != null) {
+                        } else if (raw != null) {
                             logger.warn(
                                     "Tactical note '{}' referenced excerpt {} but it could not be resolved",
                                     headingText,
