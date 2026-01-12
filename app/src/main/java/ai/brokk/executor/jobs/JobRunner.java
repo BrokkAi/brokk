@@ -541,7 +541,7 @@ public final class JobRunner {
                                                     cm, diff, "Diff to Review", "text/x-diff", Set.of());
                                             context = context.addFragments(diffFragment);
 
-                                            // 2. Pre-scan to load relevant context using ContextAgent
+                                            // 2. Pre-scan to load relevant context (LutzAgent.scanContext() uses ContextAgent internally)
                                             var scanModel = Objects.requireNonNull(
                                                     reviewScanModel, "scan model unavailable for REVIEW jobs");
                                             var searchAgent = new LutzAgent(
