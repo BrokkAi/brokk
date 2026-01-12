@@ -818,11 +818,11 @@ public class ReviewParser {
             return Json.toJson(this);
         }
 
+        private record ToolRequest(String id, String name, String arguments) {}
+
         public String toToolRequest() {
-            String json = toJson();
-            String escaped = json.replace("\\", "\\\\").replace("\"", "\\\"");
             String requestId = java.util.UUID.randomUUID().toString().substring(0, 8);
-            return "{ id = \"" + requestId + "\", name = \"createReview\", arguments = \"" + escaped + "\" }";
+            return Json.toJson(new ToolRequest(requestId, "createReview", toJson()));
         }
     }
 
