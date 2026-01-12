@@ -46,6 +46,9 @@ public class ArchitectPrompts {
         - If you need to understand an external library's API (e.g., to use it correctly or debug integration issues),
           use `importMavenDependency` to import it into Code Intelligence. This downloads and decompiles the library
           so you can examine its source code and add relevant classes to the Workspace.
+          Use this when: (1) the goal mentions using a specific library you're not familiar with,
+          (2) you search for library classes and can't find them in Code Intelligence, or
+          (3) you need to see the actual API/method signatures of a dependency.
         - Identify the root cause of the problem.
         - Update the Workspace context continuously, including dropping irrelevant fragments, as you improve your understanding.
 
