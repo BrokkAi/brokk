@@ -71,7 +71,7 @@ public class ProjectPathFragmentTest {
 
         // Ancestor skeletons should NOT be in text, but in supporting fragments
         // Verify supportingFragments
-        var supporting = fragment.supportingFragments();
+        var supporting = fragment.supportingFragments(analyzer);
         assertEquals(1, supporting.size(), "Should have one supporting fragment for Base");
 
         var ancestorFragment =

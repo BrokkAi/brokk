@@ -137,9 +137,10 @@ public class Context {
         }
 
         // Expand with supporting fragments
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         List<ContextFragment> expanded = new ArrayList<>(toAdd);
         for (ContextFragment f : toAdd) {
-            expanded.addAll(f.supportingFragments());
+            expanded.addAll(f.supportingFragments(analyzer));
         }
 
         // 1. Deduplicate the expanded collection internally first.

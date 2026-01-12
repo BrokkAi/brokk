@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
@@ -432,7 +433,7 @@ class ContextTest {
                 new ContextFragments.StringFragment(
                         contextManager, "primary", "primary", SyntaxConstants.SYNTAX_STYLE_NONE) {
                     @Override
-                    public Set<ContextFragment> supportingFragments() {
+                    public Set<ContextFragment> supportingFragments(IAnalyzer analyzer) {
                         return Set.of(supporting);
                     }
                 };

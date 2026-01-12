@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
@@ -115,8 +116,10 @@ public interface ContextFragment {
      * Set of fragments that should be added alongside this one.
      * <p>
      * This method is called during {@link Context#addFragments(Collection)} to expand a fragment with related context.
+     *
+     * @param analyzer the analyzer to use for resolving related context.
      */
-    default Set<ContextFragment> supportingFragments() {
+    default Set<ContextFragment> supportingFragments(IAnalyzer analyzer) {
         return Set.of();
     }
 

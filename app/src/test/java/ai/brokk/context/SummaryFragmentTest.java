@@ -68,7 +68,7 @@ public class SummaryFragmentTest {
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
 
             var fragment = new SummaryFragment(cm, "Child", SummaryType.CODEUNIT_SKELETON);
-            var supporting = fragment.supportingFragments();
+            var supporting = fragment.supportingFragments(analyzer);
 
             var fqns = supporting.stream()
                     .filter(f -> f instanceof SummaryFragment)
@@ -317,11 +317,11 @@ public class SummaryFragmentTest {
 
             List<SummaryFragment> fragments = new ArrayList<>();
             fragments.add(sfA);
-            fragments.addAll(sfA.supportingFragments().stream()
+            fragments.addAll(sfA.supportingFragments(analyzer).stream()
                     .map(f -> (SummaryFragment) f)
                     .toList());
             fragments.add(sfB);
-            fragments.addAll(sfB.supportingFragments().stream()
+            fragments.addAll(sfB.supportingFragments(analyzer).stream()
                     .map(f -> (SummaryFragment) f)
                     .toList());
 

@@ -52,7 +52,7 @@ public class CodeFragmentTest {
         assertCodeContains(text, "class Sub extends Base {}");
 
         // Ancestors should be in supporting fragments
-        var supporting = fragment.supportingFragments();
+        var supporting = fragment.supportingFragments(analyzer);
         assertEquals(1, supporting.size());
 
         var ancestorFragment =
@@ -85,7 +85,7 @@ public class CodeFragmentTest {
         String text = fragment.text().join();
 
         assertCodeContains(text, "void run() {}");
-        assertTrue(fragment.supportingFragments().isEmpty(), "Methods should not pull in class ancestors");
+        assertTrue(fragment.supportingFragments(analyzer).isEmpty(), "Methods should not pull in class ancestors");
 
         assertEquals(Set.of(method), fragment.sources().join());
         assertEquals(Set.of(file), fragment.files().join());
@@ -105,7 +105,7 @@ public class CodeFragmentTest {
 
         var fragment = new ContextFragments.ProjectPathFragment(childFile, contextManager);
 
-        var supporting = fragment.supportingFragments();
+        var supporting = fragment.supportingFragments(analyzer);
         assertEquals(1, supporting.size());
 
         var ancestorFragment =

@@ -25,6 +25,7 @@ import ai.brokk.util.FragmentUtils;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.LoggingExecutorService;
 import ai.brokk.util.Messages;
+import java.util.Collection;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
 import com.github.difflib.unifieddiff.UnifiedDiffParserException;
@@ -78,22 +79,21 @@ public class ContextFragments {
     public static final LoggingExecutorService FRAGMENT_EXECUTOR = createFragmentExecutor();
 
     /**
-     * Resolves skeletons for the direct ancestors of the given unit.
+     * Resolves supporting summary fragments for the direct ancestors of the given code units.
      * Filters out anonymous units.
      */
-    public static Map<CodeUnit, String> resolveAncestorSkeletons(CodeUnit unit, IAnalyzer analyzer) {
-        var skeletonProviderOpt = analyzer.as(SkeletonProvider.class);
-        if (skeletonProviderOpt.isEmpty()) {
-            return Map.of();
-        }
-
-        SkeletonProvider skeletonProvider = skeletonProviderOpt.get();
-        Map<CodeUnit, String> skeletons = new LinkedHashMap<>();
-        analyzer.getDirectAncestors(unit).stream()
+    public static Set<ContextFragment> resolveAncestorFragments(
+            Collection<CodeUnit> units, IContextManager contextManager, IAnalyzer analyzer) {
+        return units.stream()
+                .filter(CodeUnit::isClass)
+                .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
                 .filter(anc -> !anc.isAnonymous())
-                .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletons.put(anc, s)));
-        return skeletons;
+                .distinct()
+                .map(anc -> new SummaryFragment(
+                        contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                .collect(Collectors.toSet());
     }
+
 
     public static byte @Nullable [] convertToByteArray(@Nullable List<Byte> imageBytes) {
         if (imageBytes == null) {
@@ -483,15 +483,8 @@ public class ContextFragments {
         }
 
         @Override
-        public Set<ContextFragment> supportingFragments() {
-            var analyzer = contextManager.getAnalyzerUninterrupted();
-            return analyzer.getDeclarations(file).stream()
-                    .filter(CodeUnit::isClass)
-                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
-                    .filter(anc -> !anc.isAnonymous())
-                    .map(anc -> new SummaryFragment(
-                            contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
-                    .collect(Collectors.toSet());
+        public Set<ContextFragment> supportingFragments(IAnalyzer analyzer) {
+            return resolveAncestorFragments(analyzer.getDeclarations(file), contextManager, analyzer);
         }
     }
 
@@ -1466,15 +1459,8 @@ public class ContextFragments {
         }
 
         @Override
-        public Set<ContextFragment> supportingFragments() {
-            var analyzer = contextManager.getAnalyzerUninterrupted();
-            return analyzer.getDefinitions(fullyQualifiedName).stream()
-                    .filter(CodeUnit::isClass)
-                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
-                    .filter(anc -> !anc.isAnonymous())
-                    .map(anc -> new SummaryFragment(
-                            contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
-                    .collect(Collectors.toSet());
+        public Set<ContextFragment> supportingFragments(IAnalyzer analyzer) {
+            return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager, analyzer);
         }
     }
 
@@ -1705,18 +1691,11 @@ public class ContextFragments {
         }
 
         @Override
-        public Set<ContextFragment> supportingFragments() {
+        public Set<ContextFragment> supportingFragments(IAnalyzer analyzer) {
             if (summaryType != SummaryType.CODEUNIT_SKELETON) {
                 return Set.of();
             }
-
-            var analyzer = contextManager.getAnalyzerUninterrupted();
-            return analyzer.getDefinitions(targetIdentifier).stream()
-                    .filter(CodeUnit::isClass)
-                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
-                    .filter(anc -> !anc.isAnonymous())
-                    .map(anc -> new SummaryFragment(contextManager, anc.fqName(), SummaryType.CODEUNIT_SKELETON))
-                    .collect(Collectors.toSet());
+            return resolveAncestorFragments(analyzer.getDefinitions(targetIdentifier), contextManager, analyzer);
         }
 
         private static ContentSnapshot computeSnapshotFor(
