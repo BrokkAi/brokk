@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -49,15 +50,17 @@ public class ReviewParser {
         // Try NEW content first
         String newContent = fileInfo.rightSource().content();
         var newMatch = matchExcerptInContent(excerpt, newContent);
-        if (newMatch != null) {
-            return new ExcerptMatch(newMatch.line(), DiffSide.NEW, newMatch.matchedText());
+        if (newMatch.isPresent()) {
+            return new ExcerptMatch(
+                    newMatch.get().line(), DiffSide.NEW, newMatch.get().matchedText());
         }
 
         // Try OLD content
         String oldContent = fileInfo.leftSource().content();
         var oldMatch = matchExcerptInContent(excerpt, oldContent);
-        if (oldMatch != null) {
-            return new ExcerptMatch(oldMatch.line(), DiffSide.OLD, oldMatch.matchedText());
+        if (oldMatch.isPresent()) {
+            return new ExcerptMatch(
+                    oldMatch.get().line(), DiffSide.OLD, oldMatch.get().matchedText());
         }
 
         return null;
@@ -772,12 +775,12 @@ public class ReviewParser {
      * FIXME: we should either only allow references to the NEW side, or preserve OLD side somehow so that we can
      * recover it. In both cases this method can go away and we can use the canonical resolver for loading from history.
      */
-    public static Map<Integer, ReviewParser.CodeExcerpt> resolveExcerptsNewOnly(ContextManager cm, String text) {
-        List<ReviewParser.RawExcerpt> raws = ReviewParser.instance.parseExcerpts(text);
-        Map<Integer, ReviewParser.CodeExcerpt> resolved = new HashMap<>();
+    public static Map<Integer, CodeExcerpt> resolveExcerptsNewOnly(ContextManager cm, String text) {
+        List<RawExcerpt> raws = instance.parseExcerpts(text);
+        Map<Integer, CodeExcerpt> resolved = new HashMap<>();
 
         for (int i = 0; i < raws.size(); i++) {
-            ReviewParser.RawExcerpt raw = raws.get(i);
+            RawExcerpt raw = raws.get(i);
             ProjectFile pf;
             try {
                 pf = cm.toFile(raw.file());
@@ -792,12 +795,13 @@ public class ReviewParser {
                 continue;
             }
 
-            var match = matchExcerptInContent(raw, content);
-            if (match == null) {
+            var matchOpt = matchExcerptInContent(raw, content);
+            if (matchOpt.isEmpty()) {
                 logger.debug("Excerpt text not found in file: {}", raw.file());
                 continue;
             }
 
+            var match = matchOpt.get();
             int lineCount = (int) match.matchedText().lines().count();
             CodeUnit unit = cm.getAnalyzerUninterrupted()
                     .enclosingCodeUnit(pf, match.line(), match.line() + Math.max(0, lineCount - 1))
@@ -807,21 +811,17 @@ public class ReviewParser {
         return resolved;
     }
 
-    /**
-     * Match an excerpt against file content (NEW side only).
-     * Returns null if no match found.
-     */
-    public static @Nullable ExcerptMatchResult matchExcerptInContent(RawExcerpt excerpt, String content) {
+    public static Optional<ExcerptMatchResult> matchExcerptInContent(RawExcerpt excerpt, String content) {
         String[] excerptLines = excerpt.excerpt().split("\\R", -1);
         String[] contentLines = content.split("\\R", -1);
 
         var matches = WhitespaceMatch.findAll(contentLines, excerptLines);
         if (matches.isEmpty()) {
-            return null;
+            return Optional.empty();
         }
 
         var best = findBestMatch(matches, excerpt.line());
-        return new ExcerptMatchResult(best.startLine() + 1, best.matchedText());
+        return Optional.of(new ExcerptMatchResult(best.startLine() + 1, best.matchedText()));
     }
 
     /**

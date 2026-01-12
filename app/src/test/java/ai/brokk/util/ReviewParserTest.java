@@ -1207,25 +1207,26 @@ class ReviewParserTest {
 
         // Exact match
         var excerpt1 = new ReviewParser.RawExcerpt("test.java", 2, "line2");
-        ReviewParser.ExcerptMatchResult match1 = ReviewParser.matchExcerptInContent(excerpt1, content);
+        var match1 = ReviewParser.matchExcerptInContent(excerpt1, content).orElse(null);
         assertNotNull(match1);
         assertEquals(2, match1.line());
         assertEquals("line2", match1.matchedText());
 
         // Whitespace insensitive
         var excerpt2 = new ReviewParser.RawExcerpt("test.java", 1, "  line1  ");
-        ReviewParser.ExcerptMatchResult match2 = ReviewParser.matchExcerptInContent(excerpt2, content);
+        var match2 = ReviewParser.matchExcerptInContent(excerpt2, content).orElse(null);
         assertNotNull(match2);
         assertEquals(1, match2.line());
 
         // No match
         var excerpt3 = new ReviewParser.RawExcerpt("test.java", 1, "garbage");
-        assertNull(ReviewParser.matchExcerptInContent(excerpt3, content));
+        assertTrue(ReviewParser.matchExcerptInContent(excerpt3, content).isEmpty());
 
         // Multi-line match
         var multiContent = "a\nb\nc\nd\ne";
         var multiExcerpt = new ReviewParser.RawExcerpt("test.java", 3, "b\nc\nd");
-        ReviewParser.ExcerptMatchResult multiMatch = ReviewParser.matchExcerptInContent(multiExcerpt, multiContent);
+        var multiMatch =
+                ReviewParser.matchExcerptInContent(multiExcerpt, multiContent).orElse(null);
         assertNotNull(multiMatch);
         assertEquals(2, multiMatch.line());
         assertEquals("b\nc\nd", multiMatch.matchedText());
