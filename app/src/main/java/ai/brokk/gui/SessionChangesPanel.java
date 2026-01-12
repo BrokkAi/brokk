@@ -56,6 +56,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SessionChangesPanel.class);
     private final Chrome chrome;
     private final ContextManager contextManager;
+    private final ReviewActions reviewActions;
     private final GitRepo repo;
     private final DeferredUpdateHelper deferredUpdateHelper;
     private final TabTitleUpdater tabTitleUpdater;
@@ -131,6 +132,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.tabTitleUpdater = tabTitleUpdater;
+        this.reviewActions = new ReviewActions(chrome);
 
         var maybeRepo = contextManager.getProject().getRepo();
         if (!(maybeRepo instanceof GitRepo gr)) {
@@ -1078,16 +1080,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void handleCopyReview() {
         var review = codeReviewPanel.getCurrentReview();
         if (review == null) {
-            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review to copy");
-            return;
+            reviewActions.notifyNoReviewToCopy();
+        } else {
+            reviewActions.copyReviewToClipboard(review);
         }
-
-        var export = review.toExport();
-        var toolRequest = export.toToolRequest();
-
-        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-        clipboard.setContents(new StringSelection(toolRequest), null);
-        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Review copied to clipboard");
     }
 
     private @Nullable String formatStalenessMessage(StalenessInfo staleness) {
