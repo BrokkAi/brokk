@@ -265,6 +265,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         return "}";
     }
 
+    private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
+
     @Override
     protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         var query = getThreadLocalQuery();
@@ -276,7 +278,12 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             for (TSQueryCapture capture : match.getCaptures()) {
                 String captureName = query.getCaptureNameForId(capture.getIndex());
                 if (TEST_MARKER.equals(captureName)) {
-                    return true;
+                    TSNode node = capture.getNode();
+                    String annotationName =
+                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                    if (TEST_ANNOTATIONS.contains(annotationName)) {
+                        return true;
+                    }
                 }
             }
         }
