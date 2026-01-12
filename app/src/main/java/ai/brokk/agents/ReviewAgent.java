@@ -801,6 +801,13 @@ public class ReviewAgent {
                 ```
                 </excerpt_format>
                 <review_format>
+                ## Key Changes
+                ### [Title of first key change]
+                [Description of what changed and why it matters. Include code blocks showing the key code.]
+
+                ### [Title of second key change, etc.]
+                ...
+
                 ## Design Notes
                 ### [Title of first design note]
                 [Description text. Include code blocks as needed.]
