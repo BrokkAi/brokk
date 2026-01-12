@@ -51,8 +51,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
     @Nullable
     private GitLogTab gitLogTab;
 
-    @Nullable
-    private GitWorktreeTab gitWorktreeTab;
+    // GitWorktreeTab removed - worktrees are now managed via the Agents tab in RightPanel
 
     @Nullable
     private GitPullRequestsTab pullRequestsPanel;
@@ -127,7 +126,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
         if (chrome.getProject().hasGit()) {
             gitCommitTab = new GitCommitTab(chrome, contextManager);
             gitLogTab = new GitLogTab(chrome, contextManager);
-            gitWorktreeTab = new GitWorktreeTab(chrome, contextManager);
+            // GitWorktreeTab removed - worktrees are now managed via the Agents tab in RightPanel
         }
 
         if (chrome.getProject().isGitHubRepo() && gitLogTab != null) {
@@ -190,7 +189,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
     private void removeAdvancedTabs() {
         if (gitCommitTab != null) removeTab(gitCommitTab);
         if (gitLogTab != null) removeTab(gitLogTab);
-        if (gitWorktreeTab != null) removeTab(gitWorktreeTab);
+        // GitWorktreeTab removed - worktrees are now managed via the Agents tab in RightPanel
         if (pullRequestsPanel != null) removeTab(pullRequestsPanel);
         if (issuesPanel != null) removeTab(issuesPanel);
         if (toolsPane.getTabCount() > 0) {
@@ -236,21 +235,7 @@ public class ToolsPane extends JPanel implements ThemeAware {
                 }
             });
         }
-        if (gitWorktreeTab != null && toolsPane.indexOfComponent(gitWorktreeTab) == -1) {
-            toolsPane.addTab(null, Icons.FLOWCHART, gitWorktreeTab);
-            int idx = toolsPane.indexOfComponent(gitWorktreeTab);
-            KeyStroke ks = GlobalUiSettings.getKeybinding(
-                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
-            JLabel label = createSquareTabLabel(
-                    Icons.FLOWCHART, "Worktrees (" + KeyboardShortcutUtil.formatKeyStroke(ks) + ")");
-            toolsPane.setTabComponentAt(idx, label);
-            label.addMouseListener(new MouseAdapter() {
-                @Override
-                public void mousePressed(MouseEvent e) {
-                    handleTabToggle(idx);
-                }
-            });
-        }
+        // GitWorktreeTab removed - worktrees are now managed via the Agents tab in RightPanel
         if (pullRequestsPanel != null
                 && chrome.getProject().isGitHubRepo()
                 && gitLogTab != null
@@ -442,8 +427,13 @@ public class ToolsPane extends JPanel implements ThemeAware {
         return gitLogTab;
     }
 
+    /**
+     * @deprecated GitWorktreeTab has been removed - worktrees are now managed via the Agents tab in RightPanel.
+     * @return always null
+     */
+    @Deprecated
     public @Nullable GitWorktreeTab getGitWorktreeTab() {
-        return gitWorktreeTab;
+        return null;
     }
 
     public @Nullable GitPullRequestsTab getPullRequestsPanel() {

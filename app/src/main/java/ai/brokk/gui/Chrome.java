@@ -575,10 +575,7 @@ public class Chrome
             toolsPane.getGitLogTab().requestUpdate();
         }
 
-        if (toolsPane.getGitWorktreeTab() != null) {
-            logger.trace("updateGitRepo: refreshing GitWorktreeTab");
-            toolsPane.getGitWorktreeTab().requestUpdate();
-        }
+        // GitWorktreeTab removed - worktrees are now managed via the Agents tab
 
         logger.trace("updateGitRepo: updating ProjectFilesPanel");
         projectFilesPanel.requestUpdate();
@@ -782,17 +779,17 @@ public class Chrome
             });
         }
 
-        // Alt/Cmd+5 for Worktrees
-        if (toolsPane.getGitWorktreeTab() != null) {
-            KeyStroke switchToWorktrees = GlobalUiSettings.getKeybinding(
-                    "panel.switchToWorktrees", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
-            bindKey(rootPane, switchToWorktrees, "switchToWorktrees");
-            rootPane.getActionMap().put("switchToWorktrees", new AbstractAction() {
+        // Alt/Cmd+5 for Agents tab (replaced Worktrees)
+        if (rightPanel.getAgentsTab() != null) {
+            KeyStroke switchToAgents = GlobalUiSettings.getKeybinding(
+                    "panel.switchToAgents", KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+            bindKey(rootPane, switchToAgents, "switchToAgents");
+            rootPane.getActionMap().put("switchToAgents", new AbstractAction() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    var tools = toolsPane.getToolsPane();
-                    var idx = tools.indexOfComponent(toolsPane.getGitWorktreeTab());
-                    if (idx != -1) tools.setSelectedIndex(idx);
+                    var tabs = rightPanel.getBuildReviewTabs();
+                    var idx = tabs.indexOfComponent(rightPanel.getAgentsTab());
+                    if (idx != -1) tabs.setSelectedIndex(idx);
                 }
             });
         }
@@ -1041,6 +1038,8 @@ public class Chrome
     public CompletableFuture<Void> closeAsync() {
         logger.info("Closing Chrome UI (async)");
         openInstances.remove(this);
+        // Dispose agents before closing context manager
+        rightPanel.dispose();
         return contextManager.closeAsync(5_000);
     }
 
@@ -1636,6 +1635,12 @@ public class Chrome
         return toolsPane.getGitLogTab();
     }
 
+    /**
+     * @deprecated GitWorktreeTab has been removed - worktrees are now managed via the Agents tab.
+     * @return always null
+     */
+    @Deprecated
+    @SuppressWarnings("deprecation")
     @Nullable
     public GitWorktreeTab getGitWorktreeTab() {
         return toolsPane.getGitWorktreeTab();

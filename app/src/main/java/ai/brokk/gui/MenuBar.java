@@ -632,16 +632,18 @@ public class MenuBar {
                     });
                     windowMenu.add(logItem);
 
-                    var worktreesItem = new JMenuItem("Worktrees");
-                    worktreesItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
-                    worktreesItem.addActionListener(actionEvent -> {
-                        var gitWorktreeTab = chrome.getGitWorktreeTab();
-                        if (gitWorktreeTab != null) {
-                            var idx = chrome.getToolsPane().indexOfComponent(gitWorktreeTab);
-                            if (idx != -1) chrome.getToolsPane().setSelectedIndex(idx);
+                    // Agents tab - replaced the old Worktrees tab
+                    var agentsItem = new JMenuItem("Agents");
+                    agentsItem.setAccelerator(KeyboardShortcutUtil.createAltShortcut(KeyEvent.VK_5));
+                    agentsItem.addActionListener(actionEvent -> {
+                        var agentsTab = chrome.getRightPanel().getAgentsTab();
+                        if (agentsTab != null) {
+                            var tabs = chrome.getRightPanel().getBuildReviewTabs();
+                            var idx = tabs.indexOfComponent(agentsTab);
+                            if (idx != -1) tabs.setSelectedIndex(idx);
                         }
                     });
-                    windowMenu.add(worktreesItem);
+                    windowMenu.add(agentsItem);
                 }
 
                 if (advanced) {

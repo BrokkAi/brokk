@@ -80,4 +80,5 @@ public final class Icons {
     public static final Icon CONTEXT = SwingUtil.uiIcon("Brokk.context");
     public static final Icon EDIT_OFF = SwingUtil.uiIcon("Brokk.edit_off");
     public static final Icon NEW_FOLDER = SwingUtil.uiIcon("Brokk.new_folder");
+    public static final Icon SMART_TOY = SwingUtil.uiIcon("Brokk.smart_toy");
 }

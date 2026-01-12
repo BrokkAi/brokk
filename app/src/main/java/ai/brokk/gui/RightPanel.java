@@ -1,6 +1,7 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
+import ai.brokk.gui.agents.AgentsTab;
 import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.terminal.TerminalPanel;
@@ -27,6 +28,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     private final InstructionsPanel instructionsPanel;
     private final TaskListPanel taskListPanel;
     private final TerminalPanel terminalPanel;
+    private final @Nullable AgentsTab agentsTab;
 
     private final JPanel sessionHeaderPanel;
     private final ai.brokk.gui.components.SplitButton sessionNameLabel;
@@ -112,6 +114,13 @@ public class RightPanel extends JPanel implements ThemeAware {
         taskListPanel = new TaskListPanel(chrome);
         terminalPanel =
                 new TerminalPanel(chrome, () -> {}, true, chrome.getProject().getRoot());
+        
+        // Create Agents tab only if git is available
+        if (chrome.getProject().hasGit()) {
+            agentsTab = new AgentsTab(chrome, contextManager);
+        } else {
+            agentsTab = null;
+        }
 
         // Command tabs: Instructions | Tasks
         commandPane = new JTabbedPane(JTabbedPane.TOP);
@@ -154,13 +163,18 @@ public class RightPanel extends JPanel implements ThemeAware {
             reviewTabComponent = placeholder;
         }
 
-        // Build | Review | Preview | Terminal Tabs
+        // Build | Review | Preview | Terminal | Agents Tabs
         buildReviewTabs = new JTabbedPane(JTabbedPane.TOP);
         buildReviewTabs.addTab("Build", Icons.HANDYMAN, buildSplitPane);
         buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewTabComponent);
 
         buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
         buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
+        
+        // Add Agents tab if git is available
+        if (agentsTab != null) {
+            buildReviewTabs.addTab("Agents", Icons.SMART_TOY, agentsTab);
+        }
 
         if (!chrome.getPreviewManager().isPreviewDocked()) {
             int idx = buildReviewTabs.indexOfTab("Preview");
@@ -999,5 +1013,28 @@ public class RightPanel extends JPanel implements ThemeAware {
             scp.applyTheme(guiTheme);
         }
         SwingUtilities.updateComponentTreeUI(this);
+    }
+    
+    /**
+     * Get the agents tab, or null if git is not available.
+     */
+    public @Nullable AgentsTab getAgentsTab() {
+        return agentsTab;
+    }
+    
+    /**
+     * Get the main tabbed pane containing Build, Review, Preview, Terminal, and Agents tabs.
+     */
+    public JTabbedPane getBuildReviewTabs() {
+        return buildReviewTabs;
+    }
+    
+    /**
+     * Cleanup resources when the panel is being disposed.
+     */
+    public void dispose() {
+        if (agentsTab != null) {
+            agentsTab.dispose();
+        }
     }
 }
