@@ -661,55 +661,99 @@ public final class JobRunner {
                                             String reviewText =
                                                     reviewResult.output().text().join();
 
-                                            // Extract summary (everything before Comments section or full text if
-                                            // no Comments)
+                                            // Attempt JSON parsing first (new format)
+                                            var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
+
                                             String summary;
-                                            String commentsSection = "";
-                                            int commentsIdx = reviewText.indexOf("Comments");
-                                            if (commentsIdx > 0) {
-                                                summary = reviewText
-                                                        .substring(0, commentsIdx)
-                                                        .trim();
-                                                commentsSection = reviewText.substring(commentsIdx);
-                                            } else {
-                                                summary = reviewText;
-                                            }
-
-                                            // 7. Post summary comment to PR
-                                            PrReviewService.postReviewComment(pr, summary);
-                                            logger.info("Posted PR review summary to PR #{}", prNumber);
-
-                                            // 8. Parse and post line comments
-                                            // Pattern: - file://<path>#L<line> | <description>
-                                            Pattern linePattern = Pattern.compile(
-                                                    "^-\\s*file://([^#]+)#L(\\d+)\\s*\\|\\s*(.+)$", Pattern.MULTILINE);
-                                            Matcher matcher = linePattern.matcher(commentsSection);
-
                                             int postedComments = 0;
                                             int skippedComments = 0;
-                                            while (matcher.find()) {
-                                                String path = matcher.group(1).trim();
-                                                int line = Integer.parseInt(matcher.group(2));
-                                                String description =
-                                                        matcher.group(3).trim();
 
-                                                try {
-                                                    // Check for existing comment to avoid duplicates
-                                                    if (!PrReviewService.hasExistingLineComment(pr, path, line)) {
-                                                        PrReviewService.postLineComment(
-                                                                pr, path, line, description, headSha);
-                                                        postedComments++;
-                                                        logger.debug("Posted line comment on {}:{}", path, line);
-                                                    } else {
-                                                        skippedComments++;
-                                                        logger.debug("Skipped duplicate comment on {}:{}", path, line);
+                                            if (reviewResponse != null) {
+                                                // JSON parsing succeeded - use structured format
+                                                logger.debug("PR review parsed as JSON successfully");
+                                                summary = reviewResponse.summaryMarkdown();
+
+                                                // 7. Post summary comment to PR
+                                                PrReviewService.postReviewComment(pr, summary);
+                                                logger.info("Posted PR review summary to PR #{}", prNumber);
+
+                                                // 8. Post inline comments from structured response
+                                                for (var comment : reviewResponse.comments()) {
+                                                    String path = comment.path();
+                                                    int line = comment.line();
+                                                    String bodyMarkdown = comment.bodyMarkdown();
+
+                                                    try {
+                                                        if (!PrReviewService.hasExistingLineComment(pr, path, line)) {
+                                                            PrReviewService.postLineComment(
+                                                                    pr, path, line, bodyMarkdown, headSha);
+                                                            postedComments++;
+                                                            logger.debug("Posted line comment on {}:{}", path, line);
+                                                        } else {
+                                                            skippedComments++;
+                                                            logger.debug(
+                                                                    "Skipped duplicate comment on {}:{}", path, line);
+                                                        }
+                                                    } catch (Exception e) {
+                                                        logger.warn(
+                                                                "Failed to post line comment on {}:{}: {}",
+                                                                path,
+                                                                line,
+                                                                e.getMessage());
                                                     }
-                                                } catch (Exception e) {
-                                                    logger.warn(
-                                                            "Failed to post line comment on {}:{}: {}",
-                                                            path,
-                                                            line,
-                                                            e.getMessage());
+                                                }
+                                            } else {
+                                                // JSON parsing failed - fall back to legacy parsing
+                                                logger.warn(
+                                                        "PR review JSON parsing failed for job {}, falling back to legacy format",
+                                                        jobId);
+
+                                                // Extract summary (everything before Comments section or full text)
+                                                String commentsSection = "";
+                                                int commentsIdx = reviewText.indexOf("Comments");
+                                                if (commentsIdx > 0) {
+                                                    summary = reviewText
+                                                            .substring(0, commentsIdx)
+                                                            .trim();
+                                                    commentsSection = reviewText.substring(commentsIdx);
+                                                } else {
+                                                    summary = reviewText;
+                                                }
+
+                                                // 7. Post summary comment to PR
+                                                PrReviewService.postReviewComment(pr, summary);
+                                                logger.info("Posted PR review summary to PR #{} (legacy)", prNumber);
+
+                                                // 8. Parse and post line comments (legacy regex)
+                                                Pattern linePattern = Pattern.compile(
+                                                        "^-\\s*file://([^#]+)#L(\\d+)\\s*\\|\\s*(.+)$",
+                                                        Pattern.MULTILINE);
+                                                Matcher matcher = linePattern.matcher(commentsSection);
+
+                                                while (matcher.find()) {
+                                                    String path = matcher.group(1).trim();
+                                                    int line = Integer.parseInt(matcher.group(2));
+                                                    String description =
+                                                            matcher.group(3).trim();
+
+                                                    try {
+                                                        if (!PrReviewService.hasExistingLineComment(pr, path, line)) {
+                                                            PrReviewService.postLineComment(
+                                                                    pr, path, line, description, headSha);
+                                                            postedComments++;
+                                                            logger.debug("Posted line comment on {}:{}", path, line);
+                                                        } else {
+                                                            skippedComments++;
+                                                            logger.debug(
+                                                                    "Skipped duplicate comment on {}:{}", path, line);
+                                                        }
+                                                    } catch (Exception e) {
+                                                        logger.warn(
+                                                                "Failed to post line comment on {}:{}: {}",
+                                                                path,
+                                                                line,
+                                                                e.getMessage());
+                                                    }
                                                 }
                                             }
 
@@ -949,47 +993,50 @@ public final class JobRunner {
                 - Removed lines: "[OLD:N NEW:-] -<content>" where N is the exact line number in the old file
                 - Context lines: "[OLD:N NEW:N]  <content>" where N/N are the exact line numbers in the old/new files
 
-                When writing your review, cite line numbers using just the number (e.g., #L42), choosing the appropriate number:
+                When writing your review, cite line numbers using just the number, choosing the appropriate number:
                 - For additions ("+"): use the NEW line number from the annotation
                 - For deletions ("-"): use the OLD line number from the annotation
                 - For context/unchanged lines (" "): use the NEW line number from the annotation
 
                 Your task:
-                Analyze the diff content above and using the context of related methods and code files.
+                Analyze the diff content above using the context of related methods and code files.
 
-                Return a concise Markdown response with EXACTLY the following sections (use the headings exactly as written):
+                OUTPUT FORMAT
+                -------------
+                You MUST output a single JSON object with this exact structure:
 
-                Summary
-                --------
-                Start this section with the exact line:
-                ## Brokk PR Review
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\n[1-3 sentences describing what changed and key issues]",
+                  "comments": [
+                    {
+                      "path": "src/main/java/Example.java",
+                      "line": 42,
+                      "bodyMarkdown": "Description of issue and why it matters. Provide a minimal actionable suggestion if relevant."
+                    }
+                  ]
+                }
 
-                Then provide: 1-3 sentences describing what changed and the key issues.
+                REQUIRED FIELDS:
+                - "summaryMarkdown": MUST start with exactly "## Brokk PR Review" followed by a newline and 1-3 sentences
+                - "comments": Array of inline comment objects (may be empty if no issues found)
 
-                Comments
-                --------
-                Use this exact format for detailed findings (one issue per bullet):
-                - file://<path>#L<line> | Description of issue and why it matters. Provide a minimal actionable suggestion if relevant.
-                - file://<path>#L<line> | Another issue.
+                Each comment object MUST have:
+                - "path": File path relative to repository root (e.g., "src/main/java/Foo.java")
+                - "line": Single integer line number from the diff annotation:
+                  * For "+" lines: use the NEW line number
+                  * For "-" lines: use the OLD line number
+                  * For " " lines: use the NEW line number
+                - "bodyMarkdown": Markdown description of the issue with actionable suggestion
 
-                Rules:
+                RULES FOR COMMENTS:
                 - SKIP any line that has no issue. Do not comment on correct code.
-                - Only output lines that describe actual problems, bugs, security issues, or code smells.
-                - Only write comments that have a criticism of the code with a suggested improvement, avoid all compliments or neutral comments.
-                - Every issue MUST be a single bullet line with EXACTLY this structure:
-                  - file://<path>#L<line> | <description>
-                - The file://<path>#L<line> part MUST be plain text:
-                  - No Markdown formatting (no **bold**, no backticks, no links).
-                  - No surrounding punctuation or extra characters.
-                - The <line> MUST be the exact line number from the diff annotation (just the number):
-                  - "+" lines: use the number from NEW
-                  - "-" lines: use the number from OLD
-                  - " " lines: use the number from NEW
-                - The line MUST be a single integer (e.g. #L12), NOT a range (do not output #L12-L34).
-                - Use exactly one | separator with spaces around it:  ... #L<line> | ...
+                - Only output comments for actual problems, bugs, security issues, or code smells.
+                - Only write comments with criticism and suggested improvement; avoid compliments.
                 - Be precise and concise.
                 - Include code snippets only when they clarify the fix.
-                - If no issues are found, still describe what the PR changes in the Summary section, then state "No issues were found." Omit the Comments section entirely when there are no issues.
+                - If no issues are found, set "comments" to an empty array: []
+
+                OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
 
                 Begin analysis now.
                 """

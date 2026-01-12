@@ -1,13 +1,18 @@
 package ai.brokk.executor.jobs;
 
 import ai.brokk.git.GitRepo;
+import ai.brokk.util.Json;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
+import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHPullRequestReviewComment;
 import org.kohsuke.github.GHRepository;
@@ -28,6 +33,20 @@ public final class PrReviewService {
 
     /** PR metadata extracted from GitHub API. */
     public record PrDetails(String baseBranch, String headSha, String headRef) {}
+
+    /** Structured PR review response from LLM. */
+    public record PrReviewResponse(String summaryMarkdown, List<InlineComment> comments) {
+        public PrReviewResponse {
+            comments = comments == null ? Collections.emptyList() : List.copyOf(comments);
+        }
+
+        public PrReviewResponse(String summaryMarkdown) {
+            this(summaryMarkdown, Collections.emptyList());
+        }
+    }
+
+    /** Inline comment for a specific file and line. */
+    public record InlineComment(String path, int line, String bodyMarkdown) {}
 
     /**
      * Fetches PR details from GitHub.
@@ -134,6 +153,82 @@ public final class PrReviewService {
             }
         }
         return false;
+    }
+
+    /**
+     * Parses raw LLM output text into a structured PrReviewResponse.
+     *
+     * <p>This parser is robust to LLM output variations:
+     * <ul>
+     *   <li>Attempts to parse the entire text as JSON</li>
+     *   <li>If that fails, extracts JSON between first '{' and last '}' and retries</li>
+     *   <li>Handles missing or null 'comments' field by defaulting to empty list</li>
+     *   <li>Returns null if JSON is malformed or missing required fields</li>
+     * </ul>
+     *
+     * @param rawText the raw LLM output string
+     * @return parsed PrReviewResponse, or null if parsing fails
+     */
+    public static @Nullable PrReviewResponse parsePrReviewResponse(String rawText) {
+        if (rawText == null || rawText.isBlank()) {
+            logger.warn("parsePrReviewResponse: empty or null input");
+            return null;
+        }
+
+        logger.trace("parsePrReviewResponse: rawText length={}", rawText.length());
+
+        JsonNode root;
+        try {
+            root = Json.getMapper().readTree(rawText);
+        } catch (Exception initialParseError) {
+            logger.trace("parsePrReviewResponse: direct parse failed, attempting extraction");
+            int firstBrace = rawText.indexOf('{');
+            int lastBrace = rawText.lastIndexOf('}');
+
+            if (firstBrace == -1 || lastBrace == -1 || lastBrace < firstBrace) {
+                logger.warn("parsePrReviewResponse: no JSON braces found in response", initialParseError);
+                return null;
+            }
+
+            String extractedJson = rawText.substring(firstBrace, lastBrace + 1);
+            try {
+                root = Json.getMapper().readTree(extractedJson);
+                logger.trace("parsePrReviewResponse: extraction succeeded");
+            } catch (Exception extractionParseError) {
+                logger.warn("parsePrReviewResponse: extracted JSON is malformed", extractionParseError);
+                return null;
+            }
+        }
+
+        if (!root.has("summaryMarkdown") || !root.get("summaryMarkdown").isTextual()) {
+            logger.warn("parsePrReviewResponse: missing or invalid 'summaryMarkdown' field");
+            return null;
+        }
+
+        String summaryMarkdown = root.get("summaryMarkdown").asText();
+
+        List<InlineComment> comments;
+        if (!root.has("comments") || root.get("comments").isNull()) {
+            comments = Collections.emptyList();
+        } else if (!root.get("comments").isArray()) {
+            logger.warn("parsePrReviewResponse: 'comments' field is not an array");
+            return null;
+        } else {
+            JsonNode commentsNode = root.get("comments");
+            try {
+                comments = Json.getMapper()
+                        .readValue(
+                                commentsNode.toString(),
+                                Json.getMapper()
+                                        .getTypeFactory()
+                                        .constructCollectionType(List.class, InlineComment.class));
+            } catch (Exception e) {
+                logger.warn("parsePrReviewResponse: failed to deserialize 'comments' array", e);
+                return null;
+            }
+        }
+
+        return new PrReviewResponse(summaryMarkdown, comments);
     }
 
     /**

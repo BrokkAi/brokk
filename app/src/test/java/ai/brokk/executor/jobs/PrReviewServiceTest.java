@@ -11,6 +11,7 @@ import ai.brokk.git.GitTestCleanupUtil;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -233,5 +234,172 @@ class PrReviewServiceTest {
         // 2. Both fetch calls should be wrapped in try/catch so failures only log warnings
         //    and do not abort the review
         // 3. This ensures PRs from forks and stale local repositories can still be reviewed
+    }
+
+    @Test
+    void testParsePrReviewResponse_ValidJsonWithComments() {
+        String json =
+                """
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\nThis PR adds a new feature.",
+                  "comments": [
+                    {
+                      "path": "src/main/java/Example.java",
+                      "line": 42,
+                      "bodyMarkdown": "Potential null pointer issue here."
+                    },
+                    {
+                      "path": "src/test/java/ExampleTest.java",
+                      "line": 10,
+                      "bodyMarkdown": "Missing test case for edge condition."
+                    }
+                  ]
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+
+        assertEquals("## Brokk PR Review\n\nThis PR adds a new feature.", response.summaryMarkdown());
+        assertEquals(2, response.comments().size());
+
+        var comment1 = response.comments().get(0);
+        assertEquals("src/main/java/Example.java", comment1.path());
+        assertEquals(42, comment1.line());
+        assertEquals("Potential null pointer issue here.", comment1.bodyMarkdown());
+
+        var comment2 = response.comments().get(1);
+        assertEquals("src/test/java/ExampleTest.java", comment2.path());
+        assertEquals(10, comment2.line());
+        assertEquals("Missing test case for edge condition.", comment2.bodyMarkdown());
+    }
+
+    @Test
+    void testParsePrReviewResponse_ValidJsonWithEmptyComments() {
+        String json =
+                """
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\nNo issues found in this PR.",
+                  "comments": []
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+
+        assertEquals("## Brokk PR Review\n\nNo issues found in this PR.", response.summaryMarkdown());
+        assertTrue(response.comments().isEmpty());
+    }
+
+    @Test
+    void testParsePrReviewResponse_ValidJsonMissingCommentsField() {
+        String json =
+                """
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\nClean code, no comments needed."
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+
+        assertEquals("## Brokk PR Review\n\nClean code, no comments needed.", response.summaryMarkdown());
+        assertTrue(response.comments().isEmpty());
+    }
+
+    @Test
+    void testParsePrReviewResponse_MalformedJson() {
+        String malformed = "{ this is not valid json }";
+
+        var response = PrReviewService.parsePrReviewResponse(malformed);
+
+        assertNull(response);
+    }
+
+    @Test
+    void testParsePrReviewResponse_MissingSummaryField() {
+        String json =
+                """
+                {
+                  "comments": []
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+
+        assertNull(response);
+    }
+
+    @Test
+    void testParsePrReviewResponse_WrappedJson() {
+        String wrapped =
+                """
+                Here is the review output:
+
+                ```json
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\nLooks good overall.",
+                  "comments": [
+                    {
+                      "path": "src/Foo.java",
+                      "line": 5,
+                      "bodyMarkdown": "Consider using Optional here."
+                    }
+                  ]
+                }
+                ```
+
+                End of review.
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(wrapped);
+
+        assertEquals("## Brokk PR Review\n\nLooks good overall.", response.summaryMarkdown());
+        assertEquals(1, response.comments().size());
+        assertEquals("src/Foo.java", response.comments().get(0).path());
+        assertEquals(5, response.comments().get(0).line());
+    }
+
+    @Test
+    void testParsePrReviewResponse_EmptyInput() {
+        assertNull(PrReviewService.parsePrReviewResponse(""));
+        assertNull(PrReviewService.parsePrReviewResponse("   "));
+        assertNull(PrReviewService.parsePrReviewResponse(null));
+    }
+
+    @Test
+    void testParsePrReviewResponse_InvalidCommentsType() {
+        String json =
+                """
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\nSummary here.",
+                  "comments": "not an array"
+                }
+                """;
+
+        var response = PrReviewService.parsePrReviewResponse(json);
+
+        assertNull(response);
+    }
+
+    @Test
+    void testPrReviewResponse_RecordImmutability() {
+        var comment = new PrReviewService.InlineComment("src/Foo.java", 10, "Issue here");
+        var response = new PrReviewService.PrReviewResponse("## Summary", List.of(comment));
+
+        assertEquals(1, response.comments().size());
+        assertEquals("src/Foo.java", response.comments().get(0).path());
+    }
+
+    @Test
+    void testPrReviewResponse_NullCommentsList() {
+        var response = new PrReviewService.PrReviewResponse("## Summary", null);
+
+        assertTrue(response.comments().isEmpty());
+    }
+
+    @Test
+    void testPrReviewResponse_ConvenienceConstructor() {
+        var response = new PrReviewService.PrReviewResponse("## Summary only");
+
+        assertEquals("## Summary only", response.summaryMarkdown());
+        assertTrue(response.comments().isEmpty());
     }
 }
