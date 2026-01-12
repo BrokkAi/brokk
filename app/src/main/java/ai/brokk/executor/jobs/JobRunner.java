@@ -51,16 +51,17 @@ public final class JobRunner {
     private volatile @Nullable String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
-    private enum Mode {
+    enum Mode {
         ARCHITECT,
         CODE,
         ASK,
         SEARCH,
         REVIEW,
-        LUTZ
+        LUTZ,
+        PR_REVIEW
     }
 
-    private static Mode parseMode(JobSpec spec) {
+    static Mode parseMode(JobSpec spec) {
         try {
             var tags = spec.tags();
             var raw = tags.getOrDefault("mode", "").trim();
@@ -190,6 +191,7 @@ public final class JobRunner {
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
                             case REVIEW -> service.nameOf(Objects.requireNonNull(reviewPlannerModel));
+                            case PR_REVIEW -> "(default, ignored for PR_REVIEW)";
                         };
                 String codeModelNameForLog =
                         switch (mode) {
@@ -198,11 +200,12 @@ public final class JobRunner {
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
                             case REVIEW -> "(default, ignored for REVIEW)";
+                            case PR_REVIEW -> "(default, ignored for PR_REVIEW)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ -> !hasCodeModelOverride;
-                            case ASK, SEARCH, REVIEW -> true;
+                            case ASK, SEARCH, REVIEW, PR_REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
@@ -561,6 +564,8 @@ public final class JobRunner {
                                             scope.append(result);
                                         }
                                     }
+                                    case PR_REVIEW -> throw new UnsupportedOperationException(
+                                            "PR_REVIEW mode is not yet implemented");
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                                 }
 
