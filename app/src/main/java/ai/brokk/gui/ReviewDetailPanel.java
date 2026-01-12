@@ -33,7 +33,6 @@ import javax.swing.Box;
 import javax.swing.JMenuItem;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
-import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
 import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
@@ -52,7 +51,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
     private final Runnable onNext;
 
     private final MarkdownOutputPanel markdownPanel;
-    private final JScrollPane scrollPane;
 
     private final JPanel excerptsPanel;
     private final JPanel buttonPanel;
@@ -83,10 +81,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         markdownPanel = new MarkdownOutputPanel();
         markdownPanel.updateTheme(MainProject.getTheme());
 
-        scrollPane = new JScrollPane(markdownPanel);
-        scrollPane.setBorder(null);
-        scrollPane.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
-
         excerptsPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 5));
         excerptsPanel.setOpaque(false);
         excerptsPanel.setBorder(new EmptyBorder(10, 10, 0, 10));
@@ -100,7 +94,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         var contentCard = new JPanel(new BorderLayout());
         contentCard.setOpaque(true);
         contentCard.add(excerptsPanel, BorderLayout.NORTH);
-        contentCard.add(scrollPane, BorderLayout.CENTER);
+        contentCard.add(markdownPanel, BorderLayout.CENTER);
         contentCard.add(buttonPanel, BorderLayout.SOUTH);
 
         add(placeholderArea, CARD_PLACEHOLDER);
@@ -200,9 +194,6 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         }
 
         flushContent();
-
-        // Scroll to top when showing new item
-        SwingUtilities.invokeLater(() -> scrollPane.getVerticalScrollBar().setValue(0));
 
         revalidate();
         repaint();
@@ -360,6 +351,11 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             return new Dimension(pref.width, (int) (split.getHeight() * 0.4));
         }
         return pref;
+    }
+
+    @Override
+    public Dimension getMinimumSize() {
+        return new Dimension(0, 0);
     }
 
     @Override

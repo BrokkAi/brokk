@@ -104,8 +104,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private boolean hasGeneratedReview = false;
 
-    private final JScrollPane detailScrollPane;
-
     private final JSplitPane rightVerticalSplitPane;
 
     private final JSplitPane mainSplitPane;
@@ -156,10 +154,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
         this.leftSplitPane.setResizeWeight(0.5);
 
-        this.detailScrollPane = new JScrollPane(codeReviewPanel.getDetailPanel());
-        this.detailScrollPane.setBorder(null);
-
-        this.rightVerticalSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, detailScrollPane, diffContainer);
+        this.rightVerticalSplitPane =
+                new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getDetailPanel(), diffContainer);
         this.rightVerticalSplitPane.setResizeWeight(0.5);
 
         this.mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplitPane);
@@ -860,7 +856,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 leftSplitPane.setDividerLocation(0.5);
             }
 
-            detailScrollPane.setVisible(visible);
+            codeReviewPanel.getDetailPanel().setVisible(visible);
 
             rightVerticalSplitPane.setDividerSize(visible ? defaultSplitPaneDividerSize() : 0);
             if (!visible) {
