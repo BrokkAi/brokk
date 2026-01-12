@@ -29,7 +29,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -543,7 +542,8 @@ public final class JobRunner {
                                                     cm, diff, "Diff to Review", "text/x-diff", Set.of());
                                             context = context.addFragments(diffFragment);
 
-                                            // 2. Pre-scan to load relevant context (LutzAgent.scanContext() uses ContextAgent internally)
+                                            // 2. Pre-scan to load relevant context (LutzAgent.scanContext() uses
+                                            // ContextAgent internally)
                                             var scanModel = Objects.requireNonNull(
                                                     reviewScanModel, "scan model unavailable for REVIEW jobs");
                                             var searchAgent = new LutzAgent(
