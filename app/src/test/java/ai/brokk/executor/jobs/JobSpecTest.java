@@ -71,35 +71,14 @@ class JobSpecTest {
     @Test
     void testGetPrNumber_ReturnsNullForInvalidNumber() {
         var spec = JobSpec.of(
-                "task",
-                true,
-                true,
-                "model",
-                null,
-                null,
-                false,
-                Map.of("pr_number", "not-a-number"),
-                null,
-                null
-        );
+                "task", true, true, "model", null, null, false, Map.of("pr_number", "not-a-number"), null, null);
 
         assertNull(spec.getPrNumber());
     }
 
     @Test
     void testGetPrNumber_ReturnsNullForEmptyString() {
-        var spec = JobSpec.of(
-                "task",
-                true,
-                true,
-                "model",
-                null,
-                null,
-                false,
-                Map.of("pr_number", ""),
-                null,
-                null
-        );
+        var spec = JobSpec.of("task", true, true, "model", null, null, false, Map.of("pr_number", ""), null, null);
 
         assertNull(spec.getPrNumber());
     }

@@ -9,16 +9,7 @@ class JobRunnerTest {
     @Test
     void testParseModeRecognizesPrReview() {
         var spec = JobSpec.of(
-                "test task",
-                false,
-                false,
-                "test-model",
-                null,
-                null,
-                false,
-                Map.of("mode", "pr_review"),
-                null,
-                null);
+                "test task", false, false, "test-model", null, null, false, Map.of("mode", "pr_review"), null, null);
 
         var mode = JobRunner.parseMode(spec);
         assertEquals(JobRunner.Mode.PR_REVIEW, mode);
@@ -35,16 +26,7 @@ class JobRunnerTest {
     @Test
     void testParseModeCaseInsensitive() {
         var spec = JobSpec.of(
-                "test task",
-                false,
-                false,
-                "test-model",
-                null,
-                null,
-                false,
-                Map.of("mode", "PR_REVIEW"),
-                null,
-                null);
+                "test task", false, false, "test-model", null, null, false, Map.of("mode", "PR_REVIEW"), null, null);
 
         var mode = JobRunner.parseMode(spec);
         assertEquals(JobRunner.Mode.PR_REVIEW, mode);

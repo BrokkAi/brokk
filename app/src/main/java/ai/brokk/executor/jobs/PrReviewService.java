@@ -57,12 +57,11 @@ public final class PrReviewService {
         String currentBranch = repo.getCurrentBranch();
         String mergeBase = repo.getMergeBase(baseBranch, currentBranch);
         if (mergeBase == null) {
-            throw new IllegalStateException(
-                    "No merge-base found between base branch '"
-                            + baseBranch
-                            + "' and current branch '"
-                            + currentBranch
-                            + "'");
+            throw new IllegalStateException("No merge-base found between base branch '"
+                    + baseBranch
+                    + "' and current branch '"
+                    + currentBranch
+                    + "'");
         }
         return repo.getDiff(mergeBase, currentBranch);
     }
@@ -93,8 +92,7 @@ public final class PrReviewService {
      * @throws IOException if the GitHub API call fails (other than HTTP 422)
      */
     @Blocking
-    public static void postLineComment(
-            GHPullRequest pr, String path, int line, String body, String commitId)
+    public static void postLineComment(GHPullRequest pr, String path, int line, String body, String commitId)
             throws IOException {
         try {
             pr.createReviewComment()
@@ -110,12 +108,9 @@ public final class PrReviewService {
                         "Failed to post inline comment on {}:{} (HTTP 422), falling back to regular comment",
                         path,
                         line);
-                String fallbackBody =
-                        String.format(
-                                "**Comment on `%s` line %d:**\n\n%s", path, line, body);
+                String fallbackBody = String.format("**Comment on `%s` line %d:**\n\n%s", path, line, body);
                 pr.comment(fallbackBody);
-                logger.info(
-                        "Posted fallback comment for {}:{} in PR #{}", path, line, pr.getNumber());
+                logger.info("Posted fallback comment for {}:{} in PR #{}", path, line, pr.getNumber());
             } else {
                 throw e;
             }
@@ -132,8 +127,7 @@ public final class PrReviewService {
      * @throws IOException if the GitHub API call fails
      */
     @Blocking
-    public static boolean hasExistingLineComment(GHPullRequest pr, String path, int line)
-            throws IOException {
+    public static boolean hasExistingLineComment(GHPullRequest pr, String path, int line) throws IOException {
         for (GHPullRequestReviewComment comment : pr.listReviewComments()) {
             if (path.equals(comment.getPath()) && line == comment.getLine()) {
                 return true;

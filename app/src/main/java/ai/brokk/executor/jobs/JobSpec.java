@@ -52,11 +52,9 @@ public record JobSpec(
                         "github_token", githubToken,
                         "repo_owner", owner,
                         "repo_name", repo,
-                        "pr_number", String.valueOf(prNumber)
-                ),
+                        "pr_number", String.valueOf(prNumber)),
                 null,
-                null
-        );
+                null);
     }
 
     /**
@@ -71,7 +69,8 @@ public record JobSpec(
             @Nullable String codeModel,
             boolean preScan,
             Map<String, String> tags) {
-        return new JobSpec(taskInput, autoCommit, autoCompress, plannerModel, scanModel, codeModel, preScan, tags, null, null);
+        return new JobSpec(
+                taskInput, autoCommit, autoCompress, plannerModel, scanModel, codeModel, preScan, tags, null, null);
     }
 
     /**
@@ -88,7 +87,17 @@ public record JobSpec(
             Map<String, String> tags,
             @Nullable String sourceBranch,
             @Nullable String targetBranch) {
-        return new JobSpec(taskInput, autoCommit, autoCompress, plannerModel, scanModel, codeModel, preScan, tags, sourceBranch, targetBranch);
+        return new JobSpec(
+                taskInput,
+                autoCommit,
+                autoCompress,
+                plannerModel,
+                scanModel,
+                codeModel,
+                preScan,
+                tags,
+                sourceBranch,
+                targetBranch);
     }
 
     @JsonIgnore

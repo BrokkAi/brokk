@@ -10,7 +10,6 @@ import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
 import ai.brokk.prompts.SearchPrompts;
@@ -569,7 +568,8 @@ public final class JobRunner {
                                             String headSha = prDetails.headSha();
 
                                             // 4. Compute PR diff
-                                            var gitRepo = (GitRepo) cm.getProject().getRepo();
+                                            var gitRepo =
+                                                    (GitRepo) cm.getProject().getRepo();
                                             String diff = PrReviewService.computePrDiff(gitRepo, baseBranch);
 
                                             // 5. Call reviewDiff() to get LLM review
@@ -579,7 +579,8 @@ public final class JobRunner {
                                             scope.append(reviewResult);
 
                                             // 6. Parse review output
-                                            String reviewText = reviewResult.output().text().join();
+                                            String reviewText =
+                                                    reviewResult.output().text().join();
 
                                             // Extract summary (everything before Comments section or full text if
                                             // no Comments)
@@ -587,7 +588,9 @@ public final class JobRunner {
                                             String commentsSection = "";
                                             int commentsIdx = reviewText.indexOf("Comments");
                                             if (commentsIdx > 0) {
-                                                summary = reviewText.substring(0, commentsIdx).trim();
+                                                summary = reviewText
+                                                        .substring(0, commentsIdx)
+                                                        .trim();
                                                 commentsSection = reviewText.substring(commentsIdx);
                                             } else {
                                                 summary = reviewText;
@@ -600,8 +603,7 @@ public final class JobRunner {
                                             // 8. Parse and post line comments
                                             // Pattern: - file://<path>#L<line> | <description>
                                             Pattern linePattern = Pattern.compile(
-                                                    "^-\\s*file://([^#]+)#L(\\d+)\\s*\\|\\s*(.+)$",
-                                                    Pattern.MULTILINE);
+                                                    "^-\\s*file://([^#]+)#L(\\d+)\\s*\\|\\s*(.+)$", Pattern.MULTILINE);
                                             Matcher matcher = linePattern.matcher(commentsSection);
 
                                             int postedComments = 0;
@@ -609,7 +611,8 @@ public final class JobRunner {
                                             while (matcher.find()) {
                                                 String path = matcher.group(1).trim();
                                                 int line = Integer.parseInt(matcher.group(2));
-                                                String description = matcher.group(3).trim();
+                                                String description =
+                                                        matcher.group(3).trim();
 
                                                 try {
                                                     // Check for existing comment to avoid duplicates
@@ -620,8 +623,7 @@ public final class JobRunner {
                                                         logger.debug("Posted line comment on {}:{}", path, line);
                                                     } else {
                                                         skippedComments++;
-                                                        logger.debug(
-                                                                "Skipped duplicate comment on {}:{}", path, line);
+                                                        logger.debug("Skipped duplicate comment on {}:{}", path, line);
                                                     }
                                                 } catch (Exception e) {
                                                     logger.warn(
@@ -874,7 +876,7 @@ public final class JobRunner {
                 - For context/unchanged lines (" "): use the NEW line number from the annotation
 
                 Your task:
-                Analyze ONLY the diff content above and any direct implications to the surrounding code visible in the diff.
+                Analyze the diff content above and using the context of related methods and code files.
 
                 Return a concise Markdown response with EXACTLY the following sections (use the headings exactly as written):
 
@@ -892,12 +894,9 @@ public final class JobRunner {
                 - file://<path>#L<line> | Another issue.
 
                 Rules:
-                - Only analyze the diff content provided in DIFF_START/DIFF_END.
-                - Do NOT say you cannot see the diff. It is inside the code block.
                 - SKIP any line that has no issue. Do not comment on correct code.
                 - Only output lines that describe actual problems, bugs, security issues, or code smells.
-                - Never write comments like "this is correct", "looks good", "well done", "properly implemented", or any form of approval/praise.
-                - If you cannot identify a concrete problem with a line, do not mention that line at all.
+                - Only write comments that have a criticism of the code with a suggested improvement, avoid all compliments or neutral comments.
                 - Every issue MUST be a single bullet line with EXACTLY this structure:
                   - file://<path>#L<line> | <description>
                 - The file://<path>#L<line> part MUST be plain text:
