@@ -16,7 +16,7 @@ import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.KeyChanges;
-import ai.brokk.util.ReviewParser.ReviewFeedback;
+import ai.brokk.util.ReviewParser.TestFeedback;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
@@ -187,7 +187,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
                 String combinedText = tactical.description() + "\n\n" + tactical.recommendation();
                 addRecommendationButtons(tactical.title(), combinedText, isLast);
             }
-        } else if (item instanceof ReviewFeedback feedback) {
+        } else if (item instanceof TestFeedback feedback) {
             markdownChunks.add("### " + feedback.title());
             markdownChunks.add(feedback.description());
             if (!feedback.recommendation().isBlank()) {

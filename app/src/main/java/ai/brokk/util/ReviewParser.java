@@ -253,7 +253,7 @@ public class ReviewParser {
             List<KeyChanges> keyChanges,
             List<RawDesignFeedback> designNotes,
             List<RawTacticalFeedback> tacticalNotes,
-            List<ReviewFeedback> additionalTests) {
+            List<TestFeedback> additionalTests) {
         public String toJson() {
             return Json.toJson(this);
         }
@@ -269,7 +269,7 @@ public class ReviewParser {
 
     public record TacticalFeedback(String title, String description, CodeExcerpt excerpt, String recommendation) {}
 
-    public record ReviewFeedback(String title, String description, String recommendation) {}
+    public record TestFeedback(String title, String description, String recommendation) {}
 
     public record Section(String type, String title, String content) {}
 
@@ -521,7 +521,7 @@ public class ReviewParser {
         List<KeyChanges> keyChanges = new ArrayList<>();
         List<DesignFeedback> designNotes = new ArrayList<>();
         List<TacticalFeedback> tacticalNotes = new ArrayList<>();
-        List<ReviewFeedback> additionalTests = new ArrayList<>();
+        List<TestFeedback> additionalTests = new ArrayList<>();
 
         String currentTopLevelSection = "";
 
@@ -585,7 +585,7 @@ public class ReviewParser {
                     } else if (currentTopLevelSection.equalsIgnoreCase("Additional Tests")) {
                         logger.debug("Parsing additional test: {}", headingText);
                         additionalTests.add(
-                                new ReviewFeedback(headingText, content.description(), content.recommendation()));
+                                new TestFeedback(headingText, content.description(), content.recommendation()));
                     }
                 }
             } else if (currentTopLevelSection.equalsIgnoreCase("Additional Tests") && node instanceof BulletList bl) {
@@ -597,7 +597,7 @@ public class ReviewParser {
                         itemText = itemText.substring(2).trim();
                     }
                     if (!itemText.isEmpty()) {
-                        additionalTests.add(new ReviewFeedback(itemText, "", ""));
+                        additionalTests.add(new TestFeedback(itemText, "", ""));
                     }
                 }
             } else if (currentTopLevelSection.equalsIgnoreCase("Overview")) {
@@ -720,7 +720,7 @@ public class ReviewParser {
             List<KeyChanges> keyChanges,
             List<DesignFeedback> designNotes,
             List<TacticalFeedback> tacticalNotes,
-            List<ReviewFeedback> additionalTests) {
+            List<TestFeedback> additionalTests) {
 
         public String toJson() {
             return Json.toJson(this);

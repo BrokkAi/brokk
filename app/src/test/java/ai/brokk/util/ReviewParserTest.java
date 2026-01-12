@@ -201,7 +201,7 @@ class ReviewParserTest {
                 List.of(),
                 List.of(rawDesign),
                 List.of(rawTactical),
-                List.of(new ReviewParser.ReviewFeedback("Test more", "", "Run the test")));
+                List.of(new ReviewParser.TestFeedback("Test more", "", "Run the test")));
 
         Path root = Path.of(".").toAbsolutePath().normalize();
         var resolvedExcerpts = Map.of(
