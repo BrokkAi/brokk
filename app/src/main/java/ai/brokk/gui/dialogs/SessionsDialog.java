@@ -1,6 +1,9 @@
 package ai.brokk.gui.dialogs;
 
 import static ai.brokk.SessionManager.SessionInfo;
+import static ai.brokk.gui.ActivityTableRenderers.COL_ACTION;
+import static ai.brokk.gui.ActivityTableRenderers.COL_CONTEXT;
+import static ai.brokk.gui.ActivityTableRenderers.COL_ICON;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
@@ -182,42 +185,21 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
         // Set up custom renderers for activity table columns
         activityTable
                 .getColumnModel()
-                .getColumn(ActivityTableRenderers.COL_ICON)
+                .getColumn(COL_ICON)
                 .setCellRenderer(new ActivityTableRenderers.IndentedIconRenderer());
         activityTable
                 .getColumnModel()
-                .getColumn(ActivityTableRenderers.COL_ACTION)
+                .getColumn(COL_ACTION)
                 .setCellRenderer(new HistoryCellRenderer(this, contextManager, chrome));
 
         // Adjust activity table column widths
-        activityTable
-                .getColumnModel()
-                .getColumn(ActivityTableRenderers.COL_ICON)
-                .setPreferredWidth(44);
-        activityTable
-                .getColumnModel()
-                .getColumn(ActivityTableRenderers.COL_ICON)
-                .setMinWidth(44);
-        activityTable
-                .getColumnModel()
-                .getColumn(ActivityTableRenderers.COL_ICON)
-                .setMaxWidth(44);
-        activityTable
-                .getColumnModel()
-                .getColumn(ActivityTableRenderers.COL_ACTION)
-                .setPreferredWidth(250);
-        activityTable
-                .getColumnModel()
-                .getColumn(ActivityTableRenderers.COL_CONTEXT)
-                .setMinWidth(0);
-        activityTable
-                .getColumnModel()
-                .getColumn(ActivityTableRenderers.COL_CONTEXT)
-                .setMaxWidth(0);
-        activityTable
-                .getColumnModel()
-                .getColumn(ActivityTableRenderers.COL_CONTEXT)
-                .setWidth(0);
+        activityTable.getColumnModel().getColumn(COL_ICON).setPreferredWidth(44);
+        activityTable.getColumnModel().getColumn(COL_ICON).setMinWidth(44);
+        activityTable.getColumnModel().getColumn(COL_ICON).setMaxWidth(44);
+        activityTable.getColumnModel().getColumn(COL_ACTION).setPreferredWidth(250);
+        activityTable.getColumnModel().getColumn(COL_CONTEXT).setMinWidth(0);
+        activityTable.getColumnModel().getColumn(COL_CONTEXT).setMaxWidth(0);
+        activityTable.getColumnModel().getColumn(COL_CONTEXT).setWidth(0);
 
         // Add mouse listener for right-click context menu on activity table
         activityTable.addMouseListener(new MouseAdapter() {
@@ -227,7 +209,7 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
                 if (row < 0) return;
 
                 if (SwingUtilities.isLeftMouseButton(e)) {
-                    Object val = activityTableModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
+                    Object val = activityTableModel.getValueAt(row, COL_CONTEXT);
                     if (val instanceof ActivityTableRenderers.GroupRow) {
                         toggleGroupRow(row);
                     }
@@ -361,8 +343,7 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
             if (!e.getValueIsAdjusting()) {
                 int row = activityTable.getSelectedRow();
                 if (row >= 0 && row < activityTable.getRowCount()) {
-                    selectedActivityContext =
-                            (Context) activityTableModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
+                    selectedActivityContext = (Context) activityTableModel.getValueAt(row, COL_CONTEXT);
                     updatePreviewPanels(selectedActivityContext);
                 } else {
                     clearPreviewPanels();
@@ -536,14 +517,13 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
             if (activityTableModel.getRowCount() > 0) {
                 int lastRow = activityTableModel.getRowCount() - 1;
                 activityTable.setRowSelectionInterval(lastRow, lastRow);
-                activityTable.scrollRectToVisible(
-                        activityTable.getCellRect(lastRow, ActivityTableRenderers.COL_ICON, true));
+                activityTable.scrollRectToVisible(activityTable.getCellRect(lastRow, COL_ICON, true));
             }
         });
     }
 
     private void toggleGroupRow(int row) {
-        Object val = activityTableModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
+        Object val = activityTableModel.getValueAt(row, COL_CONTEXT);
         if (!(val instanceof ActivityTableRenderers.GroupRow groupRow)) {
             return;
         }
@@ -591,7 +571,7 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
         // Select the row if not already selected
         activityTable.setRowSelectionInterval(row, row);
 
-        Object value = activityTableModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
+        Object value = activityTableModel.getValueAt(row, COL_CONTEXT);
         if (!(value instanceof Context context)) {
             return;
         }
@@ -857,8 +837,8 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
                 Integer sourceRow = contextIdToRow.get(edge.sourceId());
                 Integer targetRow = contextIdToRow.get(edge.targetId());
                 if (sourceRow != null && targetRow != null) {
-                    var sourceRect = table.getCellRect(sourceRow, ActivityTableRenderers.COL_ICON, true);
-                    var targetRect = table.getCellRect(targetRow, ActivityTableRenderers.COL_ICON, true);
+                    var sourceRect = table.getCellRect(sourceRow, COL_ICON, true);
+                    var targetRect = table.getCellRect(targetRow, COL_ICON, true);
                     int y1 = sourceRect.y + sourceRect.height / 2;
                     int y2 = targetRect.y + targetRect.height / 2;
                     arrows.add(new Arrow(edge, sourceRow, targetRow, Math.abs(y1 - y2)));
@@ -887,8 +867,8 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
         }
 
         private void drawArrow(Graphics2D g2, JComponent c, int sourceRow, int targetRow) {
-            Rectangle sourceRect = table.getCellRect(sourceRow, ActivityTableRenderers.COL_ICON, true);
-            Rectangle targetRect = table.getCellRect(targetRow, ActivityTableRenderers.COL_ICON, true);
+            Rectangle sourceRect = table.getCellRect(sourceRow, COL_ICON, true);
+            Rectangle targetRect = table.getCellRect(targetRow, COL_ICON, true);
 
             // Convert cell rectangles to the JLayer's coordinate system
             Point sourcePoint = SwingUtilities.convertPoint(
@@ -907,9 +887,7 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
                 }
             }
 
-            int iconColWidth = table.getColumnModel()
-                    .getColumn(ActivityTableRenderers.COL_ICON)
-                    .getWidth();
+            int iconColWidth = table.getColumnModel().getColumn(COL_ICON).getWidth();
             int arrowHeadLength = 5;
             int arrowLeadIn = 1; // length of the line segment before the arrowhead
             int arrowRightMargin = -2; // margin from the right edge of the column
@@ -950,7 +928,7 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
 
         int targetRow = -1;
         for (int row = 0; row < activityTableModel.getRowCount(); row++) {
-            Object val = activityTableModel.getValueAt(row, ActivityTableRenderers.COL_CONTEXT);
+            Object val = activityTableModel.getValueAt(row, COL_CONTEXT);
             if (val == ctx) {
                 targetRow = row;
                 break;
@@ -960,7 +938,7 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
             return;
         }
 
-        int actionCol = ActivityTableRenderers.COL_ACTION;
+        int actionCol = COL_ACTION;
         if (actionCol >= activityTable.getColumnCount()) {
             return;
         }
