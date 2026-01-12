@@ -1,6 +1,7 @@
 package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
+import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.Service;
@@ -11,6 +12,7 @@ import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.io.HeadlessHttpConsole;
+import ai.brokk.git.GitRepo;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessage;
@@ -29,6 +31,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -564,8 +568,113 @@ public final class JobRunner {
                                             scope.append(result);
                                         }
                                     }
-                                    case PR_REVIEW -> throw new UnsupportedOperationException(
-                                            "PR_REVIEW mode is not yet implemented");
+                                    case PR_REVIEW -> {
+                                        // 1. Extract and validate PR metadata
+                                        String githubToken = spec.getGithubToken();
+                                        String repoOwner = spec.getRepoOwner();
+                                        String repoName = spec.getRepoName();
+                                        Integer prNumber = spec.getPrNumber();
+
+                                        if (githubToken == null || githubToken.isBlank()) {
+                                            throw new IllegalArgumentException(
+                                                    "PR_REVIEW requires github_token in tags");
+                                        }
+                                        if (repoOwner == null || repoOwner.isBlank()) {
+                                            throw new IllegalArgumentException(
+                                                    "PR_REVIEW requires repo_owner in tags");
+                                        }
+                                        if (repoName == null || repoName.isBlank()) {
+                                            throw new IllegalArgumentException(
+                                                    "PR_REVIEW requires repo_name in tags");
+                                        }
+                                        if (prNumber == null) {
+                                            throw new IllegalArgumentException(
+                                                    "PR_REVIEW requires pr_number in tags");
+                                        }
+
+                                        try (var scope = cm.beginTaskUngrouped("PR Review #" + prNumber)) {
+                                            var context = cm.liveContext();
+
+                                            // 2. Create GitHubAuth and get PR
+                                            var gitHubAuth = new GitHubAuth(repoOwner, repoName, null);
+                                            var ghRepo = gitHubAuth.getGhRepository();
+                                            var pr = ghRepo.getPullRequest(prNumber);
+
+                                            // 3. Fetch PR details (base branch, head SHA)
+                                            var prDetails = PrReviewService.fetchPrDetails(ghRepo, prNumber);
+                                            String baseBranch = prDetails.baseBranch();
+                                            String headSha = prDetails.headSha();
+
+                                            // 4. Compute PR diff
+                                            var gitRepo = (GitRepo) cm.getProject().getRepo();
+                                            String diff = PrReviewService.computePrDiff(gitRepo, baseBranch);
+
+                                            // 5. Call reviewDiff() to get LLM review
+                                            var plannerModel = resolveModelOrThrow(spec.plannerModel());
+                                            TaskResult reviewResult = reviewDiff(context, plannerModel, diff);
+                                            scope.append(reviewResult);
+
+                                            // 6. Parse review output
+                                            String reviewText = reviewResult.output().text().join();
+
+                                            // Extract summary (everything before Comments section or full text if
+                                            // no Comments)
+                                            String summary;
+                                            String commentsSection = "";
+                                            int commentsIdx = reviewText.indexOf("Comments");
+                                            if (commentsIdx > 0) {
+                                                summary = reviewText.substring(0, commentsIdx).trim();
+                                                commentsSection = reviewText.substring(commentsIdx);
+                                            } else {
+                                                summary = reviewText;
+                                            }
+
+                                            // 7. Post summary comment to PR
+                                            PrReviewService.postReviewComment(pr, summary);
+                                            logger.info("Posted PR review summary to PR #{}", prNumber);
+
+                                            // 8. Parse and post line comments
+                                            // Pattern: - file://<path>#L<line> | <description>
+                                            Pattern linePattern = Pattern.compile(
+                                                    "^-\\s*file://([^#]+)#L(\\d+)\\s*\\|\\s*(.+)$",
+                                                    Pattern.MULTILINE);
+                                            Matcher matcher = linePattern.matcher(commentsSection);
+
+                                            int postedComments = 0;
+                                            int skippedComments = 0;
+                                            while (matcher.find()) {
+                                                String path = matcher.group(1).trim();
+                                                int line = Integer.parseInt(matcher.group(2));
+                                                String description = matcher.group(3).trim();
+
+                                                try {
+                                                    // Check for existing comment to avoid duplicates
+                                                    if (!PrReviewService.hasExistingLineComment(pr, path, line)) {
+                                                        PrReviewService.postLineComment(
+                                                                pr, path, line, description, headSha);
+                                                        postedComments++;
+                                                        logger.debug("Posted line comment on {}:{}", path, line);
+                                                    } else {
+                                                        skippedComments++;
+                                                        logger.debug(
+                                                                "Skipped duplicate comment on {}:{}", path, line);
+                                                    }
+                                                } catch (Exception e) {
+                                                    logger.warn(
+                                                            "Failed to post line comment on {}:{}: {}",
+                                                            path,
+                                                            line,
+                                                            e.getMessage());
+                                                }
+                                            }
+
+                                            logger.info(
+                                                    "PR Review complete for PR #{}: posted {} line comments, skipped {} duplicates",
+                                                    prNumber,
+                                                    postedComments,
+                                                    skippedComments);
+                                        }
+                                    }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
                                 }
 
