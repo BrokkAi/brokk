@@ -188,7 +188,7 @@ public final class JobRunner {
                                 var plannerName = spec.plannerModel();
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
-                            case REVIEW -> service.nameOf(Objects.requireNonNull(reviewPlannerModel));
+                            case REVIEW -> service.nameOf(reviewPlannerModel);
                         };
                 String codeModelNameForLog =
                         switch (mode) {
