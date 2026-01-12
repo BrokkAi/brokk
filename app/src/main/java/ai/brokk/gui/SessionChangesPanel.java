@@ -28,6 +28,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -100,6 +101,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton pasteBtn;
 
+    private final MaterialButton copyBtn;
+
     private final CardLayout mainCardLayout;
     private final JPanel cardsPanel;
     private final JLabel emptyLabel;
@@ -149,6 +152,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.prBtn = new MaterialButton("Create PR");
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
         this.pasteBtn = new MaterialButton("Paste Review");
+        this.copyBtn = new MaterialButton("Copy Review");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -190,6 +194,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         buttonPanel.add(prBtn);
         if (Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"))) {
             buttonPanel.add(pasteBtn);
+            buttonPanel.add(copyBtn);
         }
         buttonPanel.add(guidedReviewBtn);
         headerPanel.add(buttonPanel, BorderLayout.EAST);
@@ -238,6 +243,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         pushBtn.addActionListener(e -> performPush());
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
         pasteBtn.addActionListener(e -> handlePasteReview());
+        copyBtn.addActionListener(e -> handleCopyReview());
 
         SwingUtil.applyPrimaryButtonStyle(commitBtn);
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
@@ -1067,6 +1073,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     });
                     return null;
                 });
+    }
+
+    private void handleCopyReview() {
+        var review = codeReviewPanel.getCurrentReview();
+        if (review == null) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review to copy");
+            return;
+        }
+
+        var export = review.toExport();
+        var toolRequest = export.toToolRequest();
+
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+        clipboard.setContents(new StringSelection(toolRequest), null);
+        chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Review copied to clipboard");
     }
 
     private @Nullable String formatStalenessMessage(StalenessInfo staleness) {

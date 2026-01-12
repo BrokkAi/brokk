@@ -27,6 +27,9 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
     @Nullable
     private Context reviewContext = null;
 
+    @Nullable
+    private GuidedReview currentReview = null;
+
     public CodeReviewPanel(Runnable triggerCallback, ContextManager contextManager) {
         setLayout(new BorderLayout());
 
@@ -44,6 +47,10 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
     public @Nullable Context getReviewContext() {
         return reviewContext;
+    }
+
+    public @Nullable GuidedReview getCurrentReview() {
+        return currentReview;
     }
 
     public void selectNext() {
@@ -82,6 +89,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
     public void displayReview(GuidedReview review, Context context) {
         this.reviewContext = context;
+        this.currentReview = review;
         itemExcerpts.clear();
         itemExcerpts.put(review.overview(), List.of());
 
