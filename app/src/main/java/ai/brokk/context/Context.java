@@ -235,7 +235,6 @@ public class Context {
         record WeightedFile(ProjectFile file, double weight) {}
 
         var weightedSeeds = fragments.stream()
-                .filter(ContextFragment::isEligibleForAutoContext)
                 .filter(f -> !f.files().join().isEmpty())
                 .flatMap(fragment -> {
                     double weight = Math.sqrt(1.0 / fragment.files().join().size());
