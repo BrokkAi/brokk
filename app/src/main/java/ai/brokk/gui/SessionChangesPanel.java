@@ -59,9 +59,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private DiffService.CumulativeChanges lastCumulativeChanges = null;
 
-    public record ReviewState(String commitHash, long generatedAtMillis) {}
+    public record ReviewState(@Nullable String commitHash, long generatedAtMillis) {}
 
-    public record StalenessInfo(int commitsBehind, int uncommittedChanges) {}
+    public record StalenessInfo(
+            int commitsBehind, int uncommittedChanges, boolean differentBranch, boolean unknownCommit) {}
 
     @Nullable
     private ReviewState lastReviewState = null;
@@ -102,6 +103,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private boolean guidedReviewBusy = false;
 
+    /** Whether a review (generated, loaded, or pasted) is currently being displayed. */
     private boolean hasGeneratedReview = false;
 
     private final JSplitPane rightVerticalSplitPane;
@@ -412,22 +414,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         updateContent(result, prepared, label, mode);
 
                         if (finalStaleness != null) {
-                            int commits = finalStaleness.commitsBehind();
-                            int uncommitted = finalStaleness.uncommittedChanges();
-
-                            if (commits > 0 || uncommitted > 0) {
-                                StringBuilder sb = new StringBuilder("! Review may be stale: ");
-                                if (commits > 0) {
-                                    sb.append(commits).append(" commit(s)");
-                                }
-                                if (uncommitted > 0) {
-                                    if (commits > 0) sb.append(", ");
-                                    sb.append(uncommitted).append(" uncommitted change(s)");
-                                }
-                                codeReviewPanel.getListPanel().setStalenessNotice(sb.toString());
-                            } else {
-                                codeReviewPanel.getListPanel().setStalenessNotice(null);
-                            }
+                            codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(finalStaleness));
                         }
                     });
                 })
@@ -659,7 +646,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         updateDropdownLabels();
 
-        if (res.filesChanged() == 0 || baselineMode == BaselineMode.NO_BASELINE) {
+        boolean noBaseline = baselineMode == BaselineMode.NO_BASELINE;
+        boolean noChanges = res.filesChanged() == 0;
+
+        // Show MAIN card if we have changes OR if we are currently displaying a review.
+        // If we have no baseline at all, we stay in EMPTY state.
+        if (noBaseline || (noChanges && !hasGeneratedReview)) {
             diffCore.updateFileComparisons(List.of());
             emptyLabel.setText(getEmptyStateMessage());
             mainCardLayout.show(cardsPanel, "EMPTY");
@@ -742,7 +734,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         updateReviewPanelVisibility(hasGeneratedReview);
 
-        this.diffCore.showFile(0);
+        if (!nextComparisons.isEmpty()) {
+            this.diffCore.showFile(0);
+        } else {
+            diffContainer.removeAll();
+            diffContainer.add(new JLabel("No file changes to display", SwingConstants.CENTER), BorderLayout.CENTER);
+        }
         applyTheme(chrome.getTheme());
 
         revalidate();
@@ -827,7 +824,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             return null;
         }
 
-        int commitsBehind = repo.countCommitsSince(state.commitHash());
+        String hash = state.commitHash();
         int uncommittedChanges = 0;
         try {
             uncommittedChanges = repo.getModifiedFiles().size();
@@ -835,7 +832,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             logger.debug("Failed to get modified files for staleness check", e);
         }
 
-        return new StalenessInfo(commitsBehind, uncommittedChanges);
+        if (hash == null) {
+            logger.debug("Review has unknown commit hash; cannot compute staleness");
+            return new StalenessInfo(0, uncommittedChanges, false, true);
+        }
+
+        int commitsBehind = repo.countCommitsSince(hash);
+
+        boolean differentBranch = false;
+        try {
+            differentBranch = !repo.isCommitReachableFrom(hash, "HEAD");
+        } catch (Exception e) {
+            logger.debug("Failed to check commit reachability for staleness check", e);
+        }
+
+        return new StalenessInfo(commitsBehind, uncommittedChanges, differentBranch, false);
     }
 
     private static int defaultSplitPaneDividerSize() {
@@ -978,13 +989,31 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     public void loadExternalReview(String markdown, ai.brokk.context.Context context) {
         var review = ReviewParser.instance.parseMarkdownReview(markdown, java.util.Map.of());
 
+        var gitState = contextManager.getContextHistory().getGitState(context.id());
+        @Nullable String hash = gitState.map(gs -> gs.commitHash()).orElse(null);
+
+        if (hash != null) {
+            logger.debug("Found GitState for context {}: hash={}", context.id(), hash);
+        } else {
+            logger.warn(
+                    "No GitState found for context {}; review staleness cannot be accurately determined", context.id());
+        }
+
         SwingUtilities.invokeLater(() -> {
+            lastReviewState = new ReviewState(hash, System.currentTimeMillis());
             hasGeneratedReview = true;
-            updateReviewPanelVisibility(true);
+            requestUpdate(); // Re-trigger refreshUI to handle card layout and panel visibility
             codeReviewPanel.displayReview(review, context);
-            codeReviewPanel.getListPanel().setStalenessNotice("Loaded from history");
-            revalidate();
-            repaint();
+
+            StalenessInfo staleness = computeStaleness();
+            if (staleness != null) {
+                logger.debug(
+                        "Computed staleness for loaded review: differentBranch={}, commitsBehind={}, uncommitted={}",
+                        staleness.differentBranch(),
+                        staleness.commitsBehind(),
+                        staleness.uncommittedChanges());
+                codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
+            }
         });
     }
 
@@ -1011,15 +1040,41 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             SwingUtilities.invokeLater(() -> {
                 hasGeneratedReview = true;
-                updateReviewPanelVisibility(true);
+                requestUpdate(); // Re-trigger refreshUI to handle card layout and panel visibility
                 codeReviewPanel.displayReview(guidedReview, ai.brokk.context.Context.EMPTY);
                 codeReviewPanel.getListPanel().setStalenessNotice(null);
-                revalidate();
-                repaint();
             });
         } catch (Exception ex) {
             logger.debug("Failed to parse pasted review: {}", ex.getMessage());
         }
+    }
+
+    private @Nullable String formatStalenessMessage(StalenessInfo staleness) {
+        int commits = staleness.commitsBehind();
+        int uncommitted = staleness.uncommittedChanges();
+        boolean differentBranch = staleness.differentBranch();
+        boolean unknownCommit = staleness.unknownCommit();
+
+        if (!unknownCommit && !differentBranch && commits == 0 && uncommitted == 0) {
+            return null;
+        }
+
+        StringBuilder sb = new StringBuilder("! ");
+        if (unknownCommit) {
+            sb.append("Review commit history unavailable; excerpts may not match current code");
+        } else if (differentBranch) {
+            sb.append("Review appears to be from a different branch; excerpts may not match");
+        } else if (commits > 0) {
+            sb.append("Review is ").append(commits).append(" commit(s) behind; excerpts may not match current code");
+        } else {
+            sb.append("Review may be stale");
+        }
+
+        if (uncommitted > 0) {
+            sb.append(" (").append(uncommitted).append(" uncommitted change(s) present)");
+        }
+
+        return sb.toString();
     }
 
     private @Nullable String extractReviewJson(String text) {

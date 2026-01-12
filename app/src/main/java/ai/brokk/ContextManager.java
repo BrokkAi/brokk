@@ -63,6 +63,7 @@ import java.util.stream.IntStream;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
@@ -1593,7 +1594,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             var gitState = new ContextHistory.GitState(commitHash, diff.isEmpty() ? null : diff);
             logger.trace("Current git HEAD is {}", ((GitRepo) repo).shortHash(commitHash));
             contextHistory.addGitState(frozenContext.id(), gitState);
-        } catch (Exception e) {
+        } catch (GitAPIException e) {
             logger.error("Failed to capture git state", e);
         }
     }
