@@ -61,8 +61,7 @@ public final class JobRunner {
         ASK,
         SEARCH,
         REVIEW,
-        LUTZ,
-        PR_REVIEW
+        LUTZ
     }
 
     static Mode parseMode(JobSpec spec) {
@@ -195,7 +194,6 @@ public final class JobRunner {
                                 yield plannerName.isBlank() ? "(unused)" : plannerName.trim();
                             }
                             case REVIEW -> service.nameOf(Objects.requireNonNull(reviewPlannerModel));
-                            case PR_REVIEW -> "(default, ignored for PR_REVIEW)";
                         };
                 String codeModelNameForLog =
                         switch (mode) {
@@ -204,12 +202,11 @@ public final class JobRunner {
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
                             case REVIEW -> "(default, ignored for REVIEW)";
-                            case PR_REVIEW -> "(default, ignored for PR_REVIEW)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
                             case ARCHITECT, LUTZ -> !hasCodeModelOverride;
-                            case ASK, SEARCH, REVIEW, PR_REVIEW -> true;
+                            case ASK, SEARCH, REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
@@ -539,36 +536,6 @@ public final class JobRunner {
                                         }
                                     }
                                     case REVIEW -> {
-                                        // taskInput IS the diff directly
-                                        String diff = spec.taskInput();
-
-                                        try (var scope = cm.beginTaskUngrouped("Diff Review")) {
-                                            // 1. Add diff to context
-                                            var context = cm.liveContext();
-                                            var diffFragment = new ContextFragments.StringFragment(
-                                                    cm, diff, "Diff to Review", "text/x-diff", Set.of());
-                                            context = context.addFragments(diffFragment);
-
-                                            // 2. Pre-scan to load relevant context (LutzAgent.scanContext() uses
-                                            // ContextAgent internally)
-                                            var scanModel = Objects.requireNonNull(
-                                                    reviewScanModel, "scan model unavailable for REVIEW jobs");
-                                            var searchAgent = new LutzAgent(
-                                                    context,
-                                                    "Review this diff",
-                                                    scanModel,
-                                                    SearchPrompts.Objective.ANSWER_ONLY,
-                                                    scope);
-                                            context = searchAgent.scanContext();
-
-                                            // 3. Generate review using planner model
-                                            var plannerModel = Objects.requireNonNull(
-                                                    reviewPlannerModel, "planner model unavailable for REVIEW jobs");
-                                            TaskResult result = reviewDiff(context, plannerModel, diff);
-                                            scope.append(result);
-                                        }
-                                    }
-                                    case PR_REVIEW -> {
                                         // 1. Extract and validate PR metadata
                                         String githubToken = spec.getGithubToken();
                                         String repoOwner = spec.getRepoOwner();
@@ -576,20 +543,16 @@ public final class JobRunner {
                                         Integer prNumber = spec.getPrNumber();
 
                                         if (githubToken == null || githubToken.isBlank()) {
-                                            throw new IllegalArgumentException(
-                                                    "PR_REVIEW requires github_token in tags");
+                                            throw new IllegalArgumentException("REVIEW requires github_token in tags");
                                         }
                                         if (repoOwner == null || repoOwner.isBlank()) {
-                                            throw new IllegalArgumentException(
-                                                    "PR_REVIEW requires repo_owner in tags");
+                                            throw new IllegalArgumentException("REVIEW requires repo_owner in tags");
                                         }
                                         if (repoName == null || repoName.isBlank()) {
-                                            throw new IllegalArgumentException(
-                                                    "PR_REVIEW requires repo_name in tags");
+                                            throw new IllegalArgumentException("REVIEW requires repo_name in tags");
                                         }
                                         if (prNumber == null) {
-                                            throw new IllegalArgumentException(
-                                                    "PR_REVIEW requires pr_number in tags");
+                                            throw new IllegalArgumentException("REVIEW requires pr_number in tags");
                                         }
 
                                         try (var scope = cm.beginTaskUngrouped("PR Review #" + prNumber)) {
@@ -610,7 +573,8 @@ public final class JobRunner {
                                             String diff = PrReviewService.computePrDiff(gitRepo, baseBranch);
 
                                             // 5. Call reviewDiff() to get LLM review
-                                            var plannerModel = resolveModelOrThrow(spec.plannerModel());
+                                            var plannerModel = Objects.requireNonNull(
+                                                    reviewPlannerModel, "planner model unavailable for REVIEW jobs");
                                             TaskResult reviewResult = reviewDiff(context, plannerModel, diff);
                                             scope.append(reviewResult);
 
