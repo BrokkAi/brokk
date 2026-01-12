@@ -4,7 +4,6 @@ import ai.brokk.git.GitRepo;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
-import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,11 +36,11 @@ public final class PrReviewService {
     /** Structured PR review response from LLM. */
     public record PrReviewResponse(String summaryMarkdown, List<InlineComment> comments) {
         public PrReviewResponse {
-            comments = comments == null ? Collections.emptyList() : List.copyOf(comments);
+            comments = List.copyOf(comments);
         }
 
         public PrReviewResponse(String summaryMarkdown) {
-            this(summaryMarkdown, Collections.emptyList());
+            this(summaryMarkdown, List.of());
         }
     }
 
@@ -209,7 +208,7 @@ public final class PrReviewService {
 
         List<InlineComment> comments;
         if (!root.has("comments") || root.get("comments").isNull()) {
-            comments = Collections.emptyList();
+            comments = List.of();
         } else if (!root.get("comments").isArray()) {
             logger.warn("parsePrReviewResponse: 'comments' field is not an array");
             return null;
