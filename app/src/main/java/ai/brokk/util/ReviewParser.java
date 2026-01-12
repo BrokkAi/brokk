@@ -87,20 +87,6 @@ public class ReviewParser {
         NEW
     }
 
-    public String stripExcerpts(String text) {
-        StringBuilder result = new StringBuilder();
-        for (Segment s : parseToSegments(text)) {
-            if (s instanceof TextSegment ts) {
-                result.append(ts.text());
-            } else if (s instanceof ExcerptSegment) {
-                // Replace excerpt with a blank line to preserve paragraph separation
-                result.append("\n");
-            }
-        }
-        // Normalize multiple newlines to double newlines and trim
-        return result.toString().replaceAll("\\n{3,}", "\n\n").trim();
-    }
-
     public List<RawExcerpt> parseExcerpts(String text) {
         return parseToSegments(text).stream()
                 .filter(ExcerptSegment.class::isInstance)

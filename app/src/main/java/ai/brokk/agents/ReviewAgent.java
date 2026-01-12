@@ -231,8 +231,7 @@ public class ReviewAgent {
             logPhaseTime("Total review generation", startTime);
 
             var publishedMessages = List.of(
-                    new UserMessage("Please review this diff"),
-                    new AiMessage(ReviewParser.instance.stripExcerpts(mergedReviewText), mergedReasoning));
+                    new UserMessage("Please review this diff"), new AiMessage(mergedReviewText, mergedReasoning));
 
             var result = new ai.brokk.TaskResult(
                     cm,

@@ -345,62 +345,6 @@ class ReviewParserTest {
     }
 
     @Test
-    void testStripExcerpts() {
-        String input =
-                """
-                Prefix text.
-                ```
-                File.java @10
-                code1
-                ```
-                Middle text.
-                ```
-                Other.java @20
-                code2
-                ```
-                Suffix text.""";
-
-        String result = ReviewParser.instance.stripExcerpts(input);
-        assertEquals("Prefix text.\n\nMiddle text.\n\nSuffix text.", result);
-    }
-
-    @Test
-    void testStripExcerptsNoExcerpts() {
-        String input = "Just plain text with no excerpts.";
-        String result = ReviewParser.instance.stripExcerpts(input);
-        assertEquals("Just plain text with no excerpts.", result);
-    }
-
-    @Test
-    void testStripExcerptsOnlyExcerpts() {
-        String input =
-                """
-                ```
-                File.java @10
-                all code
-                ```""";
-
-        String result = ReviewParser.instance.stripExcerpts(input);
-        assertEquals("", result);
-    }
-
-    @Test
-    void testStripExcerptsMalformedPreserved() {
-        String input =
-                """
-                Valid text.
-                BRK_EXCERPT_1 file.txt @10
-                Not valid because same line.
-                More text.""";
-
-        String result = ReviewParser.instance.stripExcerpts(input);
-        // The malformed excerpt marker remains as text because parseToSegments doesn't recognize it
-        assertTrue(result.contains("BRK_EXCERPT_1"));
-        assertTrue(result.contains("Valid text."));
-        assertTrue(result.contains("More text."));
-    }
-
-    @Test
     void testParseMarkdownReview_WellFormed() {
         String markdown =
                 """
