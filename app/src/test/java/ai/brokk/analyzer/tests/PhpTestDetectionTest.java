@@ -125,4 +125,26 @@ public class PhpTestDetectionTest {
                 analyzer.containsTests(new ProjectFile(project.getRoot(), "MyService.php")),
                 "Should not detect tests when @test docblock is not immediately adjacent to a function");
     }
+
+    @Test
+    void testBoundaryMatches() throws IOException {
+        // This test verifies current analyzer behavior for fuzzy matches.
+        // If the analyzer detects 'Test' in class names or 'test' inside method names, this returns true.
+        String code =
+                """
+            <?php
+            class TestSuffix { 
+                public function testingSetup() { }
+                public function atest() { }
+            }
+            """;
+        IProject project = InlineTestProjectCreator.code(code, "Boundary.php").build();
+        PhpAnalyzer analyzer = new PhpAnalyzer(project);
+        analyzer.update();
+
+        // The Java implementation PhpAnalyzer.containsTestMarkers() currently performs broad matching.
+        assertTrue(
+                analyzer.containsTests(new ProjectFile(project.getRoot(), "Boundary.php")),
+                "Current analyzer behavior detects test markers based on substring matches in names");
+    }
 }
