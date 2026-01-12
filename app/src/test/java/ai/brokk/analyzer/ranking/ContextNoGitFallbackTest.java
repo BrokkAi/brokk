@@ -107,27 +107,8 @@ public class ContextNoGitFallbackTest {
                 }
             };
 
-            IContextManager cm = new IContextManager() {
-                @Override
-                public IAnalyzer getAnalyzer() {
-                    return analyzer;
-                }
-
-                @Override
-                public IAnalyzer getAnalyzerUninterrupted() {
-                    return analyzer;
-                }
-
-                @Override
-                public IProject getProject() {
-                    return project;
-                }
-
-                @Override
-                public IGitRepo getRepo() {
-                    return stubRepo;
-                }
-            };
+            IContextManager cm =
+                    new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, stubRepo);
 
             Context ctx = new Context(cm);
             ContextFragments.ProjectPathFragment seedFragment = new ContextFragments.ProjectPathFragment(a, cm);

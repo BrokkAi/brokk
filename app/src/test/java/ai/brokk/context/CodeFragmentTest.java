@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestAnalyzer;
+import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
 import java.util.List;
@@ -25,7 +26,7 @@ public class CodeFragmentTest {
     @BeforeEach
     void setUp() {
         analyzer = new TestAnalyzer();
-        contextManager = new TestContextManager(tempDir, null, analyzer);
+        contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
     }
 
     @Test
