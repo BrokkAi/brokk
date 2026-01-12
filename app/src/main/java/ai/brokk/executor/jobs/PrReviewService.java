@@ -168,7 +168,7 @@ public final class PrReviewService {
      * @param rawText the raw LLM output string
      * @return parsed PrReviewResponse, or null if parsing fails
      */
-    public static @Nullable PrReviewResponse parsePrReviewResponse(String rawText) {
+    public static @Nullable PrReviewResponse parsePrReviewResponse(@Nullable String rawText) {
         if (rawText == null || rawText.isBlank()) {
             logger.warn("parsePrReviewResponse: empty or null input");
             return null;
