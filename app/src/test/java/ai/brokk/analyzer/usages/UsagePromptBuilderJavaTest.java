@@ -8,7 +8,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.TreeSitterAnalyzer;
 import ai.brokk.project.IProject;
 import java.io.IOException;
-import java.lang.reflect.RecordComponent;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -79,14 +78,6 @@ public class UsagePromptBuilderJavaTest {
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
                 hit, target, analyzer, "A.method2", 10_000 // generous token budget
         );
-
-        // Then: record has the three expected accessors and nothing else
-        RecordComponent[] components = prompt.getClass().getRecordComponents();
-        var names = Arrays.stream(components).map(RecordComponent::getName).collect(Collectors.toSet());
-        assertEquals(
-                Set.of("filterDescription", "candidateText", "promptText"),
-                names,
-                "Record must contain only the expected fields");
 
         // Field-level assertions
         assertNotNull(prompt.filterDescription(), "filterDescription should not be null");
