@@ -8,6 +8,7 @@ export type BrokkEvent =
       streaming: boolean;
       msgType: 'USER' | 'AI' | 'SYSTEM';
       reasoning: boolean;
+      terminal: boolean;
       epoch: number;
     }
   | {

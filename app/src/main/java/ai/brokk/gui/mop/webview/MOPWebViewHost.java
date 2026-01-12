@@ -65,7 +65,13 @@ public final class MOPWebViewHost extends JPanel {
 
     // Represents commands to be sent to the bridge; buffered until bridge is ready
     private sealed interface HostCommand {
-        record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning)
+        record Append(
+                String text,
+                boolean isNew,
+                ChatMessageType msgType,
+                boolean streaming,
+                boolean reasoning,
+                boolean terminal)
                 implements HostCommand {}
 
         record SetTheme(String themeName, boolean isDevMode, boolean wrapMode, double zoom) implements HostCommand {}
@@ -272,10 +278,15 @@ public final class MOPWebViewHost extends JPanel {
     }
 
     public void append(
-            String text, boolean isNewMessage, ChatMessageType msgType, boolean streaming, boolean reasoning) {
+            String text,
+            boolean isNewMessage,
+            ChatMessageType msgType,
+            boolean streaming,
+            boolean reasoning,
+            boolean terminal) {
         sendOrQueue(
-                new HostCommand.Append(text, isNewMessage, msgType, streaming, reasoning),
-                bridge -> bridge.append(text, isNewMessage, msgType, streaming, reasoning));
+                new HostCommand.Append(text, isNewMessage, msgType, streaming, reasoning, terminal),
+                bridge -> bridge.append(text, isNewMessage, msgType, streaming, reasoning, terminal));
     }
 
     /**
@@ -562,7 +573,7 @@ public final class MOPWebViewHost extends JPanel {
             pendingCommands.forEach(command -> {
                 switch (command) {
                     case HostCommand.Append a ->
-                        bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning());
+                        bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning(), a.terminal());
                     case HostCommand.SetTheme t ->
                         bridge.setTheme(t.themeName(), t.isDevMode(), t.wrapMode(), t.zoom());
                     case HostCommand.SetZoom z -> bridge.setZoom(z.zoom());

@@ -154,12 +154,13 @@ public final class MOPBridge {
         Platform.runLater(() -> engine.executeScript(js));
     }
 
-    public void append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
+    public void append(
+            String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning, boolean terminal) {
         if (text.isEmpty()) {
             return;
         }
 
-        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming, reasoning));
+        eventQueue.add(new BrokkEvent.Chunk(text, isNew, msgType, -1, streaming, reasoning, terminal));
         scheduleSend();
     }
 
@@ -287,7 +288,8 @@ public final class MOPBridge {
                         firstChunk = chunk;
                     } else if (chunk.isNew()
                             || chunk.msgType() != firstChunk.msgType()
-                            || chunk.reasoning() != firstChunk.reasoning()) {
+                            || chunk.reasoning() != firstChunk.reasoning()
+                            || chunk.terminal() != firstChunk.terminal()) {
                         // A new bubble is starting, so send the previously buffered one
                         flushCurrentChunk(firstChunk, currentText);
                         firstChunk = chunk;
@@ -319,14 +321,16 @@ public final class MOPBridge {
                     firstChunk.isNew(),
                     firstChunk.msgType(),
                     firstChunk.streaming(),
-                    firstChunk.reasoning());
+                    firstChunk.reasoning(),
+                    firstChunk.terminal());
             currentText.setLength(0);
         }
     }
 
-    private void sendChunk(String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning) {
+    private void sendChunk(
+            String text, boolean isNew, ChatMessageType msgType, boolean streaming, boolean reasoning, boolean terminal) {
         var e = epoch.incrementAndGet();
-        var event = new BrokkEvent.Chunk(text, isNew, msgType, e, streaming, reasoning);
+        var event = new BrokkEvent.Chunk(text, isNew, msgType, e, streaming, reasoning, terminal);
         sendEvent(event);
     }
 

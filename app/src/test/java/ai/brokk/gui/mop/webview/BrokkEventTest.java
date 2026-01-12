@@ -83,4 +83,20 @@ public class BrokkEventTest {
         assertTrue(!json.contains("\"summary\"")); // summary should not be in JSON when null
         assertTrue(json.contains("\"messages\":["));
     }
+
+    @Test
+    public void testChunkSerializationWithTerminal() throws Exception {
+        var event = new BrokkEvent.Chunk("terminal output", true, ChatMessageType.AI, 100, false, false, true);
+
+        String json = MAPPER.writeValueAsString(event);
+
+        assertTrue(json.contains("\"type\":\"chunk\""));
+        assertTrue(json.contains("\"text\":\"terminal output\""));
+        assertTrue(json.contains("\"isNew\":true"));
+        assertTrue(json.contains("\"msgType\":\"AI\""));
+        assertTrue(json.contains("\"epoch\":100"));
+        assertTrue(json.contains("\"streaming\":false"));
+        assertTrue(json.contains("\"reasoning\":false"));
+        assertTrue(json.contains("\"terminal\":true"));
+    }
 }

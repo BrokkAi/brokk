@@ -253,7 +253,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             messages.set(lastIdx, Messages.create(combined, type, reasoning));
         }
 
-        webHost.append(text, effectiveIsNew, type, true, reasoning);
+        webHost.append(text, effectiveIsNew, type, true, reasoning, terminal);
         textChangeListeners.forEach(Runnable::run);
     }
 
@@ -262,7 +262,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         messages.addAll(newMessages);
         for (var message : newMessages) {
             var isReasoning = isReasoningMessage(message);
-            webHost.append(Messages.getText(message), true, message.type(), false, isReasoning);
+            webHost.append(Messages.getText(message), true, message.type(), false, isReasoning, false);
         }
         // All appends are sent, now flush to make sure they are processed.
         webHost.flushAsync();
