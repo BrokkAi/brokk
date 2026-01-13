@@ -10,18 +10,15 @@
     "jdeployPrelaunchVersion": "v0.0.5",
     "jdeploy": {
         "jdk": false,
-        "jdkProvider": "adoptium",
+        "jdkProvider": "jbr",
+        "jbrVariant": "jcef",
         "minLauncherInitialAppVersion": "0.18.0",
         "files": [{
             "dir": "app/build/libs",
             "includes": "jdeploy-prelaunch.jar"
         }],
         "args": [
-            "-Dwatch.service.polling=true",
-            "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
-            "--add-opens=java.desktop/java.awt.peer=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED"
+            "-Dwatch.service.polling=true"
         ],
         "fallbackToUniversal": false,
         "configFileMac": "{{ path(user.home, \"Library\", \"Application Support\", \"Brokk\", \"jdeploy.json\") }}",
