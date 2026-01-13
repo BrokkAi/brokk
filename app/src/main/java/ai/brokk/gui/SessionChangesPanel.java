@@ -1237,11 +1237,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private AbstractContentPanel getCurrentContentPanel() {
-        var panel = diffCore.getCachedPanel(diffCore.getCurrentIndex());
-        if (panel instanceof AbstractContentPanel acp) {
-            return acp;
-        }
-        return null;
+        return diffCore.getCachedPanel(diffCore.getCurrentIndex());
     }
 
     private DiffToolbarCallbacks createToolbarCallbacks() {

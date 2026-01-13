@@ -368,6 +368,7 @@ public class BrokkDiffPanel extends JPanel
         return currentDiffPanel instanceof BufferDiffPanel ? (BufferDiffPanel) currentDiffPanel : null;
     }
 
+    @Override
     public void nextFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
@@ -388,6 +389,7 @@ public class BrokkDiffPanel extends JPanel
         }
     }
 
+    @Override
     public void previousFile() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
@@ -521,6 +523,7 @@ public class BrokkDiffPanel extends JPanel
     /**
      * Check if any loaded diff-panel holds modified documents.
      */
+    @Override
     public boolean hasUnsavedChanges() {
         if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) return true;
         for (int i = 0; i < getFileComparisonCount(); i++) {
@@ -1674,6 +1677,7 @@ public class BrokkDiffPanel extends JPanel
     }
 
     /** Returns true if currently in unified view mode, false for side-by-side. */
+    @Override
     public boolean isUnifiedView() {
         return isUnifiedView;
     }

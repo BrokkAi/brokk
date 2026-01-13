@@ -46,9 +46,6 @@ public class DiffToolbarPanel extends JToolBar {
     private JToggleButton viewModeToggle;
 
     @Nullable
-    private MaterialButton btnTools;
-
-    @Nullable
     private JCheckBoxMenuItem menuShowBlame;
 
     @Nullable
@@ -155,46 +152,49 @@ public class DiffToolbarPanel extends JToolBar {
         }
 
         if (features.contains(ToolbarFeature.VIEW_MODE_TOGGLE)) {
-            viewModeToggle = new JToggleButton();
-            viewModeToggle.setIcon(Icons.VIEW_UNIFIED);
-            viewModeToggle.setSelectedIcon(Icons.VIEW_SIDE_BY_SIDE);
-            viewModeToggle.setText(null);
-            viewModeToggle.setToolTipText("Toggle Unified View");
-            viewModeToggle.setSelected(callbacks.isUnifiedView());
-            viewModeToggle.addActionListener(e -> callbacks.switchViewMode(viewModeToggle.isSelected()));
-            add(viewModeToggle);
+            var toggle = new JToggleButton();
+            toggle.setIcon(Icons.VIEW_UNIFIED);
+            toggle.setSelectedIcon(Icons.VIEW_SIDE_BY_SIDE);
+            toggle.setText(null);
+            toggle.setToolTipText("Toggle Unified View");
+            toggle.setSelected(callbacks.isUnifiedView());
+            toggle.addActionListener(e -> callbacks.switchViewMode(toggle.isSelected()));
+            viewModeToggle = toggle;
+            add(toggle);
             add(Box.createHorizontalStrut(10));
         }
 
         if (features.contains(ToolbarFeature.TOOLS_MENU)) {
-            btnTools = new MaterialButton();
-            btnTools.setIcon(Icons.DIFF_TOOLS);
-            btnTools.setToolTipText("View Options");
-            btnTools.setText(null);
-            btnTools.setBorderPainted(false);
-            btnTools.setContentAreaFilled(false);
-            btnTools.setFocusPainted(false);
+            var tools = new MaterialButton();
+            tools.setIcon(Icons.DIFF_TOOLS);
+            tools.setToolTipText("View Options");
+            tools.setText(null);
+            tools.setBorderPainted(false);
+            tools.setContentAreaFilled(false);
+            tools.setFocusPainted(false);
 
             var toolsMenu = new JPopupMenu();
 
-            menuShowBlame = new JCheckBoxMenuItem("Show Git Blame");
-            menuShowBlame.setSelected(callbacks.isShowingBlame());
-            menuShowBlame.addActionListener(e -> callbacks.setShowBlame(menuShowBlame.isSelected()));
-            toolsMenu.add(menuShowBlame);
+            var blameItem = new JCheckBoxMenuItem("Show Git Blame");
+            blameItem.setSelected(callbacks.isShowingBlame());
+            blameItem.addActionListener(e -> callbacks.setShowBlame(blameItem.isSelected()));
+            toolsMenu.add(blameItem);
+            menuShowBlame = blameItem;
 
-            menuShowAllLines = new JCheckBoxMenuItem("Show All Lines");
-            menuShowAllLines.setSelected(callbacks.isShowingAllLines());
-            menuShowAllLines.addActionListener(e -> callbacks.setShowAllLines(menuShowAllLines.isSelected()));
-            toolsMenu.add(menuShowAllLines);
+            var allLinesItem = new JCheckBoxMenuItem("Show All Lines");
+            allLinesItem.setSelected(callbacks.isShowingAllLines());
+            allLinesItem.addActionListener(e -> callbacks.setShowAllLines(allLinesItem.isSelected()));
+            toolsMenu.add(allLinesItem);
+            menuShowAllLines = allLinesItem;
 
-            menuShowBlankLineDiffs = new JCheckBoxMenuItem("Show Empty Line Diffs");
-            menuShowBlankLineDiffs.setSelected(callbacks.isShowingBlankLineDiffs());
-            menuShowBlankLineDiffs.addActionListener(
-                    e -> callbacks.setShowBlankLineDiffs(menuShowBlankLineDiffs.isSelected()));
-            toolsMenu.add(menuShowBlankLineDiffs);
+            var blankLinesItem = new JCheckBoxMenuItem("Show Empty Line Diffs");
+            blankLinesItem.setSelected(callbacks.isShowingBlankLineDiffs());
+            blankLinesItem.addActionListener(e -> callbacks.setShowBlankLineDiffs(blankLinesItem.isSelected()));
+            toolsMenu.add(blankLinesItem);
+            menuShowBlankLineDiffs = blankLinesItem;
 
-            btnTools.addActionListener(e -> toolsMenu.show(btnTools, 0, btnTools.getHeight()));
-            add(btnTools);
+            tools.addActionListener(e -> toolsMenu.show(tools, 0, tools.getHeight()));
+            add(tools);
         }
 
         // Push remaining items to the right
