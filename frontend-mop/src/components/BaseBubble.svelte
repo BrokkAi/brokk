@@ -2,21 +2,43 @@
     import HastRenderer from './HastRenderer.svelte';
     import { rendererPlugins } from '../lib/renderer-plugins';
 
-    // Generic bubble; only needs .hast for rendering
-    export let bubble: any;
+    let {
+        bubble,
+        hlVar,
+        bgVar,
+        collapsed = false,
+        onMouseDown,
+        preventContextMenu = false,
+    } = $props<{
+        bubble: any;
+        hlVar: string;
+        bgVar: string;
+        collapsed?: boolean;
+        onMouseDown?: ((e: MouseEvent) => void) | undefined;
+        preventContextMenu?: boolean;
+    }>();
 
-    // CSS variable names for highlight and background (e.g., '--message-border-ai')
-    export let hlVar: string;
-    export let bgVar: string;
+    let terminalPre: HTMLPreElement | null = null;
 
-    // When true, hides the message body
-    export let collapsed: boolean = false;
+    function isNearBottom(elem: HTMLElement, thresholdPx: number): boolean {
+        const remaining = elem.scrollHeight - elem.scrollTop - elem.clientHeight;
+        return remaining <= thresholdPx;
+    }
 
-    // Optional handler for symbol-clicks (mousedown). Used by MessageBubble only.
-    export let onMouseDown: ((e: MouseEvent) => void) | undefined;
+    function scrollToBottom(): void {
+        if (!terminalPre) return;
+        terminalPre.scrollTop = terminalPre.scrollHeight;
+    }
 
-    // Whether to prevent the browser context menu on right-click. Used by MessageBubble.
-    export let preventContextMenu: boolean = false;
+    $effect(() => {
+        if (!bubble?.isTerminal) return;
+        if (!bubble?.streaming) return;
+        if (!terminalPre) return;
+
+        if (!isNearBottom(terminalPre, 24)) return;
+
+        queueMicrotask(scrollToBottom);
+    });
 </script>
 
 <div class="message-wrapper">
@@ -27,6 +49,7 @@
     {#if !collapsed}
         <div
             class="message-bubble"
+            class:terminal-bubble={bubble?.isTerminal}
             style="
                 background-color: var({bgVar});
                 border-left: 4px solid var({hlVar});
@@ -35,7 +58,9 @@
             on:mousedown={onMouseDown}
             on:contextmenu={preventContextMenu ? (e) => e.preventDefault() : undefined}
         >
-            {#if bubble?.hast}
+            {#if bubble?.isTerminal}
+                <pre class="terminal-pre" bind:this={terminalPre}>{bubble?.markdown ?? ''}</pre>
+            {:else if bubble?.hast}
                 <HastRenderer tree={bubble.hast} plugins={rendererPlugins} />
             {/if}
         </div>
@@ -64,6 +89,33 @@
     :global(.theme-high-contrast) .message-bubble {
         border: 1px dotted rgba(230, 230, 230, 0.3);
         border-left: 4px solid var(--border-color-hex); /* Preserve the accent border */
+    }
+
+    .terminal-bubble {
+        padding: 0.6em 0.7em;
+    }
+
+    .terminal-pre {
+        margin: 0;
+        padding: 12px 14px;
+        border-radius: 10px;
+
+        background-color: var(--shiki-background, #0b0f14);
+        color: var(--shiki-foreground, #e6edf3);
+
+        font-family: "Fira Code Retina", monospace;
+        font-size: 0.9em;
+        line-height: 1.45;
+
+        white-space: pre;
+        overflow: auto;
+        max-height: var(--terminal-max-height, min(60vh, 520px));
+        scrollbar-width: thin;
+    }
+
+    :global(.theme-high-contrast) .terminal-pre {
+        background-color: #000000;
+        color: #ffffff;
     }
 
     .header {
