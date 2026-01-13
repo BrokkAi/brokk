@@ -6,6 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.SearchAgent;
@@ -825,7 +826,7 @@ public final class JobRunner {
 
                                                     while (!verified && buildAttempts < maxBuildAttempts) {
                                                         buildAttempts++;
-                                                        String buildError = ai.brokk.agents.BuildAgent.runVerification(
+                                                        String buildError = BuildAgent.runVerification(
                                                                 cm, buildDetailsOverride);
                                                         if (buildError.isBlank()) {
                                                             verified = true;
