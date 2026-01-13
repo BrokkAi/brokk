@@ -896,6 +896,11 @@ public final class JobRunner {
                                             // Ensure we roll back to the original branch on failure or cancellation
                                             try {
                                                 if (!gitRepo.getCurrentBranch().equals(originalBranch)) {
+                                                    // Count commits on issue branch before switching away
+                                                    int issueBranchCommits = originalCommitId != null
+                                                            ? gitRepo.countCommitsSince(originalCommitId)
+                                                            : 0;
+
                                                     // Stash any uncommitted changes to ensure checkout of original
                                                     // branch succeeds
                                                     if (!gitRepo.getModifiedFiles()
@@ -914,9 +919,7 @@ public final class JobRunner {
 
                                                     // If the issue branch was never committed to, delete it to avoid
                                                     // orphans
-                                                    boolean noCommitsSince = originalCommitId != null
-                                                            ? gitRepo.countCommitsSince(originalCommitId) == 0
-                                                            : gitRepo.countCommitsSince(originalBranch) == 0;
+                                                    boolean noCommitsSince = issueBranchCommits == 0;
 
                                                     if (gitRepo.isBranchMerged(issueBranchName) || noCommitsSince) {
                                                         try {
