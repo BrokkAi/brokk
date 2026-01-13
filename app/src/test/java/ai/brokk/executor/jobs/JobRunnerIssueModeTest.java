@@ -52,13 +52,7 @@ class JobRunnerIssueModeTest {
     void testIssueModeParseMode() {
         // Verify parseMode correctly identifies ISSUE mode from tags
         JobSpec issueSpec = JobSpec.ofIssue(
-                "gpt-4",
-                null,
-                "fake-token",
-                "owner",
-                "repo",
-                42,
-                Json.toJson(BuildAgent.BuildDetails.EMPTY));
+                "gpt-4", null, "fake-token", "owner", "repo", 42, Json.toJson(BuildAgent.BuildDetails.EMPTY));
 
         // Add mode tag to verify parsing
         JobSpec specWithMode = JobSpec.of(
@@ -116,7 +110,8 @@ class JobRunnerIssueModeTest {
     @Test
     void testParseBuildSettings() {
         // Test parsing of build settings JSON
-        String json = """
+        String json =
+                """
                 {
                     "buildLintCommand": "./gradlew classes",
                     "testAllCommand": "./gradlew test",
@@ -150,14 +145,7 @@ class JobRunnerIssueModeTest {
 
     @Test
     void testJobStoreCreatesIssueJob() throws Exception {
-        JobSpec spec = JobSpec.ofIssue(
-                "gpt-4",
-                null,
-                "token",
-                "owner",
-                "repo",
-                42,
-                "{}");
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "{}");
 
         String idempotencyKey = "issue-job-test";
         var result = store.createOrGetJob(idempotencyKey, spec);

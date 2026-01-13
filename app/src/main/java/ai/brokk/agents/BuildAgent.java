@@ -819,9 +819,8 @@ public class BuildAgent {
         }
 
         final Path projectRoot = cm.getProject().getRoot();
-        String pythonVersion = pythonVersionOverride != null
-                ? pythonVersionOverride
-                : getPythonVersionForProject(projectRoot);
+        String pythonVersion =
+                pythonVersionOverride != null ? pythonVersionOverride : getPythonVersionForProject(projectRoot);
 
         List<String> targetItems;
 

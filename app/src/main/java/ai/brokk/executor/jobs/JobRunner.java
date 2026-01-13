@@ -144,7 +144,9 @@ public final class JobRunner {
 
                 var completed = new AtomicInteger(0);
 
-                var rawCodeModelName = spec.codeModel() != null ? spec.codeModel() : spec.tags().get("code_model");
+                var rawCodeModelName = spec.codeModel() != null
+                        ? spec.codeModel()
+                        : spec.tags().get("code_model");
                 var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();
                 var hasCodeModelOverride = trimmedCodeModelName != null && !trimmedCodeModelName.isEmpty();
 
@@ -785,101 +787,106 @@ public final class JobRunner {
 
                                             // 4. Lutz-style execution: Planning then Task Iteration
                                             try (var scope = cm.beginTaskUngrouped(issueTaskPrompt)) {
-                                            var context = cm.liveContext();
-                                            var searchAgent = new LutzAgent(
-                                                    context,
-                                                    issueTaskPrompt,
-                                                    Objects.requireNonNull(
+                                                var context = cm.liveContext();
+                                                var searchAgent = new LutzAgent(
+                                                        context,
+                                                        issueTaskPrompt,
+                                                        Objects.requireNonNull(
+                                                                architectPlannerModel,
+                                                                "plannerModel required for ISSUE jobs"),
+                                                        SearchPrompts.Objective.TASKS_ONLY,
+                                                        scope);
+                                                var taskListResult = searchAgent.execute();
+                                                scope.append(taskListResult);
+
+                                                var generatedTasks =
+                                                        cm.getTaskList().tasks();
+                                                var incompleteTasks = generatedTasks.stream()
+                                                        .filter(t -> !t.done())
+                                                        .toList();
+
+                                                for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                    if (cancelled.get()) return;
+
+                                                    // Execute task with ArchitectAgent
+                                                    cm.executeTask(
+                                                            generatedTask,
                                                             architectPlannerModel,
-                                                            "plannerModel required for ISSUE jobs"),
-                                                    SearchPrompts.Objective.TASKS_ONLY,
-                                                    scope);
-                                            var taskListResult = searchAgent.execute();
-                                            scope.append(taskListResult);
+                                                            Objects.requireNonNull(architectCodeModel));
 
-                                            var generatedTasks =
-                                                    cm.getTaskList().tasks();
-                                            var incompleteTasks = generatedTasks.stream()
-                                                    .filter(t -> !t.done())
-                                                    .toList();
+                                                    // 4. Verification loop: run build and retry on failure
+                                                    int buildAttempts = 0;
+                                                    int maxBuildAttempts = DEFAULT_MAX_BUILD_ATTEMPTS;
 
-                                            for (TaskList.TaskItem generatedTask : incompleteTasks) {
-                                                if (cancelled.get()) return;
-
-                                                // Execute task with ArchitectAgent
-                                                cm.executeTask(
-                                                        generatedTask,
-                                                        architectPlannerModel,
-                                                        Objects.requireNonNull(architectCodeModel));
-
-                                                // 4. Verification loop: run build and retry on failure
-                                                int buildAttempts = 0;
-                                                int maxBuildAttempts = DEFAULT_MAX_BUILD_ATTEMPTS;
-
-                                                // Allow override from build settings if present
-                                                if (buildDetailsOverride.environmentVariables().containsKey("maxBuildAttempts")) {
-                                                    try {
-                                                        maxBuildAttempts = Integer.parseInt(
-                                                                buildDetailsOverride.environmentVariables().get("maxBuildAttempts"));
-                                                    } catch (Exception e) {
-                                                        logger.debug("Could not parse maxBuildAttempts from environmentVariables", e);
+                                                    // Allow override from build settings if present
+                                                    if (buildDetailsOverride
+                                                            .environmentVariables()
+                                                            .containsKey("maxBuildAttempts")) {
+                                                        try {
+                                                            maxBuildAttempts = Integer.parseInt(buildDetailsOverride
+                                                                    .environmentVariables()
+                                                                    .get("maxBuildAttempts"));
+                                                        } catch (Exception e) {
+                                                            logger.debug(
+                                                                    "Could not parse maxBuildAttempts from environmentVariables",
+                                                                    e);
+                                                        }
                                                     }
-                                                }
 
-                                                boolean verified = false;
+                                                    boolean verified = false;
 
-                                                while (!verified && buildAttempts < maxBuildAttempts) {
-                                                    buildAttempts++;
-                                                    String buildError = ai.brokk.agents.BuildAgent.runVerification(
-                                                            cm, buildDetailsOverride);
-                                                    if (buildError.isBlank()) {
-                                                        verified = true;
-                                                        logger.info(
-                                                                "ISSUE job {} task '{}' verified successfully",
-                                                                jobId,
-                                                                generatedTask.text());
-                                                    } else {
-                                                        logger.warn(
-                                                                "ISSUE job {} task '{}' build failed (attempt {}/{}): {}",
-                                                                jobId,
-                                                                generatedTask.text(),
-                                                                buildAttempts,
-                                                                maxBuildAttempts,
-                                                                buildError);
-
-                                                        if (buildAttempts < maxBuildAttempts) {
-                                                            // Ask architect to fix the build error
-                                                            String fixPrompt =
-                                                                    "The build failed after the last task. Please fix the following error:\n\n"
-                                                                            + buildError;
-                                                            cm.executeTask(
-                                                                    new TaskList.TaskItem("", fixPrompt, false),
-                                                                    architectPlannerModel,
-                                                                    architectCodeModel);
+                                                    while (!verified && buildAttempts < maxBuildAttempts) {
+                                                        buildAttempts++;
+                                                        String buildError = ai.brokk.agents.BuildAgent.runVerification(
+                                                                cm, buildDetailsOverride);
+                                                        if (buildError.isBlank()) {
+                                                            verified = true;
+                                                            logger.info(
+                                                                    "ISSUE job {} task '{}' verified successfully",
+                                                                    jobId,
+                                                                    generatedTask.text());
                                                         } else {
-                                                            throw new IssueExecutionException(
-                                                                    "Failed to pass build verification after "
-                                                                            + maxBuildAttempts + " attempts: "
-                                                                            + buildError);
+                                                            logger.warn(
+                                                                    "ISSUE job {} task '{}' build failed (attempt {}/{}): {}",
+                                                                    jobId,
+                                                                    generatedTask.text(),
+                                                                    buildAttempts,
+                                                                    maxBuildAttempts,
+                                                                    buildError);
+
+                                                            if (buildAttempts < maxBuildAttempts) {
+                                                                // Ask architect to fix the build error
+                                                                String fixPrompt =
+                                                                        "The build failed after the last task. Please fix the following error:\n\n"
+                                                                                + buildError;
+                                                                cm.executeTask(
+                                                                        new TaskList.TaskItem("", fixPrompt, false),
+                                                                        architectPlannerModel,
+                                                                        architectCodeModel);
+                                                            } else {
+                                                                throw new IssueExecutionException(
+                                                                        "Failed to pass build verification after "
+                                                                                + maxBuildAttempts + " attempts: "
+                                                                                + buildError);
+                                                            }
                                                         }
                                                     }
                                                 }
-                                            }
 
-                                            // 5. Commit and Create Pull Request
-                                            var workflow = new GitWorkflow(cm);
-                                            workflow.performAutoCommit(
-                                                    "Resolves #" + issueNumber + ": " + details.title());
+                                                // 5. Commit and Create Pull Request
+                                                var workflow = new GitWorkflow(cm);
+                                                workflow.performAutoCommit(
+                                                        "Resolves #" + issueNumber + ": " + details.title());
 
-                                            String targetBranch = gitHubAuth.getDefaultBranch();
-                                            var suggestion = workflow.suggestPullRequestDetails(
-                                                    issueBranchName, targetBranch, cm.getIo());
+                                                String targetBranch = gitHubAuth.getDefaultBranch();
+                                                var suggestion = workflow.suggestPullRequestDetails(
+                                                        issueBranchName, targetBranch, cm.getIo());
 
-                                            var prUri = workflow.createPullRequest(
-                                                    issueBranchName,
-                                                    targetBranch,
-                                                    suggestion.title(),
-                                                    suggestion.description());
+                                                var prUri = workflow.createPullRequest(
+                                                        issueBranchName,
+                                                        targetBranch,
+                                                        suggestion.title(),
+                                                        suggestion.description());
 
                                                 logger.info("ISSUE job {} created PR: {}", jobId, prUri);
                                                 if (console != null) {
