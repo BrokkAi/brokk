@@ -1205,10 +1205,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     @Nullable
     private AbstractContentPanel getCurrentContentPanel() {
-        for (var panel : diffCore.getCachedPanels()) {
-            if (panel.getComponent().isShowing() && panel instanceof AbstractContentPanel acp) {
-                return acp;
-            }
+        var panel = diffCore.getCachedPanel(diffCore.getCurrentIndex());
+        if (panel instanceof AbstractContentPanel acp) {
+            return acp;
         }
         return null;
     }
@@ -1219,7 +1218,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             public void navigateToNextChange() {
                 var panel = getCurrentContentPanel();
                 if (panel != null) {
-                    panel.doDown();
+                    if (panel.isAtLastLogicalChange() && canNavigateToNextFile()) {
+                        nextFile();
+                    } else {
+                        panel.doDown();
+                        diffToolbar.updateButtonStates();
+                    }
                 }
             }
 
@@ -1227,7 +1231,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             public void navigateToPreviousChange() {
                 var panel = getCurrentContentPanel();
                 if (panel != null) {
-                    panel.doUp();
+                    if (panel.isAtFirstLogicalChange() && canNavigateToPreviousFile()) {
+                        previousFile();
+                        var newPanel = getCurrentContentPanel();
+                        if (newPanel != null) {
+                            newPanel.goToLastLogicalChange();
+                        }
+                    } else {
+                        panel.doUp();
+                        diffToolbar.updateButtonStates();
+                    }
                 }
             }
 
@@ -1236,6 +1249,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 int current = diffCore.getCurrentIndex();
                 if (current < fileComparisons.size() - 1) {
                     diffCore.showFile(current + 1);
+                    SwingUtilities.invokeLater(() -> diffToolbar.updateButtonStates());
                 }
             }
 
@@ -1244,6 +1258,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 int current = diffCore.getCurrentIndex();
                 if (current > 0) {
                     diffCore.showFile(current - 1);
+                    SwingUtilities.invokeLater(() -> diffToolbar.updateButtonStates());
                 }
             }
 
