@@ -788,7 +788,8 @@ public final class JobRunner {
                                                     .formatted(issueNumber, details.title(), details.body());
 
                                             // 4. Lutz-style execution: Planning then Task Iteration
-                                            try (var scope = cm.beginTaskUngrouped(issueTaskPrompt)) {
+                                            String taskDescription = "Issue #" + issueNumber + ": " + details.title();
+                                            try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
                                                 var context = cm.liveContext();
                                                 var searchAgent = new LutzAgent(
                                                         context,
@@ -826,8 +827,8 @@ public final class JobRunner {
 
                                                     while (!verified && buildAttempts < maxBuildAttempts) {
                                                         buildAttempts++;
-                                                        String buildError = BuildAgent.runVerification(
-                                                                cm, buildDetailsOverride);
+                                                        String buildError =
+                                                                BuildAgent.runVerification(cm, buildDetailsOverride);
                                                         if (buildError.isBlank()) {
                                                             verified = true;
                                                             logger.info(
