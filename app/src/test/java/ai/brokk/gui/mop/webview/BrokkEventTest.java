@@ -92,11 +92,10 @@ public class BrokkEventTest {
     public void testChunkSerializationWithTerminal() throws Exception {
         var event = new BrokkEvent.Chunk(
                 "terminal output",
-                true,
                 ChatMessageType.AI,
                 100,
                 false,
-                new BrokkEvent.ChunkFlags(false, true));
+                new BrokkEvent.Chunk.ChunkMeta(true, false, true));
 
         var node = MAPPER.readTree(MAPPER.writeValueAsString(event));
 
@@ -106,9 +105,10 @@ public class BrokkEventTest {
         assertEquals(100, node.get("epoch").asInt());
         assertFalse(node.get("streaming").asBoolean());
 
-        assertFalse(node.has("isNew"));
-        assertFalse(node.has("reasoning"));
-        assertFalse(node.has("terminal"));
+        var topLevelKeys = StreamSupport.stream(
+                        java.util.Spliterators.spliteratorUnknownSize(node.fieldNames(), 0), false)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(Set.of("type", "text", "msgType", "streaming", "epoch", "meta"), topLevelKeys);
 
         assertTrue(node.has("meta"));
         var meta = node.get("meta");
