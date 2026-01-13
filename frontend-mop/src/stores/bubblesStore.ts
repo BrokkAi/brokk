@@ -46,12 +46,14 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 }
 
                 const isStreaming = evt.streaming ?? false;
+                const chunkText = evt.text ?? '';
+                const isTerminalChunk = !!evt.meta.isTerminal;
+
                 // Decide if we append or start a new bubble
                 const needNew = evt.meta.isNewMessage ||
                     list.length === 0 ||
                     evt.msgType !== lastBubble?.type ||
                     evt.meta.isReasoning !== !!lastBubble?.reasoningState;
-
 
                 let bubble: BubbleState;
                 if (needNew) {
@@ -60,10 +62,11 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         seq: nextBubbleSeq,
                         threadId: currentThreadId,
                         type: evt.msgType ?? 'AI',
-                        markdown: evt.text ?? '',
+                        markdown: chunkText,
                         epoch: evt.epoch,
                         streaming: isStreaming,
-                        isTerminal: evt.meta.isTerminal || undefined,
+                        isTerminal: isTerminalChunk || undefined,
+                        hast: undefined,
                         reasoningState: evt.meta.isReasoning ? {
                             startTime: Date.now(),
                             complete: false,
@@ -71,21 +74,30 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         } : undefined,
                     };
                     list = [...list, bubble];
-                    if (isStreaming) {
+
+                    if (isStreaming && !isTerminalChunk) {
                         // clear with flush (boundary for next message)
                         clearState(true);
                     }
                 } else {
                     // Immutable update
                     const last = list.at(-1)!;
+                    const nextIsTerminal = !!(last.isTerminal || isTerminalChunk);
+
                     bubble = {
                         ...last,
-                        markdown: last.markdown + (evt.text ?? ''),
+                        markdown: last.markdown + chunkText,
                         epoch: evt.epoch,
                         streaming: isStreaming,
-                        isTerminal: last.isTerminal || evt.meta.isTerminal || undefined,
+                        isTerminal: nextIsTerminal || undefined,
+                        hast: nextIsTerminal ? undefined : last.hast,
                     };
                     list = [...list.slice(0, -1), bubble];
+                }
+
+                // Terminal bubbles bypass markdown parsing entirely.
+                if (bubble.isTerminal) {
+                    return list;
                 }
 
                 // Register a handler for this bubble's parse results (only once per seq)
@@ -100,8 +112,9 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         });
                     });
                 }
+
                 if (isStreaming) {
-                    pushChunk(evt.text ?? '', bubble.seq);
+                    pushChunk(chunkText, bubble.seq);
                 } else {
                     // first fast pass (to show fast results), then deferred full pass
                     parse(bubble.markdown, bubble.seq, true, true);
