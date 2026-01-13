@@ -16,7 +16,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
-import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cef.CefApp;
@@ -29,9 +28,8 @@ import org.cef.handler.CefLoadHandlerAdapter;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * JCEF-based WebView host using jcefmaven.
- * Uses jcefmaven library which automatically downloads and manages JCEF binaries.
- *
+ * JCEF-based WebView host using JBR's bundled JCEF.
+ * Requires JetBrains Runtime (JBR) with JCEF variant - no external downloads needed.
  */
 public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
     private static final Logger logger = LogManager.getLogger(JCEFWebViewHost.class);
@@ -170,7 +168,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             setInitialTheme(themeName, isDevMode, MainProject.getCodeBlockWrapMode());
 
         } catch (Exception e) {
-            logger.error("Failed to initialize JCEF via jcefmaven", e);
+            logger.error("Failed to initialize JCEF via JBR", e);
             System.err.println("*** JCEF initialization failed: " + e.getMessage() + " ***");
             e.printStackTrace(System.err);
             throw wrapWithDependencyHint(e);
@@ -303,26 +301,18 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 return existing;
             }
 
-            System.out.println("*** JCEF: Initializing CEF with jcefmaven ***");
-            logger.info("Initializing JCEF with jcefmaven");
-
-            var builder = JCefSetup.builder();
-            builder.setProgressHandler(new me.friwi.jcefmaven.impl.progress.ConsoleProgressHandler());
-            var settings = builder.getCefSettings();
-            settings.windowless_rendering_enabled = false;
-            settings.background_color = settings.new ColorType(0xFF, 37, 37, 37);
-
-            builder.setAppHandler(new MavenCefAppHandlerAdapter() {
-                @Override
-                public void stateHasChanged(CefApp.CefAppState state) {
-                    logger.info("CefApp state changed: {}", state);
-                    System.out.println("*** JCEF: State changed to " + state + " ***");
-                }
-            });
+            System.out.println("*** JCEF: Initializing CEF with JBR bundled JCEF ***");
+            logger.info("Initializing JCEF with JBR bundled JCEF");
 
             CefApp app;
             try {
-                app = builder.build();
+                app = JCefSetup.createCefApp(new org.cef.handler.CefAppHandlerAdapter(null) {
+                    @Override
+                    public void stateHasChanged(CefApp.CefAppState state) {
+                        logger.info("CefApp state changed: {}", state);
+                        System.out.println("*** JCEF: State changed to " + state + " ***");
+                    }
+                });
             } catch (Exception e) {
                 throw wrapWithDependencyHint(e);
             }

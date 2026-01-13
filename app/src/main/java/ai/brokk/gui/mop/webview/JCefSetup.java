@@ -4,47 +4,116 @@ import ai.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import me.friwi.jcefmaven.CefAppBuilder;
+import java.util.ArrayList;
+import java.util.List;
+import org.cef.CefApp;
+import org.cef.CefSettings;
+import org.cef.handler.CefAppHandlerAdapter;
 
+/**
+ * Setup helper for JBR's bundled JCEF (JetBrains Runtime with JCEF).
+ * Unlike jcefmaven, JBR already includes JCEF - no download needed.
+ */
 public class JCefSetup {
-    /**
-     * Returns a CefAppBuilder for jcefmaven-based initialization.
-     * Note: When running under JBR with JCEF, consider using buildNative() instead.
-     */
-    public static CefAppBuilder builder() {
-        Path jcefDir = getJcefDir();
-        var builder = new CefAppBuilder();
-        builder.setInstallDir(jcefDir.toFile());
-        return builder;
-    }
 
-    private static Path getJcefDir() {
-        var appDir = System.getProperty("app.dir");
-        if (appDir == null) {
-            // Dev mode
-            return Paths.get("./jcef-bundle");
+    /**
+     * Creates and returns a configured CefApp using JBR's bundled JCEF.
+     * This should only be called once; subsequent calls should use the cached instance.
+     *
+     * @param stateHandler optional handler for CefApp state changes (can be null)
+     * @return the initialized CefApp instance
+     */
+    @SuppressWarnings("removal") // getInstance methods are deprecated but still functional
+    public static CefApp createCefApp(@org.jetbrains.annotations.Nullable CefAppHandlerAdapter stateHandler) {
+        CefSettings settings = new CefSettings();
+        settings.windowless_rendering_enabled = false;
+        // Dark background to reduce flash while loading
+        settings.background_color = settings.new ColorType(0xFF, 37, 37, 37);
+
+        // Build command-line arguments for CEF
+        List<String> args = new ArrayList<>();
+
+        // Configure resource paths for JBR's bundled Chromium
+        configureResourcePaths(settings, args);
+
+        if (stateHandler != null) {
+            CefApp.addAppHandler(stateHandler);
         }
 
-        // Packaged with Conveyor
-        var appDirPath = Paths.get(appDir);
+        // Use the overload that accepts command-line args
+        String[] argsArray = args.toArray(new String[0]);
+        if (argsArray.length > 0) {
+            System.out.println("*** JCEF: Passing args to CEF: " + String.join(" ", argsArray) + " ***");
+        }
+
+        return CefApp.getInstance(argsArray, settings);
+    }
+
+    /**
+     * Creates a CefApp with default settings and no state handler.
+     *
+     * @return the initialized CefApp instance
+     */
+    public static CefApp createCefApp() {
+        return createCefApp(null);
+    }
+
+    /**
+     * Configures the resource and locale paths for JCEF based on the JBR installation.
+     */
+    private static void configureResourcePaths(CefSettings settings, List<String> args) {
+        String javaHome = System.getProperty("java.home");
+        if (javaHome == null) {
+            return;
+        }
+
+        Path javaHomePath = Paths.get(javaHome);
+
         if (Environment.isMacOs()) {
-            var jcefDir = appDirPath.resolve("../Frameworks").normalize();
-            if (!Files.exists(jcefDir.resolve("jcef Helper.app"))) {
-                throw new IllegalStateException("jcef Helper.app not found");
+            // On macOS, JBR structure is:
+            // jbrsdk_jcef-X.X.X/Contents/Home (java.home)
+            // jbrsdk_jcef-X.X.X/Contents/Frameworks/Chromium Embedded Framework.framework
+            Path frameworkPath = javaHomePath
+                    .resolve("../Frameworks/Chromium Embedded Framework.framework")
+                    .normalize();
+            Path frameworkResources = frameworkPath.resolve("Resources");
+
+            if (Files.exists(frameworkResources)) {
+                settings.resources_dir_path = frameworkResources.toString();
+                settings.locales_dir_path = frameworkResources.resolve("locales").toString();
+
+                // Also set browser subprocess path for the helper apps
+                Path helperApp = javaHomePath
+                        .resolve("../Frameworks/jcef Helper.app/Contents/MacOS/jcef Helper")
+                        .normalize();
+                if (Files.exists(helperApp)) {
+                    settings.browser_subprocess_path = helperApp.toString();
+                    System.out.println("*** JCEF: Using helper at " + helperApp + " ***");
+                }
+
+                // Pass framework path as command-line arg for CEF's native code
+                args.add("--framework-dir-path=" + frameworkPath);
+                args.add("--main-bundle-path=" + javaHomePath.resolve("..").normalize());
+                args.add("--resources-dir-path=" + frameworkResources);
+
+                System.out.println("*** JCEF: Using resources from " + frameworkResources + " ***");
             }
-            return jcefDir;
+        } else if (Environment.isLinux()) {
+            // On Linux, resources are typically in lib/
+            Path libPath = javaHomePath.resolve("lib");
+            if (Files.exists(libPath.resolve("icudtl.dat"))) {
+                settings.resources_dir_path = libPath.toString();
+                settings.locales_dir_path = libPath.resolve("locales").toString();
+                System.out.println("*** JCEF: Using resources from " + libPath + " ***");
+            }
         } else if (Environment.isWindows()) {
-            var jcefDir = appDirPath.resolve("jcef");
-            if (!Files.exists(jcefDir.resolve("jcef.dll"))) {
-                throw new IllegalStateException("jcef.dll not found");
+            // On Windows, resources are typically in bin/
+            Path binPath = javaHomePath.resolve("bin");
+            if (Files.exists(binPath.resolve("icudtl.dat"))) {
+                settings.resources_dir_path = binPath.toString();
+                settings.locales_dir_path = binPath.resolve("locales").toString();
+                System.out.println("*** JCEF: Using resources from " + binPath + " ***");
             }
-            return jcefDir;
-        } else {
-            var jcefDir = appDirPath.resolve("jcef");
-            if (!Files.exists(jcefDir.resolve("libjcef.so"))) {
-                throw new IllegalStateException("libjcef.so not found");
-            }
-            return jcefDir;
         }
     }
 }

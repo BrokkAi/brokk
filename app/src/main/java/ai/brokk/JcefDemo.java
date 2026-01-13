@@ -5,33 +5,25 @@ import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import javax.swing.*;
-import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
 import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
+import org.cef.handler.CefAppHandlerAdapter;
 
+/**
+ * Minimal JCEF demo using JBR's bundled JCEF.
+ * Run with: ./gradlew runJcefDemo
+ */
 public class JcefDemo {
 
     public static void main(String[] args) {
-        // Initialize JCEF using jcefmaven pattern
-        var builder = JCefSetup.builder();
-        builder.getCefSettings().windowless_rendering_enabled = false;
-        builder.setAppHandler(new MavenCefAppHandlerAdapter() {
+        System.out.println("*** Building CefApp with JBR bundled JCEF... ***");
+        CefApp cefApp = JCefSetup.createCefApp(new CefAppHandlerAdapter(null) {
             @Override
             public void stateHasChanged(CefApp.CefAppState state) {
                 System.out.println("*** CefApp state: " + state + " ***");
             }
         });
-
-        System.out.println("*** Building CefApp... ***");
-        CefApp cefApp;
-        try {
-            cefApp = builder.build();
-        } catch (Exception e) {
-            System.err.println("*** Failed to build CefApp: " + e.getMessage() + " ***");
-            e.printStackTrace();
-            return;
-        }
         System.out.println("*** CefApp created ***");
 
         CefClient client = cefApp.createClient();
@@ -42,7 +34,7 @@ public class JcefDemo {
         System.out.println("*** Browser created ***");
 
         SwingUtilities.invokeLater(() -> {
-            JFrame frame = new JFrame("JCEF Demo - Fixed");
+            JFrame frame = new JFrame("JCEF Demo - JBR Native");
             frame.setSize(1024, 768);
 
             JPanel wrapper = new JPanel(new BorderLayout());
