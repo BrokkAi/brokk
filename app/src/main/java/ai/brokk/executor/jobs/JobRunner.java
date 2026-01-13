@@ -768,7 +768,6 @@ public final class JobRunner {
                                         // 3. Branch management
                                         var gitRepo = (GitRepo) cm.getProject().getRepo();
                                         String originalBranch = gitRepo.getCurrentBranch();
-                                        String defaultBranch = gitRepo.getDefaultBranch();
 
                                         String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
 
