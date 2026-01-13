@@ -1318,21 +1318,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
 
             @Override
-            public void performUndo() {
-                // Read-only view
-            }
-
-            @Override
-            public void performRedo() {
-                // Read-only view
-            }
-
-            @Override
-            public void saveAll() {
-                // Read-only view
-            }
-
-            @Override
             public void switchViewMode(boolean useUnifiedView) {
                 // Review panel always uses unified view
             }
@@ -1350,16 +1335,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Override
             public void setShowBlankLineDiffs(boolean show) {
                 // Not applicable - review panel uses unified view
-            }
-
-            @Override
-            public void captureCurrentDiff() {
-                // Not supported in view-only mode
-            }
-
-            @Override
-            public void captureAllDiffs() {
-                // Not supported in view-only mode
             }
 
             @Override
@@ -1384,26 +1359,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Override
             public boolean canNavigateToPreviousFile() {
                 return fileComparisons.size() > 1 && diffCore.getCurrentIndex() > 0;
-            }
-
-            @Override
-            public boolean isUndoEnabled() {
-                return false;
-            }
-
-            @Override
-            public boolean isRedoEnabled() {
-                return false;
-            }
-
-            @Override
-            public boolean hasUnsavedChanges() {
-                return false;
-            }
-
-            @Override
-            public int getUnsavedCount() {
-                return 0;
             }
 
             @Override
