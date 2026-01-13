@@ -19,8 +19,8 @@ import org.apache.logging.log4j.Logger;
  */
 public class CodeUnitExtractor {
     private static final Logger logger = LogManager.getLogger(CodeUnitExtractor.class);
-    private static final String DEFAULT_APP_PATH = "app";
-    private static final String DEFAULT_OUTPUT_PATH = "app/test/resources/codeunits.csv";
+    private static final String DEFAULT_APP_PATH = "app/src/main";
+    private static final String DEFAULT_OUTPUT_PATH = "app/src/test/resources/codeunits.csv";
 
     public static void main(String[] args) {
         Path projectRoot = Path.of(args.length > 0 ? args[0] : DEFAULT_APP_PATH).toAbsolutePath().normalize();
