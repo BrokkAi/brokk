@@ -700,10 +700,17 @@ public class BuildAgent {
     /** Determine the best verification command using the provided Context (no reliance on CM.topContext()). */
     @Blocking
     public static @Nullable String determineVerificationCommand(Context ctx) throws InterruptedException {
+        return determineVerificationCommand(ctx, null);
+    }
+
+    /** Determine the best verification command using the provided Context and an optional override. */
+    @Blocking
+    public static @Nullable String determineVerificationCommand(Context ctx, @Nullable BuildDetails override)
+            throws InterruptedException {
         var cm = ctx.getContextManager();
 
         // Retrieve build details from the project associated with the ContextManager
-        BuildDetails details = cm.getProject().awaitBuildDetails();
+        BuildDetails details = override != null ? override : cm.getProject().awaitBuildDetails();
 
         if (details.equals(BuildDetails.EMPTY)) {
             logger.warn("No build details available, cannot determine verification command.");
@@ -758,6 +765,15 @@ public class BuildAgent {
     }
 
     /**
+     * Determine and interpolate the "run some tests" command for the current workspace.
+     */
+    public static String getBuildLintSomeCommand(
+            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
+            throws InterruptedException {
+        return getBuildLintSomeCommand(cm, details, workspaceTestFiles, null);
+    }
+
+    /**
      * Runs determineVerificationCommand on the {@link ContextManager} background pool and
      * delivers the result asynchronously.
      *
@@ -778,7 +794,10 @@ public class BuildAgent {
      *  3) The import root of each file established by walking up until no __init__.py.
      */
     public static String getBuildLintSomeCommand(
-            IContextManager cm, BuildDetails details, Collection<ProjectFile> workspaceTestFiles)
+            IContextManager cm,
+            BuildDetails details,
+            Collection<ProjectFile> workspaceTestFiles,
+            @Nullable String pythonVersionOverride)
             throws InterruptedException {
 
         String testSomeTemplate = System.getenv("BRK_TESTSOME_CMD") != null
@@ -800,7 +819,9 @@ public class BuildAgent {
         }
 
         final Path projectRoot = cm.getProject().getRoot();
-        String pythonVersion = getPythonVersionForProject(projectRoot);
+        String pythonVersion = pythonVersionOverride != null
+                ? pythonVersionOverride
+                : getPythonVersionForProject(projectRoot);
 
         List<String> targetItems;
 
@@ -1039,10 +1060,19 @@ public class BuildAgent {
      */
     @Blocking
     public static String runVerification(IContextManager cm) throws InterruptedException {
+        return runVerification(cm, null);
+    }
+
+    /**
+     * Run the verification build for the current project with optional build details override.
+     */
+    @Blocking
+    public static String runVerification(IContextManager cm, @Nullable BuildDetails override)
+            throws InterruptedException {
         var interrupted = new AtomicReference<InterruptedException>(null);
         var updated = cm.pushContext(ctx -> {
             try {
-                return runVerification(ctx);
+                return runVerification(ctx, override);
             } catch (InterruptedException e) {
                 // Preserve interrupt status and defer propagation until after pushContext returns
                 Thread.currentThread().interrupt();
@@ -1063,10 +1093,18 @@ public class BuildAgent {
      */
     @Blocking
     public static Context runVerification(Context ctx) throws InterruptedException {
+        return runVerification(ctx, null);
+    }
+
+    /**
+     * Context-based overload that performs build/check with an optional build details override.
+     */
+    @Blocking
+    public static Context runVerification(Context ctx, @Nullable BuildDetails override) throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
-        var verificationCommand = determineVerificationCommand(ctx);
+        var verificationCommand = determineVerificationCommand(ctx, override);
         if (verificationCommand == null || verificationCommand.isBlank()) {
             io.llmOutput("\nNo verification command specified, skipping build/check.", ChatMessageType.CUSTOM);
             return ctx; // unchanged
@@ -1077,17 +1115,17 @@ public class BuildAgent {
             var lock = acquireBuildLock(cm);
             if (lock == null) {
                 logger.warn("Failed to acquire build lock; proceeding without it");
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
             }
             try (var ignored = lock) {
                 logger.debug("Acquired build lock {}", lock.lockFile());
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
             } catch (Exception e) {
                 logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
-                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+                return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
             }
         } else {
-            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand);
+            return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
         }
     }
 
@@ -1146,8 +1184,8 @@ public class BuildAgent {
     }
 
     /** Context-based internal variant: returns a new Context with the updated build results, streams output via IO. */
-    private static Context runBuildAndUpdateFragmentInternal(Context ctx, String verificationCommand)
-            throws InterruptedException {
+    private static Context runBuildAndUpdateFragmentInternal(
+            Context ctx, String verificationCommand, @Nullable BuildDetails override) throws InterruptedException {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
@@ -1157,7 +1195,7 @@ public class BuildAgent {
         String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
         io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
         try {
-            var details = cm.getProject().awaitBuildDetails();
+            var details = override != null ? override : cm.getProject().awaitBuildDetails();
             var envVars = details.environmentVariables();
             var execCfg = ExecutorConfig.fromProject(cm.getProject());
 

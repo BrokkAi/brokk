@@ -762,11 +762,8 @@ public final class JobRunner {
                                         var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
                                         var ghRepo = gitHubAuth.getGhRepository();
                                         var details = IssueService.fetchIssueDetails(ghRepo, issueNumber);
-                                        var buildDetails = IssueService.parseBuildSettings(spec.getBuildSettingsJson());
-
-                                        if (!buildDetails.buildLintCommand().isEmpty()) {
-                                            cm.getProject().setBuildDetails(buildDetails);
-                                        }
+                                        var buildDetailsOverride =
+                                                IssueService.parseBuildSettings(spec.getBuildSettingsJson());
 
                                         // 3. Branch management
                                         var gitRepo = (GitRepo) cm.getProject().getRepo();
@@ -821,7 +818,8 @@ public final class JobRunner {
 
                                                 while (!verified && buildAttempts < maxBuildAttempts) {
                                                     buildAttempts++;
-                                                    String buildError = ai.brokk.agents.BuildAgent.runVerification(cm);
+                                                    String buildError = ai.brokk.agents.BuildAgent.runVerification(
+                                                            cm, buildDetailsOverride);
                                                     if (buildError == null || buildError.isBlank()) {
                                                         verified = true;
                                                         logger.info(
