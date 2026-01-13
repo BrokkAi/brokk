@@ -1199,8 +1199,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         return sb.toString();
     }
 
-    // Font size state for EditorFontSizeControl
-    private int currentFontIndex = -1;
+    /**
+     * Font size state for EditorFontSizeControl.
+     * This field is EDT-only; all reads and writes must happen on the Swing Event Dispatch Thread.
+     */
+    private volatile int currentFontIndex = -1;
 
     /** Apply current font size to a panel if font has been initialized */
     private void applyFontSizeToPanel(AbstractDiffPanel panel) {
@@ -1217,178 +1220,187 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private DiffToolbarCallbacks createToolbarCallbacks() {
-        return new DiffToolbarCallbacks() {
-            @Override
-            public void ensureFontIndexInitialized() {
-                if (currentFontIndex == -1) {
-                    float saved = GlobalUiSettings.getEditorFontSize();
-                    if (saved > 0f) {
-                        currentFontIndex = findClosestFontIndex(saved);
-                    } else {
-                        currentFontIndex = DEFAULT_FONT_INDEX;
+        return new SessionChangesToolbarCallbacks(this);
+    }
+
+    private static final class SessionChangesToolbarCallbacks implements DiffToolbarCallbacks {
+        private final SessionChangesPanel panel;
+
+        SessionChangesToolbarCallbacks(SessionChangesPanel panel) {
+            this.panel = panel;
+        }
+
+        @Override
+        public void ensureFontIndexInitialized() {
+            if (panel.currentFontIndex == -1) {
+                float saved = GlobalUiSettings.getEditorFontSize();
+                if (saved > 0f) {
+                    panel.currentFontIndex = findClosestFontIndex(saved);
+                } else {
+                    panel.currentFontIndex = DEFAULT_FONT_INDEX;
+                }
+            }
+        }
+
+        @Override
+        public void navigateToNextChange() {
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel != null) {
+                if (contentPanel.isAtLastLogicalChange() && canNavigateToNextFile()) {
+                    nextFile();
+                } else {
+                    contentPanel.doDown();
+                    panel.diffToolbar.updateButtonStates();
+                }
+            }
+        }
+
+        @Override
+        public void navigateToPreviousChange() {
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel != null) {
+                if (contentPanel.isAtFirstLogicalChange() && canNavigateToPreviousFile()) {
+                    previousFile();
+                    var newPanel = panel.getCurrentContentPanel();
+                    if (newPanel != null) {
+                        newPanel.goToLastLogicalChange();
                     }
+                } else {
+                    contentPanel.doUp();
+                    panel.diffToolbar.updateButtonStates();
                 }
             }
+        }
 
-            @Override
-            public void navigateToNextChange() {
-                var panel = getCurrentContentPanel();
-                if (panel != null) {
-                    if (panel.isAtLastLogicalChange() && canNavigateToNextFile()) {
-                        nextFile();
-                    } else {
-                        panel.doDown();
-                        diffToolbar.updateButtonStates();
-                    }
-                }
+        @Override
+        public void nextFile() {
+            int current = panel.diffCore.getCurrentIndex();
+            if (current < panel.fileComparisons.size() - 1) {
+                panel.diffCore.showFile(current + 1);
+                SwingUtilities.invokeLater(() -> panel.diffToolbar.updateButtonStates());
             }
+        }
 
-            @Override
-            public void navigateToPreviousChange() {
-                var panel = getCurrentContentPanel();
-                if (panel != null) {
-                    if (panel.isAtFirstLogicalChange() && canNavigateToPreviousFile()) {
-                        previousFile();
-                        var newPanel = getCurrentContentPanel();
-                        if (newPanel != null) {
-                            newPanel.goToLastLogicalChange();
-                        }
-                    } else {
-                        panel.doUp();
-                        diffToolbar.updateButtonStates();
-                    }
-                }
+        @Override
+        public void previousFile() {
+            int current = panel.diffCore.getCurrentIndex();
+            if (current > 0) {
+                panel.diffCore.showFile(current - 1);
+                SwingUtilities.invokeLater(() -> panel.diffToolbar.updateButtonStates());
             }
+        }
 
-            @Override
-            public void nextFile() {
-                int current = diffCore.getCurrentIndex();
-                if (current < fileComparisons.size() - 1) {
-                    diffCore.showFile(current + 1);
-                    SwingUtilities.invokeLater(() -> diffToolbar.updateButtonStates());
-                }
-            }
+        @Override
+        public void switchViewMode(boolean useUnifiedView) {
+            // Review panel always uses unified view
+        }
 
-            @Override
-            public void previousFile() {
-                int current = diffCore.getCurrentIndex();
-                if (current > 0) {
-                    diffCore.showFile(current - 1);
-                    SwingUtilities.invokeLater(() -> diffToolbar.updateButtonStates());
-                }
-            }
+        @Override
+        public void setShowBlame(boolean show) {
+            // Not supported in review panel
+        }
 
-            @Override
-            public void switchViewMode(boolean useUnifiedView) {
-                // Review panel always uses unified view
-            }
+        @Override
+        public void setShowAllLines(boolean show) {
+            // Review panel always shows all lines
+        }
 
-            @Override
-            public void setShowBlame(boolean show) {
-                // Not supported in review panel
-            }
+        @Override
+        public void setShowBlankLineDiffs(boolean show) {
+            // Not applicable - review panel uses unified view
+        }
 
-            @Override
-            public void setShowAllLines(boolean show) {
-                // Review panel always shows all lines
-            }
+        @Override
+        public boolean canNavigateToNextChange() {
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel == null) return false;
+            return !contentPanel.isAtLastLogicalChange() || canNavigateToNextFile();
+        }
 
-            @Override
-            public void setShowBlankLineDiffs(boolean show) {
-                // Not applicable - review panel uses unified view
-            }
+        @Override
+        public boolean canNavigateToPreviousChange() {
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel == null) return false;
+            return !contentPanel.isAtFirstLogicalChange() || canNavigateToPreviousFile();
+        }
 
-            @Override
-            public boolean canNavigateToNextChange() {
-                var panel = getCurrentContentPanel();
-                if (panel == null) return false;
-                return !panel.isAtLastLogicalChange() || canNavigateToNextFile();
-            }
+        @Override
+        public boolean canNavigateToNextFile() {
+            return panel.fileComparisons.size() > 1
+                    && panel.diffCore.getCurrentIndex() < panel.fileComparisons.size() - 1;
+        }
 
-            @Override
-            public boolean canNavigateToPreviousChange() {
-                var panel = getCurrentContentPanel();
-                if (panel == null) return false;
-                return !panel.isAtFirstLogicalChange() || canNavigateToPreviousFile();
-            }
+        @Override
+        public boolean canNavigateToPreviousFile() {
+            return panel.fileComparisons.size() > 1 && panel.diffCore.getCurrentIndex() > 0;
+        }
 
-            @Override
-            public boolean canNavigateToNextFile() {
-                return fileComparisons.size() > 1 && diffCore.getCurrentIndex() < fileComparisons.size() - 1;
-            }
+        @Override
+        public boolean isUnifiedView() {
+            return true; // Review panel always uses unified view
+        }
 
-            @Override
-            public boolean canNavigateToPreviousFile() {
-                return fileComparisons.size() > 1 && diffCore.getCurrentIndex() > 0;
-            }
+        @Override
+        public boolean isBlameAvailable() {
+            return false;
+        }
 
-            @Override
-            public boolean isUnifiedView() {
-                return true; // Review panel always uses unified view
-            }
+        @Override
+        public boolean isMultiFile() {
+            return panel.fileComparisons.size() > 1;
+        }
 
-            @Override
-            public boolean isBlameAvailable() {
-                return false;
-            }
+        @Override
+        public boolean isShowingBlame() {
+            return false;
+        }
 
-            @Override
-            public boolean isMultiFile() {
-                return fileComparisons.size() > 1;
-            }
+        @Override
+        public boolean isShowingAllLines() {
+            return true; // Review panel always shows all lines
+        }
 
-            @Override
-            public boolean isShowingBlame() {
-                return false;
-            }
+        @Override
+        public boolean isShowingBlankLineDiffs() {
+            return false; // Not applicable - review panel uses unified view
+        }
 
-            @Override
-            public boolean isShowingAllLines() {
-                return true; // Review panel always shows all lines
-            }
+        @Override
+        public int getCurrentFontIndex() {
+            return panel.currentFontIndex;
+        }
 
-            @Override
-            public boolean isShowingBlankLineDiffs() {
-                return false; // Not applicable - review panel uses unified view
-            }
+        @Override
+        public void setCurrentFontIndex(int index) {
+            panel.currentFontIndex = index;
+        }
 
-            @Override
-            public int getCurrentFontIndex() {
-                return currentFontIndex;
-            }
+        @Override
+        public void increaseEditorFont() {
+            DiffToolbarCallbacks.super.increaseEditorFont();
+            applyFontSizeToAllPanels();
+        }
 
-            @Override
-            public void setCurrentFontIndex(int index) {
-                currentFontIndex = index;
-            }
+        @Override
+        public void decreaseEditorFont() {
+            DiffToolbarCallbacks.super.decreaseEditorFont();
+            applyFontSizeToAllPanels();
+        }
 
-            @Override
-            public void increaseEditorFont() {
-                DiffToolbarCallbacks.super.increaseEditorFont();
-                applyFontSizeToAllPanels();
-            }
+        @Override
+        public void resetEditorFont() {
+            DiffToolbarCallbacks.super.resetEditorFont();
+            applyFontSizeToAllPanels();
+        }
 
-            @Override
-            public void decreaseEditorFont() {
-                DiffToolbarCallbacks.super.decreaseEditorFont();
-                applyFontSizeToAllPanels();
+        private void applyFontSizeToAllPanels() {
+            if (panel.currentFontIndex < 0) return;
+            float fontSize = EditorFontSizeControl.FONT_SIZES.get(panel.currentFontIndex);
+            GlobalUiSettings.saveEditorFontSize(fontSize);
+            for (var diffPanel : panel.diffCore.getCachedPanels()) {
+                diffPanel.applyEditorFontSize(fontSize);
             }
-
-            @Override
-            public void resetEditorFont() {
-                DiffToolbarCallbacks.super.resetEditorFont();
-                applyFontSizeToAllPanels();
-            }
-
-            private void applyFontSizeToAllPanels() {
-                if (currentFontIndex < 0) return;
-                float fontSize = EditorFontSizeControl.FONT_SIZES.get(currentFontIndex);
-                GlobalUiSettings.saveEditorFontSize(fontSize);
-                for (var panel : diffCore.getCachedPanels()) {
-                    panel.applyEditorFontSize(fontSize);
-                }
-            }
-        };
+        }
     }
 
     @Override
