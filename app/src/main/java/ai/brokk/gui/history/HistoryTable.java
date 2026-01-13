@@ -41,6 +41,7 @@ public class HistoryTable extends JPanel implements ActivityTableRenderers.Histo
     private final JScrollPane scrollPane;
     private final ResetArrowLayerUI arrowLayerUI;
     private final ContextManager contextManager;
+
     @SuppressWarnings("unused")
     private final Chrome chrome;
 
@@ -177,8 +178,9 @@ public class HistoryTable extends JPanel implements ActivityTableRenderers.Histo
         latestDescriptors = descriptors;
 
         var resetEdges = history.getResetEdges();
-        var resetTargetIds =
-                resetEdges.stream().map(ContextHistory.ResetEdge::targetId).collect(java.util.stream.Collectors.toSet());
+        var resetTargetIds = resetEdges.stream()
+                .map(ContextHistory.ResetEdge::targetId)
+                .collect(java.util.stream.Collectors.toSet());
 
         int rowToSelect = -1;
         int currentRow = 0;

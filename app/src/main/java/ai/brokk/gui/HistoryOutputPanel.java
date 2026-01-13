@@ -10,8 +10,6 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.gui.ActivityTableRenderers;
-import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -273,7 +271,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Builds the Activity history panel that shows past contexts
      */
-    private JPanel buildActivityPanel(HistoryTable historyTableComponent, MaterialButton undoButton, MaterialButton redoButton) {
+    private JPanel buildActivityPanel(
+            HistoryTable historyTableComponent, MaterialButton undoButton, MaterialButton redoButton) {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
 
@@ -1633,7 +1632,9 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             // Optionally change appearance to indicate disabled state
             historyTableComponent.getTable().setForeground(UIManager.getColor("Label.disabledForeground"));
             // Make the table visually distinct when disabled
-            historyTableComponent.getTable().setBackground(UIManager.getColor("Panel.background").darker());
+            historyTableComponent
+                    .getTable()
+                    .setBackground(UIManager.getColor("Panel.background").darker());
         });
     }
 
@@ -1838,7 +1839,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             return "";
         }
     }
-
 
     private String formatModified(long modifiedMillis) {
         var instant = Instant.ofEpochMilli(modifiedMillis);

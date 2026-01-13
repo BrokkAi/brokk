@@ -43,9 +43,7 @@ public class ResetArrowLayerUI extends LayerUI<JScrollPane> {
     private int nextPaletteIndex = 0;
 
     public ResetArrowLayerUI(
-            JTable table,
-            Chrome chrome,
-            Supplier<List<HistoryGrouping.GroupDescriptor>> descriptorsSupplier) {
+            JTable table, Chrome chrome, Supplier<List<HistoryGrouping.GroupDescriptor>> descriptorsSupplier) {
         this.table = table;
         this.chrome = chrome;
         this.descriptorsSupplier = descriptorsSupplier;
@@ -91,8 +89,7 @@ public class ResetArrowLayerUI extends LayerUI<JScrollPane> {
         }
 
         // Use unified helper to compute anchor rows for each Context id
-        Map<UUID, Integer> contextIdToRow =
-                HistoryGrouping.buildContextToRowMap(descriptorsSupplier.get(), table);
+        Map<UUID, Integer> contextIdToRow = HistoryGrouping.buildContextToRowMap(descriptorsSupplier.get(), table);
 
         // Build list of arrows with geometry between the resolved row anchors
         List<Arrow> arrows = new ArrayList<>();
@@ -115,8 +112,8 @@ public class ResetArrowLayerUI extends LayerUI<JScrollPane> {
         try {
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-            float lineWidth = (float)
-                    (c.getGraphicsConfiguration().getDefaultTransform().getScaleX() >= 2 ? 0.75 : 1.0);
+            float lineWidth =
+                    (float) (c.getGraphicsConfiguration().getDefaultTransform().getScaleX() >= 2 ? 0.75 : 1.0);
             g2.setStroke(new BasicStroke(lineWidth));
 
             boolean isDark = chrome.getTheme().isDarkTheme();
@@ -134,16 +131,15 @@ public class ResetArrowLayerUI extends LayerUI<JScrollPane> {
         Rectangle targetRect = table.getCellRect(targetRow, 0, true);
 
         // Convert cell rectangles to the JLayer's coordinate system
-        Point sourcePoint = SwingUtilities.convertPoint(
-                table, new Point(sourceRect.x, sourceRect.y + sourceRect.height / 2), c);
-        Point targetPoint = SwingUtilities.convertPoint(
-                table, new Point(targetRect.x, targetRect.y + targetRect.height / 2), c);
+        Point sourcePoint =
+                SwingUtilities.convertPoint(table, new Point(sourceRect.x, sourceRect.y + sourceRect.height / 2), c);
+        Point targetPoint =
+                SwingUtilities.convertPoint(table, new Point(targetRect.x, targetRect.y + targetRect.height / 2), c);
 
         // Don't draw if either point is outside the visible viewport
         if (!c.getVisibleRect().contains(sourcePoint) && !c.getVisibleRect().contains(targetPoint)) {
             // a bit of a hack -- if just one is visible, we still want to draw part of the arrow
-            if (c.getVisibleRect().contains(sourcePoint)
-                    || c.getVisibleRect().contains(targetPoint)) {
+            if (c.getVisibleRect().contains(sourcePoint) || c.getVisibleRect().contains(targetPoint)) {
                 // one is visible, fall through
             } else {
                 return;
@@ -178,8 +174,8 @@ public class ResetArrowLayerUI extends LayerUI<JScrollPane> {
         int baseX = to.x - size;
         int halfHeight = (int) Math.round(size * 0.6); // Make it slightly wider than it is long
 
-        var head = new Polygon(
-                new int[] {tipX, baseX, baseX}, new int[] {midY, midY - halfHeight, midY + halfHeight}, 3);
+        var head =
+                new Polygon(new int[] {tipX, baseX, baseX}, new int[] {midY, midY - halfHeight, midY + halfHeight}, 3);
         g2.fill(head);
     }
 }

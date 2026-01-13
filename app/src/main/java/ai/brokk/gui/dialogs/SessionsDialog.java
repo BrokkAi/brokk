@@ -6,7 +6,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.SessionRegistry;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.WorkspaceItemsChipPanel;
 import ai.brokk.gui.components.LoadingTextBox;
@@ -26,11 +25,11 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
 import java.util.ArrayList;
-import java.util.UUID;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.*;
@@ -561,7 +560,6 @@ public class SessionsDialog extends BaseThemedDialog {
         markdownOutputPanel.dispose();
         super.dispose();
     }
-
 
     public static void renameCurrentSession(Component parent, Chrome chrome, ContextManager contextManager) {
         var sessionManager = contextManager.getProject().getSessionManager();
