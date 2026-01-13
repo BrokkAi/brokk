@@ -50,7 +50,6 @@ import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Queue;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -144,8 +143,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     // Preset state for staging history before next new message
     private @Nullable List<TaskEntry> pendingHistory = null;
-
-    private @Nullable UUID currentSessionId;
 
     /**
      * Constructs a new HistoryOutputPane.
@@ -440,10 +437,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             contextManager.getProject().getMainProject().sessionsListChanged();
             updateUndoRedoButtonStates();
         });
-    }
-
-    public void adjustRowHeightForContext(Context ctx) {
-        historyTableComponent.adjustRowHeightForContext(ctx);
     }
 
     /**
