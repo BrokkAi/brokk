@@ -5,6 +5,7 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.ContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
+import ai.brokk.gui.mop.ChunkMeta;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.project.MainProject;
@@ -65,8 +66,7 @@ public final class MOPWebViewHost extends JPanel {
 
     // Represents commands to be sent to the bridge; buffered until bridge is ready
     private sealed interface HostCommand {
-        record Append(
-                String text, BrokkEvent.Chunk.ChunkMeta meta, ChatMessageType msgType, boolean streaming)
+        record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta)
                 implements HostCommand {}
 
         record SetTheme(String themeName, boolean isDevMode, boolean wrapMode, double zoom) implements HostCommand {}
@@ -274,10 +274,13 @@ public final class MOPWebViewHost extends JPanel {
 
     public void append(
             String text,
-            BrokkEvent.Chunk.ChunkMeta meta,
+            boolean isNewMessage,
             ChatMessageType msgType,
-            boolean streaming) {
-        sendOrQueue(new HostCommand.Append(text, meta, msgType, streaming), bridge -> bridge.append(text, meta, msgType, streaming));
+            boolean streaming,
+            ChunkMeta chunkMeta) {
+        sendOrQueue(
+                new HostCommand.Append(text, isNewMessage, msgType, streaming, chunkMeta),
+                bridge -> bridge.append(text, isNewMessage, msgType, streaming, chunkMeta));
     }
 
     /**
@@ -563,7 +566,8 @@ public final class MOPWebViewHost extends JPanel {
             logger.info("Flushing {} buffered commands", pendingCommands.size());
             pendingCommands.forEach(command -> {
                 switch (command) {
-                    case HostCommand.Append a -> bridge.append(a.text(), a.meta(), a.msgType(), a.streaming());
+                    case HostCommand.Append a ->
+                        bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.chunkMeta());
                     case HostCommand.SetTheme t ->
                         bridge.setTheme(t.themeName(), t.isDevMode(), t.wrapMode(), t.zoom());
                     case HostCommand.SetZoom z -> bridge.setZoom(z.zoom());

@@ -1,6 +1,9 @@
 package ai.brokk.gui.mop.webview;
 
+import ai.brokk.gui.mop.ChunkMeta;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import com.fasterxml.jackson.databind.ser.std.ToStringSerializer;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -15,13 +18,19 @@ public sealed interface BrokkEvent {
 
     record Chunk(
             String text,
+            @JsonIgnore boolean isNew,
             @JsonSerialize(using = ToStringSerializer.class) ChatMessageType msgType,
             int epoch,
             boolean streaming,
-            ChunkMeta meta)
+            @JsonIgnore ai.brokk.gui.mop.ChunkMeta chunkMeta)
             implements BrokkEvent {
 
         public record ChunkMeta(boolean isNewMessage, boolean isReasoning, boolean isTerminal) {}
+
+        @JsonProperty("meta")
+        public ChunkMeta meta() {
+            return new ChunkMeta(isNew, chunkMeta.isReasoning(), chunkMeta.isTerminal());
+        }
 
         @Override
         public String getType() {
