@@ -380,6 +380,89 @@ JSON
 - **Fallback behavior**: Falls back to regular PR comment if inline comment fails (HTTP 422)
 - **Read-only to local repo**: Does not modify local files or make commits
 
+## ISSUE Mode: Automated Issue Resolution with Build Verification
+
+ISSUE mode enables **end-to-end resolution of GitHub Issues**. It fetches the issue content, generates a multi-step plan, executes the changes, and runs a build verification loop to ensure the fix is valid.
+
+### How ISSUE Works
+
+When you submit an ISSUE job, the system follows these steps:
+1. **Fetch Issue**: Retrieves the title and body of the GitHub issue.
+2. **Task Planning**: Uses the `plannerModel` to decompose the issue into a series of actionable tasks.
+3. **Execution & Verification Loop**: For each generated task:
+    - **Implementation**: ArchitectAgent implements the task using `plannerModel` and `codeModel`.
+    - **Build Verification**: Runs the project's build/lint command.
+    - **Self-Correction**: If the build fails, the system automatically attempts to fix the errors (up to 3 attempts per task) before proceeding.
+
+### Configuration
+
+ISSUE mode requires:
+- `plannerModel`: The LLM model for planning and reasoning.
+- `codeModel` (optional): The LLM model for code generation; defaults to project default.
+- GitHub Issue metadata: `github_token`, `repo_owner`, `repo_name`, `issue_number`.
+- `buildSettings` (optional): JSON object defining how to verify the project (see below).
+
+### Build Settings Structure
+
+The `buildSettings` object configures how Brokk verifies its changes. If provided, these settings override the project defaults for the duration of the job.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `buildLintCommand` | String | The command to run for building and linting (e.g., `./gradlew build` or `npm run lint`). |
+| `testAllCommand` | String | Command to run the full test suite. |
+| `testSomeCommand` | String | Command to run specific tests. |
+| `environmentVariables` | Map | Key-value pairs of environment variables required for the build. |
+
+### Example: Using the Convenience Endpoint
+
+The `/v1/jobs/issue` endpoint simplifies job creation by accepting issue metadata directly in the root of the JSON body.
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: issue-001" \
+  --data @- <<'JSON'
+{
+  "owner": "myorg",
+  "repo": "myrepo",
+  "issueNumber": 42,
+  "githubToken": "ghp_xxxxxxxxxxxx",
+  "plannerModel": "gpt-4o",
+  "codeModel": "gpt-4o",
+  "buildSettings": {
+    "buildLintCommand": "./gradlew classes",
+    "environmentVariables": {
+      "JAVA_HOME": "/usr/lib/jvm/java-21"
+    }
+  }
+}
+JSON
+```
+
+### Example: Using Tags with Standard Job Endpoint
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: issue-002" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "This field is ignored in ISSUE mode; the issue body is used.",
+  "plannerModel": "gpt-4o",
+  "tags": {
+    "mode": "ISSUE",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo",
+    "issue_number": "42"
+  }
+}
+JSON
+```
+
 ## API Endpoints
 
 Once running, the executor exposes the following endpoints:
@@ -411,7 +494,13 @@ Once running, the executor exposes the following endpoints:
   - **CODE mode**: Set `"tags": { "mode": "CODE" }` for single-shot code generation
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
   - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
+  - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
+
+- **`POST /v1/jobs/issue`** - Create an issue resolution job (convenience endpoint)
+  - Requires `Idempotency-Key` header
+  - Body: `{ "owner": "<string>", "repo": "<string>", "issueNumber": <int>, "githubToken": "<string>", "plannerModel": "<string>", "codeModel": "<string>", "buildSettings": <object> }`
+  - Returns: Same response as `POST /v1/jobs`
 
 - **`POST /v1/jobs/pr-review`** - Create a PR review job (convenience endpoint)
   - Requires `Idempotency-Key` header
