@@ -38,6 +38,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
@@ -62,7 +63,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private DiffService.CumulativeChanges lastCumulativeChanges = null;
 
     /** Monotonically increasing token to track the latest requestUpdate invocation. */
-    private volatile long updateGeneration = 0;
+    private final AtomicLong updateGeneration = new AtomicLong(0);
 
     public record ReviewState(@Nullable String commitHash, long generatedAtMillis) {}
 
@@ -307,7 +308,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public void requestUpdate() {
         // Capture this generation so we can ignore stale results
-        final long thisGeneration = ++updateGeneration;
+        final long thisGeneration = updateGeneration.incrementAndGet();
 
         // Immediately show placeholder (file count will be computed async)
         SwingUtilities.invokeLater(() -> {
@@ -333,7 +334,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 })
                 .thenAccept(computed -> {
                     // Check if this computation is still relevant
-                    if (thisGeneration != updateGeneration) {
+                    if (thisGeneration != updateGeneration.get()) {
                         return; // A newer requestUpdate superseded us
                     }
 
@@ -343,7 +344,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                     // Update title on EDT
                     SwingUtilities.invokeLater(() -> {
-                        if (thisGeneration != updateGeneration) return;
+                        if (thisGeneration != updateGeneration.get()) return;
                         updateTitleAndTooltipFromResult(computed.result, computed.state.baselineLabel());
                     });
 
@@ -351,10 +352,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     deferredUpdateHelper.requestUpdate();
                 })
                 .exceptionally(ex -> {
-                    if (thisGeneration != updateGeneration) return null;
+                    if (thisGeneration != updateGeneration.get()) return null;
                     logger.warn("Failed to compute cumulative changes", ex);
                     SwingUtilities.invokeLater(() -> {
-                        if (thisGeneration != updateGeneration) return;
+                        if (thisGeneration != updateGeneration.get()) return;
                         tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes");
                     });
                     return null;
@@ -761,9 +762,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     } else {
                         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Pull: " + result);
                     }
-                    requestUpdate();
-                    chrome.updateGitRepo();
                 });
+                CompletableFuture.runAsync(chrome::updateGitRepo);
             } catch (GitAPIException e) {
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
@@ -788,8 +788,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Push: " + result);
                     }
                     requestUpdate();
-                    chrome.updateGitRepo();
                 });
+                CompletableFuture.runAsync(chrome::updateGitRepo);
             } catch (GitAPIException e) {
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
