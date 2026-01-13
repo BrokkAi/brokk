@@ -47,7 +47,6 @@ import dev.langchain4j.model.openai.internal.OpenAiUtils;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.shared.StreamOptions;
 import dev.langchain4j.model.output.FinishReason;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

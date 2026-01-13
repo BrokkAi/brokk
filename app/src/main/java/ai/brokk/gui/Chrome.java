@@ -1050,11 +1050,11 @@ public class Chrome
     private void registerAllListeners() {
         // 1. Context and File Listeners
         contextManager.addContextListener(this);
-        contextManager.addFileChangeListener(changedFiles -> {
+        contextManager.addFileChangeListener(batch -> {
             // Refresh preview windows when tracked files change
             Set<ProjectFile> openPreviewFiles =
                     new HashSet<>(previewManager.getProjectFileToPreviewWindow().keySet());
-            openPreviewFiles.retainAll(changedFiles);
+            openPreviewFiles.retainAll(batch.getFiles());
             if (!openPreviewFiles.isEmpty()) {
                 refreshPreviewsForFiles(openPreviewFiles);
             }
