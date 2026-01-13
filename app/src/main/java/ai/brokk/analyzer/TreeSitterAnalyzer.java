@@ -734,14 +734,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     /* ---------- Helper methods for accessing various properties ---------- */
 
     private CodeUnitProperties codeUnitProperties(CodeUnit codeUnit) {
-        return withCodeUnitProperties(props -> {
-            var maybeProps = props.get(codeUnit);
-            if (maybeProps == null) {
-                log.error("Code properties for {} are missing - this is likely an error. Returning empty result.", codeUnit);
-                return CodeUnitProperties.empty();
-            }
-            return maybeProps;
-        });
+        return withCodeUnitProperties(props -> props.getOrDefault(codeUnit, CodeUnitProperties.empty()));
     }
 
     protected List<CodeUnit> childrenOf(CodeUnit codeUnit) {
@@ -761,14 +754,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
     }
 
     private FileProperties fileProperties(ProjectFile file) {
-        return withFileProperties(props -> {
-            var maybeProps = props.get(file);
-            if (maybeProps == null) {
-                log.error("File properties for {} are missing - this is likely an error. Returning empty result.", file);
-                return FileProperties.empty();
-            }
-            return maybeProps;
-        });
+        return withFileProperties(props -> props.getOrDefault(file, FileProperties.empty()));
     }
 
     /**
