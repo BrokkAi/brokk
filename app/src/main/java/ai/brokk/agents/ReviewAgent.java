@@ -118,11 +118,10 @@ public class ReviewAgent {
         // Prepare the initial context with the diff pinned
         String diff = changes.perFileChanges().stream()
                 .map(fd -> {
-                    var file = fd.newFile() != null ? fd.newFile() : fd.oldFile();
-                    var title = file != null ? file.getRelPath().toString() : "unknown";
-                    var diffText = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new")
+                    String oldName = fd.oldFile() == null ? null : fd.oldFile().toString();
+                    String newName = fd.newFile() == null ? null : fd.newFile().toString();
+                    return ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), oldName, newName)
                             .diff();
-                    return "File: " + title + "\n" + diffText;
                 })
                 .collect(Collectors.joining("\n\n"));
         var diffFragment = new ContextFragments.StringFragment(
