@@ -11,6 +11,7 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -45,15 +46,15 @@ public class JiraIssueService implements IssueService {
     }
 
     @Nullable
-    private Date parseJiraDateTime(@Nullable String dateTimeStr) {
+    private Instant parseJiraDateTime(@Nullable String dateTimeStr) {
         if (dateTimeStr == null || dateTimeStr.isBlank()) {
             return null;
         }
 
         // Attempt 1: Primary ISO formatter (OffsetDateTime)
         try {
-            return Date.from(OffsetDateTime.parse(dateTimeStr, JIRA_PRIMARY_DATE_FORMATTER)
-                    .toInstant());
+            return OffsetDateTime.parse(dateTimeStr, JIRA_PRIMARY_DATE_FORMATTER)
+                    .toInstant();
         } catch (DateTimeParseException e1) {
             // logger.trace("Primary date parse failed for '{}': {}", dateTimeStr, e1.getMessage());
             // Fall through to try the secondary formatter
@@ -63,7 +64,7 @@ public class JiraIssueService implements IssueService {
         try {
             LocalDateTime ldt = LocalDateTime.parse(dateTimeStr, JIRA_SECONDARY_DATE_FORMATTER);
             // Assume system default timezone for dates without explicit offset from renderedFields.
-            return Date.from(ldt.atZone(ZoneId.systemDefault()).toInstant());
+            return ldt.atZone(ZoneId.systemDefault()).toInstant();
         } catch (DateTimeParseException e2) {
             logger.warn(
                     "Could not parse date string from Jira: '{}'. Tried primary ISO format and secondary 'dd/MMM/yy HH:mm' format. Error from last attempt: {}",
@@ -193,7 +194,7 @@ public class JiraIssueService implements IssueService {
                     String title = fieldsNode.path("summary").asText("No summary");
 
                     String updatedStr = fieldsNode.path("updated").asText(null);
-                    Date updatedAt = parseJiraDateTime(updatedStr);
+                    Instant updatedAt = parseJiraDateTime(updatedStr);
 
                     String status = fieldsNode.path("status").path("name").asText("Unknown");
                     String author =
@@ -325,7 +326,7 @@ public class JiraIssueService implements IssueService {
             String author = fieldsNode.path("reporter").path("displayName").asText("Anonymous");
 
             String updatedStr = fieldsNode.path("updated").asText(null);
-            Date updatedAt = parseJiraDateTime(updatedStr);
+            Instant updatedAt = parseJiraDateTime(updatedStr);
 
             List<String> labels = new ArrayList<>();
             JsonNode labelsNode = fieldsNode.path("labels");
@@ -379,7 +380,7 @@ public class JiraIssueService implements IssueService {
                     // This follows the user's provided logic snippet.
 
                     String createdStr = rawComment.path("created").asText(null); // ISO date from raw fields
-                    Date createdDate = parseJiraDateTime(createdStr);
+                    Instant createdDate = parseJiraDateTime(createdStr);
 
                     comments.add(new Comment(authorName, bodyHtml, createdDate));
                 }
@@ -422,7 +423,7 @@ public class JiraIssueService implements IssueService {
                     comments.size(),
                     attachmentUrls.size(),
                     issueId);
-            return new IssueDetails(header, renderedDescription, comments, attachmentUrls);
+            return new IssueDetails(header, renderedDescription, renderedDescription, comments, attachmentUrls);
 
         } catch (JsonProcessingException e) {
             logger.error(

@@ -126,6 +126,7 @@ public class JiraIssueServiceTest {
         // Verify markdownBody (rendered description from Jira)
         // Depending on Jira's response, this might be HTML.
         assertNotNull(details.markdownBody(), "Markdown body (rendered description) should not be null.");
+        assertNotNull(details.htmlBody(), "HTML body (rendered description) should not be null.");
 
         // Verify comments
         assertNotNull(details.comments(), "Comments list should not be null (can be empty).");

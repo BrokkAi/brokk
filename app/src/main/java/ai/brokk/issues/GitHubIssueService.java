@@ -1,16 +1,20 @@
 package ai.brokk.issues;
 
 import ai.brokk.GitHubAuth;
+import ai.brokk.gui.GfmRenderer;
 import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.project.IProject;
 import ai.brokk.util.MarkdownImageParser;
-import com.google.common.collect.ImmutableList;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
@@ -20,7 +24,11 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -33,11 +41,14 @@ import org.kohsuke.github.PagedIterator;
 
 public class GitHubIssueService implements IssueService {
     private static final Logger logger = LogManager.getLogger(GitHubIssueService.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private final IProject project;
+    private final GfmRenderer gfmRenderer;
 
     public GitHubIssueService(IProject project) {
         this.project = project;
+        this.gfmRenderer = new GfmRenderer();
     }
 
     private GitHubAuth getAuth() throws IOException {
@@ -152,26 +163,213 @@ public class GitHubIssueService implements IssueService {
                     "Invalid issue ID format: " + issueId + ". Must be a number, optionally prefixed with '#'.", e);
         }
 
-        GHIssue ghIssue = getAuth().getIssue(numericId);
-        IssueHeader header = mapToIssueHeader(ghIssue);
+        if (GitHubAuth.tokenPresent()) {
+            return loadDetailsFromGraphQL(numericId);
+        } else {
+            return loadDetailsFromRest(numericId);
+        }
+    }
+
+    private IssueDetails loadDetailsFromRest(int issueNumber) throws IOException {
+        GHIssue issue = getAuth().getIssue(issueNumber);
+        IssueHeader header = mapToIssueHeader(issue);
         if (header == null) {
-            // mapToIssueHeader logs specific errors, this is a general fallback.
-            throw new IOException("Failed to map GitHub issue #" + numericId + " to IssueHeader.");
+            throw new IOException("Failed to map issue header for issue #" + issueNumber);
         }
 
-        String markdownBody = ghIssue.getBody() == null ? "" : ghIssue.getBody();
-        List<GHIssueComment> ghComments;
+        String body = issue.getBody();
+        if (body == null) {
+            body = "";
+        }
+        String htmlBody = gfmRenderer.render(body);
+
+        Set<String> allImageUrls = new LinkedHashSet<>();
+        if (!body.isBlank()) {
+            allImageUrls.addAll(MarkdownImageParser.extractImageUrls(body));
+        }
+
+        List<Comment> comments = new ArrayList<>();
+        List<GHIssueComment> ghComments = issue.getComments();
+        for (GHIssueComment ghComment : ghComments) {
+            String cBody = ghComment.getBody();
+            if (cBody == null) {
+                cBody = "";
+            }
+
+            if (!cBody.isBlank()) {
+                allImageUrls.addAll(MarkdownImageParser.extractImageUrls(cBody));
+            }
+
+            String cAuthor;
+            try {
+                cAuthor = getAuthorLogin(ghComment.getUser());
+            } catch (IOException e) {
+                logger.warn("Failed to get author for comment on issue #{}", issueNumber, e);
+                cAuthor = "N/A";
+            }
+
+            Date createdAtDate = ghComment.getCreatedAt();
+            Instant cCreated = createdAtDate != null ? createdAtDate.toInstant() : null;
+
+            comments.add(new Comment(cAuthor, cBody, cCreated));
+        }
+
+        List<URI> attachmentUrls = mapToUri(allImageUrls);
+
+        return new IssueDetails(header, body, htmlBody, comments, attachmentUrls);
+    }
+
+    private IssueDetails loadDetailsFromGraphQL(int issueNumber) throws IOException {
+        String query =
+                """
+                query($owner: String!, $repo: String!, $number: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    issue(number: $number) {
+                      number
+                      title
+                      url
+                      state
+                      body
+                      bodyHTML
+                      createdAt
+                      updatedAt
+                      author { login }
+                      assignees(first: 100) { nodes { login } }
+                      labels(first: 100) { nodes { name } }
+                      comments(first: 100) {
+                        nodes {
+                          body
+                          bodyHTML
+                          createdAt
+                          author { login }
+                        }
+                      }
+                    }
+                  }
+                }
+                """;
+
+        ObjectNode variables = objectMapper.createObjectNode();
+        variables.put("owner", getAuth().getOwner());
+        variables.put("repo", getAuth().getRepoName());
+        variables.put("number", issueNumber);
+
+        ObjectNode requestBody = objectMapper.createObjectNode();
+        requestBody.put("query", query);
+        requestBody.set("variables", variables);
+
+        Request.Builder requestBuilder = new Request.Builder()
+                .url("https://api.github.com/graphql")
+                .post(RequestBody.create(
+                        objectMapper.writeValueAsString(requestBody), MediaType.parse("application/json")));
+
+        try (Response response = httpClient().newCall(requestBuilder.build()).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("GraphQL query failed: " + response.code() + " " + response.message());
+            }
+            if (response.body() == null) {
+                throw new IOException("GraphQL query returned empty body");
+            }
+            JsonNode root = objectMapper.readTree(response.body().byteStream());
+            if (root.has("errors")) {
+                throw new IOException("GraphQL errors: " + root.get("errors").toString());
+            }
+
+            JsonNode issueNode = root.path("data").path("repository").path("issue");
+            if (issueNode.isMissingNode() || issueNode.isNull()) {
+                throw new IOException("Issue #" + issueNumber + " not found or access denied.");
+            }
+
+            String id = "#" + issueNode.path("number").asInt();
+            String title = issueNode.path("title").asText();
+            String urlStr = issueNode.path("url").asText();
+            String state = issueNode.path("state").asText();
+            String body = issueNode.path("body").asText("");
+            String htmlBody = issueNode.path("bodyHTML").asText("");
+
+            Set<String> allImageUrls = new LinkedHashSet<>();
+            if (!htmlBody.isBlank()) {
+                allImageUrls.addAll(MarkdownImageParser.extractImageUrls(htmlBody));
+            }
+
+            String author = issueNode.path("author").isMissingNode()
+                            || issueNode.path("author").isNull()
+                    ? "N/A"
+                    : issueNode.path("author").path("login").asText("N/A");
+
+            Instant updated = parseIsoDate(issueNode.path("updatedAt").asText(null));
+            URI htmlUrl;
+            try {
+                htmlUrl = new URI(urlStr);
+            } catch (URISyntaxException e) {
+                logger.warn("Invalid URI from GraphQL: {}", urlStr, e);
+                htmlUrl = null;
+            }
+
+            List<String> labels = new ArrayList<>();
+            issueNode
+                    .path("labels")
+                    .path("nodes")
+                    .forEach(n -> labels.add(n.path("name").asText()));
+
+            List<String> assignees = new ArrayList<>();
+            issueNode
+                    .path("assignees")
+                    .path("nodes")
+                    .forEach(n -> assignees.add(n.path("login").asText()));
+
+            List<Comment> comments = new ArrayList<>();
+            JsonNode commentsNode = issueNode.path("comments").path("nodes");
+            if (commentsNode.isArray()) {
+                for (JsonNode node : commentsNode) {
+                    String cBody = node.path("body").asText("");
+                    String cHtmlBody = node.path("bodyHTML").asText("");
+                    if (!cHtmlBody.isBlank()) {
+                        allImageUrls.addAll(MarkdownImageParser.extractImageUrls(cHtmlBody));
+                    }
+                    String cAuthor = node.path("author").isMissingNode()
+                                    || node.path("author").isNull()
+                            ? "N/A"
+                            : node.path("author").path("login").asText("N/A");
+                    Instant cCreated = parseIsoDate(node.path("createdAt").asText(null));
+                    comments.add(new Comment(cAuthor, cBody, cCreated));
+                }
+            }
+
+            IssueHeader header = new IssueHeader(id, title, author, updated, labels, assignees, state, htmlUrl);
+            List<URI> attachmentUrls = mapToUri(allImageUrls);
+
+            return new IssueDetails(header, body, htmlBody, comments, attachmentUrls);
+        }
+    }
+
+    private static List<URI> mapToUri(Set<String> allImageUrls) {
+        return allImageUrls.stream()
+                .map(urlString -> {
+                    try {
+                        return new URI(urlString);
+                    } catch (URISyntaxException e) {
+                        logger.warn(
+                                "Invalid URI syntax for attachment URL: '{}'. Skipping. Error: {}",
+                                urlString,
+                                e.getMessage());
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    private @Nullable Instant parseIsoDate(@Nullable String isoDate) {
+        if (isoDate == null) {
+            return null;
+        }
         try {
-            ghComments = ghIssue.getComments();
-        } catch (IOException e) {
-            logger.error("Failed to fetch comments for issue #{}: {}", numericId, e.getMessage(), e);
-            ghComments = Collections.emptyList(); // Proceed with empty comments if fetching fails
+            return Instant.parse(isoDate);
+        } catch (DateTimeParseException e) {
+            logger.warn("Failed to parse date: {}", isoDate, e);
+            return null;
         }
-
-        List<Comment> comments = mapToComments(ghComments);
-        List<URI> attachmentUrls = extractAttachmentUrls(markdownBody, comments);
-
-        return new IssueDetails(header, markdownBody, comments, attachmentUrls);
     }
 
     private @Nullable IssueHeader mapToIssueHeader(GHIssue ghIssue) {
@@ -179,7 +377,8 @@ public class GitHubIssueService implements IssueService {
             String id = "#" + ghIssue.getNumber();
             String title = ghIssue.getTitle();
             String author = getAuthorLogin(ghIssue.getUser()); // Handles potential IOException for getUser
-            Date updated = ghIssue.getUpdatedAt(); // Can throw IOException
+            Date updatedDate = ghIssue.getUpdatedAt(); // Can throw IOException
+            Instant updated = updatedDate != null ? updatedDate.toInstant() : null;
             List<String> labels =
                     ghIssue.getLabels().stream().map(GHLabel::getName).collect(Collectors.toList());
             List<String> assignees =
@@ -309,50 +508,6 @@ public class GitHubIssueService implements IssueService {
                 yield GHIssueState.ALL;
             }
         };
-    }
-
-    private ImmutableList<Comment> mapToComments(List<GHIssueComment> ghComments) {
-        var builder = ImmutableList.<Comment>builder();
-        for (GHIssueComment gc : ghComments) {
-            try {
-                String author = getAuthorLogin(gc.getUser()); // Handles potential IOException for getUser
-                String body = gc.getBody() == null ? "" : gc.getBody();
-                Date created = gc.getCreatedAt(); // Can throw IOException
-                builder.add(new Comment(author, body, created));
-            } catch (IOException e) {
-                logger.warn(
-                        "IOException mapping GHIssueComment ID {} to Comment DTO: {}", gc.getId(), e.getMessage(), e);
-                // Skip this comment or add with default values
-            }
-        }
-        return builder.build();
-    }
-
-    private List<URI> extractAttachmentUrls(String issueBodyMarkdown, List<Comment> dtoComments) {
-        Set<String> allImageUrls = new LinkedHashSet<>();
-        if (!issueBodyMarkdown.isBlank()) {
-            allImageUrls.addAll(MarkdownImageParser.extractImageUrls(issueBodyMarkdown));
-        }
-        for (Comment comment : dtoComments) {
-            if (!comment.markdownBody().isBlank()) {
-                allImageUrls.addAll(MarkdownImageParser.extractImageUrls(comment.markdownBody()));
-            }
-        }
-
-        return allImageUrls.stream()
-                .map(urlString -> {
-                    try {
-                        return new URI(urlString);
-                    } catch (URISyntaxException e) {
-                        logger.warn(
-                                "Invalid URI syntax for attachment URL: '{}'. Skipping. Error: {}",
-                                urlString,
-                                e.getMessage());
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
     }
 
     private boolean matchesAuthor(GHIssue issue, @Nullable String authorFilter) {
