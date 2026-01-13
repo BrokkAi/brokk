@@ -773,8 +773,15 @@ public final class JobRunner {
                                         // 3. Branch management
                                         var gitRepo = (GitRepo) cm.getProject().getRepo();
                                         String originalBranch = gitRepo.getCurrentBranch();
+                                        String originalCommitId = null;
 
                                         String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
+
+                                        try {
+                                            originalCommitId = gitRepo.getCurrentCommitId();
+                                        } catch (GitAPIException e) {
+                                            logger.warn("Failed to capture current commit ID for job {}", jobId, e);
+                                        }
 
                                         logger.info(
                                                 "ISSUE job {}: Creating branch {} from {}",
@@ -907,8 +914,11 @@ public final class JobRunner {
 
                                                     // If the issue branch was never committed to, delete it to avoid
                                                     // orphans
-                                                    if (gitRepo.isBranchMerged(issueBranchName)
-                                                            || gitRepo.countCommitsSince(originalBranch) == 0) {
+                                                    boolean noCommitsSince = originalCommitId != null
+                                                            ? gitRepo.countCommitsSince(originalCommitId) == 0
+                                                            : gitRepo.countCommitsSince(originalBranch) == 0;
+
+                                                    if (gitRepo.isBranchMerged(issueBranchName) || noCommitsSince) {
                                                         try {
                                                             gitRepo.deleteBranch(issueBranchName);
                                                             logger.info(
