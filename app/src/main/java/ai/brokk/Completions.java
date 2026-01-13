@@ -105,6 +105,7 @@ public class Completions {
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                         .thenComparingInt(sc -> sc.cu().identifier().length())
+                        .thenComparingInt(sc -> typeOrder(sc.cu().kind()))
                         .thenComparing(sc -> sc.cu().fqName()))
                 .map(ScoredCU::cu)
                 .collect(Collectors.collectingAndThen(
@@ -236,6 +237,15 @@ public class Completions {
         } catch (IOException e) {
             return List.of();
         }
+    }
+
+    private static int typeOrder(ai.brokk.analyzer.CodeUnitType type) {
+        return switch (type) {
+            case CLASS -> 0;
+            case FUNCTION -> 1;
+            case FIELD -> 2;
+            case MODULE -> 3;
+        };
     }
 
     private static boolean looksAbsolute(String s) {
