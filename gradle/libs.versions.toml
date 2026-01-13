@@ -2,7 +2,7 @@
 junit = "6.0.0"
 log4j = "2.20.0"
 jackson = "2.18.3"
-jgit = "7.4.0.202509020913-r"
+jgit = "7.5.0.202512021534-r"
 nullaway = "0.12.7"
 flatlaf = "3.6.2"
 flexmark = "0.64.8"
