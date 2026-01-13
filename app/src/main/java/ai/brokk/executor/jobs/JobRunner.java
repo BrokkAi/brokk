@@ -183,7 +183,8 @@ public final class JobRunner {
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
+                            case ARCHITECT, LUTZ, ISSUE ->
+                                service.nameOf(Objects.requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
                             case SEARCH -> service.nameOf(Objects.requireNonNull(searchPlannerModel));
                             case CODE -> {
@@ -798,7 +799,8 @@ public final class JobRunner {
                                             var taskListResult = searchAgent.execute();
                                             scope.append(taskListResult);
 
-                                            var generatedTasks = cm.getTaskList().tasks();
+                                            var generatedTasks =
+                                                    cm.getTaskList().tasks();
                                             var incompleteTasks = generatedTasks.stream()
                                                     .filter(t -> !t.done())
                                                     .toList();
@@ -837,8 +839,9 @@ public final class JobRunner {
 
                                                         if (buildAttempts < maxBuildAttempts) {
                                                             // Ask architect to fix the build error
-                                                            String fixPrompt = "The build failed after the last task. Please fix the following error:\n\n"
-                                                                    + buildError;
+                                                            String fixPrompt =
+                                                                    "The build failed after the last task. Please fix the following error:\n\n"
+                                                                            + buildError;
                                                             cm.executeTask(
                                                                     new TaskList.TaskItem("", fixPrompt, false),
                                                                     architectPlannerModel,
@@ -855,10 +858,12 @@ public final class JobRunner {
 
                                             // 5. Commit and Create Pull Request
                                             var workflow = new GitWorkflow(cm);
-                                            workflow.performAutoCommit("Resolves #" + issueNumber + ": " + details.title());
+                                            workflow.performAutoCommit(
+                                                    "Resolves #" + issueNumber + ": " + details.title());
 
                                             String targetBranch = gitHubAuth.getDefaultBranch();
-                                            var suggestion = workflow.suggestPullRequestDetails(issueBranchName, targetBranch, cm.getIo());
+                                            var suggestion = workflow.suggestPullRequestDetails(
+                                                    issueBranchName, targetBranch, cm.getIo());
 
                                             var prUri = workflow.createPullRequest(
                                                     issueBranchName,
@@ -868,7 +873,9 @@ public final class JobRunner {
 
                                             logger.info("ISSUE job {} created PR: {}", jobId, prUri);
                                             if (console != null) {
-                                                console.showNotification(IConsoleIO.NotificationRole.INFO, "Created Pull Request: " + prUri);
+                                                console.showNotification(
+                                                        IConsoleIO.NotificationRole.INFO,
+                                                        "Created Pull Request: " + prUri);
                                             }
                                         }
                                     }
