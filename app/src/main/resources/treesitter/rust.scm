@@ -27,7 +27,7 @@
 ;; Module definitions
 (mod_item
   (visibility_modifier)? @keyword.modifier
-  name: (identifier) @class.name
+  name: (identifier) @module.name
 ) @module.definition
 
 ;; Impl blocks
