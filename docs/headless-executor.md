@@ -418,6 +418,7 @@ The `buildSettings` object configures how Brokk verifies its changes. If provide
 | `testAllCommand` | String | Command to run the full test suite. |
 | `testSomeCommand` | String | Command to run specific tests. |
 | `environmentVariables` | Map | Key-value pairs of environment variables required for the build. |
+| `maxBuildAttempts` | Integer (optional) | Maximum number of build verification attempts per task (default: 3). |
 
 ### Example: Using the Convenience Endpoint
 
@@ -440,7 +441,8 @@ curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
     "buildLintCommand": "./gradlew classes",
     "environmentVariables": {
       "JAVA_HOME": "/usr/lib/jvm/java-21"
-    }
+    },
+    "maxBuildAttempts": 5
   }
 }
 JSON

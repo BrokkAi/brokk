@@ -666,7 +666,8 @@ curl -sS -X POST "${BASE}/v1/jobs/issue" \
     "testSomeCommand": "./gradlew test --tests",
     "environmentVariables": {
       "JAVA_HOME": "/usr/lib/jvm/java-21"
-    }
+    },
+    "maxBuildAttempts": 5
   }
 }
 JSON
@@ -780,7 +781,7 @@ curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
 - Uses LUTZ-style planning to decompose issue into tasks.
 - Executes each task with ArchitectAgent (uses `plannerModel` + `codeModel`).
 - Runs build verification after each task.
-- Automatically retries failed builds (up to 3 attempts per task).
+- Automatically retries failed builds (default: 3 attempts per task, configurable via `maxBuildAttempts`).
 - **PR Creation**: On success, pushes changes and creates a Pull Request with an AI-generated title and description.
 - `buildSettings` overrides project defaults for the job duration.
 - `codeModel` is optional; defaults to project default if omitted.
