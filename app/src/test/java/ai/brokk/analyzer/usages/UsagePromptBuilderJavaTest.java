@@ -73,12 +73,11 @@ public class UsagePromptBuilderJavaTest {
         String snippet = "{ // line1\n\tA.method2();//<T> & \"quotes\" and 'single'\n} // line3";
         CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
         CodeUnit target = CodeUnit.fn(file, "test", "method2");
-        CodeUnit alt = CodeUnit.fn(file, "other", "method2");
         UsageHit hit = new UsageHit(file, 10, 0, snippet.length(), enclosing, 1.0, snippet);
 
         // When
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit, target, List.of(alt), analyzer, "A.method2", 10_000 // generous token budget
+                hit, target, Collections.emptyList(), analyzer, "A.method2", 10_000 // generous token budget
                 );
 
         // Field-level assertions
@@ -86,9 +85,9 @@ public class UsagePromptBuilderJavaTest {
         assertTrue(
                 prompt.filterDescription().contains(target.toString()),
                 "filterDescription should include the target code unit");
-        assertTrue(
+        assertFalse(
                 prompt.filterDescription().contains("alternative code units"),
-                "filterDescription should mention alternatives");
+                "filterDescription should NOT mention alternatives when none provided");
         assertEquals(snippet, prompt.candidateText(), "candidateText should equal the usage snippet");
 
         String text = prompt.promptText();
@@ -96,8 +95,7 @@ public class UsagePromptBuilderJavaTest {
                 """
                 Short Name of Search: A.method2
                 Code Unit Target: FUNCTION[test.method2]
-                Other Possible Matches:
-                other.method2
+                Other Possible Matches: (none)
                 File of Hit: A.java
                 ```java
                 import java.util.function.Function;
@@ -110,6 +108,27 @@ public class UsagePromptBuilderJavaTest {
                 ```
                 """,
                 text);
+    }
+
+    @Test
+    public void buildIncludesAlternativesWhenPresent() {
+        ProjectFile file = fileInProject("A.java");
+        CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
+        CodeUnit target = CodeUnit.fn(file, "test", "method2");
+        CodeUnit alt1 = CodeUnit.fn(file, "other", "method2");
+        CodeUnit alt2 = CodeUnit.fn(file, "another", "method2");
+        UsageHit hit = new UsageHit(file, 10, 0, 10, enclosing, 1.0, "snippet");
+
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
+                hit, target, List.of(alt1, alt2), analyzer, "method2", 10_000);
+
+        assertTrue(
+                prompt.filterDescription().contains("alternative code units"),
+                "filterDescription should mention alternatives");
+
+        String text = prompt.promptText();
+        assertTrue(text.contains("Other Possible Matches:\nother.method2\nanother.method2"),
+                "Prompt should list alternative fqNames");
     }
 
     @Test
