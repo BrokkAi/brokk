@@ -1565,7 +1565,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Find index: prefer exact match by ID, fall back to first incomplete task with matching text
         int idx = IntStream.range(0, tasks.size())
-                .filter(i -> java.util.Objects.equals(tasks.get(i).id(), task.id()))
+                .filter(i -> Objects.equals(tasks.get(i).id(), task.id()))
                 .findFirst()
                 .orElse(-1);
 
