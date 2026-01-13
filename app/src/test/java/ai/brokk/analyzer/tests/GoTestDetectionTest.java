@@ -59,75 +59,78 @@ public class GoTestDetectionTest {
         String benchmarkOnlyPath = "pkg/bench.go";
         String receiverAndBenchmarkPath = "pkg/lib.go";
 
-        IProject project = InlineTestProjectCreator.code(testPointerContent, pointerPath)
+        try (IProject project = InlineTestProjectCreator.code(testPointerContent, pointerPath)
                 .addFileContents(testValueContent, valuePath)
                 .addFileContents(benchmarkOnlyContent, benchmarkOnlyPath)
                 .addFileContents(receiverAndBenchmarkContent, receiverAndBenchmarkPath)
-                .build();
+                .build()) {
 
-        GoAnalyzer analyzer = new GoAnalyzer(project);
-        analyzer = (GoAnalyzer) analyzer.update();
+            GoAnalyzer analyzer = new GoAnalyzer(project);
+            analyzer = (GoAnalyzer) analyzer.update();
 
-        ProjectFile pointerFile = new ProjectFile(project.getRoot(), pointerPath);
-        ProjectFile valueFile = new ProjectFile(project.getRoot(), valuePath);
-        ProjectFile benchmarkOnlyFile = new ProjectFile(project.getRoot(), benchmarkOnlyPath);
-        ProjectFile receiverAndBenchmarkFile = new ProjectFile(project.getRoot(), receiverAndBenchmarkPath);
+            ProjectFile pointerFile = new ProjectFile(project.getRoot(), pointerPath);
+            ProjectFile valueFile = new ProjectFile(project.getRoot(), valuePath);
+            ProjectFile benchmarkOnlyFile = new ProjectFile(project.getRoot(), benchmarkOnlyPath);
+            ProjectFile receiverAndBenchmarkFile = new ProjectFile(project.getRoot(), receiverAndBenchmarkPath);
 
-        // Verify analyzer semantic detection
-        assertTrue(analyzer.containsTests(pointerFile), "Should detect pointer-based test: " + pointerPath);
-        assertTrue(analyzer.containsTests(valueFile), "Should detect value-based test: " + valuePath);
+            // Verify analyzer semantic detection
+            assertTrue(analyzer.containsTests(pointerFile), "Should detect pointer-based test: " + pointerPath);
+            assertTrue(analyzer.containsTests(valueFile), "Should detect value-based test: " + valuePath);
 
-        assertFalse(
-                analyzer.containsTests(benchmarkOnlyFile),
-                "Benchmarks are not tests; a file with only BenchmarkXxx should not be detected as containing tests: "
-                        + benchmarkOnlyPath);
+            assertFalse(
+                    analyzer.containsTests(benchmarkOnlyFile),
+                    "Benchmarks are not tests; a file with only BenchmarkXxx should not be detected as containing tests: "
+                            + benchmarkOnlyPath);
 
-        // Receiver methods should not trigger test detection even if named TestXxx.
-        assertFalse(
-                analyzer.containsTests(receiverAndBenchmarkFile),
-                "We intentionally do not treat receiver methods as tests; file should not be detected as containing tests: "
-                        + receiverAndBenchmarkPath);
+            // Receiver methods should not trigger test detection even if named TestXxx.
+            assertFalse(
+                    analyzer.containsTests(receiverAndBenchmarkFile),
+                    "We intentionally do not treat receiver methods as tests; file should not be detected as containing tests: "
+                            + receiverAndBenchmarkPath);
 
-        // Additional negative case: Function named Test but wrong parameter type
-        String wrongParamContent =
-                """
-                package foo
-                import "testing"
-                func TestNotReally(t *testing.B) {}
-                """;
-        String wrongParamPath = "pkg/wrong_param.go";
-        IProject project2 =
-                InlineTestProjectCreator.code(wrongParamContent, wrongParamPath).build();
-        GoAnalyzer analyzer2 = new GoAnalyzer(project2);
-        analyzer2 = (GoAnalyzer) analyzer2.update();
-        assertFalse(
-                analyzer2.containsTests(new ProjectFile(project2.getRoot(), wrongParamPath)),
-                "Should NOT detect test if parameter is *testing.B instead of *testing.T");
+            // Additional negative case: Function named Test but wrong parameter type
+            String wrongParamContent =
+                    """
+                    package foo
+                    import "testing"
+                    func TestNotReally(t *testing.B) {}
+                    """;
+            String wrongParamPath = "pkg/wrong_param.go";
+            try (IProject project2 = InlineTestProjectCreator.code(wrongParamContent, wrongParamPath)
+                    .build()) {
+                GoAnalyzer analyzer2 = new GoAnalyzer(project2);
+                analyzer2 = (GoAnalyzer) analyzer2.update();
+                assertFalse(
+                        analyzer2.containsTests(new ProjectFile(project2.getRoot(), wrongParamPath)),
+                        "Should NOT detect test if parameter is *testing.B instead of *testing.T");
+            }
 
-        // Verify ContextManager integration (should use semantic analyzer signal, not filename heuristics)
-        assertTrue(
-                ContextManager.isTestFile(pointerFile, analyzer),
-                "ContextManager should identify pointer test file via analyzer");
-        assertTrue(
-                ContextManager.isTestFile(valueFile, analyzer),
-                "ContextManager should identify value test file via analyzer");
+            // Verify ContextManager integration (should use semantic analyzer signal, not filename heuristics)
+            assertTrue(
+                    ContextManager.isTestFile(pointerFile, analyzer),
+                    "ContextManager should identify pointer test file via analyzer");
+            assertTrue(
+                    ContextManager.isTestFile(valueFile, analyzer),
+                    "ContextManager should identify value test file via analyzer");
 
-        // Negative case: Multiple parameters sharing a type (e.g., func TestMulti(a, b *testing.T))
-        // Go's spec for tests requires exactly one parameter.
-        String multiParamContent =
-                """
-                package foo
-                import "testing"
-                func TestMulti(a, b *testing.T) {}
-                """;
-        String multiParamPath = "pkg/multi_param.go";
-        IProject project3 =
-                InlineTestProjectCreator.code(multiParamContent, multiParamPath).build();
-        GoAnalyzer analyzer3 = new GoAnalyzer(project3);
-        analyzer3 = (GoAnalyzer) analyzer3.update();
-        assertFalse(
-                analyzer3.containsTests(new ProjectFile(project3.getRoot(), multiParamPath)),
-                "Should NOT detect test if function has multiple parameters, even if they share *testing.T type");
+            // Negative case: Multiple parameters sharing a type (e.g., func TestMulti(a, b *testing.T))
+            // Go's spec for tests requires exactly one parameter.
+            String multiParamContent =
+                    """
+                    package foo
+                    import "testing"
+                    func TestMulti(a, b *testing.T) {}
+                    """;
+            String multiParamPath = "pkg/multi_param.go";
+            try (IProject project3 = InlineTestProjectCreator.code(multiParamContent, multiParamPath)
+                    .build()) {
+                GoAnalyzer analyzer3 = new GoAnalyzer(project3);
+                analyzer3 = (GoAnalyzer) analyzer3.update();
+                assertFalse(
+                        analyzer3.containsTests(new ProjectFile(project3.getRoot(), multiParamPath)),
+                        "Should NOT detect test if function has multiple parameters, even if they share *testing.T type");
+            }
+        }
     }
 
     @Test
@@ -139,13 +142,14 @@ public class GoTestDetectionTest {
                 func TestExtra(t *testing.T, x int) {}
                 """;
         String path = "pkg/extra_param.go";
-        IProject project = InlineTestProjectCreator.code(content, path).build();
-        GoAnalyzer analyzer = new GoAnalyzer(project);
-        analyzer = (GoAnalyzer) analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(content, path).build()) {
+            GoAnalyzer analyzer = new GoAnalyzer(project);
+            analyzer = (GoAnalyzer) analyzer.update();
 
-        assertFalse(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), path)),
-                "Should NOT detect test if function has extra parameters beyond *testing.T");
+            assertFalse(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), path)),
+                    "Should NOT detect test if function has extra parameters beyond *testing.T");
+        }
     }
 
     @Test
@@ -157,12 +161,13 @@ public class GoTestDetectionTest {
                 func TestGeneric[T any](t *testing.T) {}
                 """;
         String path = "pkg/generic_test.go";
-        IProject project = InlineTestProjectCreator.code(content, path).build();
-        GoAnalyzer analyzer = new GoAnalyzer(project);
-        analyzer = (GoAnalyzer) analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(content, path).build()) {
+            GoAnalyzer analyzer = new GoAnalyzer(project);
+            analyzer = (GoAnalyzer) analyzer.update();
 
-        assertFalse(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), path)),
-                "Should NOT detect test if function is generic (has type parameters)");
+            assertFalse(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), path)),
+                    "Should NOT detect test if function is generic (has type parameters)");
+        }
     }
 }

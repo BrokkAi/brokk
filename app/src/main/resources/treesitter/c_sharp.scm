@@ -34,15 +34,8 @@
 (attribute_list) @annotation
 
 ; Test detection markers
+; Filtering for specific test attributes (e.g., [Test], [Fact]) is handled in CSharpAnalyzer.java
 (method_declaration
   (attribute_list
     (attribute
-      name: (identifier) @test_attr
-      (#any-of? @test_attr "Test" "Fact" "Theory" "TestCase" "TestMethod" "DataTestMethod" "SetUp" "TearDown")))) @test_marker
-
-(method_declaration
-  (attribute_list
-    (attribute
-      name: (qualified_name
-             name: (identifier) @test_attr)
-      (#any-of? @test_attr "Test" "Fact" "Theory" "TestCase" "TestMethod" "DataTestMethod" "SetUp" "TearDown")))) @test_marker
+      name: (_) @test_attr))) @test_marker
