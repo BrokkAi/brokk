@@ -57,13 +57,21 @@ public class GitHubAuth {
     @Nullable
     private final String host; // For GHES endpoint
 
+    @Nullable
+    private final String tokenOverride;
+
     private @Nullable GitHub githubClient;
     private @Nullable GHRepository ghRepository;
 
-    public GitHubAuth(String owner, String repoName, @Nullable String host) {
+    public GitHubAuth(String owner, String repoName, @Nullable String host, @Nullable String tokenOverride) {
         this.owner = owner;
         this.repoName = repoName;
-        this.host = (host == null || host.isBlank()) ? null : host.trim(); // Store null if blank/default
+        this.host = (host == null || host.isBlank()) ? null : host.trim();
+        this.tokenOverride = tokenOverride;
+    }
+
+    public GitHubAuth(String owner, String repoName, @Nullable String host) {
+        this(owner, repoName, host, null);
     }
 
     /**
@@ -663,7 +671,7 @@ public class GitHubAuth {
         }
 
         // Try with token
-        var token = getStoredToken();
+        var token = (tokenOverride != null && !tokenOverride.isBlank()) ? tokenOverride : getStoredToken();
         var builder = createBaseBuilder();
         String targetHostDisplay = (this.host == null || this.host.isBlank()) ? "api.github.com" : this.host;
 
