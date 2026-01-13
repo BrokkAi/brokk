@@ -22,6 +22,7 @@ import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
+import org.eclipse.jgit.treewalk.FileTreeIterator;
 import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
 import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
@@ -265,6 +266,10 @@ public class GitRepoData {
      * of renames and file status tracking.
      */
     public List<ModifiedFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
+        if ("WORKING".equals(commitId)) {
+            return listFilesChangedBetweenCommits("WORKING", "HEAD");
+        }
+
         var commitObjectId = repo.resolveToCommit(commitId);
 
         try (var revWalk = new RevWalk(repository);
@@ -296,25 +301,39 @@ public class GitRepoData {
     /** Lists files changed between two commit SHAs (from oldCommitId to newCommitId). */
     public List<ModifiedFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
             throws GitAPIException {
-        var newObjectId = repo.resolveToCommit(newCommitId);
-        var oldObjectId = repo.resolveToCommit(oldCommitId);
-
-        if (newObjectId.equals(oldObjectId)) {
-            logger.debug(
-                    "listFilesChangedBetweenCommits: newCommitId and oldCommitId are the same ('{}'). Returning empty list.",
-                    newCommitId);
-            return List.of();
+        if (oldCommitId.isBlank()) {
+            throw new IllegalArgumentException("oldCommitId must not be blank");
         }
 
-        try (var revWalk = new RevWalk(repository)) {
-            var newCommit = revWalk.parseCommit(newObjectId);
-            var oldCommit = revWalk.parseCommit(oldObjectId);
+        try (var revWalk = new RevWalk(repository);
+                var diffFormatter = new DiffFormatter(new ByteArrayOutputStream())) {
+            diffFormatter.setRepository(repository);
+            diffFormatter.setDetectRenames(true);
 
-            try (var diffFormatter =
-                    new DiffFormatter(new ByteArrayOutputStream())) { // Output stream is not used for listing files
-                diffFormatter.setRepository(repository);
-                diffFormatter.setDetectRenames(true); // Enable rename detection to avoid leaking old paths
-                var diffs = diffFormatter.scan(oldCommit.getTree(), newCommit.getTree());
+            var oldCommit = revWalk.parseCommit(repo.resolveToCommit(oldCommitId));
+            var oldTreeIter = new CanonicalTreeParser();
+            try (var reader = repository.newObjectReader()) {
+                oldTreeIter.reset(reader, oldCommit.getTree());
+            }
+
+            if ("WORKING".equals(newCommitId)) {
+                var diffs = diffFormatter.scan(oldTreeIter, new FileTreeIterator(repository));
+                return extractFilesFromDiffEntries(diffs);
+            } else {
+                var newObjectId = repo.resolveToCommit(newCommitId);
+                if (newObjectId.equals(oldCommit.getId())) {
+                    logger.debug(
+                            "listFilesChangedBetweenCommits: newCommitId and oldCommitId are the same ('{}'). Returning empty list.",
+                            newCommitId);
+                    return List.of();
+                }
+                var newCommit = revWalk.parseCommit(newObjectId);
+                var newTreeIter = new CanonicalTreeParser();
+                try (var reader = repository.newObjectReader()) {
+                    newTreeIter.reset(reader, newCommit.getTree());
+                }
+
+                var diffs = diffFormatter.scan(oldTreeIter, newTreeIter);
                 return extractFilesFromDiffEntries(diffs);
             }
         } catch (IOException e) {

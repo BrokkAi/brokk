@@ -2225,4 +2225,32 @@ public class GitRepoTest {
         assertEquals("file2.txt", result.get(1).file().getFileName().toString());
         assertEquals("zzz.txt", result.get(2).file().getFileName().toString());
     }
+
+    @Test
+    void testListFilesChangedBetweenCommits_Working() throws Exception {
+        // 1. Initial state
+        createCommit("file1.txt", "content1", "Initial commit");
+        String initialCommit = repo.getCurrentCommitId();
+
+        // 2. Modify file and add new file in working directory
+        Files.writeString(projectRoot.resolve("file1.txt"), "modified content");
+        Files.writeString(projectRoot.resolve("file2.txt"), "new content");
+
+        // 3. List changes using "WORKING"
+        var result = repo.listFilesChangedBetweenCommits("WORKING", initialCommit);
+
+        // Should detect modification of file1.txt.
+        // FileTreeIterator includes untracked files by default in scan() results.
+        var modified = result.stream()
+                .filter(f -> f.file().getFileName().equals("file1.txt"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("file1.txt not found in changes"));
+        assertEquals(IGitRepo.ModificationType.MODIFIED, modified.status());
+
+        var added = result.stream()
+                .filter(f -> f.file().getFileName().equals("file2.txt"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("file2.txt (untracked) not found in changes"));
+        assertEquals(IGitRepo.ModificationType.NEW, added.status());
+    }
 }

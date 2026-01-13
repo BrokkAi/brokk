@@ -448,11 +448,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             case NON_DEFAULT_BRANCH, DEFAULT_WITH_UPSTREAM -> {
                 leftCommitSha = repo.getMergeBase("HEAD", baselineLabel);
                 if (leftCommitSha != null) {
-                    var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                    var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "WORKING");
                     for (var mf : myChanges) {
                         fileMap.putIfAbsent(mf.file(), mf);
                     }
-                    commits = repo.listCommitsBetweenBranches(leftCommitSha, "HEAD", false);
+                    commits = repo.listCommitsBetweenBranches(leftCommitSha, "WORKING", false);
                 } else {
                     leftCommitSha = "HEAD";
                 }
@@ -468,7 +468,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
             case SESSION -> {
                 leftCommitSha = baselineLabel;
-                var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
+                var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "WORKING");
                 for (var mf : myChanges) {
                     fileMap.putIfAbsent(mf.file(), mf);
                 }
