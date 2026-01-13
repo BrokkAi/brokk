@@ -107,9 +107,7 @@ public class JavaTestDetectionTest {
             JavaAnalyzer analyzer = new JavaAnalyzer(project);
             analyzer = (JavaAnalyzer) analyzer.update();
 
-            assertTrue(
-                    analyzer.containsTests(file),
-                    "Should detect qualified and whitespace-padded test annotations");
+            assertTrue(analyzer.containsTests(file), "Should detect qualified and whitespace-padded test annotations");
         }
     }
 }
