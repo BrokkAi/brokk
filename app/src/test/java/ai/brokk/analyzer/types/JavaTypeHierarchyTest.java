@@ -57,7 +57,7 @@ public class JavaTypeHierarchyTest {
                             """,
                     txt);
 
-            var supporting = frag.supportingFragments(analyzer);
+            var supporting = frag.supportingFragments();
             assertEquals(1, supporting.size());
             var ancestor =
                     (ContextFragments.SummaryFragment) supporting.iterator().next();
@@ -111,7 +111,7 @@ public class JavaTypeHierarchyTest {
                             """,
                     txt);
 
-            var supporting = frag.supportingFragments(analyzer);
+            var supporting = frag.supportingFragments();
             assertEquals(1, supporting.size());
             var ancestor =
                     (ContextFragments.SummaryFragment) supporting.iterator().next();
@@ -174,7 +174,7 @@ public class JavaTypeHierarchyTest {
                             """,
                     txt);
 
-            var supportingIdentifiers = frag.supportingFragments(analyzer).stream()
+            var supportingIdentifiers = frag.supportingFragments().stream()
                     .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
                     .collect(Collectors.toSet());
             assertEquals(Set.of("BaseClass", "ServiceInterface", "Interface"), supportingIdentifiers);
@@ -210,7 +210,7 @@ public class JavaTypeHierarchyTest {
                             }
                             """,
                     txt);
-            assertTrue(frag.supportingFragments(analyzer).isEmpty());
+            assertTrue(frag.supportingFragments().isEmpty());
         }
     }
 

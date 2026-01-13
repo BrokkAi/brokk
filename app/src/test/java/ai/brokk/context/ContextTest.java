@@ -7,7 +7,6 @@ import ai.brokk.TaskEntry;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.ExternalFile;
-import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestAnalyzer;
@@ -19,7 +18,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -434,7 +432,7 @@ class ContextTest {
                 new ContextFragments.StringFragment(
                         contextManager, "primary", "primary", SyntaxConstants.SYNTAX_STYLE_NONE) {
                     @Override
-                    public Set<ContextFragment> supportingFragments(@Nullable IAnalyzer analyzer) {
+                    public Set<ContextFragment> supportingFragments() {
                         return Set.of(supporting);
                     }
                 };

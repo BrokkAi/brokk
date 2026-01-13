@@ -137,7 +137,6 @@ public class Context {
         }
 
         // Expand with supporting fragments while guarding against cycles and redundancy.
-        IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
         LinkedHashSet<ContextFragment> expanded = new LinkedHashSet<>();
         Deque<ContextFragment> queue = new ArrayDeque<>(toAdd);
 
@@ -147,7 +146,7 @@ public class Context {
             // This is expensive, O(N^2), keep an eye on this
             if (expanded.stream().noneMatch(f::hasSameSource)) {
                 expanded.add(f);
-                queue.addAll(f.supportingFragments(analyzer));
+                queue.addAll(f.supportingFragments());
             }
         }
 

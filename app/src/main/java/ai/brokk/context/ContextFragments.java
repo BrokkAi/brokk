@@ -83,7 +83,11 @@ public class ContextFragments {
      * Filters out anonymous units.
      */
     public static Set<ContextFragment> resolveAncestorFragments(
-            Collection<CodeUnit> units, IContextManager contextManager, IAnalyzer analyzer) {
+            Collection<CodeUnit> units, IContextManager contextManager) {
+        IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+        if (analyzer == null) {
+            return Set.of();
+        }
         return units.stream()
                 .filter(CodeUnit::isClass)
                 .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
@@ -482,11 +486,12 @@ public class ContextFragments {
         }
 
         @Override
-        public Set<ContextFragment> supportingFragments(@Nullable IAnalyzer analyzer) {
+        public Set<ContextFragment> supportingFragments() {
+            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
             if (analyzer == null) {
                 return Set.of();
             }
-            return resolveAncestorFragments(analyzer.getDeclarations(file), contextManager, analyzer);
+            return resolveAncestorFragments(analyzer.getDeclarations(file), contextManager);
         }
     }
 
@@ -1461,11 +1466,12 @@ public class ContextFragments {
         }
 
         @Override
-        public Set<ContextFragment> supportingFragments(@Nullable IAnalyzer analyzer) {
+        public Set<ContextFragment> supportingFragments() {
+            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
             if (analyzer == null) {
                 return Set.of();
             }
-            return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager, analyzer);
+            return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager);
         }
     }
 
@@ -1696,7 +1702,8 @@ public class ContextFragments {
         }
 
         @Override
-        public Set<ContextFragment> supportingFragments(@Nullable IAnalyzer analyzer) {
+        public Set<ContextFragment> supportingFragments() {
+            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
             if (analyzer == null || summaryType != SummaryType.CODEUNIT_SKELETON) {
                 return Set.of();
             }
