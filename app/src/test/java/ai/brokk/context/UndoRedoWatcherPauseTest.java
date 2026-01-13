@@ -2,6 +2,7 @@ package ai.brokk.context;
 
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestAnalyzerWrapper;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
@@ -19,7 +20,8 @@ public class UndoRedoWatcherPauseTest {
         ContextManager cm = new ContextManager(project);
 
         // Inject FakeAnalyzerWrapper into ContextManager via reflection
-        TestAnalyzerWrapper fake = new TestAnalyzerWrapper();
+        TestAnalyzer analyzer = new TestAnalyzer();
+        TestAnalyzerWrapper fake = new TestAnalyzerWrapper(analyzer);
         cm.setAnalyzerWrapper(fake);
 
         // Create a file in the temp project (not strictly required for pause/resume semantics)
