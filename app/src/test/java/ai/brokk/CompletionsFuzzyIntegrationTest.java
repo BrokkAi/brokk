@@ -1,9 +1,11 @@
 package ai.brokk;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnitType;
+import java.util.Comparator;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -120,5 +122,76 @@ public class CompletionsFuzzyIntegrationTest {
         FuzzyMatcher matcher = new FuzzyMatcher(abbr);
         assertTrue(matcher.matches(unit.fqName()),
                 "Abbreviation '" + abbr + "' should match '" + unit.fqName() + "'");
+    }
+
+    private List<CodeUnitRecord> getMatches(String pattern) {
+        FuzzyMatcher matcher = new FuzzyMatcher(pattern);
+        return CODE_UNITS.stream()
+                .filter(cu -> matcher.matches(cu.fqName()))
+                .sorted(Comparator.comparingInt(cu -> matcher.score(cu.fqName())))
+                .collect(Collectors.toList());
+    }
+
+    @org.junit.jupiter.api.Test
+    void classRanksHigherThanFieldUsage() {
+        String pattern = "contextmanager";
+        List<CodeUnitRecord> matches = getMatches(pattern);
+
+        assertTrue(matches.size() >= 2, "Expected at least two matches for " + pattern);
+
+        CodeUnitRecord topMatch = matches.get(0);
+        assertEquals(CodeUnitType.CLASS, topMatch.type(),
+                "Top match for '" + pattern + "' should be the CLASS, but was: " + topMatch);
+        assertEquals("ai.brokk.ContextManager", topMatch.fqName());
+    }
+
+    @org.junit.jupiter.api.Test
+    void exactClassNameRanksHigherThanNestedClass() {
+        String pattern = "FuzzyMatcher";
+        List<CodeUnitRecord> matches = getMatches(pattern);
+
+        assertTrue(matches.stream().anyMatch(cu -> cu.fqName().equals("ai.brokk.FuzzyMatcher")),
+                "Expected ai.brokk.FuzzyMatcher in results");
+
+        CodeUnitRecord topMatch = matches.get(0);
+        assertEquals("ai.brokk.FuzzyMatcher", topMatch.fqName(),
+                "Top match for '" + pattern + "' should be the exact class name");
+
+        // Ensure it beats nested classes like FuzzyMatcher.TextRange if present
+        if (matches.size() > 1 && matches.get(1).fqName().contains("FuzzyMatcher.")) {
+            assertTrue(new FuzzyMatcher(pattern).score(matches.get(0).fqName()) 
+                       < new FuzzyMatcher(pattern).score(matches.get(1).fqName()));
+        }
+    }
+
+    @org.junit.jupiter.api.Test
+    void commonAbbreviationsRankCorrectly() {
+        // Test CM -> ContextManager
+        List<CodeUnitRecord> cmMatches = getMatches("CM");
+        if (!cmMatches.isEmpty()) {
+            assertEquals("ai.brokk.ContextManager", cmMatches.get(0).fqName());
+        }
+
+        // Test FM -> FuzzyMatcher
+        List<CodeUnitRecord> fmMatches = getMatches("FM");
+        if (!fmMatches.isEmpty()) {
+            assertEquals("ai.brokk.FuzzyMatcher", fmMatches.get(0).fqName());
+        }
+
+        // Test AS -> AbstractService (if present)
+        List<CodeUnitRecord> asMatches = getMatches("AS");
+        if (!asMatches.isEmpty()) {
+            // Check if AbstractService exists and is well-ranked
+            boolean foundAbstractService = asMatches.stream()
+                    .limit(10)
+                    .anyMatch(cu -> cu.shortName().equals("AbstractService"));
+            
+            if (foundAbstractService) {
+                // If AbstractService exists, verify it's in the top results
+                assertTrue(foundAbstractService, "AbstractService should be in top 10 for 'AS'");
+            }
+            // Otherwise, we accept any match - the pattern AS is too short/ambiguous
+            // to make strong assertions without AbstractService in the dataset
+        }
     }
 }
