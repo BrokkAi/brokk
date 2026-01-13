@@ -25,6 +25,9 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import org.jetbrains.annotations.Nullable;
@@ -44,6 +47,11 @@ public class HistoryTable extends JPanel implements ActivityTableRenderers.Histo
     private final Map<UUID, Boolean> groupExpandedState = new HashMap<>();
     private volatile List<HistoryGrouping.GroupDescriptor> latestDescriptors = List.of();
     private @Nullable ContextHistory currentHistory;
+
+    private final List<Consumer<Context>> selectionListeners = new CopyOnWriteArrayList<>();
+    private final List<Runnable> selectionClearedListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<Context>> doubleClickListeners = new CopyOnWriteArrayList<>();
+    private final List<BiConsumer<Context, MouseEvent>> contextMenuListeners = new CopyOnWriteArrayList<>();
 
     // Viewport preservation
     private enum PendingSelectionType {
@@ -109,8 +117,25 @@ public class HistoryTable extends JPanel implements ActivityTableRenderers.Histo
         BorderUtils.addFocusBorder(scrollPane, table);
         setupKeyboardNavigation();
         setupMouseListeners();
+        setupSelectionHandler();
 
         add(layer, BorderLayout.CENTER);
+    }
+
+    public void addSelectionListener(Consumer<Context> listener) {
+        selectionListeners.add(listener);
+    }
+
+    public void addSelectionClearedListener(Runnable listener) {
+        selectionClearedListeners.add(listener);
+    }
+
+    public void addDoubleClickListener(Consumer<Context> listener) {
+        doubleClickListeners.add(listener);
+    }
+
+    public void addContextMenuListener(BiConsumer<Context, MouseEvent> listener) {
+        contextMenuListeners.add(listener);
     }
 
     public JTable getTable() {
@@ -280,6 +305,27 @@ public class HistoryTable extends JPanel implements ActivityTableRenderers.Histo
         pendingViewportPosition = null;
     }
 
+    private void setupSelectionHandler() {
+        table.getSelectionModel().addListSelectionListener(e -> {
+            if (e.getValueIsAdjusting()) return;
+            int row = table.getSelectedRow();
+            if (row >= 0 && row < table.getRowCount()) {
+                Object val = model.getValueAt(row, COL_CONTEXT);
+                if (val instanceof Context ctx) {
+                    selectionListeners.forEach(l -> l.accept(ctx));
+                    if (currentHistory != null) {
+                        var ds = currentHistory.getDiffService();
+                        ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
+                    }
+                } else {
+                    selectionClearedListeners.forEach(Runnable::run);
+                }
+            } else {
+                selectionClearedListeners.forEach(Runnable::run);
+            }
+        });
+    }
+
     private void setupKeyboardNavigation() {
         // Allow Tab/Shift+Tab to exit the activity table instead of trapping focus
         table.setFocusTraversalKeysEnabled(false);
@@ -307,15 +353,40 @@ public class HistoryTable extends JPanel implements ActivityTableRenderers.Histo
                 int row = table.rowAtPoint(e.getPoint());
                 if (row < 0) return;
 
+                Object val = model.getValueAt(row, COL_CONTEXT);
+
                 if (SwingUtilities.isLeftMouseButton(e)) {
-                    Object val = model.getValueAt(row, COL_CONTEXT);
                     if (val instanceof GroupRow) {
                         toggleGroupRow(row);
+                    } else if (e.getClickCount() == 2 && val instanceof Context ctx) {
+                        doubleClickListeners.forEach(l -> l.accept(ctx));
+                    }
+                }
+            }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                maybeShowPopup(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                maybeShowPopup(e);
+            }
+
+            private void maybeShowPopup(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    int row = table.rowAtPoint(e.getPoint());
+                    if (row < 0) return;
+                    Object val = model.getValueAt(row, COL_CONTEXT);
+                    if (val instanceof Context ctx) {
+                        table.setRowSelectionInterval(row, row);
+                        contextMenuListeners.forEach(l -> l.accept(ctx, e));
                     }
                 }
             }
         });
-        
+
         // Pass clicks from empty viewport to table to request focus
         scrollPane.getViewport().addMouseListener(new MouseAdapter() {
             @Override

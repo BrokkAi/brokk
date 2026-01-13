@@ -1,6 +1,5 @@
 package ai.brokk.gui;
 
-import static ai.brokk.gui.ActivityTableRenderers.COL_CONTEXT;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
@@ -12,7 +11,6 @@ import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.gui.ActivityTableRenderers;
-import ai.brokk.gui.ActivityTableRenderers.GroupRow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
@@ -278,68 +276,24 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JPanel buildActivityPanel(HistoryTable historyTableComponent, MaterialButton undoButton, MaterialButton redoButton) {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
-        JTable historyTable = historyTableComponent.getTable();
 
-        // Add selection listener to preview context (ignore group header rows)
-        historyTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                int row = historyTable.getSelectedRow();
-                if (row >= 0 && row < historyTable.getRowCount()) {
-                    var val = historyTable.getModel().getValueAt(row, COL_CONTEXT);
-                    if (val instanceof Context ctx) {
-                        contextManager.setSelectedContext(ctx);
-                        // setContext is for *previewing* a context without changing selection state in the manager
-                        chrome.setContext(ctx);
+        historyTableComponent.addSelectionListener(ctx -> {
+            contextManager.setSelectedContext(ctx);
+            // setContext is for *previewing* a context without changing selection state in the manager
+            chrome.setContext(ctx);
+        });
 
-                        // On-demand diff for selection
-                        var ds = contextManager.getContextHistory().getDiffService();
-                        ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> historyTableComponent.adjustRowHeightForContext(ctx)));
-                    }
-                }
+        historyTableComponent.addDoubleClickListener(context -> {
+            if (isReviewContext(context)) {
+                loadReviewFromContext(context);
+            } else if (context.isAiResult()) {
+                openDiffPreview(context);
+            } else {
+                openOutputWindowFromContext(context);
             }
         });
 
-        // Add mouse listener for right-click context menu and double-click action
-        historyTable.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                int row = historyTable.rowAtPoint(e.getPoint());
-                if (row < 0) return;
-                var val = historyTable.getModel().getValueAt(row, COL_CONTEXT);
-
-                if (SwingUtilities.isLeftMouseButton(e)) {
-                    if (e.getClickCount() == 2 && val instanceof Context context) {
-                        if (isReviewContext(context)) {
-                            loadReviewFromContext(context);
-                        } else if (context.isAiResult()) {
-                            openDiffPreview(context);
-                        } else {
-                            openOutputWindowFromContext(context);
-                        }
-                    }
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showContextHistoryPopupMenuIfContext(e);
-                }
-            }
-
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showContextHistoryPopupMenuIfContext(e);
-                }
-            }
-
-            private void showContextHistoryPopupMenuIfContext(MouseEvent e) {
-                int row = historyTable.rowAtPoint(e.getPoint());
-                if (row < 0) return;
-                showContextHistoryPopupMenu(e);
-            }
-        });
+        historyTableComponent.addContextMenuListener((context, e) -> showPopupForContext(context, e.getX(), e.getY()));
 
         AutoScroller.install(historyTableComponent.getScrollPane());
 
@@ -397,26 +351,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             undoButton.setEnabled(contextManager.getContextHistory().hasUndoStates());
             redoButton.setEnabled(contextManager.getContextHistory().hasRedoStates());
         });
-    }
-
-    /**
-     * Shows the context menu for the context history table (supports Context and GroupRow).
-     */
-    private void showContextHistoryPopupMenu(MouseEvent e) {
-        var historyTable = historyTableComponent.getTable();
-        int row = historyTable.rowAtPoint(e.getPoint());
-        if (row < 0) return;
-
-        Object val = historyTable.getModel().getValueAt(row, COL_CONTEXT);
-
-        // Direct Context row: select and show popup
-        if (val instanceof Context context) {
-            historyTable.setRowSelectionInterval(row, row);
-            showPopupForContext(context, e.getX(), e.getY());
-            return;
-        }
-
-        // Group header rows are handled by the HistoryTable component itself for expansion
     }
 
     private void showPopupForContext(Context context, int x, int y) {

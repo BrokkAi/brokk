@@ -1,14 +1,12 @@
 package ai.brokk.gui.dialogs;
 
 import static ai.brokk.SessionManager.SessionInfo;
-import static ai.brokk.gui.ActivityTableRenderers.COL_CONTEXT;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
 import ai.brokk.SessionRegistry;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.WorkspaceItemsChipPanel;
 import ai.brokk.gui.components.LoadingTextBox;
@@ -132,23 +130,6 @@ public class SessionsDialog extends BaseThemedDialog {
         // Initialize history table component
         historyTable = new HistoryTable(contextManager, chrome);
 
-        // Add mouse listener for right-click context menu on activity table
-        historyTable.getTable().addMouseListener(new MouseAdapter() {
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showActivityContextMenu(e);
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showActivityContextMenu(e);
-                }
-            }
-        });
-
         // Initialize workspace panel for preview
         workspaceItemsChipPanel = new WorkspaceItemsChipPanel(chrome);
         workspaceItemsChipPanel.setReadOnly(true);
@@ -249,17 +230,16 @@ public class SessionsDialog extends BaseThemedDialog {
         });
 
         // Activity selection listener - update workspace and MOP
-        historyTable.getTable().getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                int row = historyTable.getTable().getSelectedRow();
-                if (row >= 0 && row < historyTable.getTable().getRowCount()) {
-                    selectedActivityContext = (Context) historyTable.getModel().getValueAt(row, COL_CONTEXT);
-                    updatePreviewPanels(selectedActivityContext);
-                } else {
-                    clearPreviewPanels();
-                }
-            }
+        historyTable.addSelectionListener(ctx -> {
+            selectedActivityContext = ctx;
+            updatePreviewPanels(ctx);
         });
+        historyTable.addSelectionClearedListener(() -> {
+            selectedActivityContext = null;
+            clearPreviewPanels();
+        });
+
+        historyTable.addContextMenuListener(this::showActivityContextMenu);
 
         // Add mouse listener for right-click context menu and double-click on sessions table
         sessionsTable.addMouseListener(new MouseAdapter() {
@@ -378,19 +358,7 @@ public class SessionsDialog extends BaseThemedDialog {
         markdownOutputPanel.clear();
     }
 
-    private void showActivityContextMenu(MouseEvent e) {
-        var table = historyTable.getTable();
-        int row = table.rowAtPoint(e.getPoint());
-        if (row < 0) return;
-
-        // Select the row if not already selected
-        table.setRowSelectionInterval(row, row);
-
-        Object value = historyTable.getModel().getValueAt(row, COL_CONTEXT);
-        if (!(value instanceof Context context)) {
-            return;
-        }
-
+    private void showActivityContextMenu(Context context, MouseEvent e) {
         JPopupMenu popup = new JPopupMenu();
 
         JMenuItem copyContextItem = new JMenuItem("Copy Context");
@@ -427,7 +395,7 @@ public class SessionsDialog extends BaseThemedDialog {
         // Register popup with theme manager
         chrome.getTheme().registerPopupMenu(popup);
 
-        popup.show(table, e.getX(), e.getY());
+        popup.show(e.getComponent(), e.getX(), e.getY());
     }
 
     public void refreshSessionsTable() {
