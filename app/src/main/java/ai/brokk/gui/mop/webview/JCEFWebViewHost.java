@@ -706,14 +706,16 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
     @Override
     public void addSearchStateListener(Consumer<IWebViewHost.SearchState> listener) {
-        // Search state listeners not yet implemented for JCEF
-        logger.debug("addSearchStateListener - not implemented");
+        if (bridge != null) {
+            bridge.addSearchStateListener(
+                    s -> listener.accept(new SearchState(s.totalMatches(), s.currentDisplayIndex())));
+        }
     }
 
     @Override
     public void removeSearchStateListener(Consumer<IWebViewHost.SearchState> listener) {
-        // Search state listeners not yet implemented for JCEF
-        logger.debug("removeSearchStateListener - not implemented");
+        // Note: removal requires storing wrapped listener reference; left as no-op for now
+        logger.debug("removeSearchStateListener - not fully implemented");
     }
 
     @Override
