@@ -832,7 +832,7 @@ public final class JobRunner {
                                                     buildAttempts++;
                                                     String buildError = ai.brokk.agents.BuildAgent.runVerification(
                                                             cm, buildDetailsOverride);
-                                                    if (buildError == null || buildError.isBlank()) {
+                                                    if (buildError.isBlank()) {
                                                         verified = true;
                                                         logger.info(
                                                                 "ISSUE job {} task '{}' verified successfully",
