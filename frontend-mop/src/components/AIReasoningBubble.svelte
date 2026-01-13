@@ -9,7 +9,7 @@
     const hlVar = '--message-border-ai-reasoning';
     const bgVar = '--message-background';
 
-    const reasoningState = bubble.reasoningState;
+    $: reasoningState = bubble.reasoningState;
 
     // Round to 1 decimal as the UI displays
     $: displayDuration = reasoningState?.duration != null ? Number(reasoningState.duration.toFixed(1)) : 0;
