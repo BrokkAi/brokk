@@ -766,10 +766,25 @@ public final class JobRunner {
                                             cm.getProject().setBuildDetails(buildDetails);
                                         }
 
+                                        // 3. Branch management
+                                        var gitRepo = (GitRepo) cm.getProject().getRepo();
+                                        String originalBranch = gitRepo.getCurrentBranch();
+                                        String defaultBranch = gitRepo.getDefaultBranch();
+
+                                        String proposedBranchName = "brokk/issue-" + issueNumber;
+                                        String issueBranchName = gitRepo.sanitizeBranchName(proposedBranchName);
+
+                                        logger.info(
+                                                "ISSUE job {}: Creating branch {} from {}",
+                                                jobId,
+                                                issueBranchName,
+                                                originalBranch);
+                                        gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
+
                                         String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
                                                 .formatted(issueNumber, details.title(), details.body());
 
-                                        // 3. Lutz-style execution: Planning then Task Iteration
+                                        // 4. Lutz-style execution: Planning then Task Iteration
                                         try (var scope = cm.beginTaskUngrouped(issueTaskPrompt)) {
                                             var context = cm.liveContext();
                                             var searchAgent = new LutzAgent(
