@@ -7,7 +7,12 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -1946,6 +1951,123 @@ public final class PythonAnalyzerTest {
             // Verify the old FQN format does NOT work
             var oldFormat = testAnalyzer.getDefinitions("mypkg.__init__$PackageClass");
             assertEquals(0, oldFormat.size(), "Old __init__ FQN format should not work anymore");
+        }
+    }
+
+    @Test
+    void testDiamondInheritanceSupportingFragments() throws Exception {
+        // Diamond inheritance pattern:
+        //       A
+        //      / \
+        //     B   C
+        //      \ /
+        //       D
+        // D extends both B and C, which both extend A.
+        // supportingFragments for D should return B and C (direct ancestors),
+        // and those should each return A, but Context deduplication should handle A appearing twice.
+
+        var builder = InlineTestProjectCreator.code(
+                        """
+                class A:
+                    def method_a(self):
+                        pass
+                """,
+                        "diamond/a.py")
+                .addFileContents(
+                        """
+                from .a import A
+
+                class B(A):
+                    def method_b(self):
+                        pass
+                """,
+                        "diamond/b.py")
+                .addFileContents(
+                        """
+                from .a import A
+
+                class C(A):
+                    def method_c(self):
+                        pass
+                """,
+                        "diamond/c.py")
+                .addFileContents(
+                        """
+                from .b import B
+                from .c import C
+
+                class D(B, C):
+                    def method_d(self):
+                        pass
+                """,
+                        "diamond/d.py")
+                .addFileContents("# Package marker\n", "diamond/__init__.py");
+
+        try (var testProject = builder.build()) {
+            var testAnalyzer = new PythonAnalyzer(testProject);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), testAnalyzer);
+
+            // Find class D
+            var dClass = testAnalyzer.getDefinitions("diamond.d.D");
+            assertEquals(1, dClass.size(), "Should find exactly one class D");
+            var classD = dClass.getFirst();
+
+            // Verify direct ancestors of D are B and C
+            var directAncestors = testAnalyzer.getDirectAncestors(classD);
+            assertEquals(2, directAncestors.size(), "D should have exactly 2 direct ancestors (B and C)");
+            var ancestorNames =
+                    directAncestors.stream().map(CodeUnit::identifier).collect(Collectors.toSet());
+            assertEquals(Set.of("B", "C"), ancestorNames, "D's direct ancestors should be B and C");
+
+            // Create a SummaryFragment for D and check supportingFragments
+            var summaryFragment = new ContextFragments.SummaryFragment(
+                    cm, "diamond.d.D", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+
+            var supporting = summaryFragment.supportingFragments();
+
+            // Should return SummaryFragments for B and C (direct ancestors)
+            var supportingIdentifiers = supporting.stream()
+                    .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                    .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
+                    .collect(Collectors.toSet());
+
+            assertEquals(
+                    Set.of("diamond.b.B", "diamond.c.C"),
+                    supportingIdentifiers,
+                    "supportingFragments should return B and C");
+
+            // Verify that B and C each have A as their ancestor
+            var bClass = testAnalyzer.getDefinitions("diamond.b.B").getFirst();
+            var cClass = testAnalyzer.getDefinitions("diamond.c.C").getFirst();
+
+            var bAncestors = testAnalyzer.getDirectAncestors(bClass);
+            var cAncestors = testAnalyzer.getDirectAncestors(cClass);
+
+            assertEquals(1, bAncestors.size(), "B should have 1 direct ancestor (A)");
+            assertEquals(1, cAncestors.size(), "C should have 1 direct ancestor (A)");
+            assertEquals("A", bAncestors.getFirst().identifier(), "B's ancestor should be A");
+            assertEquals("A", cAncestors.getFirst().identifier(), "C's ancestor should be A");
+
+            // Now verify that adding D's fragment to Context correctly expands all supporting fragments
+            // without infinite loops or duplicates (the diamond pattern means A would be reached twice)
+            var context = new Context(cm);
+            context = context.addFragments(summaryFragment);
+
+            // Context should contain the original fragment plus supporting fragments
+            var allFragments = context.allFragments().toList();
+            assertTrue(!allFragments.isEmpty(), "Context should contain at least the original fragment");
+
+            // Verify no duplicate supporting fragments by checking unique target identifiers
+            var summaryFragmentsInContext = allFragments.stream()
+                    .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                    .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
+                    .toList();
+
+            var uniqueIdentifiers = new HashSet<>(summaryFragmentsInContext);
+            assertEquals(
+                    uniqueIdentifiers.size(),
+                    summaryFragmentsInContext.size(),
+                    "Context should not contain duplicate SummaryFragments");
         }
     }
 

@@ -8,6 +8,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.agents.ReviewGenerationException;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.DiffProjectFileNavigationTarget;
@@ -27,8 +28,10 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -185,6 +188,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         buttonPanel.add(pullBtn);
         buttonPanel.add(pushBtn);
         buttonPanel.add(prBtn);
+        if (Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"))) {
+            buttonPanel.add(pasteBtn);
+        }
         buttonPanel.add(guidedReviewBtn);
         headerPanel.add(buttonPanel, BorderLayout.EAST);
 
@@ -986,8 +992,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      * @param markdown The markdown text containing the review
      * @param context The context associated with this review
      */
-    public void loadExternalReview(String markdown, ai.brokk.context.Context context) {
-        var review = ReviewParser.instance.parseMarkdownReview(markdown, java.util.Map.of());
+    public void loadExternalReview(String markdown, Context context) {
+        var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(contextManager, markdown);
+        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolvedExcerpts);
 
         var gitState = contextManager.getContextHistory().getGitState(context.id());
         @Nullable String hash = gitState.map(gs -> gs.commitHash()).orElse(null);
@@ -1018,35 +1025,48 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void handlePasteReview() {
-        try {
-            var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
-            if (!clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
-                return;
-            }
-            String clipboardData = (String) clipboard.getData(DataFlavor.stringFlavor);
-            if (clipboardData == null || clipboardData.isBlank()) {
-                return;
-            }
-
-            // Extract JSON from ToolExecutionRequest wrapper if present
-            String json = extractReviewJson(clipboardData);
-            if (json == null) {
-                return;
-            }
-
-            // Parse and display
-            var rawReview = ReviewParser.RawReview.fromJson(json);
-            var guidedReview = ReviewParser.GuidedReview.fromRaw(rawReview, Map.of());
-
-            SwingUtilities.invokeLater(() -> {
-                hasGeneratedReview = true;
-                requestUpdate(); // Re-trigger refreshUI to handle card layout and panel visibility
-                codeReviewPanel.displayReview(guidedReview, ai.brokk.context.Context.EMPTY);
-                codeReviewPanel.getListPanel().setStalenessNotice(null);
-            });
-        } catch (Exception ex) {
-            logger.debug("Failed to parse pasted review: {}", ex.getMessage());
+        var clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
+        if (!clipboard.isDataFlavorAvailable(DataFlavor.stringFlavor)) {
+            return;
         }
+        String clipboardData;
+        try {
+            clipboardData = (String) clipboard.getData(DataFlavor.stringFlavor);
+        } catch (UnsupportedFlavorException | IOException e) {
+            logger.warn(e);
+            return;
+        }
+        if (clipboardData == null || clipboardData.isBlank()) {
+            return;
+        }
+
+        // Extract JSON from ToolExecutionRequest wrapper if present
+        String json = extractReviewJson(clipboardData);
+        if (json == null) {
+            return;
+        }
+
+        // Parse and display
+        CompletableFuture.supplyAsync(() -> {
+                    var rawReview = ReviewParser.RawReview.fromJson(json);
+                    var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(contextManager, clipboardData);
+                    return ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
+                })
+                .thenAccept(guidedReview -> {
+                    SwingUtilities.invokeLater(() -> {
+                        hasGeneratedReview = true;
+                        requestUpdate(); // Re-trigger refreshUI to handle card layout and panel visibility
+                        codeReviewPanel.displayReview(guidedReview, Context.EMPTY);
+                        codeReviewPanel.getListPanel().setStalenessNotice(null);
+                    });
+                })
+                .exceptionally(ex -> {
+                    logger.warn("Failed to parse pasted review", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        chrome.toolError("Failed to parse review from clipboard: " + ex.getMessage());
+                    });
+                    return null;
+                });
     }
 
     private @Nullable String formatStalenessMessage(StalenessInfo staleness) {
