@@ -772,8 +772,7 @@ public final class JobRunner {
                                         String originalBranch = gitRepo.getCurrentBranch();
                                         String defaultBranch = gitRepo.getDefaultBranch();
 
-                                        String proposedBranchName = "brokk/issue-" + issueNumber;
-                                        String issueBranchName = gitRepo.sanitizeBranchName(proposedBranchName);
+                                        String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
 
                                         logger.info(
                                                 "ISSUE job {}: Creating branch {} from {}",

@@ -1,11 +1,13 @@
 package ai.brokk.executor.jobs;
 
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.git.GitRepo;
 import ai.brokk.util.Json;
 import java.io.IOException;
 import java.util.Objects;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.kohsuke.github.GHIssue;
@@ -63,5 +65,18 @@ public final class IssueService {
             logger.error("Failed to parse build settings JSON: {}", buildSettingsJson, e);
             throw new RuntimeException("Error parsing build settings", e);
         }
+    }
+
+    /**
+     * Generates a sanitized and unique branch name for an issue.
+     *
+     * @param issueNumber the GitHub issue number
+     * @param repo the Git repository to check for existing branches
+     * @return a sanitized branch name like "brokk/issue-42" (or "brokk/issue-42-2" if "brokk/issue-42" exists)
+     * @throws GitAPIException if checking existing branches fails
+     */
+    public static String generateBranchName(int issueNumber, GitRepo repo) throws GitAPIException {
+        String proposedName = "brokk/issue-" + issueNumber;
+        return repo.sanitizeBranchName(proposedName);
     }
 }
