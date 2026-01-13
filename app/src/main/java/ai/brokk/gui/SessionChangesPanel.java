@@ -32,7 +32,6 @@ import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -439,50 +438,30 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             return new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of(), null);
         }
 
-        Map<ProjectFile, GitRepo.ModifiedFile> fileMap = new HashMap<>();
-        String leftCommitSha = null;
+        String leftRef = null;
         String currentBranch = repo.getCurrentBranch();
         List<CommitInfo> commits = List.of();
 
         switch (baselineMode) {
             case NON_DEFAULT_BRANCH, DEFAULT_WITH_UPSTREAM -> {
-                leftCommitSha = repo.getMergeBase("HEAD", baselineLabel);
-                if (leftCommitSha != null) {
-                    var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "WORKING");
-                    for (var mf : myChanges) {
-                        fileMap.putIfAbsent(mf.file(), mf);
-                    }
-                    commits = repo.listCommitsBetweenBranches(leftCommitSha, "WORKING", false);
+                leftRef = repo.getMergeBase("HEAD", baselineLabel);
+                if (leftRef == null) {
+                    leftRef = "HEAD";
                 } else {
-                    leftCommitSha = "HEAD";
-                }
-                for (var mf : repo.getModifiedFiles()) {
-                    fileMap.put(mf.file(), mf);
+                    commits = repo.listCommitsBetweenBranches(leftRef, "HEAD", false);
                 }
             }
             case DEFAULT_LOCAL_ONLY -> {
-                for (var mf : repo.getModifiedFiles()) {
-                    fileMap.put(mf.file(), mf);
-                }
-                leftCommitSha = "HEAD";
+                leftRef = "HEAD";
             }
             case SESSION -> {
-                leftCommitSha = baselineLabel;
-                var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "WORKING");
-                for (var mf : myChanges) {
-                    fileMap.putIfAbsent(mf.file(), mf);
-                }
-                for (var mf : repo.getModifiedFiles()) {
-                    fileMap.put(mf.file(), mf);
-                }
+                leftRef = baselineLabel;
                 commits = List.of();
             }
             default -> throw new AssertionError();
         }
 
-        var fileSet = new HashSet<>(fileMap.values());
-        var summarizedChanges =
-                DiffService.computeComulativeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet, commits);
+        var summarizedChanges = DiffService.computeCumulativeDiff(repo, requireNonNull(leftRef), "WORKING", commits);
 
         GitWorkflow.PushPullState pushPullState = null;
         try {
@@ -545,7 +524,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public void updateContent(
             DiffService.CumulativeChanges res,
-            List<Map.Entry<String, DiffService.FragmentDiff>> prepared,
+            List<Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff>> prepared,
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
@@ -576,7 +555,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, DiffService.FragmentDiff> entry) {
+    private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff> entry) {
         ProjectFile pf = null;
         try {
             pf = contextManager.toFile(entry.getKey());
@@ -630,7 +609,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private void refreshUI(
             DiffService.CumulativeChanges res,
-            List<Map.Entry<String, DiffService.FragmentDiff>> prepared,
+            List<Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff>> prepared,
             @Nullable BaselineMode baselineMode) {
 
         updateDropdownLabels();

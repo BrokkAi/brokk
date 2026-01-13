@@ -27,6 +27,7 @@ import org.eclipse.jgit.treewalk.TreeWalk;
 import org.eclipse.jgit.treewalk.filter.PathFilter;
 import org.eclipse.jgit.treewalk.filter.PathFilterGroup;
 import org.eclipse.jgit.treewalk.filter.TreeFilter;
+import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -298,6 +299,82 @@ public class GitRepoData {
         }
     }
 
+    public record FileDiff(
+            @Nullable ProjectFile oldFile, @Nullable ProjectFile newFile, String oldText, String newText) {}
+
+    private List<DiffEntry> scanDiffs(String oldRef, String newRef) throws GitAPIException {
+        var oldTreeIter = prepareTreeParser(oldRef);
+        if (oldTreeIter == null) return List.of();
+
+        if (!"WORKING".equals(newRef)) {
+            try (var diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
+                diffFormatter.setRepository(repository);
+                diffFormatter.setDetectRenames(true);
+
+                var newTreeIter = prepareTreeParser(newRef);
+                if (newTreeIter == null) return List.of();
+                return diffFormatter.scan(oldTreeIter, newTreeIter);
+            } catch (IOException e) {
+                throw new GitRepo.GitWrappedIOException(e);
+            }
+        }
+
+        // Optimization: avoid full working tree hash computation by pre-filtering paths.
+        // 1. Get paths changed between oldRef and HEAD (fast commit-to-commit comparison)
+        // 2. Get paths changed in working tree from status (optimized, uses index cache)
+        // 3. Union and filter the diff to only those paths
+        var changedPaths = new HashSet<String>();
+
+        // Part 1: Paths changed between oldRef and HEAD (if they differ)
+        var headTreeIter = prepareTreeParser("HEAD");
+        if (headTreeIter != null && !oldRef.equals("HEAD")) {
+            try (var diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
+                diffFormatter.setRepository(repository);
+                diffFormatter.setDetectRenames(true);
+                for (var entry : diffFormatter.scan(oldTreeIter, headTreeIter)) {
+                    if (!"/dev/null".equals(entry.getOldPath())) {
+                        changedPaths.add(entry.getOldPath());
+                    }
+                    if (!"/dev/null".equals(entry.getNewPath())) {
+                        changedPaths.add(entry.getNewPath());
+                    }
+                }
+            } catch (IOException e) {
+                throw new GitRepo.GitWrappedIOException(e);
+            }
+            // Re-prepare oldTreeIter since DiffFormatter consumed it
+            oldTreeIter = prepareTreeParser(oldRef);
+            if (oldTreeIter == null) return List.of();
+        }
+
+        // Part 2: Paths changed in working tree (from status)
+        var status = git.status().call();
+        changedPaths.addAll(status.getModified());
+        changedPaths.addAll(status.getChanged());
+        changedPaths.addAll(status.getAdded());
+        changedPaths.addAll(status.getRemoved());
+        changedPaths.addAll(status.getMissing());
+        // Notably: NOT including getUntracked() - we don't want untracked files
+
+        if (changedPaths.isEmpty()) {
+            return List.of();
+        }
+
+        // Part 3: Run filtered diff from oldRef to WORKING using DiffFormatter for rename detection
+        var filters = changedPaths.stream().map(PathFilter::create).collect(Collectors.toCollection(ArrayList::new));
+        var filterGroup = PathFilterGroup.create(filters);
+
+        try (var diffFormatter = new DiffFormatter(DisabledOutputStream.INSTANCE)) {
+            diffFormatter.setRepository(repository);
+            diffFormatter.setDetectRenames(true);
+            diffFormatter.setPathFilter(filterGroup);
+            var workingTreeIter = new FileTreeIterator(repository);
+            return diffFormatter.scan(oldTreeIter, workingTreeIter);
+        } catch (IOException e) {
+            throw new GitRepo.GitWrappedIOException(e);
+        }
+    }
+
     /** Lists files changed between two commit SHAs (from oldCommitId to newCommitId). */
     public List<ModifiedFile> listFilesChangedBetweenCommits(String oldCommitId, String newCommitId)
             throws GitAPIException {
@@ -308,39 +385,43 @@ public class GitRepoData {
             throw new IllegalArgumentException("newCommitId must not be blank");
         }
 
-        try (var revWalk = new RevWalk(repository);
-                var diffFormatter = new DiffFormatter(new ByteArrayOutputStream())) {
-            diffFormatter.setRepository(repository);
-            diffFormatter.setDetectRenames(true);
+        var diffs = scanDiffs(oldCommitId, newCommitId);
+        return extractFilesFromDiffEntries(diffs);
+    }
 
-            var oldCommit = revWalk.parseCommit(repo.resolveToCommit(oldCommitId));
-            var oldTreeIter = new CanonicalTreeParser();
-            try (var reader = repository.newObjectReader()) {
-                oldTreeIter.reset(reader, oldCommit.getTree());
-            }
+    /** Returns structured diffs between two references, including content and rename detection. */
+    public List<FileDiff> getFileDiffs(String oldRef, String newRef) throws GitAPIException {
+        var diffs = scanDiffs(oldRef, newRef);
+        var result = new ArrayList<FileDiff>();
 
-            if ("WORKING".equals(newCommitId)) {
-                var diffs = diffFormatter.scan(oldTreeIter, new FileTreeIterator(repository));
-                return extractFilesFromDiffEntries(diffs);
-            } else {
-                var newObjectId = repo.resolveToCommit(newCommitId);
-                if (newObjectId.equals(oldCommit.getId())) {
-                    logger.debug(
-                            "listFilesChangedBetweenCommits: newCommitId and oldCommitId are the same ('{}'). Returning empty list.",
-                            newCommitId);
-                    return List.of();
-                }
-                var newCommit = revWalk.parseCommit(newObjectId);
-                var newTreeIter = new CanonicalTreeParser();
-                try (var reader = repository.newObjectReader()) {
-                    newTreeIter.reset(reader, newCommit.getTree());
-                }
+        for (var entry : diffs) {
+            var oldPath = entry.getOldPath();
+            var newPath = entry.getNewPath();
 
-                var diffs = diffFormatter.scan(oldTreeIter, newTreeIter);
-                return extractFilesFromDiffEntries(diffs);
-            }
-        } catch (IOException e) {
-            throw new GitRepo.GitWrappedIOException(e);
+            var oldFile = entry.getChangeType() == DiffEntry.ChangeType.ADD
+                    ? null
+                    : repo.toProjectFile(oldPath).orElse(null);
+            var newFile = entry.getChangeType() == DiffEntry.ChangeType.DELETE
+                    ? null
+                    : repo.toProjectFile(newPath).orElse(null);
+
+            String oldText = (oldFile != null) ? getRefContent(oldRef, oldFile) : "";
+            String newText = (newFile != null) ? getRefContent(newRef, newFile) : "";
+
+            result.add(new FileDiff(oldFile, newFile, oldText, newText));
+        }
+        return result;
+    }
+
+    private String getRefContent(String ref, ProjectFile file) throws GitAPIException {
+        if ("WORKING".equals(ref)) {
+            return file.read().orElse("");
+        }
+        try {
+            return getFileContent(ref, file);
+        } catch (Exception e) {
+            logger.debug("File {} not found at ref {}, treating as empty", file, ref);
+            return "";
         }
     }
 

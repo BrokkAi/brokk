@@ -6,6 +6,7 @@ import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
@@ -323,115 +324,62 @@ public final class DiffService {
     }
 
     /**
-     * Summarizes cumulative changes between two Git references for a given set of files.
-     * Handles git IO errors gracefully by skipping problematic files rather than failing the entire operation.
+     * Summarizes cumulative changes between two Git references.
+     * Uses JGit's structured diff for proper rename and copy detection.
      *
      * @param repo the Git repository
      * @param leftRef the baseline commit/branch reference (left/old side)
      * @param rightRef the target commit/branch reference (right/new side)
-     * @param files the set of modified files to diff
+     * @param commits the list of commits in the range
      * @return CumulativeChanges with per-file diffs and aggregated statistics
      */
     @Blocking
-    public static CumulativeChanges computeComulativeDiff(
-            IGitRepo repo,
-            String leftRef,
-            String rightRef,
-            Set<IGitRepo.ModifiedFile> files,
-            List<CommitInfo> commits) {
+    public static CumulativeChanges computeCumulativeDiff(
+            IGitRepo repo, String leftRef, String rightRef, List<CommitInfo> commits) {
         if (!(repo instanceof GitRepo gitRepo)) {
             return new CumulativeChanges(0, 0, 0, List.of(), commits);
         }
 
-        if (files.isEmpty()) {
+        List<FileDiff> fileDiffs;
+        try {
+            fileDiffs = gitRepo.data().getFileDiffs(leftRef, rightRef);
+        } catch (GitAPIException e) {
+            logger.error("Failed to compute cumulative diff: {}", e.getMessage());
             return new CumulativeChanges(0, 0, 0, List.of(), commits);
         }
 
-        List<FragmentDiff> perFileChanges = new ArrayList<>();
+        int totalAdded = 0;
+        int totalDeleted = 0;
+        for (var fd : fileDiffs) {
+            var res = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new");
+            totalAdded += res.added();
+            totalDeleted += res.deleted();
+        }
 
-        files.stream()
-                .sorted(Comparator.comparing(mf -> mf.file().getRelPath()))
-                .forEach(modFile -> {
-                    var file = modFile.file();
-
-                    // Compute left content based on left reference
-                    String leftContent = "";
-                    if (!leftRef.isBlank()) {
-                        if ("WORKING".equals(leftRef)) {
-                            leftContent = file.read().orElse("");
-                        } else {
-                            try {
-                                var leftFrag = ContextFragments.GitFileFragment.fromCommit(file, leftRef, gitRepo);
-                                leftContent = leftFrag.text().join();
-                            } catch (GitAPIException e) {
-                                // File doesn't exist at leftRef (new file) - treat as empty baseline
-                                logger.debug("File {} not found at {}, treating as new file", file, leftRef);
-                                leftContent = "";
-                            }
-                        }
-                    }
-
-                    // Build right-side fragment and extract content
-                    ContextFragments.GitFileFragment rightFrag;
-                    String rightContent;
-                    if ("WORKING".equals(rightRef)) {
-                        rightContent = file.read().orElse("");
-                        rightFrag = new ContextFragments.GitFileFragment(file, "WORKING", rightContent);
-                    } else {
-                        try {
-                            rightFrag = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-                            rightContent = rightFrag.text().join();
-                        } catch (GitAPIException e) {
-                            // File doesn't exist at rightRef (deleted file) - treat as empty right side
-                            logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
-                            rightContent = "";
-                            rightFrag = new ContextFragments.GitFileFragment(file, rightRef, rightContent);
-                        }
-                    }
-
-                    // Compute line counts
-                    var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
-                    int added = diffRes.added();
-                    int deleted = diffRes.deleted();
-
-                    // Skip if no changes
-                    if (added == 0 && deleted == 0) {
-                        return;
-                    }
-
-                    synchronized (perFileChanges) {
-                        perFileChanges.add(
-                                new FragmentDiff(rightFrag, diffRes.diff(), added, deleted, leftContent, rightContent));
-                    }
-                });
-
-        int totalAdded =
-                perFileChanges.stream().mapToInt(FragmentDiff::linesAdded).sum();
-        int totalDeleted =
-                perFileChanges.stream().mapToInt(FragmentDiff::linesDeleted).sum();
-
-        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, commits);
+        return new CumulativeChanges(fileDiffs.size(), totalAdded, totalDeleted, fileDiffs, commits);
     }
 
     /**
-     * Pre-computes titles for DiffEntries off-EDT to avoid blocking calls on the UI thread.
+     * Pre-computes titles for FileDiffs off-EDT to avoid blocking calls on the UI thread.
      * Deduplicates by title and returns a stable-sorted list.
      *
      * @param res the cumulative changes containing per-file diff entries
-     * @return list of (title, DiffEntry) pairs sorted by title
+     * @return list of (title, FileDiff) pairs sorted by title
      */
     @Blocking
-    public static List<Map.Entry<String, FragmentDiff>> preparePerFileSummaries(CumulativeChanges res) {
-        var list = new ArrayList<Map.Entry<String, FragmentDiff>>(
-                res.perFileChanges().size());
+    public static List<Map.Entry<String, FileDiff>> preparePerFileSummaries(CumulativeChanges res) {
+        var list =
+                new ArrayList<Map.Entry<String, FileDiff>>(res.perFileChanges().size());
         var seen = new HashSet<String>();
-        for (var de : res.perFileChanges()) {
-            String title = de.title();
+        for (var fd : res.perFileChanges()) {
+            var file = fd.newFile() != null ? fd.newFile() : fd.oldFile();
+            if (file == null) continue;
+            String title = file.getRelPath().toString();
             if (!seen.add(title)) {
                 logger.warn("Duplicate cumulative change title '{}' detected; skipping extra entry.", title);
                 continue;
             }
-            list.add(Map.entry(title, de));
+            list.add(Map.entry(title, fd));
         }
         list.sort(Map.Entry.comparingByKey());
         return list;
@@ -442,7 +390,7 @@ public final class DiffService {
             int filesChanged,
             int totalAdded,
             int totalDeleted,
-            List<FragmentDiff> perFileChanges,
+            List<FileDiff> perFileChanges,
             List<CommitInfo> commits,
             // null when we don't have a GitRepo
             @Nullable GitWorkflow.PushPullState pushPullState) {
@@ -452,7 +400,7 @@ public final class DiffService {
                 int filesChanged,
                 int totalAdded,
                 int totalDeleted,
-                List<FragmentDiff> perFileChanges,
+                List<FileDiff> perFileChanges,
                 List<CommitInfo> commits) {
             this(filesChanged, totalAdded, totalDeleted, perFileChanges, commits, null);
         }
