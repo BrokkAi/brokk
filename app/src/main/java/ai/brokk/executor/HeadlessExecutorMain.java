@@ -1421,27 +1421,12 @@ public final class HeadlessExecutorMain {
 
             var jobSpec = JobSpec.ofIssue(
                     request.plannerModel(),
+                    request.codeModel() != null ? request.codeModel().strip() : null,
                     request.githubToken(),
                     request.owner(),
                     request.repo(),
                     request.issueNumber(),
                     buildSettingsJson);
-
-            // Add codeModel to spec if provided (JobSpec.ofIssue doesn't take it directly,
-            // so we rely on the tags and fields being correctly populated via the internal factory)
-            if (request.codeModel() != null && !request.codeModel().isBlank()) {
-                jobSpec = new JobSpec(
-                        jobSpec.taskInput(),
-                        jobSpec.autoCommit(),
-                        jobSpec.autoCompress(),
-                        jobSpec.plannerModel(),
-                        jobSpec.scanModel(),
-                        request.codeModel().strip(),
-                        jobSpec.preScan(),
-                        jobSpec.tags(),
-                        jobSpec.sourceBranch(),
-                        jobSpec.targetBranch());
-            }
 
             // Create or get job
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);

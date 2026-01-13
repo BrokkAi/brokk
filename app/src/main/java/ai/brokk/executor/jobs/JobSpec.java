@@ -65,6 +65,7 @@ public record JobSpec(
      */
     public static JobSpec ofIssue(
             String plannerModel,
+            @Nullable String codeModel,
             String githubToken,
             String owner,
             String repo,
@@ -76,7 +77,7 @@ public record JobSpec(
                 false,
                 plannerModel,
                 null,
-                null,
+                codeModel,
                 false,
                 Map.of(
                         "github_token", githubToken,

@@ -143,7 +143,7 @@ public final class JobRunner {
 
                 var completed = new AtomicInteger(0);
 
-                var rawCodeModelName = spec.codeModel();
+                var rawCodeModelName = spec.codeModel() != null ? spec.codeModel() : spec.tags().get("code_model");
                 var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();
                 var hasCodeModelOverride = trimmedCodeModelName != null && !trimmedCodeModelName.isEmpty();
 
