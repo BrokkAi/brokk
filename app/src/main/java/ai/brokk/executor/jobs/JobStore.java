@@ -86,10 +86,21 @@ public final class JobStore {
         Files.createDirectories(jobDir);
         Files.createDirectories(jobDir.resolve("artifacts"));
 
-        // Write meta.json (immutable)
+        // Write meta.json (immutable) - use redacted tags to avoid persisting secrets
         var metaFile = jobDir.resolve("meta.json");
         var tempMetaFile = jobDir.resolve(".meta.json.tmp");
-        objectMapper.writeValue(tempMetaFile.toFile(), spec);
+        var specForPersistence = new JobSpec(
+                spec.taskInput(),
+                spec.autoCommit(),
+                spec.autoCompress(),
+                spec.plannerModel(),
+                spec.scanModel(),
+                spec.codeModel(),
+                spec.preScan(),
+                spec.redactedTags(),
+                spec.sourceBranch(),
+                spec.targetBranch());
+        objectMapper.writeValue(tempMetaFile.toFile(), specForPersistence);
         Files.move(tempMetaFile, metaFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
         // Write initial status.json
