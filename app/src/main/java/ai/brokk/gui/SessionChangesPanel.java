@@ -30,6 +30,7 @@ import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -82,6 +83,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private BaselineMode lastBaselineMode = null;
 
     private final ai.brokk.difftool.ui.DiffDisplayCore diffCore;
+
 
     private final ai.brokk.difftool.ui.FileTreePanel fileTreePanel;
 
@@ -158,8 +160,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
-        // Create toolbar with viewOnly features (no edit/capture for review diffs)
-        this.diffToolbar = new DiffToolbarPanel(ToolbarFeature.viewOnly(), createToolbarCallbacks());
+        // Create toolbar with navigation and font controls only (no view mode toggle or tools menu)
+        var reviewFeatures = java.util.EnumSet.of(
+                ToolbarFeature.CHANGE_NAVIGATION,
+                ToolbarFeature.FILE_NAVIGATION,
+                ToolbarFeature.FONT_CONTROLS);
+        this.diffToolbar = new DiffToolbarPanel(reviewFeatures, createToolbarCallbacks());
 
         // Wrap diffContainer with toolbar at top
         var diffWithToolbar = new JPanel(new BorderLayout());
@@ -269,6 +275,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             @Override
             protected ai.brokk.difftool.ui.AbstractDiffPanel createPanel(
                     int index, ai.brokk.difftool.node.JMDiffNode diffNode) {
+                // Review panel always uses unified view with full context
                 var panel = new ai.brokk.difftool.ui.unified.UnifiedDiffPanel(dummyPanel, chrome.getTheme(), diffNode);
                 panel.setContextMode(ai.brokk.difftool.ui.unified.UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
                 panel.applyTheme(chrome.getTheme());
@@ -322,7 +329,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 diffContainer.repaint();
 
                 // Update toolbar button states after panel is displayed
-                SwingUtilities.invokeLater(() -> diffToolbar.updateButtonStates());
+                SwingUtilities.invokeLater(() -> {
+                    diffToolbar.updateButtonStates();
+                    // Request focus on the panel to prevent focus going elsewhere
+                    panel.getComponent().requestFocusInWindow();
+                });
             }
         };
     }
@@ -1215,7 +1226,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     /** Initialize font index from settings if not already set */
     private void ensureFontIndexInitialized() {
         if (currentFontIndex == -1) {
-            float saved = ai.brokk.util.GlobalUiSettings.getEditorFontSize();
+            float saved = GlobalUiSettings.getEditorFontSize();
             if (saved > 0f) {
                 // Find closest font index for the saved size
                 int closestIndex = EditorFontSizeControl.DEFAULT_FONT_INDEX;
@@ -1335,7 +1346,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             @Override
             public void setShowBlankLineDiffs(boolean show) {
-                // Not supported in review panel
+                // Not applicable - review panel uses unified view
             }
 
             @Override
@@ -1394,7 +1405,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             @Override
             public boolean isUnifiedView() {
-                return true;
+                return true; // Review panel always uses unified view
             }
 
             @Override
@@ -1414,12 +1425,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             @Override
             public boolean isShowingAllLines() {
-                return true;
+                return true; // Review panel always shows all lines
             }
 
             @Override
             public boolean isShowingBlankLineDiffs() {
-                return false;
+                return false; // Not applicable - review panel uses unified view
             }
 
             @Override
@@ -1453,7 +1464,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             private void applyFontSizeToAllPanels() {
                 if (currentFontIndex < 0) return;
                 float fontSize = EditorFontSizeControl.FONT_SIZES.get(currentFontIndex);
-                ai.brokk.util.GlobalUiSettings.saveEditorFontSize(fontSize);
+                GlobalUiSettings.saveEditorFontSize(fontSize);
                 for (var panel : diffCore.getCachedPanels()) {
                     panel.applyEditorFontSize(fontSize);
                 }
