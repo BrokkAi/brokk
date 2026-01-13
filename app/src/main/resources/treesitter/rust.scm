@@ -28,7 +28,7 @@
 (mod_item
   (visibility_modifier)? @keyword.modifier
   name: (identifier) @class.name
-) @class.definition
+) @module.definition
 
 ;; Impl blocks
 (impl_item
