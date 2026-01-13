@@ -747,20 +747,12 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
 
     @Override
     public void applyEditorFontSize(float size) {
-        applyDerivedFont(textArea, size);
-        textArea.revalidate();
-        textArea.repaint();
-
-        var gutter = customLineNumberList;
-        if (gutter != null) {
-            // Use textArea's font as base to ensure gutter matches exactly
-            var baseFont = textArea.getFont();
-            if (baseFont != null) {
-                gutter.setFont(baseFont);
-                gutter.setBlameFont(baseFont);
-            }
-            gutter.revalidate();
-            gutter.repaint();
+        if (customLineNumberList != null) {
+            applyFontToEditorAndGutter(textArea, customLineNumberList, size);
+        } else {
+            applyDerivedFont(textArea, size);
+            textArea.revalidate();
+            textArea.repaint();
         }
 
         scrollPane.revalidate();

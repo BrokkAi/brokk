@@ -1814,35 +1814,11 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
         var rightPanel = getFilePanel(PanelSide.RIGHT);
 
         if (leftPanel != null) {
-            var editor = leftPanel.getEditor();
-            applyDerivedFont(editor, size);
-            editor.revalidate();
-            editor.repaint();
-            var gutter = leftPanel.getGutterComponent();
-            // Use editor's font as base to ensure gutter matches exactly
-            var baseFont = editor.getFont();
-            if (baseFont != null) {
-                gutter.setFont(baseFont);
-                gutter.setBlameFont(baseFont);
-            }
-            gutter.revalidate();
-            gutter.repaint();
+            applyFontToEditorAndGutter(leftPanel.getEditor(), leftPanel.getGutterComponent(), size);
         }
 
         if (rightPanel != null) {
-            var editor = rightPanel.getEditor();
-            applyDerivedFont(editor, size);
-            editor.revalidate();
-            editor.repaint();
-            var gutter = rightPanel.getGutterComponent();
-            // Use editor's font as base to ensure gutter matches exactly
-            var baseFont = editor.getFont();
-            if (baseFont != null) {
-                gutter.setFont(baseFont);
-                gutter.setBlameFont(baseFont);
-            }
-            gutter.revalidate();
-            gutter.repaint();
+            applyFontToEditorAndGutter(rightPanel.getEditor(), rightPanel.getGutterComponent(), size);
         }
     }
 
