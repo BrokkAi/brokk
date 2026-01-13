@@ -15,6 +15,7 @@ import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -42,8 +43,7 @@ import org.jetbrains.annotations.Nullable;
 
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
-    private static final com.fasterxml.jackson.databind.ObjectMapper OBJECT_MAPPER =
-            new com.fasterxml.jackson.databind.ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     // Valid argument keys that the application accepts
     private static final Set<String> VALID_ARGS =
