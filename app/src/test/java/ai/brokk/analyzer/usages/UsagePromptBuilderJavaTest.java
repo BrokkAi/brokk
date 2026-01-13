@@ -119,15 +119,16 @@ public class UsagePromptBuilderJavaTest {
         CodeUnit alt2 = CodeUnit.fn(file, "another", "method2");
         UsageHit hit = new UsageHit(file, 10, 0, 10, enclosing, 1.0, "snippet");
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit, target, List.of(alt1, alt2), analyzer, "method2", 10_000);
+        UsagePrompt prompt =
+                UsagePromptBuilder.buildPrompt(hit, target, List.of(alt1, alt2), analyzer, "method2", 10_000);
 
         assertTrue(
                 prompt.filterDescription().contains("alternative code units"),
                 "filterDescription should mention alternatives");
 
         String text = prompt.promptText();
-        assertTrue(text.contains("Other Possible Matches:\nother.method2\nanother.method2"),
+        assertTrue(
+                text.contains("Other Possible Matches:\nother.method2\nanother.method2"),
                 "Prompt should list alternative fqNames");
     }
 
@@ -142,9 +143,7 @@ public class UsagePromptBuilderJavaTest {
 
         int maxTokens = 200; // 800 chars, well above the 512 min floor in the builder
         int maxChars = maxTokens * 4;
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit, target, List.of(), analyzer, "A.method2", maxTokens
-                );
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(hit, target, List.of(), analyzer, "A.method2", maxTokens);
 
         String text = prompt.promptText();
 
@@ -153,12 +152,14 @@ public class UsagePromptBuilderJavaTest {
 
         // 2. Verify length is within reasonable budget (maxChars + safety for marker/fence)
         // The builder uses maxChars as a target for the content before the marker.
-        assertTrue(text.length() <= maxChars + 100,
+        assertTrue(
+                text.length() <= maxChars + 100,
                 "Prompt length " + text.length() + " exceeded budget of " + (maxChars + 100));
 
         // 3. Verify it ends with closing fence (even if marker follows) or is well-formed
         // Note: The builder appends the marker AFTER the closing fence logic.
-        assertTrue(text.strip().endsWith("```") || text.contains("```\n... [truncated"),
+        assertTrue(
+                text.strip().endsWith("```") || text.contains("```\n... [truncated"),
                 "Prompt should contain a closing code fence to remain well-formed Markdown");
     }
 
