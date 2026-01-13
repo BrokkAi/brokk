@@ -236,10 +236,10 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         }
 
         // Compute effective isNew: force true if transient was visible
-        boolean effectiveIsNew = isNewMessage || wasTransientVisible;
+        boolean isNew = isNewMessage || wasTransientVisible;
 
         var lastMessageIsReasoning = !messages.isEmpty() && isReasoningMessage(messages.getLast());
-        if (effectiveIsNew
+        if (isNew
                 || messages.isEmpty()
                 || reasoning != lastMessageIsReasoning
                 || (!reasoning && type != messages.getLast().type())) {
@@ -253,7 +253,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             messages.set(lastIdx, Messages.create(combined, type, reasoning));
         }
 
-        webHost.append(text, effectiveIsNew, type, true, reasoning, terminal);
+        webHost.append(text, isNew, type, true, reasoning, terminal);
         textChangeListeners.forEach(Runnable::run);
     }
 
