@@ -7,6 +7,7 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 
 /**
  * Tools for discovering and importing dependencies.
@@ -21,6 +22,7 @@ public class DependencyTools {
         this.contextManager = cm;
     }
 
+    @Blocking
     @Tool("Import a Java dependency from Maven Central into Code Intelligence. "
             + "The library will be downloaded, decompiled, and added to the analyzer. "
             + "Use this when you need to understand or reference external library code.")
@@ -95,8 +97,21 @@ public class DependencyTools {
         var relativeOutput = projectRoot.relativize(result.outputDir());
         var sourceInfo = result.usedSources() ? " (from sources JAR)" : " (decompiled)";
 
-        return "Successfully imported %s to %s (%d Java files%s). "
-                + "The library is now available in Code Intelligence."
-                        .formatted(fullCoordinates, relativeOutput, result.filesExtracted(), sourceInfo);
+        // Register the dependency with the project so the analyzer indexes it
+        String depName = result.outputDir().getFileName().toString();
+        String intelligenceStatus;
+        try {
+            System.out.println("[DependencyTools] Adding " + depName + " to live dependencies...");
+            contextManager.getProject().addLiveDependency(depName, contextManager.getAnalyzerWrapper()).join();
+            intelligenceStatus = "The library has been added to live dependencies and Code Intelligence is updating.";
+        } catch (Exception e) {
+            logger.error("Failed to add live dependency: {}", depName, e);
+            System.out.println("[DependencyTools] ERROR: Failed to add live dependency, requesting rebuild fallback");
+            contextManager.requestRebuild();
+            intelligenceStatus = "A Code Intelligence rebuild was requested and will update shortly.";
+        }
+
+        return "Successfully imported %s to %s (%d Java files%s). %s"
+                .formatted(fullCoordinates, relativeOutput, result.filesExtracted(), sourceInfo, intelligenceStatus);
     }
 }
