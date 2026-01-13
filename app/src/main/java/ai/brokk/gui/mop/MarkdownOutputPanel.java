@@ -262,8 +262,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         clearMain();
         messages.addAll(newMessages);
         for (var message : newMessages) {
-            var meta = Messages.metaOf(message);
-            var chunkMeta = new ChunkMeta(true, meta.isReasoning(), meta.isTerminal());
+            var isReasoning = isReasoningMessage(message);
+            var chunkMeta = new ChunkMeta(true, isReasoning, false);
             webHost.append(Messages.getText(message), message.type(), false, chunkMeta);
         }
         // All appends are sent, now flush to make sure they are processed.

@@ -19,9 +19,6 @@ import org.jetbrains.annotations.Blocking;
 public class Messages {
     private static final Logger logger = LogManager.getLogger(Messages.class);
 
-    private static final String ATTR_TEXT = "text";
-    private static final String ATTR_IS_TERMINAL = "isTerminal";
-
     // Simple OpenAI token count estimator for approximate counting
     // It can remain static as it's stateless based on model ID
     private static final OpenAiTokenCountEstimator tokenCountEstimator = new OpenAiTokenCountEstimator("gpt-4o");
@@ -36,33 +33,14 @@ public class Messages {
      * allowed at the very beginning for some models.
      */
     public static CustomMessage customSystem(String text) {
-        return new CustomMessage(Map.of(ATTR_TEXT, text));
+        return new CustomMessage(Map.of("text", text));
     }
 
     public static CustomMessage customSystem(String text, LlmOutputMeta meta) {
         if (meta.isTerminal()) {
-            return new CustomMessage(Map.of(ATTR_TEXT, text, ATTR_IS_TERMINAL, true));
+            return new CustomMessage(Map.of("text", text, "isTerminal", true));
         }
-        return new CustomMessage(Map.of(ATTR_TEXT, text));
-    }
-
-    public static boolean isTerminalMessage(ChatMessage message) {
-        if (message instanceof CustomMessage cm) {
-            Object v = cm.attributes().get(ATTR_IS_TERMINAL);
-            if (v instanceof Boolean b) {
-                return b;
-            }
-            if (v != null) {
-                return Boolean.parseBoolean(v.toString());
-            }
-        }
-        return false;
-    }
-
-    public static LlmOutputMeta metaOf(ChatMessage message) {
-        boolean isReasoning = isReasoningMessage(message);
-        boolean isTerminal = isTerminalMessage(message);
-        return LlmOutputMeta.DEFAULT.withReasoning(isReasoning).withTerminal(isTerminal);
+        return new CustomMessage(Map.of("text", text));
     }
 
     public static List<ChatMessage> forLlm(Collection<ChatMessage> messages) {
@@ -95,7 +73,7 @@ public class Messages {
                         .map(c -> ((TextContent) c).text())
                         .collect(Collectors.joining("\n"));
             case ToolExecutionResultMessage tr -> "%s -> %s".formatted(tr.toolName(), tr.text());
-            case CustomMessage cm -> requireNonNull(cm.attributes().get(ATTR_TEXT)).toString();
+            case CustomMessage cm -> requireNonNull(cm.attributes().get("text")).toString();
             default ->
                 throw new UnsupportedOperationException(message.getClass().toString());
         };
@@ -123,7 +101,7 @@ public class Messages {
     public static String getRepr(ChatMessage message) {
         return switch (message) {
             case SystemMessage sm -> sm.text();
-            case CustomMessage cm -> requireNonNull(cm.attributes().get(ATTR_TEXT)).toString();
+            case CustomMessage cm -> requireNonNull(cm.attributes().get("text")).toString();
             case AiMessage am -> {
                 var reasoning = am.reasoningContent();
                 var text = am.text();
