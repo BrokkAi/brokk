@@ -50,7 +50,7 @@ interface DiffEditCallbacks {
     }
 
     default boolean hasUnsavedChanges() {
-        return false;
+        return getUnsavedCount() > 0;
     }
 
     default int getUnsavedCount() {

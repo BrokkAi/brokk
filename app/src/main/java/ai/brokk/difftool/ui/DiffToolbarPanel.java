@@ -241,6 +241,7 @@ public class DiffToolbarPanel extends JToolBar {
      */
     public void updateButtonStates() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        logger.debug("Updating toolbar button states");
 
         // Change navigation
         if (btnPrevious != null) {
@@ -305,6 +306,8 @@ public class DiffToolbarPanel extends JToolBar {
      * Shows "Show All Lines" in unified view, "Show Empty Line Diffs" in side-by-side.
      */
     public void updateToolbarForViewMode() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+        logger.debug("Updating toolbar for view mode: unified={}", callbacks.isUnifiedView());
         boolean unifiedView = callbacks.isUnifiedView();
 
         if (menuShowAllLines != null) {
@@ -359,5 +362,9 @@ public class DiffToolbarPanel extends JToolBar {
     @Nullable
     public MaterialButton getSaveButton() {
         return btnSaveAll;
+    }
+
+    public DiffToolbarCallbacks getCallbacks() {
+        return callbacks;
     }
 }

@@ -327,7 +327,7 @@ public class BrokkDiffPanel extends JPanel
      * Note: The toolbar is initialized when the panel is first added to the UI.
      */
     @Nullable
-    public JButton getBtnUndo() {
+    public JButton getUndoButton() {
         return toolBar != null ? toolBar.getUndoButton() : null;
     }
 

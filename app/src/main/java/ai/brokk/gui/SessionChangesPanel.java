@@ -10,13 +10,21 @@ import ai.brokk.agents.ReviewGenerationException;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
+import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.AbstractContentPanel;
+import ai.brokk.difftool.ui.AbstractDiffPanel;
+import ai.brokk.difftool.ui.BrokkDiffPanel;
+import ai.brokk.difftool.ui.BufferDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.difftool.ui.DiffDisplayCore;
 import ai.brokk.difftool.ui.DiffProjectFileNavigationTarget;
 import ai.brokk.difftool.ui.DiffToolbarCallbacks;
 import ai.brokk.difftool.ui.DiffToolbarPanel;
 import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.difftool.ui.FileTreePanel;
 import ai.brokk.difftool.ui.ToolbarFeature;
+import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
+import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
@@ -82,10 +90,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private BaselineMode lastBaselineMode = null;
 
-    private final ai.brokk.difftool.ui.DiffDisplayCore diffCore;
+    private final DiffDisplayCore diffCore;
 
-
-    private final ai.brokk.difftool.ui.FileTreePanel fileTreePanel;
+    private final FileTreePanel fileTreePanel;
 
     private final CodeReviewPanel codeReviewPanel;
 
@@ -162,9 +169,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         // Create toolbar with navigation and font controls only (no view mode toggle or tools menu)
         var reviewFeatures = java.util.EnumSet.of(
-                ToolbarFeature.CHANGE_NAVIGATION,
-                ToolbarFeature.FILE_NAVIGATION,
-                ToolbarFeature.FONT_CONTROLS);
+                ToolbarFeature.CHANGE_NAVIGATION, ToolbarFeature.FILE_NAVIGATION, ToolbarFeature.FONT_CONTROLS);
         this.diffToolbar = new DiffToolbarPanel(reviewFeatures, createToolbarCallbacks());
 
         // Wrap diffContainer with toolbar at top
@@ -174,8 +179,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         diffWithToolbar.add(diffContainer, BorderLayout.CENTER);
 
         this.codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
-        this.fileTreePanel = new ai.brokk.difftool.ui.FileTreePanel(
-                List.of(), contextManager.getProject().getRoot());
+        this.fileTreePanel =
+                new FileTreePanel(List.of(), contextManager.getProject().getRoot());
 
         this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
         this.leftSplitPane.setResizeWeight(0.5);
@@ -220,10 +225,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
 
-        var dummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
-                new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
+        var dummyPanel =
+                new BrokkDiffPanel(new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
         // Initialize font index from saved settings so UnifiedEditorArea.hasExplicitFontSize() returns true
-        ensureFontIndexInitialized();
+        diffToolbar.getCallbacks().ensureFontIndexInitialized();
         dummyPanel.setCurrentFontIndex(currentFontIndex);
         this.diffCore = createDiffCore(dummyPanel);
 
@@ -269,15 +274,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
     }
 
-    private ai.brokk.difftool.ui.DiffDisplayCore createDiffCore(ai.brokk.difftool.ui.BrokkDiffPanel dummyPanel) {
-        return new ai.brokk.difftool.ui.DiffDisplayCore(
-                dummyPanel, contextManager, chrome.getTheme(), fileComparisons, false, 0) {
+    private DiffDisplayCore createDiffCore(BrokkDiffPanel dummyPanel) {
+        return new DiffDisplayCore(dummyPanel, contextManager, chrome.getTheme(), fileComparisons, false, 0) {
             @Override
-            protected ai.brokk.difftool.ui.AbstractDiffPanel createPanel(
-                    int index, ai.brokk.difftool.node.JMDiffNode diffNode) {
+            protected AbstractDiffPanel createPanel(int index, JMDiffNode diffNode) {
                 // Review panel always uses unified view with full context
-                var panel = new ai.brokk.difftool.ui.unified.UnifiedDiffPanel(dummyPanel, chrome.getTheme(), diffNode);
-                panel.setContextMode(ai.brokk.difftool.ui.unified.UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
+                var panel = new UnifiedDiffPanel(dummyPanel, chrome.getTheme(), diffNode);
+                panel.setContextMode(UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
                 panel.applyTheme(chrome.getTheme());
                 return panel;
             }
@@ -290,10 +293,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             @Override
             protected void displayPanel(
-                    int index,
-                    ai.brokk.difftool.ui.AbstractDiffPanel panel,
-                    int targetLine,
-                    ReviewParser.DiffSide targetSide) {
+                    int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
                 diffContainer.removeAll();
                 diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
 
@@ -303,12 +303,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 if (targetLine > 0) {
                     panel.resetAutoScrollFlag();
                     panel.diff(false);
-                    if (panel instanceof ai.brokk.difftool.ui.BufferDiffPanel bp) {
+                    if (panel instanceof BufferDiffPanel bp) {
                         var side = (targetSide == ReviewParser.DiffSide.OLD)
-                                ? ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.LEFT
-                                : ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.RIGHT;
+                                ? BufferDiffPanel.PanelSide.LEFT
+                                : BufferDiffPanel.PanelSide.RIGHT;
                         bp.scrollToLine(targetLine, side);
-                    } else if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                    } else if (panel instanceof UnifiedDiffPanel up) {
                         up.clearExcerptHighlight();
                         up.scrollToLine(targetLine, targetSide);
                         if (activeExcerpt != null) {
@@ -318,7 +318,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         }
                     }
                 } else {
-                    if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                    if (panel instanceof UnifiedDiffPanel up) {
                         up.clearExcerptHighlight();
                     }
                     panel.resetToFirstDifference();
@@ -1226,32 +1226,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     // Font size state for EditorFontSizeControl
     private int currentFontIndex = -1;
 
-    /** Initialize font index from settings if not already set */
-    private void ensureFontIndexInitialized() {
-        if (currentFontIndex == -1) {
-            float saved = GlobalUiSettings.getEditorFontSize();
-            if (saved > 0f) {
-                // Find closest font index for the saved size
-                int closestIndex = EditorFontSizeControl.DEFAULT_FONT_INDEX;
-                float minDiff = Math.abs(
-                        EditorFontSizeControl.FONT_SIZES.get(EditorFontSizeControl.DEFAULT_FONT_INDEX) - saved);
-                for (int i = 0; i < EditorFontSizeControl.FONT_SIZES.size(); i++) {
-                    float diff = Math.abs(EditorFontSizeControl.FONT_SIZES.get(i) - saved);
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        closestIndex = i;
-                    }
-                }
-                currentFontIndex = closestIndex;
-            } else {
-                currentFontIndex = EditorFontSizeControl.DEFAULT_FONT_INDEX;
-            }
-        }
-    }
-
     /** Apply current font size to a panel if font has been initialized */
-    private void applyFontSizeToPanel(ai.brokk.difftool.ui.AbstractDiffPanel panel) {
-        ensureFontIndexInitialized();
+    private void applyFontSizeToPanel(AbstractDiffPanel panel) {
+        diffToolbar.getCallbacks().ensureFontIndexInitialized();
         if (currentFontIndex >= 0) {
             float fontSize = EditorFontSizeControl.FONT_SIZES.get(currentFontIndex);
             panel.applyEditorFontSize(fontSize);
@@ -1269,6 +1246,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private DiffToolbarCallbacks createToolbarCallbacks() {
         return new DiffToolbarCallbacks() {
+            @Override
+            public void ensureFontIndexInitialized() {
+                if (currentFontIndex == -1) {
+                    float saved = GlobalUiSettings.getEditorFontSize();
+                    if (saved > 0f) {
+                        currentFontIndex = findClosestFontIndex(saved);
+                    } else {
+                        currentFontIndex = DEFAULT_FONT_INDEX;
+                    }
+                }
+            }
+
             @Override
             public void navigateToNextChange() {
                 var panel = getCurrentContentPanel();
