@@ -123,7 +123,7 @@ public class GitRepoData {
                 return "";
             }
 
-            if ("HEAD".equals(newRev)) {
+            if ("WORKING".equals(newRev)) {
                 git.diff()
                         .setOldTree(oldTreeIter)
                         .setNewTree(null) // Working tree
@@ -155,7 +155,7 @@ public class GitRepoData {
     public String getDiff(ProjectFile file, String oldRev, String newRev) throws GitAPIException {
         try (var out = new ByteArrayOutputStream()) {
             var pathFilter = PathFilter.create(repo.toRepoRelativePath(file));
-            if ("HEAD".equals(newRev)) {
+            if ("WORKING".equals(newRev)) {
                 git.diff()
                         .setOldTree(prepareTreeParser(oldRev))
                         .setNewTree(null) // Working tree

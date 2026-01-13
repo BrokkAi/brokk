@@ -2169,6 +2169,32 @@ public class GitRepoTest {
     }
 
     @Test
+    void testDiffWorkingAndHead() throws Exception {
+        // 1. Create a file and commit it
+        Path file = projectRoot.resolve("working_test.txt");
+        Files.writeString(file, "Initial content\n");
+        repo.getGit().add().addFilepattern("working_test.txt").call();
+        repo.getGit().commit().setMessage("Initial commit").setSign(false).call();
+        String initialCommit = repo.getCurrentCommitId();
+
+        // 2. Modify file in working directory but do NOT commit
+        Files.writeString(file, "Initial content\nModified content\n");
+
+        // 3. Diff against HEAD should NOT show working tree changes (it's the commit)
+        String diffHead = repo.getDiff(initialCommit, "HEAD");
+        assertEquals("", diffHead, "Diff against HEAD should be empty as they are the same commit");
+
+        // 4. Diff against WORKING (the special token) should show the filesystem changes
+        String diffWorking = repo.getDiff(initialCommit, "WORKING");
+        assertTrue(diffWorking.contains("+Modified content"), "Diff against WORKING should show working tree changes");
+
+        // 5. Verify single file diff also works with WORKING
+        ProjectFile pf = new ProjectFile(projectRoot, "working_test.txt");
+        String fileDiffWorking = repo.getDiff(pf, initialCommit, "WORKING");
+        assertTrue(fileDiffWorking.contains("+Modified content"), "File diff against WORKING should show changes");
+    }
+
+    @Test
     void testListFilesChangedBetweenBranches_WithChanges() throws Exception {
         // Create initial commit on master
         createCommit("file1.txt", "content1", "Initial commit");
