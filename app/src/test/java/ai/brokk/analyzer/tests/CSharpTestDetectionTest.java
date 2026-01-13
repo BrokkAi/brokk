@@ -69,6 +69,51 @@ public class CSharpTestDetectionTest {
     }
 
     @Test
+    void testSpecificAttributeVariants() throws Exception {
+        String code =
+                """
+                using NUnit.Framework;
+
+                public class VariantTests {
+                    [NUnit.Framework.Test]
+                    public void FullyQualified() {}
+
+                    [Test]
+                    public void Simple() {}
+
+                    [NotATest]
+                    public void IgnoreMe() {}
+                }
+                """;
+
+        String testPath = "Tests/VariantTests.cs";
+        String ignorePath = "Tests/IgnoreTests.cs";
+
+        // File with [NotATest] only
+        String ignoreCode =
+                """
+                public class OnlyIgnore {
+                    [NotATest]
+                    public void Method() {}
+                }
+                """;
+
+        IProject project = InlineTestProjectCreator.code(code, testPath)
+                .addFileContents(ignoreCode, ignorePath)
+                .build();
+
+        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+        analyzer = (CSharpAnalyzer) analyzer.update();
+
+        assertTrue(
+                analyzer.containsTests(new ProjectFile(project.getRoot(), testPath)),
+                "File with [NUnit.Framework.Test] and [Test] should be detected");
+        assertFalse(
+                analyzer.containsTests(new ProjectFile(project.getRoot(), ignorePath)),
+                "File with only [NotATest] should not be detected");
+    }
+
+    @Test
     void testNonTestAttributesDoNotTriggerDetection() throws Exception {
         String code =
                 """
