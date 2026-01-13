@@ -1,7 +1,8 @@
-package ai.brokk.gui;
+package ai.brokk.gui.history;
 
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.util.ComputedValue;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -331,7 +332,7 @@ public final class HistoryGrouping {
         // Second pass: for collapsed group headers, map each child to the header row
         for (int row = 0; row < model.getRowCount(); row++) {
             var val = model.getValueAt(row, 2);
-            if (val instanceof HistoryOutputPanel.GroupRow gr && !gr.expanded()) {
+            if (val instanceof ActivityTableRenderers.GroupRow gr && !gr.expanded()) {
                 var gd = byKey.get(gr.key());
                 if (gd == null || !gd.shouldShowHeader()) {
                     continue;
