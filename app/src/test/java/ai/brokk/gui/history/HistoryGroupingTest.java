@@ -1,4 +1,4 @@
-package ai.brokk.gui;
+package ai.brokk.gui.history;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -6,7 +6,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.gui.history.HistoryGrouping;
 import ai.brokk.gui.history.HistoryGrouping.GroupDescriptor;
 import ai.brokk.gui.history.HistoryGrouping.GroupType;
 import ai.brokk.gui.history.HistoryGrouping.GroupingBuilder;
