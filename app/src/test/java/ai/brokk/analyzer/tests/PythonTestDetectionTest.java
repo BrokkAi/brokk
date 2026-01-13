@@ -20,13 +20,14 @@ public class PythonTestDetectionTest {
                 assert 1 + 1 == 2
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.py").build();
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+            PythonAnalyzer analyzer = new PythonAnalyzer(project);
+            analyzer.update();
 
-        assertTrue(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
-                "Should detect tests based on def test_... function name");
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
+                    "Should detect tests based on def test_... function name");
+        }
     }
 
     @Test
@@ -38,13 +39,14 @@ public class PythonTestDetectionTest {
                     assert 1 + 1 == 2
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.py").build();
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+            PythonAnalyzer analyzer = new PythonAnalyzer(project);
+            analyzer.update();
 
-        assertTrue(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
-                "Should detect tests based on test_ prefixed method name");
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
+                    "Should detect tests based on test_ prefixed method name");
+        }
     }
 
     @Test
@@ -58,13 +60,14 @@ public class PythonTestDetectionTest {
                 return 123
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.py").build();
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+            PythonAnalyzer analyzer = new PythonAnalyzer(project);
+            analyzer.update();
 
-        assertTrue(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
-                "Should detect tests based on @pytest.mark.* decorator");
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
+                    "Should detect tests based on @pytest.mark.* decorator");
+        }
     }
 
     @Test
@@ -79,13 +82,14 @@ public class PythonTestDetectionTest {
                     return a + b
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.py").build();
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+            PythonAnalyzer analyzer = new PythonAnalyzer(project);
+            analyzer.update();
 
-        assertFalse(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
-                "Should not detect tests in a normal Python file");
+            assertFalse(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
+                    "Should not detect tests in a normal Python file");
+        }
     }
 
     @Test
@@ -99,13 +103,14 @@ public class PythonTestDetectionTest {
                 return 42
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.py").build();
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+            PythonAnalyzer analyzer = new PythonAnalyzer(project);
+            analyzer.update();
 
-        assertFalse(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
-                "Should not detect @pytest.fixture as a test");
+            assertFalse(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
+                    "Should not detect @pytest.fixture as a test");
+        }
     }
 
     @Test
@@ -115,12 +120,13 @@ public class PythonTestDetectionTest {
                 pass
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.py").build();
-        PythonAnalyzer analyzer = new PythonAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+            PythonAnalyzer analyzer = new PythonAnalyzer(project);
+            analyzer.update();
 
-        assertFalse(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
-                "Should not detect 'def test():' as a test (requires test_ prefix)");
+            assertFalse(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "Example.py")),
+                    "Should not detect 'def test():' as a test (requires test_ prefix)");
+        }
     }
 }

@@ -20,13 +20,14 @@ public class PhpTestDetectionTest {
             <?php
             function testFoo() { }
             """;
-        IProject project = InlineTestProjectCreator.code(code, "Test.php").build();
-        PhpAnalyzer analyzer = new PhpAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "Test.php").build()) {
+            PhpAnalyzer analyzer = new PhpAnalyzer(project);
+            analyzer.update();
 
-        assertTrue(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "Test.php")),
-                "Should detect test based on function name");
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "Test.php")),
+                    "Should detect test based on function name");
+        }
     }
 
     @Test
@@ -36,13 +37,14 @@ public class PhpTestDetectionTest {
             /** @test */
             function foo() { }
             """;
-        IProject project = InlineTestProjectCreator.code(code, "Test.php").build();
-        PhpAnalyzer analyzer = new PhpAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "Test.php").build()) {
+            PhpAnalyzer analyzer = new PhpAnalyzer(project);
+            analyzer.update();
 
-        assertTrue(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "Test.php")),
-                "Should detect test based on @test docblock");
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "Test.php")),
+                    "Should detect test based on @test docblock");
+        }
     }
 
     @Test
@@ -55,13 +57,14 @@ public class PhpTestDetectionTest {
                 public function normalMethod() { }
             }
             """;
-        IProject project = InlineTestProjectCreator.code(code, "Normal.php").build();
-        PhpAnalyzer analyzer = new PhpAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "Normal.php").build()) {
+            PhpAnalyzer analyzer = new PhpAnalyzer(project);
+            analyzer.update();
 
-        assertFalse(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "Normal.php")),
-                "Should not detect tests in normal file");
+            assertFalse(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "Normal.php")),
+                    "Should not detect tests in normal file");
+        }
     }
 
     @Test
@@ -72,14 +75,15 @@ public class PhpTestDetectionTest {
             function TestFoo() { }
             function TESTBar() { }
             """;
-        IProject project =
-                InlineTestProjectCreator.code(code, "CaseInsensitive.php").build();
-        PhpAnalyzer analyzer = new PhpAnalyzer(project);
-        analyzer.update();
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "CaseInsensitive.php").build()) {
+            PhpAnalyzer analyzer = new PhpAnalyzer(project);
+            analyzer.update();
 
-        assertTrue(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "CaseInsensitive.php")),
-                "Should detect tests for mixed/upper-case function names since PHP is case-insensitive");
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "CaseInsensitive.php")),
+                    "Should detect tests for mixed/upper-case function names since PHP is case-insensitive");
+        }
     }
 
     @Test
@@ -88,14 +92,15 @@ public class PhpTestDetectionTest {
             <?php
             function testFoo() { }
             """;
-        IProject project =
-                InlineTestProjectCreator.code(code, "Integration.php").build();
-        PhpAnalyzer analyzer = new PhpAnalyzer(project);
-        analyzer.update();
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Integration.php").build()) {
+            PhpAnalyzer analyzer = new PhpAnalyzer(project);
+            analyzer.update();
 
-        assertTrue(
-                ContextManager.isTestFile(new ProjectFile(project.getRoot(), "Integration.php"), analyzer),
-                "ContextManager should recognize file as test file via analyzer");
+            assertTrue(
+                    ContextManager.isTestFile(new ProjectFile(project.getRoot(), "Integration.php"), analyzer),
+                    "ContextManager should recognize file as test file via analyzer");
+        }
     }
 
     @Test
@@ -117,13 +122,14 @@ public class PhpTestDetectionTest {
                 public function notATest() { }
             }
             """;
-        IProject project = InlineTestProjectCreator.code(code, "MyService.php").build();
-        PhpAnalyzer analyzer = new PhpAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "MyService.php").build()) {
+            PhpAnalyzer analyzer = new PhpAnalyzer(project);
+            analyzer.update();
 
-        assertFalse(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "MyService.php")),
-                "Should not detect tests when @test docblock is not immediately adjacent to a function");
+            assertFalse(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "MyService.php")),
+                    "Should not detect tests when @test docblock is not immediately adjacent to a function");
+        }
     }
 
     @Test
@@ -138,13 +144,14 @@ public class PhpTestDetectionTest {
                 public function atest() { }
             }
             """;
-        IProject project = InlineTestProjectCreator.code(code, "Boundary.php").build();
-        PhpAnalyzer analyzer = new PhpAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, "Boundary.php").build()) {
+            PhpAnalyzer analyzer = new PhpAnalyzer(project);
+            analyzer.update();
 
-        // The Java implementation PhpAnalyzer.containsTestMarkers() currently performs broad matching.
-        assertTrue(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), "Boundary.php")),
-                "Current analyzer behavior detects test markers based on substring matches in names");
+            // The Java implementation PhpAnalyzer.containsTestMarkers() currently performs broad matching.
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), "Boundary.php")),
+                    "Current analyzer behavior detects test markers based on substring matches in names");
+        }
     }
 }

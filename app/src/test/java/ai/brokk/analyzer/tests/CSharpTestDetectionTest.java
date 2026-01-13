@@ -45,27 +45,29 @@ public class CSharpTestDetectionTest {
         String testPath = "Services/Logic.cs";
         String nonTestPath = "Models/Data.cs";
 
-        IProject project = InlineTestProjectCreator.code(testCode, testPath)
+        try (IProject project = InlineTestProjectCreator.code(testCode, testPath)
                 .addFileContents(nonTestCode, nonTestPath)
-                .build();
+                .build()) {
 
-        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
-        analyzer = (CSharpAnalyzer) analyzer.update();
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+            analyzer = (CSharpAnalyzer) analyzer.update();
 
-        ProjectFile testFile = new ProjectFile(project.getRoot(), testPath);
-        ProjectFile nonTestFile = new ProjectFile(project.getRoot(), nonTestPath);
+            ProjectFile testFile = new ProjectFile(project.getRoot(), testPath);
+            ProjectFile nonTestFile = new ProjectFile(project.getRoot(), nonTestPath);
 
-        // 1. Verify analyzer's semantic detection
-        assertTrue(analyzer.containsTests(testFile), "File with [Test] attribute should be marked as containing tests");
-        assertFalse(analyzer.containsTests(nonTestFile), "File without test attributes should not be marked");
+            // 1. Verify analyzer's semantic detection
+            assertTrue(
+                    analyzer.containsTests(testFile), "File with [Test] attribute should be marked as containing tests");
+            assertFalse(analyzer.containsTests(nonTestFile), "File without test attributes should not be marked");
 
-        // 2. Verify ContextManager's integration (which uses the analyzer)
-        assertTrue(
-                ContextManager.isTestFile(testFile, analyzer),
-                "ContextManager should identify file as test file via analyzer");
-        assertFalse(
-                ContextManager.isTestFile(nonTestFile, analyzer),
-                "ContextManager should not identify plain file as test file");
+            // 2. Verify ContextManager's integration (which uses the analyzer)
+            assertTrue(
+                    ContextManager.isTestFile(testFile, analyzer),
+                    "ContextManager should identify file as test file via analyzer");
+            assertFalse(
+                    ContextManager.isTestFile(nonTestFile, analyzer),
+                    "ContextManager should not identify plain file as test file");
+        }
     }
 
     @Test
@@ -98,19 +100,20 @@ public class CSharpTestDetectionTest {
                 }
                 """;
 
-        IProject project = InlineTestProjectCreator.code(code, testPath)
+        try (IProject project = InlineTestProjectCreator.code(code, testPath)
                 .addFileContents(ignoreCode, ignorePath)
-                .build();
+                .build()) {
 
-        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
-        analyzer = (CSharpAnalyzer) analyzer.update();
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+            analyzer = (CSharpAnalyzer) analyzer.update();
 
-        assertTrue(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), testPath)),
-                "File with [NUnit.Framework.Test] and [Test] should be detected");
-        assertFalse(
-                analyzer.containsTests(new ProjectFile(project.getRoot(), ignorePath)),
-                "File with only [NotATest] should not be detected");
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), testPath)),
+                    "File with [NUnit.Framework.Test] and [Test] should be detected");
+            assertFalse(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), ignorePath)),
+                    "File with only [NotATest] should not be detected");
+        }
     }
 
     @Test
@@ -127,14 +130,15 @@ public class CSharpTestDetectionTest {
                 """;
         String path = "Logic/Service.cs";
 
-        IProject project = InlineTestProjectCreator.code(code, path).build();
-        CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
-        analyzer = (CSharpAnalyzer) analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(code, path).build()) {
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+            analyzer = (CSharpAnalyzer) analyzer.update();
 
-        ProjectFile file = new ProjectFile(project.getRoot(), path);
+            ProjectFile file = new ProjectFile(project.getRoot(), path);
 
-        assertFalse(
-                analyzer.containsTests(file),
-                "File with non-test attributes ([Obsolete], [Serializable]) should not be marked as containing tests");
+            assertFalse(
+                    analyzer.containsTests(file),
+                    "File with non-test attributes ([Obsolete], [Serializable]) should not be marked as containing tests");
+        }
     }
 }
