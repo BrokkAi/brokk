@@ -311,9 +311,14 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
             var builder = JCefSetup.builder();
             builder.setProgressHandler(new me.friwi.jcefmaven.impl.progress.ConsoleProgressHandler());
+
+            String themeName = MainProject.getTheme();
+            boolean isDark = !GuiTheme.THEME_LIGHT.equals(themeName) && !"BrokkLightPlus".equals(themeName);
+            var bgColor = ThemeColors.getColor(isDark, ThemeColors.CHAT_BACKGROUND);
+
             var settings = builder.getCefSettings();
             settings.windowless_rendering_enabled = false;
-            settings.background_color = settings.new ColorType(0xFF, 37, 37, 37);
+            settings.background_color = settings.new ColorType(0xFF, bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue());
 
             builder.setAppHandler(new MavenCefAppHandlerAdapter() {
                 @Override
