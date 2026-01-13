@@ -36,6 +36,13 @@ public class Messages {
         return new CustomMessage(Map.of("text", text));
     }
 
+    public static CustomMessage customSystem(String text, LlmOutputMeta meta) {
+        if (meta.isTerminal()) {
+            return new CustomMessage(Map.of("text", text, "isTerminal", true));
+        }
+        return new CustomMessage(Map.of("text", text));
+    }
+
     public static List<ChatMessage> forLlm(Collection<ChatMessage> messages) {
         return messages.stream()
                 .map(m -> switch (m) {
@@ -82,7 +89,7 @@ public class Messages {
         return switch (type) {
             case USER -> new UserMessage(text);
             case AI -> isReasoning ? new AiMessage("", text) : new AiMessage(text);
-            case CUSTOM -> customSystem(text);
+            case CUSTOM -> customSystem(text, meta);
             default -> {
                 logger.warn("Unsupported message type: {}, using AiMessage as fallback", type);
                 yield new AiMessage(text);
