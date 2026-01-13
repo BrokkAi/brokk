@@ -1,10 +1,9 @@
 package ai.brokk.analyzer;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeUnitType;
 
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import java.util.Collection;
 import org.junit.jupiter.api.Test;
 
 public class RustAnalyzerTest {
@@ -53,32 +52,21 @@ public class RustAnalyzerTest {
             analyzer.update();
 
             // 1. Verify module exists
-            assertCodeUnitType(analyzer, "utils", "Module", true, false, false);
+            assertCodeUnitType(analyzer, "utils", CodeUnitType.MODULE);
 
             // 2. Verify struct/trait/enum exist as class code units
-            assertCodeUnitType(analyzer, "Point", "Class", false, true, false);
-            assertCodeUnitType(analyzer, "Drawable", "Class", false, true, false);
-            assertCodeUnitType(analyzer, "Color", "Class", false, true, false);
+            assertCodeUnitType(analyzer, "Point", CodeUnitType.CLASS);
+            assertCodeUnitType(analyzer, "Drawable", CodeUnitType.CLASS);
+            assertCodeUnitType(analyzer, "Color", CodeUnitType.CLASS);
 
             // 3. Verify free function exists
-            assertCodeUnitType(analyzer, "distance", "Function", false, false, true);
+            assertCodeUnitType(analyzer, "distance", CodeUnitType.FUNCTION);
 
             // 4. Verify method in impl block exists
-            assertCodeUnitType(analyzer, "Point.new", "Function", false, false, true);
+            assertCodeUnitType(analyzer, "Point.new", CodeUnitType.FUNCTION);
 
             // 5. Verify function inside the module exists
-            assertCodeUnitType(analyzer, "utils.helper", "Function", false, false, true);
+            assertCodeUnitType(analyzer, "utils.helper", CodeUnitType.FUNCTION);
         }
-    }
-
-    private void assertCodeUnitType(
-            RustAnalyzer analyzer, String fqName, String label, boolean isModule, boolean isClass, boolean isFunction) {
-        Collection<CodeUnit> units = analyzer.getDefinitions(fqName);
-        assertFalse(units.isEmpty(), "Should find code unit for: " + fqName);
-
-        CodeUnit unit = units.iterator().next();
-        assertEquals(isModule, unit.isModule(), fqName + " should " + (isModule ? "" : "not ") + "be a module");
-        assertEquals(isClass, unit.isClass(), fqName + " should " + (isClass ? "" : "not ") + "be a class");
-        assertEquals(isFunction, unit.isFunction(), fqName + " should " + (isFunction ? "" : "not ") + "be a function");
     }
 }

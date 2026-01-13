@@ -1,9 +1,14 @@
 package ai.brokk.testutil;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.CodeUnitType;
+import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.util.IndentUtil;
+import java.util.Collection;
 import java.util.Objects;
 import org.jetbrains.annotations.Nullable;
 
@@ -145,6 +150,17 @@ public final class AssertionHelperUtil {
         String baseMsg = "Expected indent of " + expectedIndent + " for line: [" + targetLine + "] but was " + actual;
         assertTrue(actual >= 0, Objects.requireNonNullElse(message, "Target line not found: " + targetLine));
         assertEquals(expectedIndent, actual, Objects.requireNonNullElse(message, baseMsg));
+    }
+
+    /**
+     * Asserts that a code unit with the given fully-qualified name exists and has the expected type.
+     */
+    public static void assertCodeUnitType(IAnalyzer analyzer, String fqName, CodeUnitType codeUnitType) {
+        Collection<CodeUnit> units = analyzer.getDefinitions(fqName);
+        assertFalse(units.isEmpty(), "Should find code unit for: " + fqName);
+
+        CodeUnit unit = units.iterator().next();
+        assertEquals(codeUnitType, unit.kind(), fqName + " should be of type " + codeUnitType);
     }
 
     private static String normalizeLineEndings(String content) {
