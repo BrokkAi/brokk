@@ -187,12 +187,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         return switch (captureName) {
             // "class.definition" is for struct, trait, enum.
             // "impl.definition" is for impl blocks. Both create class-like CodeUnits.
-            // "module.definition" is for mod blocks.
             // simpleName for "impl.definition" will be the type being implemented (e.g., "Point").
             case CaptureNames.CLASS_DEFINITION,
-                    CaptureNames.IMPL_DEFINITION,
-                    CaptureNames.MODULE_DEFINITION ->
+                    CaptureNames.IMPL_DEFINITION ->
                 CodeUnit.cls(file, packageName, simpleName);
+            // "module.definition" is for mod blocks.
+            case CaptureNames.MODULE_DEFINITION ->
+                CodeUnit.module(file, packageName, simpleName);
             case CaptureNames.FUNCTION_DEFINITION -> {
                 // For methods, classChain will be the struct/impl type name.
                 // For free functions, classChain will be empty.
