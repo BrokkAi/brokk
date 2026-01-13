@@ -652,8 +652,9 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
     @Override
     public void removeSearchStateListener(Consumer<IWebViewHost.SearchState> listener) {
-        // Note: removal requires storing wrapped listener reference; left as no-op for now
-        logger.debug("removeSearchStateListener - not fully implemented");
+        if (bridge != null) {
+            bridge.removeSearchStateListener(listener);
+        }
     }
 
     @Override
