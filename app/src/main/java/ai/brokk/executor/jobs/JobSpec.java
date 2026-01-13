@@ -58,6 +58,37 @@ public record JobSpec(
     }
 
     /**
+     * Creates a JobSpec for Issue remediation jobs.
+     *
+     * <p>This factory creates a job with empty taskInput and stores Issue metadata in tags.
+     * Auto-commit and auto-compress are disabled for Issue remediation jobs.</p>
+     */
+    public static JobSpec ofIssue(
+            String plannerModel,
+            String githubToken,
+            String owner,
+            String repo,
+            int issueNumber,
+            String buildSettingsJson) {
+        return new JobSpec(
+                "",
+                false,
+                false,
+                plannerModel,
+                null,
+                null,
+                false,
+                Map.of(
+                        "github_token", githubToken,
+                        "repo_owner", owner,
+                        "repo_name", repo,
+                        "issue_number", String.valueOf(issueNumber),
+                        "build_settings", buildSettingsJson),
+                null,
+                null);
+    }
+
+    /**
      * Creates a JobSpec with all fields except branch parameters (for backward compatibility).
      */
     public static JobSpec of(
@@ -130,5 +161,25 @@ public record JobSpec(
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    @JsonIgnore
+    @Nullable
+    public Integer getIssueNumber() {
+        var issueNumberStr = tags.get("issue_number");
+        if (issueNumberStr == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(issueNumberStr);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    @JsonIgnore
+    @Nullable
+    public String getBuildSettingsJson() {
+        return tags.get("build_settings");
     }
 }
