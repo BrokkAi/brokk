@@ -28,6 +28,7 @@ public class Completions {
      * when fuzzy scores are close.
      */
     private static final int PREFERRED_EXTENSION_PRIORITY_BONUS = 300;
+    private static final int CLASS_TYPE_PRIORITY_BONUS = 1000;
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String query = input.trim();
@@ -93,13 +94,19 @@ public class Completions {
 
     private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
         var matcher = new FuzzyMatcher(query);
+        boolean hierarchicalQuery = query.indexOf('.') >= 0;
 
         record ScoredCU(CodeUnit cu, int score) {}
 
         return candidates.stream()
-                .map(cu -> new ScoredCU(cu, matcher.score(cu.fqName())))
+                .map(cu -> {
+                    int baseScore = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.shortName());
+                    int typeBonus = (cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS) ? -CLASS_TYPE_PRIORITY_BONUS : 0;
+                    return new ScoredCU(cu, baseScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : baseScore + typeBonus);
+                })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
+                        .thenComparingInt(sc -> sc.cu().shortName().length())
                         .thenComparingInt(sc -> sc.cu().identifier().length())
                         .thenComparing(sc -> sc.cu().fqName()))
                 .map(ScoredCU::cu)
