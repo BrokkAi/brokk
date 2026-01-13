@@ -18,6 +18,7 @@ import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.NoHeadException;
 import org.eclipse.jgit.diff.DiffEntry;
+import org.eclipse.jgit.diff.DiffFormatter;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevWalk;
 import org.eclipse.jgit.treewalk.CanonicalTreeParser;
@@ -256,6 +257,69 @@ public class GitRepoData {
         // Sort by file path for consistent ordering
         result.sort((a, b) -> a.file().toString().compareTo(b.file().toString()));
         return result;
+    }
+
+    /**
+     * Lists files changed in a specific commit compared to its primary parent. For an initial commit, lists all files
+     * in that commit. This is implemented in terms of listFilesChangedBetweenCommits to ensure consistent handling
+     * of renames and file status tracking.
+     */
+    public List<ModifiedFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
+        var commitObjectId = repo.resolveToCommit(commitId);
+
+        try (var revWalk = new RevWalk(repository);
+                var treeWalk = new TreeWalk(repository)) {
+            var commit = revWalk.parseCommit(commitObjectId);
+
+            if (commit.getParentCount() == 0) {
+                // Initial commit: list all files in the commit as NEW
+                var result = new ArrayList<ModifiedFile>();
+                treeWalk.addTree(commit.getTree());
+                treeWalk.setRecursive(true);
+                while (treeWalk.next()) {
+                    var path = treeWalk.getPathString();
+                    var projectFileOpt = repo.toProjectFile(path);
+                    projectFileOpt.ifPresent(
+                            projectFile -> result.add(new ModifiedFile(projectFile, IGitRepo.ModificationType.NEW)));
+                }
+                return result;
+            } else {
+                // Regular commit: diff against primary parent
+                var parentId = commit.getParent(0).getId().getName();
+                return listFilesChangedBetweenCommits(commitId, parentId);
+            }
+        } catch (IOException e) {
+            throw new GitRepo.GitWrappedIOException(e);
+        }
+    }
+
+    /** Lists files changed between two commit SHAs (from oldCommitId to newCommitId). */
+    public List<ModifiedFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
+            throws GitAPIException {
+        var newObjectId = repo.resolveToCommit(newCommitId);
+        var oldObjectId = repo.resolveToCommit(oldCommitId);
+
+        if (newObjectId.equals(oldObjectId)) {
+            logger.debug(
+                    "listFilesChangedBetweenCommits: newCommitId and oldCommitId are the same ('{}'). Returning empty list.",
+                    newCommitId);
+            return List.of();
+        }
+
+        try (var revWalk = new RevWalk(repository)) {
+            var newCommit = revWalk.parseCommit(newObjectId);
+            var oldCommit = revWalk.parseCommit(oldObjectId);
+
+            try (var diffFormatter =
+                    new DiffFormatter(new ByteArrayOutputStream())) { // Output stream is not used for listing files
+                diffFormatter.setRepository(repository);
+                diffFormatter.setDetectRenames(true); // Enable rename detection to avoid leaking old paths
+                var diffs = diffFormatter.scan(oldCommit.getTree(), newCommit.getTree());
+                return extractFilesFromDiffEntries(diffs);
+            }
+        } catch (IOException e) {
+            throw new GitRepo.GitWrappedIOException(e);
+        }
     }
 
     /** Prepares an AbstractTreeIterator for the given commit-ish string. */
