@@ -24,6 +24,12 @@
   ; body: (declaration_list) ; contains function_signature_item for methods
 ) @class.definition
 
+;; Module definitions
+(mod_item
+  (visibility_modifier)? @keyword.modifier
+  name: (identifier) @class.name
+) @class.definition
+
 ;; Impl blocks
 (impl_item
   ; For `impl MyType` or `impl Trait for MyType`
