@@ -62,6 +62,14 @@ class CompletionsFuzzyTest {
     }
 
     @Test
+    @DisplayName("Exact match (case-insensitive) outranks prefix match")
+    void exactMatchOutranksPrefixMatch() {
+        // 'FuzzyMatcher' exactly matches 'fuzzymatcher' case-insensitively.
+        // It should score better than 'FuzzyMatcherUtil' which is a longer prefix match.
+        assertBetterScore("fuzzymatcher", "FuzzyMatcher", "FuzzyMatcherUtil");
+    }
+
+    @Test
     @DisplayName("Prefix match scores better than mid-word match")
     void prefixMatchOutranksSubstringMatch() {
         // Test case from original failure: ipan -> InstructionsPanel vs GitPanel
