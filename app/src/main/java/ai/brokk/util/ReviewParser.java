@@ -727,9 +727,7 @@ public class ReviewParser {
                         CodeExcerpt excerpt = resolvedExcerpts.get(raw.excerptIndex());
                         if (excerpt == null) {
                             logger.warn(
-                                    "Tactical note '{}' has missing excerpt index {}",
-                                    raw.title(),
-                                    raw.excerptIndex());
+                                    "Tactical note '{}' has missing excerpt index {}", raw.title(), raw.excerptIndex());
                         }
                         return new TacticalFeedback(
                                 raw.title(),

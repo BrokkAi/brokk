@@ -188,9 +188,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         buttonPanel.add(pullBtn);
         buttonPanel.add(pushBtn);
         buttonPanel.add(prBtn);
-        if (Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"))) {
-            buttonPanel.add(pasteBtn);
-        }
         buttonPanel.add(guidedReviewBtn);
         headerPanel.add(buttonPanel, BorderLayout.EAST);
 
@@ -237,10 +234,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         pullBtn.addActionListener(e -> performPull());
         pushBtn.addActionListener(e -> performPush());
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
-
-        if (Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"))) {
-            pasteBtn.addActionListener(e -> handlePasteReview());
-        }
+        pasteBtn.addActionListener(e -> handlePasteReview());
 
         SwingUtil.applyPrimaryButtonStyle(commitBtn);
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
