@@ -10,13 +10,18 @@ import ai.brokk.agents.ReviewGenerationException;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
+import ai.brokk.difftool.ui.AbstractContentPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.DiffProjectFileNavigationTarget;
+import ai.brokk.difftool.ui.DiffToolbarCallbacks;
+import ai.brokk.difftool.ui.DiffToolbarPanel;
 import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.difftool.ui.ToolbarFeature;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
+import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialProgressButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -85,6 +90,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private final JSplitPane leftSplitPane;
 
     private final JPanel diffContainer;
+    private final DiffToolbarPanel diffToolbar;
 
     private final JComboBox<ComparisonTarget> baselineDropdown;
 
@@ -152,6 +158,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
+        // Create toolbar with viewOnly features (no edit/capture for review diffs)
+        this.diffToolbar = new DiffToolbarPanel(ToolbarFeature.viewOnly(), createToolbarCallbacks());
+
+        // Wrap diffContainer with toolbar at top
+        var diffWithToolbar = new JPanel(new BorderLayout());
+        diffWithToolbar.setOpaque(false);
+        diffWithToolbar.add(diffToolbar, BorderLayout.NORTH);
+        diffWithToolbar.add(diffContainer, BorderLayout.CENTER);
+
         this.codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
         this.fileTreePanel = new ai.brokk.difftool.ui.FileTreePanel(
                 List.of(), contextManager.getProject().getRoot());
@@ -160,7 +175,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.leftSplitPane.setResizeWeight(0.5);
 
         this.rightVerticalSplitPane =
-                new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getDetailPanel(), diffContainer);
+                new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getDetailPanel(), diffWithToolbar);
         this.rightVerticalSplitPane.setResizeWeight(0.5);
 
         this.mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplitPane);
@@ -1183,6 +1198,210 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
         }
         return sb.toString();
+    }
+
+    // Font size state for EditorFontSizeControl
+    private int currentFontIndex = -1;
+
+    @Nullable
+    private AbstractContentPanel getCurrentContentPanel() {
+        for (var panel : diffCore.getCachedPanels()) {
+            if (panel.getComponent().isShowing() && panel instanceof AbstractContentPanel acp) {
+                return acp;
+            }
+        }
+        return null;
+    }
+
+    private DiffToolbarCallbacks createToolbarCallbacks() {
+        return new DiffToolbarCallbacks() {
+            @Override
+            public void navigateToNextChange() {
+                var panel = getCurrentContentPanel();
+                if (panel != null) {
+                    panel.doDown();
+                }
+            }
+
+            @Override
+            public void navigateToPreviousChange() {
+                var panel = getCurrentContentPanel();
+                if (panel != null) {
+                    panel.doUp();
+                }
+            }
+
+            @Override
+            public void nextFile() {
+                int current = diffCore.getCurrentIndex();
+                if (current < fileComparisons.size() - 1) {
+                    diffCore.showFile(current + 1);
+                }
+            }
+
+            @Override
+            public void previousFile() {
+                int current = diffCore.getCurrentIndex();
+                if (current > 0) {
+                    diffCore.showFile(current - 1);
+                }
+            }
+
+            @Override
+            public void performUndo() {
+                // Read-only view
+            }
+
+            @Override
+            public void performRedo() {
+                // Read-only view
+            }
+
+            @Override
+            public void saveAll() {
+                // Read-only view
+            }
+
+            @Override
+            public void switchViewMode(boolean useUnifiedView) {
+                // Review panel always uses unified view
+            }
+
+            @Override
+            public void setShowBlame(boolean show) {
+                // Not supported in review panel
+            }
+
+            @Override
+            public void setShowAllLines(boolean show) {
+                // Review panel always shows all lines
+            }
+
+            @Override
+            public void setShowBlankLineDiffs(boolean show) {
+                // Not supported in review panel
+            }
+
+            @Override
+            public void captureCurrentDiff() {
+                // Not supported in view-only mode
+            }
+
+            @Override
+            public void captureAllDiffs() {
+                // Not supported in view-only mode
+            }
+
+            @Override
+            public boolean canNavigateToNextChange() {
+                var panel = getCurrentContentPanel();
+                if (panel == null) return false;
+                return !panel.isAtLastLogicalChange() || canNavigateToNextFile();
+            }
+
+            @Override
+            public boolean canNavigateToPreviousChange() {
+                var panel = getCurrentContentPanel();
+                if (panel == null) return false;
+                return !panel.isAtFirstLogicalChange() || canNavigateToPreviousFile();
+            }
+
+            @Override
+            public boolean canNavigateToNextFile() {
+                return fileComparisons.size() > 1 && diffCore.getCurrentIndex() < fileComparisons.size() - 1;
+            }
+
+            @Override
+            public boolean canNavigateToPreviousFile() {
+                return fileComparisons.size() > 1 && diffCore.getCurrentIndex() > 0;
+            }
+
+            @Override
+            public boolean isUndoEnabled() {
+                return false;
+            }
+
+            @Override
+            public boolean isRedoEnabled() {
+                return false;
+            }
+
+            @Override
+            public boolean hasUnsavedChanges() {
+                return false;
+            }
+
+            @Override
+            public int getUnsavedCount() {
+                return 0;
+            }
+
+            @Override
+            public boolean isUnifiedView() {
+                return true;
+            }
+
+            @Override
+            public boolean isBlameAvailable() {
+                return false;
+            }
+
+            @Override
+            public boolean isMultiFile() {
+                return fileComparisons.size() > 1;
+            }
+
+            @Override
+            public boolean isShowingBlame() {
+                return false;
+            }
+
+            @Override
+            public boolean isShowingAllLines() {
+                return true;
+            }
+
+            @Override
+            public boolean isShowingBlankLineDiffs() {
+                return false;
+            }
+
+            @Override
+            public int getCurrentFontIndex() {
+                return currentFontIndex;
+            }
+
+            @Override
+            public void setCurrentFontIndex(int index) {
+                currentFontIndex = index;
+            }
+
+            @Override
+            public void increaseEditorFont() {
+                DiffToolbarCallbacks.super.increaseEditorFont();
+                applyFontSizeToAllPanels();
+            }
+
+            @Override
+            public void decreaseEditorFont() {
+                DiffToolbarCallbacks.super.decreaseEditorFont();
+                applyFontSizeToAllPanels();
+            }
+
+            @Override
+            public void resetEditorFont() {
+                DiffToolbarCallbacks.super.resetEditorFont();
+                applyFontSizeToAllPanels();
+            }
+
+            private void applyFontSizeToAllPanels() {
+                if (currentFontIndex < 0) return;
+                float fontSize = EditorFontSizeControl.FONT_SIZES.get(currentFontIndex);
+                for (var panel : diffCore.getCachedPanels()) {
+                    panel.applyEditorFontSize(fontSize);
+                }
+            }
+        };
     }
 
     @Override
