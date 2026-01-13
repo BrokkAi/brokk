@@ -922,6 +922,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             mainSplitPane.setResizeWeight(0.0);
             mainSplitPane.setDividerLocation(visible ? 300 : 200);
 
+            // Hide navigation buttons in guided review mode (navigation via review items)
+            diffToolbar.setNavigationVisible(!visible);
+
             revalidate();
             repaint();
         });

@@ -317,6 +317,17 @@ public class DiffToolbarPanel extends JToolBar {
     }
 
     /**
+     * Show or hide navigation buttons.
+     * Used to hide navigation when in guided review mode (navigation is controlled by review items).
+     */
+    public void setNavigationVisible(boolean visible) {
+        if (btnPrevious != null) btnPrevious.setVisible(visible);
+        if (btnNext != null) btnNext.setVisible(visible);
+        if (btnPreviousFile != null) btnPreviousFile.setVisible(visible);
+        if (btnNextFile != null) btnNextFile.setVisible(visible);
+    }
+
+    /**
      * Disable all control buttons during loading/switching operations.
      */
     public void disableAllControlButtons() {
