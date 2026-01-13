@@ -10,11 +10,11 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.GitRepo;
-import ai.brokk.git.IGitRepo;
-import ai.brokk.project.IProject;
 import ai.brokk.ranking.ImportPageRanker;
 import ai.brokk.testutil.AnalyzerCreator;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -129,22 +129,7 @@ public class ImportPageRankerTest {
                                     .replace('\\', '/'),
                             f -> f));
 
-            IContextManager cm = new IContextManager() {
-                @Override
-                public IAnalyzer getAnalyzer() {
-                    return analyzer;
-                }
-
-                @Override
-                public IProject getProject() {
-                    return project;
-                }
-
-                @Override
-                public IGitRepo getRepo() {
-                    return project.getRepo();
-                }
-            };
+            IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
             // Create context with seed fragments
             Context ctx = new Context(cm);

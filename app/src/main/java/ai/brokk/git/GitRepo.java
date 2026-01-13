@@ -2033,6 +2033,18 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     /**
+     * Fetches a GitHub Pull Request ref from the origin remote.
+     * Convenience method that delegates to {@link GitRepoRemote#fetchPrRef(int, String)}.
+     *
+     * @param prNumber The PR number to fetch.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    @Blocking
+    public void fetchPrRefs(int prNumber) throws GitAPIException {
+        remote().fetchPrRef(prNumber, "origin");
+    }
+
+    /**
      * Search commits whose full message, author name, or author e-mail match the supplied regular expression
      * (case-insensitive).
      *

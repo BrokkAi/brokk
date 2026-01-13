@@ -28,9 +28,6 @@ import org.jetbrains.annotations.Nullable;
  * <p>
  * This is a breaking change; do not expect call sites to compile until they are updated.
  *
- * <p>ContextFragment MUST be kept in sync with FrozenFragment: any polymorphic methods added to CF must be serialized
- * into FF so they can be accurately represented as well. If you are tasked with adding such a method to CF without also
- * having FF available to edit, you MUST decline the assignment and explain the problem.
  */
 public interface ContextFragment {
     Logger logger = LogManager.getLogger(ContextFragment.class);
@@ -51,7 +48,7 @@ public interface ContextFragment {
     }
 
     /**
-     * Replaces polymorphic methods or instanceof checks with something that can easily apply to FrozenFragments as well
+     * Replaces polymorphic methods or instanceof checks with something that can easily apply to test fragments.
      */
     enum FragmentType {
         PROJECT_PATH,
@@ -112,6 +109,15 @@ public interface ContextFragment {
         return contextManager.getProject().getAllFiles().parallelStream()
                 .filter(f -> text.contains(f.toString()))
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Set of fragments that should be added alongside this one.
+     * <p>
+     * This method is called during {@link Context#addFragments(Collection)} to expand a fragment with related context.
+     */
+    default Set<ContextFragment> supportingFragments() {
+        return Set.of();
     }
 
     /**
