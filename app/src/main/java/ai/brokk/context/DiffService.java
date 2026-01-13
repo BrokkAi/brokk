@@ -423,8 +423,7 @@ public final class DiffService {
             Instant timeBound = earliestCommit.minus(java.time.temporal.ChronoUnit.DAYS.getDuration());
 
             List<ai.brokk.SessionManager.SessionInfo> shortlisted = sessionManager.listSessions().stream()
-                    .filter(s -> com.github.f4b6a3.uuid.util.UuidUtil.getInstant(s.id())
-                            .isAfter(timeBound))
+                    .filter(s -> s.createdAt().isAfter(timeBound))
                     .toList();
 
             Set<String> changeCommitIds = commits.stream().map(CommitInfo::id).collect(Collectors.toSet());

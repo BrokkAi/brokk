@@ -316,47 +316,49 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         // Kick off async computation
         CompletableFuture.supplyAsync(() -> {
-            var state = resolveBaselineState();
-            int modifiedCount;
-            try {
-                modifiedCount = repo.getModifiedFiles().size();
-            } catch (GitAPIException e) {
-                logger.debug("Failed to get modified files count", e);
-                modifiedCount = 0;
-            }
-            try {
-                var result = computeCumulativeChanges(state.baselineLabel(), state.baselineMode());
-                return new ComputedUpdate(state, result, modifiedCount);
-            } catch (GitAPIException e) {
-                throw new RuntimeException(e);
-            }
-        }).thenAccept(computed -> {
-            // Check if this computation is still relevant
-            if (thisGeneration != updateGeneration) {
-                return; // A newer requestUpdate superseded us
-            }
+                    var state = resolveBaselineState();
+                    int modifiedCount;
+                    try {
+                        modifiedCount = repo.getModifiedFiles().size();
+                    } catch (GitAPIException e) {
+                        logger.debug("Failed to get modified files count", e);
+                        modifiedCount = 0;
+                    }
+                    try {
+                        var result = computeCumulativeChanges(state.baselineLabel(), state.baselineMode());
+                        return new ComputedUpdate(state, result, modifiedCount);
+                    } catch (GitAPIException e) {
+                        throw new RuntimeException(e);
+                    }
+                })
+                .thenAccept(computed -> {
+                    // Check if this computation is still relevant
+                    if (thisGeneration != updateGeneration) {
+                        return; // A newer requestUpdate superseded us
+                    }
 
-            lastBaselineLabel = computed.state.baselineLabel();
-            lastBaselineMode = computed.state.baselineMode();
-            lastCumulativeChanges = computed.result;
+                    lastBaselineLabel = computed.state.baselineLabel();
+                    lastBaselineMode = computed.state.baselineMode();
+                    lastCumulativeChanges = computed.result;
 
-            // Update title on EDT
-            SwingUtilities.invokeLater(() -> {
-                if (thisGeneration != updateGeneration) return;
-                updateTitleAndTooltipFromResult(computed.result, computed.state.baselineLabel());
-            });
+                    // Update title on EDT
+                    SwingUtilities.invokeLater(() -> {
+                        if (thisGeneration != updateGeneration) return;
+                        updateTitleAndTooltipFromResult(computed.result, computed.state.baselineLabel());
+                    });
 
-            // Trigger deferred UI update
-            deferredUpdateHelper.requestUpdate();
-        }).exceptionally(ex -> {
-            if (thisGeneration != updateGeneration) return null;
-            logger.warn("Failed to compute cumulative changes", ex);
-            SwingUtilities.invokeLater(() -> {
-                if (thisGeneration != updateGeneration) return;
-                tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes");
-            });
-            return null;
-        });
+                    // Trigger deferred UI update
+                    deferredUpdateHelper.requestUpdate();
+                })
+                .exceptionally(ex -> {
+                    if (thisGeneration != updateGeneration) return null;
+                    logger.warn("Failed to compute cumulative changes", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        if (thisGeneration != updateGeneration) return;
+                        tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes");
+                    });
+                    return null;
+                });
     }
 
     private record ComputedUpdate(BaselineState state, DiffService.CumulativeChanges result, int modifiedFileCount) {}
@@ -505,7 +507,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 commits,
                 pushPullState);
     }
-
 
     private void updateTitleAndTooltipFromResult(DiffService.CumulativeChanges result, String baselineLabel) {
         String title;
