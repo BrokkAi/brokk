@@ -514,7 +514,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // Update context w/ new analyzer
                     // ignore "load external changes" done by the build agent itself
                     // the build agent pauses the analyzer, which is our indicator
-                    if (!analyzerWrapper.isPause()) {
+                    if (!requireNonNull(analyzerWrapper).isPause()) {
                         processExternalFileChangesIfNeeded();
                         io.updateWorkspace();
                     }
@@ -762,18 +762,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public IAnalyzerWrapper getAnalyzerWrapper() {
-        return analyzerWrapper;
+        return requireNonNull(analyzerWrapper);
     }
 
     @Override
     public IAnalyzer getAnalyzer() throws InterruptedException {
-        return analyzerWrapper.get();
+        return requireNonNull(analyzerWrapper).get();
     }
 
     @Override
     public IAnalyzer getAnalyzerUninterrupted() {
         try {
-            return analyzerWrapper.get();
+            return requireNonNull(analyzerWrapper).get();
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
         }
@@ -957,7 +957,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void requestRebuild() {
         project.getRepo().invalidateCaches();
-        analyzerWrapper.requestRebuild();
+        requireNonNull(analyzerWrapper).requestRebuild();
     }
 
     /** undo last context change */
@@ -980,7 +980,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getSessionManager()
                         .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
                 if (!result.changedFiles().isEmpty()) {
-                    analyzerWrapper.updateFiles(result.changedFiles());
+                    requireNonNull(analyzerWrapper).updateFiles(result.changedFiles());
                 }
                 return true;
             }
@@ -999,7 +999,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 String message = "Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!";
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 if (!result.changedFiles().isEmpty()) {
-                    analyzerWrapper.updateFiles(result.changedFiles());
+                    requireNonNull(analyzerWrapper).updateFiles(result.changedFiles());
                 }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Context not found or already at that point");
@@ -1017,7 +1017,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Redo!");
                 if (!redoResult.changedFiles().isEmpty()) {
-                    analyzerWrapper.updateFiles(redoResult.changedFiles());
+                    requireNonNull(analyzerWrapper).updateFiles(redoResult.changedFiles());
                 }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "no redo state available");
@@ -1394,7 +1394,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Returns current analyzer readiness without blocking. */
     public boolean isAnalyzerReady() {
-        return analyzerWrapper.getNonBlocking() != null;
+        return requireNonNull(analyzerWrapper).getNonBlocking() != null;
     }
 
     /** Returns the current session's domain-model task list. Always non-null. */
@@ -1908,13 +1908,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
-        analyzerWrapper.pause();
+        requireNonNull(analyzerWrapper).pause();
         try {
             return callable.call();
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
-            analyzerWrapper.resume();
+            requireNonNull(analyzerWrapper).resume();
         }
     }
 
@@ -2215,7 +2215,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
 
-            analyzerWrapper.pause();
+            requireNonNull(analyzerWrapper).pause();
         }
 
         /**
@@ -2305,7 +2305,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 captureGitState(finalCtx);
             }
 
-            analyzerWrapper.resume();
+            requireNonNull(analyzerWrapper).resume();
         }
     }
 
