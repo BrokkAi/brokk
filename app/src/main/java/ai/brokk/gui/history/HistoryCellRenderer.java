@@ -1,9 +1,13 @@
-package ai.brokk.gui;
+package ai.brokk.gui.history;
 
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
+import ai.brokk.gui.ActivityTableRenderers;
+import ai.brokk.gui.Chrome;
+import ai.brokk.gui.Constants;
+import ai.brokk.gui.HistoryOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.util.ComputedValue;
 import java.awt.BorderLayout;
@@ -42,7 +46,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
     private final ActivityTableRenderers.ActionCellRenderer fallback = new ActivityTableRenderers.ActionCellRenderer();
     private final Font smallFont = new Font(Font.DIALOG, Font.PLAIN, 11);
 
-    private final ActivityTableRenderers.HistoryTableHost historyTableHost;
+    private final HistoryTable historyTable;
     private final ContextManager contextManager;
     private final Chrome chrome;
 
@@ -54,13 +58,12 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
     /**
      * Creates a new HistoryCellRenderer.
      *
-     * @param historyTableHost   owning host (used for row adjustments)
+     * @param historyTable   history table
      * @param contextManager     context manager used to obtain diff services
      * @param chrome             chrome instance used for theme lookups
      */
-    public HistoryCellRenderer(
-            ActivityTableRenderers.HistoryTableHost historyTableHost, ContextManager contextManager, Chrome chrome) {
-        this.historyTableHost = historyTableHost;
+    public HistoryCellRenderer(HistoryTable historyTable, ContextManager contextManager, Chrome chrome) {
+        this.historyTable = historyTable;
         this.contextManager = contextManager;
         this.chrome = chrome;
 
@@ -123,7 +126,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
                     return;
                 }
                 SwingUtilities.invokeLater(() -> {
-                    historyTableHost.adjustRowHeightForContext(ctx);
+                    historyTable.adjustRowHeightForContext(ctx);
                     table.repaint();
                 });
             });

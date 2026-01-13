@@ -1,7 +1,8 @@
-package ai.brokk.gui;
+package ai.brokk.gui.history;
 
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.util.ComputedValue;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;

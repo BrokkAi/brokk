@@ -14,8 +14,6 @@ import ai.brokk.gui.ActivityTableRenderers.GroupRow;
 import ai.brokk.gui.ActivityTableRenderers.TriangleIcon;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.HistoryCellRenderer;
-import ai.brokk.gui.HistoryGrouping;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.ComputedValue;
 import java.awt.*;
@@ -35,7 +33,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * A reusable component for displaying Context History in a table with grouping, arrows, and diff support.
  */
-public class HistoryTable extends JPanel implements ActivityTableRenderers.HistoryTableHost {
+public class HistoryTable extends JPanel {
     private final JTable table;
     private final DefaultTableModel model;
     private final JScrollPane scrollPane;
@@ -435,7 +433,6 @@ public class HistoryTable extends JPanel implements ActivityTableRenderers.Histo
         return -1;
     }
 
-    @Override
     public void adjustRowHeightForContext(Context ctx) {
         assert SwingUtilities.isEventDispatchThread() : "adjustRowHeightForContext must be called on EDT";
 

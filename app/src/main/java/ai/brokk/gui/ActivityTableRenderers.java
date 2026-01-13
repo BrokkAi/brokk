@@ -31,10 +31,6 @@ public final class ActivityTableRenderers {
         // Prevent instantiation
     }
 
-    public interface HistoryTableHost {
-        void adjustRowHeightForContext(Context ctx);
-    }
-
     public record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
 
     public record ActionText(ComputedValue<String> text, int indentLevel) {}

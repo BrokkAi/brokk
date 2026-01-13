@@ -5,7 +5,6 @@ import static ai.brokk.gui.ActivityTableRenderers.COL_ICON;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.HistoryGrouping;
 import ai.brokk.gui.mop.ThemeColors;
 import java.awt.BasicStroke;
 import java.awt.Color;
