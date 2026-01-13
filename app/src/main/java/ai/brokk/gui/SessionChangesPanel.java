@@ -55,7 +55,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SessionChangesPanel.class);
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final ReviewActions reviewActions;
     private final GitRepo repo;
     private final DeferredUpdateHelper deferredUpdateHelper;
     private final TabTitleUpdater tabTitleUpdater;
@@ -101,8 +100,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final MaterialButton pasteBtn;
 
-    private final MaterialButton copyBtn;
-
     private final CardLayout mainCardLayout;
     private final JPanel cardsPanel;
     private final JLabel emptyLabel;
@@ -131,7 +128,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.tabTitleUpdater = tabTitleUpdater;
-        this.reviewActions = new ReviewActions(chrome);
 
         var maybeRepo = contextManager.getProject().getRepo();
         if (!(maybeRepo instanceof GitRepo gr)) {
@@ -153,7 +149,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.prBtn = new MaterialButton("Create PR");
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
         this.pasteBtn = new MaterialButton("Paste Review");
-        this.copyBtn = new MaterialButton("Copy Review");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -195,7 +190,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         buttonPanel.add(prBtn);
         if (Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"))) {
             buttonPanel.add(pasteBtn);
-            buttonPanel.add(copyBtn);
         }
         buttonPanel.add(guidedReviewBtn);
         headerPanel.add(buttonPanel, BorderLayout.EAST);
@@ -246,7 +240,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         if (Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"))) {
             pasteBtn.addActionListener(e -> handlePasteReview());
-            copyBtn.addActionListener(e -> handleCopyReview());
         }
 
         SwingUtil.applyPrimaryButtonStyle(commitBtn);
@@ -1077,15 +1070,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     });
                     return null;
                 });
-    }
-
-    private void handleCopyReview() {
-        var review = codeReviewPanel.getCurrentReview();
-        if (review == null) {
-            reviewActions.notifyNoReviewToCopy();
-        } else {
-            reviewActions.copyReviewToClipboard(review);
-        }
     }
 
     private @Nullable String formatStalenessMessage(StalenessInfo staleness) {

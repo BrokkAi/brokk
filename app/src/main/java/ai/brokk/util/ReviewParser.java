@@ -23,7 +23,6 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -715,29 +714,28 @@ public class ReviewParser {
             List<DesignFeedback> designNotes = rawReview.designNotes().stream()
                     .map(raw -> new DesignFeedback(
                             raw.title(),
-                            instance.cleanMetadata(Objects.requireNonNullElse(raw.description(), "")),
+                            instance.cleanMetadata(raw.description()),
                             raw.excerptIndices().stream()
                                     .map(resolvedExcerpts::get)
                                     .filter(Objects::nonNull)
                                     .toList(),
-                            instance.cleanMetadata(Objects.requireNonNullElse(raw.recommendation(), ""))))
+                            instance.cleanMetadata(raw.recommendation())))
                     .toList();
 
             List<TacticalFeedback> tacticalNotes = rawReview.tacticalNotes().stream()
-                    .flatMap(raw -> {
+                    .map(raw -> {
                         CodeExcerpt excerpt = resolvedExcerpts.get(raw.excerptIndex());
                         if (excerpt == null) {
                             logger.warn(
-                                    "Tactical note '{}' has missing excerpt index {}, skipping",
+                                    "Tactical note '{}' has missing excerpt index {}",
                                     raw.title(),
                                     raw.excerptIndex());
-                            return Stream.empty();
                         }
-                        return Stream.of(new TacticalFeedback(
+                        return new TacticalFeedback(
                                 raw.title(),
-                                instance.cleanMetadata(Objects.requireNonNullElse(raw.description(), "")),
-                                excerpt,
-                                instance.cleanMetadata(Objects.requireNonNullElse(raw.recommendation(), ""))));
+                                instance.cleanMetadata(raw.description()),
+                                Objects.requireNonNull(excerpt),
+                                instance.cleanMetadata(raw.recommendation()));
                     })
                     .toList();
 
@@ -747,82 +745,6 @@ public class ReviewParser {
                     designNotes,
                     tacticalNotes,
                     rawReview.additionalTests());
-        }
-
-        /**
-         * Converts this GuidedReview to an ExportReview suitable for clipboard export.
-         * This collects all CodeExcerpts into an array and replaces them with indices.
-         */
-        public ExportReview toExport() {
-            List<RawExcerpt> excerpts = new ArrayList<>();
-            Map<CodeExcerpt, Integer> excerptIndices = new HashMap<>();
-
-            // Collect excerpts from all sources
-            for (var change : keyChanges) {
-                for (var ce : change.excerpts()) {
-                    if (!excerptIndices.containsKey(ce)) {
-                        excerptIndices.put(ce, excerpts.size());
-                        excerpts.add(new RawExcerpt(ce.file().getRelPath().toString(), ce.line(), ce.excerpt()));
-                    }
-                }
-            }
-            for (var design : designNotes) {
-                for (var ce : design.excerpts()) {
-                    if (!excerptIndices.containsKey(ce)) {
-                        excerptIndices.put(ce, excerpts.size());
-                        excerpts.add(new RawExcerpt(ce.file().getRelPath().toString(), ce.line(), ce.excerpt()));
-                    }
-                }
-            }
-            for (var tactical : tacticalNotes) {
-                var ce = tactical.excerpt();
-                if (!excerptIndices.containsKey(ce)) {
-                    excerptIndices.put(ce, excerpts.size());
-                    excerpts.add(new RawExcerpt(ce.file().getRelPath().toString(), ce.line(), ce.excerpt()));
-                }
-            }
-
-            // Convert to raw formats with indices
-            var rawDesignNotes = designNotes.stream()
-                    .map(d -> new RawDesignFeedback(
-                            d.title(),
-                            d.description(),
-                            d.excerpts().stream().map(excerptIndices::get).toList(),
-                            d.recommendation()))
-                    .toList();
-
-            var rawTacticalNotes = tacticalNotes.stream()
-                    .map(t -> new RawTacticalFeedback(
-                            t.title(),
-                            t.description(),
-                            Objects.requireNonNull(excerptIndices.get(t.excerpt())),
-                            t.recommendation()))
-                    .toList();
-
-            return new ExportReview(overview, keyChanges, rawDesignNotes, rawTacticalNotes, additionalTests, excerpts);
-        }
-    }
-
-    /**
-     * Export format for clipboard that includes both the review structure and excerpts array.
-     */
-    public record ExportReview(
-            String overview,
-            List<KeyChanges> keyChanges,
-            List<RawDesignFeedback> designNotes,
-            List<RawTacticalFeedback> tacticalNotes,
-            List<TestFeedback> additionalTests,
-            List<RawExcerpt> excerpts) {
-
-        public String toJson() {
-            return Json.toJson(this);
-        }
-
-        private record ToolRequest(String id, String name, String arguments) {}
-
-        public String toToolRequest() {
-            String requestId = java.util.UUID.randomUUID().toString().substring(0, 8);
-            return Json.toJson(new ToolRequest(requestId, "createReview", toJson()));
         }
     }
 
