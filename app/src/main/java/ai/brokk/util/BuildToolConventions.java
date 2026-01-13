@@ -24,8 +24,7 @@ public class BuildToolConventions {
 
     /**
      * Determines the build system based on files present in the project root.
-     * Uses first-match precedence: Maven → Gradle → SBT → NPM → Cargo → CMake →
-     * Ruby → PHP → DOTNET → Poetry → Python → Bazel.
+     * Uses first-match precedence: Maven → Gradle → SBT → NPM → Cargo → CMake → Ruby → PHP → DOTNET → Poetry → Python → Bazel.
      * In monorepos with multiple build files, the first matching system wins.
      */
     public static BuildSystem determineBuildSystem(List<String> rootFilenames) {
@@ -46,12 +45,6 @@ public class BuildToolConventions {
         if (names.contains("cargo.toml")) {
             return BuildSystem.CARGO;
         }
-        if (names.contains("build") || names.contains("workspace")) { // Bazel uses WORKSPACE or BUILD files
-            // This is a weak indicator for Bazel, might need refinement if WORKSPACE is common
-            // For now, checking for specific Bazel files like WORKSPACE.bazel or MODULE.bazel might be better if
-            // available
-            // Or rely on user to specify for Bazel if ambiguous
-        }
         if (names.contains("cmakelists.txt")) {
             return BuildSystem.CMAKE;
         }
@@ -70,16 +63,9 @@ public class BuildToolConventions {
         if (names.contains("setup.py") || names.contains("pyproject.toml") || names.contains("requirements.txt")) {
             return BuildSystem.PYTHON;
         }
-        // BAZEL check can be ambiguous, let's put it after more specific ones or make it more robust.
-        // For now, if common files like 'BUILD' or 'WORKSPACE' (without .bazel extension) are present,
-        // it's hard to distinguish from other systems. A more robust check might involve looking for
-        // specific Bazel content or standard Bazel file names.
-        // Given the current information, if other specific files are not found, these could indicate Bazel.
         if (names.contains("workspace.bazel") || names.contains("module.bazel") || names.contains("build.bazel")) {
             return BuildSystem.BAZEL;
         }
-        // A generic 'BUILD' file is very ambiguous, so we'll be conservative.
-        // if (names.contains("build")) { return BuildSystem.BAZEL; }
 
         return BuildSystem.UNKNOWN;
     }
