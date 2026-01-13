@@ -228,8 +228,13 @@ public final class JobStore {
     /**
      * Load the job specification (meta.json).
      *
+     * <p><b>Note:</b> Sensitive tags (e.g., {@code github_token}) are redacted during
+     * persistence and will contain "{@code [REDACTED]}" rather than their original values.
+     * This method is intended for auditing/debugging, not for recovering credentials
+     * needed for job execution.
+     *
      * @param jobId The job ID
-     * @return The job spec, or null if the job does not exist
+     * @return The job spec with sensitive tags redacted, or null if the job does not exist
      * @throws IOException If I/O fails
      */
     public @Nullable JobSpec loadSpec(String jobId) throws IOException {
