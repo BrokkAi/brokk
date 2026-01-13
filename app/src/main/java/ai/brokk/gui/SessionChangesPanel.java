@@ -216,6 +216,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         var dummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
                 new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
+        // Initialize font index from saved settings so UnifiedEditorArea.hasExplicitFontSize() returns true
+        ensureFontIndexInitialized();
+        dummyPanel.setCurrentFontIndex(currentFontIndex);
         this.diffCore = createDiffCore(dummyPanel);
 
         // One-time listener installations
@@ -287,6 +290,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 diffContainer.removeAll();
                 diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
 
+                // Apply saved font size to the panel
+                applyFontSizeToPanel(panel);
+
                 if (targetLine > 0) {
                     panel.resetAutoScrollFlag();
                     panel.diff(false);
@@ -314,6 +320,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                 diffContainer.revalidate();
                 diffContainer.repaint();
+
+                // Update toolbar button states after panel is displayed
+                SwingUtilities.invokeLater(() -> diffToolbar.updateButtonStates());
             }
         };
     }
@@ -1203,6 +1212,38 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     // Font size state for EditorFontSizeControl
     private int currentFontIndex = -1;
 
+    /** Initialize font index from settings if not already set */
+    private void ensureFontIndexInitialized() {
+        if (currentFontIndex == -1) {
+            float saved = ai.brokk.util.GlobalUiSettings.getEditorFontSize();
+            if (saved > 0f) {
+                // Find closest font index for the saved size
+                int closestIndex = EditorFontSizeControl.DEFAULT_FONT_INDEX;
+                float minDiff = Math.abs(
+                        EditorFontSizeControl.FONT_SIZES.get(EditorFontSizeControl.DEFAULT_FONT_INDEX) - saved);
+                for (int i = 0; i < EditorFontSizeControl.FONT_SIZES.size(); i++) {
+                    float diff = Math.abs(EditorFontSizeControl.FONT_SIZES.get(i) - saved);
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closestIndex = i;
+                    }
+                }
+                currentFontIndex = closestIndex;
+            } else {
+                currentFontIndex = EditorFontSizeControl.DEFAULT_FONT_INDEX;
+            }
+        }
+    }
+
+    /** Apply current font size to a panel if font has been initialized */
+    private void applyFontSizeToPanel(ai.brokk.difftool.ui.AbstractDiffPanel panel) {
+        ensureFontIndexInitialized();
+        if (currentFontIndex >= 0) {
+            float fontSize = EditorFontSizeControl.FONT_SIZES.get(currentFontIndex);
+            panel.applyEditorFontSize(fontSize);
+        }
+    }
+
     @Nullable
     private AbstractContentPanel getCurrentContentPanel() {
         var panel = diffCore.getCachedPanel(diffCore.getCurrentIndex());
@@ -1412,6 +1453,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             private void applyFontSizeToAllPanels() {
                 if (currentFontIndex < 0) return;
                 float fontSize = EditorFontSizeControl.FONT_SIZES.get(currentFontIndex);
+                ai.brokk.util.GlobalUiSettings.saveEditorFontSize(fontSize);
                 for (var panel : diffCore.getCachedPanels()) {
                     panel.applyEditorFontSize(fontSize);
                 }
