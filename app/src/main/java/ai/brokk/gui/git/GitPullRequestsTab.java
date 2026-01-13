@@ -1808,7 +1808,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 repo.remote().pull();
 
                 SwingUtilities.invokeLater(() -> {
-                    chrome.refreshGitAndFetch(localBranchName);
+                    chrome.refreshGitAsync(localBranchName);
                     gitLogTab.selectCurrentBranch();
                 });
                 chrome.showNotification(
@@ -1887,7 +1887,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 getRepo().checkoutRemoteBranch(remoteBranchRef, localBranchName);
 
                 SwingUtilities.invokeLater(() -> {
-                    chrome.refreshGitAndFetch(localBranchName);
+                    chrome.refreshGitAsync(localBranchName);
                     // Switch to the Log tab
                     JTabbedPane mainGitPanelTabs = (JTabbedPane) GitPullRequestsTab.this.getParent();
                     for (int i = 0; i < mainGitPanelTabs.getTabCount(); i++) {
