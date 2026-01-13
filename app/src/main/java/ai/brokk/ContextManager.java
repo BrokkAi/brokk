@@ -1368,7 +1368,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // Close watchers before shutting down executors that may be used by them
-        analyzerWrapper.close();
+        if (analyzerWrapper != null) {
+            analyzerWrapper.close();
+        }
         lowMemoryWatcherManager.close();
 
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
