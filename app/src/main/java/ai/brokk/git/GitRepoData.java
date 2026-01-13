@@ -185,6 +185,7 @@ public class GitRepoData {
         }
 
         var objId = repo.resolveToCommit(commitId);
+        var targetPath = repo.toRepoRelativePath(file);
 
         try (var revWalk = new RevWalk(repository)) {
             var commit = revWalk.parseCommit(objId);
@@ -192,13 +193,11 @@ public class GitRepoData {
             try (var treeWalk = new TreeWalk(repository)) {
                 treeWalk.addTree(tree);
                 treeWalk.setRecursive(true);
-                String targetPath = repo.toRepoRelativePath(file);
-                while (treeWalk.next()) {
-                    if (treeWalk.getPathString().equals(targetPath)) {
-                        var blobId = treeWalk.getObjectId(0);
-                        var loader = repository.open(blobId);
-                        return new String(loader.getBytes(), StandardCharsets.UTF_8);
-                    }
+                treeWalk.setFilter(PathFilter.create(targetPath));
+                if (treeWalk.next()) {
+                    var blobId = treeWalk.getObjectId(0);
+                    var loader = repository.open(blobId);
+                    return new String(loader.getBytes(), StandardCharsets.UTF_8);
                 }
             }
         } catch (IOException e) {
