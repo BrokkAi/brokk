@@ -188,6 +188,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         buttonPanel.add(pullBtn);
         buttonPanel.add(pushBtn);
         buttonPanel.add(prBtn);
+        if (Boolean.parseBoolean(System.getProperty("brokk.devmode", "false"))) {
+            buttonPanel.add(pasteBtn);
+        }
         buttonPanel.add(guidedReviewBtn);
         headerPanel.add(buttonPanel, BorderLayout.EAST);
 

@@ -23,5 +23,9 @@ export function isHistorySeq(seq: number | undefined): boolean {
 }
 
 export function isSummarySeq(seq: number | undefined): boolean {
-    return typeof seq === 'number' && seq >= SUMMARY_SEQ_START;
+    return typeof seq === 'number' && seq >= SUMMARY_SEQ_START && seq < STATIC_DOC_SEQ_START;
+}
+
+export function isStaticDocSeq(seq: number | undefined): boolean {
+    return typeof seq === 'number' && seq >= STATIC_DOC_SEQ_START;
 }
