@@ -202,10 +202,10 @@ public final class GitWorkflow {
         return "Pulled " + branch;
     }
 
-    public BranchDiff diffBetweenBranches(String source, String target) throws GitAPIException {
-        var commits = repo.listCommitsBetweenBranches(source, target, /*excludeMergeCommitsFromTarget*/ true);
-        var files = repo.listFilesChangedBetweenBranches(source, target);
-        var merge = repo.getMergeBase(source, target);
+    public BranchDiff diffBetweenBranches(String oldBranch, String newBranch) throws GitAPIException {
+        var commits = repo.listCommitsBetweenBranches(oldBranch, newBranch, /*excludeMergeCommitsFromTarget*/ true);
+        var files = repo.listFilesChangedBetweenBranches(oldBranch, newBranch);
+        var merge = repo.getMergeBase(newBranch, oldBranch);
         return new BranchDiff(commits, files, merge);
     }
 
@@ -239,7 +239,7 @@ public final class GitWorkflow {
 
         List<ChatMessage> messages;
         if (diff.length() > service.getMaxInputTokens(modelToUse) * 0.5) {
-            var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
+            var commitMessagesContent = repo.getCommitMessagesBetween(target, source);
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
         } else {
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);

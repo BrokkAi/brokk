@@ -390,7 +390,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 }
 
                 // Use GitWorkflowService to get branch diff information
-                var branchDiff = workflowService.diffBetweenBranches(sourceBranch, targetBranch);
+                var branchDiff = workflowService.diffBetweenBranches(targetBranch, sourceBranch);
                 this.mergeBaseCommit = branchDiff.mergeBase(); // Store merge base from service
                 logger.debug(
                         "Calculated merge base between {} and {}: {}",

@@ -348,7 +348,7 @@ public class GitRepoTest {
         createCommit("feature_file1.txt", "content1", "Commit 1 on feature");
         createCommit("feature_file2.txt", "content2", "Commit 2 on feature");
 
-        List<String> messages = repo.getCommitMessagesBetween("feature", mainBranch);
+        List<String> messages = repo.getCommitMessagesBetween(mainBranch, "feature");
         List<String> expectedMessages = List.of("Commit 1 on feature", "Commit 2 on feature");
         assertEquals(expectedMessages, messages, "Messages should be those on feature branch, in chronological order.");
     }
@@ -387,7 +387,7 @@ public class GitRepoTest {
         // Commits on branch-A: Initial, M1, A1, A2
         // Commits on branch-B: Initial, M1, B1
         // Merge base is M1. Commits on branch-A after M1 are A1, A2.
-        List<String> messages = repo.getCommitMessagesBetween("branch-A", "branch-B");
+        List<String> messages = repo.getCommitMessagesBetween("branch-B", "branch-A");
         List<String> expectedMessages = List.of("A1 on branch-A", "A2 on branch-A");
         assertEquals(
                 expectedMessages, messages, "Should return commits unique to branch-A after divergence, in order.");
@@ -1408,7 +1408,7 @@ public class GitRepoTest {
         String secondCommit = repo.getCurrentCommitId();
 
         // Get files changed between commits
-        var changedFiles = repo.listFilesChangedBetweenCommits(secondCommit, firstCommit);
+        var changedFiles = repo.listFilesChangedBetweenCommits(firstCommit, secondCommit);
 
         // JGit's rename detection is heuristic. When a small file is renamed and modified in the same commit,
         // it may emit either a single RENAME/MODIFIED for the new path, or an ADD(new) + DELETE(old).
@@ -2206,7 +2206,7 @@ public class GitRepoTest {
         createCommit("file2.txt", "content2", "Feature commit");
 
         // List changes between branches
-        var result = repo.listFilesChangedBetweenBranches("feature", "master");
+        var result = repo.listFilesChangedBetweenBranches("master", "feature");
 
         assertNotNull(result, "Result should not be null");
         assertEquals(1, result.size(), "Should have one changed file");
@@ -2217,7 +2217,7 @@ public class GitRepoTest {
         createCommit("aaa.txt", "aaa", "Another commit");
         createCommit("zzz.txt", "zzz", "Yet another commit");
 
-        result = repo.listFilesChangedBetweenBranches("feature", "master");
+        result = repo.listFilesChangedBetweenBranches("master", "feature");
         assertEquals(3, result.size());
 
         // Files should be sorted alphabetically
@@ -2237,7 +2237,7 @@ public class GitRepoTest {
         Files.writeString(projectRoot.resolve("file2.txt"), "new content");
 
         // 3. List changes using "WORKING"
-        var result = repo.listFilesChangedBetweenCommits("WORKING", initialCommit);
+        var result = repo.listFilesChangedBetweenCommits(initialCommit, "WORKING");
 
         // Should detect modification of file1.txt.
         // FileTreeIterator includes untracked files by default in scan() results.

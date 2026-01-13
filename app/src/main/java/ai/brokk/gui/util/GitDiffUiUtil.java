@@ -253,7 +253,7 @@ public interface GitDiffUiUtil {
                     changedFiles = CommitInfo.changedFiles(repo, newestCommitId);
                 } else {
                     // Files changed between oldest selected commit's parent and newest selected commit
-                    changedFiles = repo.listFilesChangedBetweenCommits(newestCommitId, oldestCommitId + "^").stream()
+                    changedFiles = repo.listFilesChangedBetweenCommits(oldestCommitId + "^", newestCommitId).stream()
                             .map(IGitRepo.ModifiedFile::file)
                             .collect(Collectors.toList());
                 }
@@ -604,7 +604,7 @@ public interface GitDiffUiUtil {
                     return;
                 }
                 List<ProjectFile> changedFiles =
-                        repo.listFilesChangedBetweenBranches(compareBranchName, baseBranchName).stream()
+                        repo.listFilesChangedBetweenBranches(baseBranchName, compareBranchName).stream()
                                 .map(IGitRepo.ModifiedFile::file)
                                 .collect(Collectors.toList());
                 var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
@@ -732,7 +732,7 @@ public interface GitDiffUiUtil {
                 }
 
                 List<ProjectFile> changedFiles =
-                        repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha).stream()
+                        repo.listFilesChangedBetweenCommits(effectiveBaseSha, prHeadSha).stream()
                                 .map(IGitRepo.ModifiedFile::file)
                                 .collect(Collectors.toList());
                 String fileNamesSummary = formatFileList(changedFiles);
@@ -803,7 +803,7 @@ public interface GitDiffUiUtil {
                             prBaseFetchRef);
                 }
 
-                var modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+                var modifiedFiles = repo.listFilesChangedBetweenBranches(prBaseSha, prHeadSha);
 
                 if (modifiedFiles.isEmpty()) {
                     chrome.systemNotify(

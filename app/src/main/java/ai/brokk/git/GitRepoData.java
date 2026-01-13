@@ -267,7 +267,7 @@ public class GitRepoData {
      */
     public List<ModifiedFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
         if ("WORKING".equals(commitId)) {
-            return listFilesChangedBetweenCommits("WORKING", "HEAD");
+            return listFilesChangedBetweenCommits("HEAD", "WORKING");
         }
 
         var commitObjectId = repo.resolveToCommit(commitId);
@@ -291,7 +291,7 @@ public class GitRepoData {
             } else {
                 // Regular commit: diff against primary parent
                 var parentId = commit.getParent(0).getId().getName();
-                return listFilesChangedBetweenCommits(commitId, parentId);
+                return listFilesChangedBetweenCommits(parentId, commitId);
             }
         } catch (IOException e) {
             throw new GitRepo.GitWrappedIOException(e);
@@ -299,10 +299,13 @@ public class GitRepoData {
     }
 
     /** Lists files changed between two commit SHAs (from oldCommitId to newCommitId). */
-    public List<ModifiedFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
+    public List<ModifiedFile> listFilesChangedBetweenCommits(String oldCommitId, String newCommitId)
             throws GitAPIException {
         if (oldCommitId.isBlank()) {
             throw new IllegalArgumentException("oldCommitId must not be blank");
+        }
+        if (newCommitId.isBlank()) {
+            throw new IllegalArgumentException("newCommitId must not be blank");
         }
 
         try (var revWalk = new RevWalk(repository);

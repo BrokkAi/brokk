@@ -1475,12 +1475,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             String mergeBase = repo.getMergeBase(headSha, baseSha);
 
                             if (mergeBase != null) {
-                                changedFiles = repo.listFilesChangedBetweenCommits(headSha, mergeBase).stream()
+                                changedFiles = repo.listFilesChangedBetweenCommits(mergeBase, headSha).stream()
                                         .map(mf -> mf.file().toString())
                                         .collect(Collectors.toList());
                             } else {
                                 // Fallback to direct diff if merge base calculation fails
-                                changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha).stream()
+                                changedFiles = repo.listFilesChangedBetweenCommits(baseSha, headSha).stream()
                                         .map(mf -> mf.file().toString())
                                         .collect(Collectors.toList());
                             }
@@ -1489,7 +1489,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                     "Error calculating changed files for PR #{}, using fallback diff: {}",
                                     prNumber,
                                     e.getMessage());
-                            changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha).stream()
+                            changedFiles = repo.listFilesChangedBetweenCommits(baseSha, headSha).stream()
                                     .map(mf -> mf.file().toString())
                                     .collect(Collectors.toList());
                         }
@@ -1584,7 +1584,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             prBaseFetchRef);
                 }
 
-                List<GitRepo.ModifiedFile> modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+                List<GitRepo.ModifiedFile> modifiedFiles = repo.listFilesChangedBetweenBranches(prBaseSha, prHeadSha);
 
                 if (modifiedFiles.isEmpty()) {
                     chrome.systemNotify(
