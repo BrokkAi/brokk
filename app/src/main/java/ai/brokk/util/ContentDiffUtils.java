@@ -12,6 +12,7 @@ import java.util.Arrays;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Nullable;
 
 public class ContentDiffUtils {
     private static final Logger logger = LogManager.getLogger(ContentDiffUtils.class);
@@ -48,7 +49,7 @@ public class ContentDiffUtils {
      * @return DiffComputationResult containing unified diff text and counts
      */
     public static DiffComputationResult computeDiffResult(
-            String oldContent, String newContent, String oldName, String newName) {
+            String oldContent, String newContent, @Nullable String oldName, @Nullable String newName) {
         return computeDiffResult(oldContent, newContent, oldName, newName, 0);
     }
 
@@ -63,7 +64,11 @@ public class ContentDiffUtils {
      * @return DiffComputationResult containing unified diff text and counts
      */
     public static DiffComputationResult computeDiffResult(
-            String oldContent, String newContent, String oldName, String newName, int contextLines) {
+            String oldContent,
+            String newContent,
+            @Nullable String oldName,
+            @Nullable String newName,
+            int contextLines) {
         var oldLines = toLines(oldContent);
         var newLines = toLines(newContent);
 

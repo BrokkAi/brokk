@@ -19,6 +19,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -54,6 +55,10 @@ public class SessionManager implements AutoCloseable {
         @JsonIgnore
         public boolean isSessionModified() {
             return created != modified;
+        }
+
+        public Instant createdAt() {
+            return Instant.ofEpochMilli(created);
         }
     }
 

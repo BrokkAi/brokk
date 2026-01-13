@@ -20,7 +20,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static final LanguageSyntaxProfile RS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM),
+            Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM, MOD_ITEM),
             Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),
             Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT),
             Set.of(ATTRIBUTE_ITEM), // Rust attributes like #[derive(...)]
@@ -33,6 +33,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.IMPL_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.MODULE_DEFINITION, SkeletonType.MODULE_STATEMENT,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "",
@@ -189,15 +190,22 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             // simpleName for "impl.definition" will be the type being implemented (e.g., "Point").
             case CaptureNames.CLASS_DEFINITION, CaptureNames.IMPL_DEFINITION ->
                 CodeUnit.cls(file, packageName, simpleName);
+            // "module.definition" is for mod blocks.
+            case CaptureNames.MODULE_DEFINITION -> {
+                String fqPackage = classChain.isEmpty()
+                        ? packageName
+                        : (packageName.isEmpty() ? classChain : packageName + "." + classChain);
+                yield CodeUnit.module(file, fqPackage, simpleName);
+            }
             case CaptureNames.FUNCTION_DEFINITION -> {
                 // For methods, classChain will be the struct/impl type name.
-                // For free functions, classChain will be empty.
+                // For free functions, classChain will be empty (or contain module names).
                 String fqSimpleName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                 yield CodeUnit.fn(file, packageName, fqSimpleName);
             }
             case CaptureNames.FIELD_DEFINITION -> {
                 // For struct fields, classChain is the struct name.
-                // For top-level const/static, classChain is empty.
+                // For top-level const/static, classChain is empty (or contains module names).
                 String fieldShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
                 yield CodeUnit.field(file, packageName, fieldShortName);
             }
@@ -406,7 +414,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean containsTestMarkers(TSTree tree) {
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         TSQueryCursor cursor = new TSQueryCursor();
         TSQuery rustQuery = getThreadLocalQuery();
         cursor.exec(rustQuery, tree.getRootNode());
@@ -416,7 +424,13 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             for (TSQueryCapture capture : match.getCaptures()) {
                 String captureName = rustQuery.getCaptureNameForId(capture.getIndex());
                 if (TEST_MARKER.equals(captureName)) {
-                    return true;
+                    // The capture is now directly on the attribute_item node
+                    TSNode attrItemNode = capture.getNode();
+                    String content = sourceContent.substringFrom(attrItemNode);
+                    // Rust attributes look like #[test] or #[cfg(test)]
+                    if (content.contains("#[test]") || content.contains("#[cfg(test)]")) {
+                        return true;
+                    }
                 }
             }
         }

@@ -81,7 +81,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private IConsoleIO io; // for UI feedback - Initialized in createGui
 
-    @SuppressWarnings("NullAway.Init")
+    @Nullable
     private IAnalyzerWrapper analyzerWrapper; // also initialized in createGui/createHeadless
 
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
@@ -514,7 +514,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // Update context w/ new analyzer
                     // ignore "load external changes" done by the build agent itself
                     // the build agent pauses the analyzer, which is our indicator
-                    if (!analyzerWrapper.isPause()) {
+                    if (!requireNonNull(analyzerWrapper).isPause()) {
                         processExternalFileChangesIfNeeded();
                         io.updateWorkspace();
                     }
@@ -762,18 +762,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public IAnalyzerWrapper getAnalyzerWrapper() {
-        return analyzerWrapper;
+        return requireNonNull(analyzerWrapper);
     }
 
     @Override
     public IAnalyzer getAnalyzer() throws InterruptedException {
-        return analyzerWrapper.get();
+        return requireNonNull(analyzerWrapper).get();
     }
 
     @Override
     public IAnalyzer getAnalyzerUninterrupted() {
         try {
-            return analyzerWrapper.get();
+            return requireNonNull(analyzerWrapper).get();
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
         }
@@ -957,7 +957,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void requestRebuild() {
         project.getRepo().invalidateCaches();
-        analyzerWrapper.requestRebuild();
+        requireNonNull(analyzerWrapper).requestRebuild();
     }
 
     /** undo last context change */
@@ -980,7 +980,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getSessionManager()
                         .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
                 if (!result.changedFiles().isEmpty()) {
-                    analyzerWrapper.updateFiles(result.changedFiles());
+                    requireNonNull(analyzerWrapper).updateFiles(result.changedFiles());
                 }
                 return true;
             }
@@ -999,7 +999,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 String message = "Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!";
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 if (!result.changedFiles().isEmpty()) {
-                    analyzerWrapper.updateFiles(result.changedFiles());
+                    requireNonNull(analyzerWrapper).updateFiles(result.changedFiles());
                 }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Context not found or already at that point");
@@ -1017,7 +1017,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Redo!");
                 if (!redoResult.changedFiles().isEmpty()) {
-                    analyzerWrapper.updateFiles(redoResult.changedFiles());
+                    requireNonNull(analyzerWrapper).updateFiles(redoResult.changedFiles());
                 }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "no redo state available");
@@ -1368,7 +1368,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // Close watchers before shutting down executors that may be used by them
-        analyzerWrapper.close();
+        if (analyzerWrapper != null) {
+            analyzerWrapper.close();
+        }
         lowMemoryWatcherManager.close();
 
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
@@ -1392,7 +1394,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Returns current analyzer readiness without blocking. */
     public boolean isAnalyzerReady() {
-        return analyzerWrapper.getNonBlocking() != null;
+        return requireNonNull(analyzerWrapper).getNonBlocking() != null;
     }
 
     /** Returns the current session's domain-model task list. Always non-null. */
@@ -1428,7 +1430,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Timeout, interruption, or execution error: fallback to original text as title
                 title = text;
             }
-            items.add(new TaskList.TaskItem(title, text, false));
+            items.add(new TaskList.TaskItem(UUID.randomUUID().toString(), title, text, false));
         }
 
         return items;
@@ -1563,21 +1565,27 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private Context markTaskDone(Context context, TaskList.TaskItem task) {
         var tasks = context.getTaskListDataOrEmpty().tasks();
 
-        // Find index: prefer exact match, fall back to first incomplete task with matching text
-        int idx = tasks.indexOf(task);
+        // Find index: prefer exact match by ID, fall back to first incomplete task with matching text
+        int idx = IntStream.range(0, tasks.size())
+                .filter(i -> Objects.equals(tasks.get(i).id(), task.id()))
+                .findFirst()
+                .orElse(-1);
+
         if (idx < 0) {
             idx = IntStream.range(0, tasks.size())
                     .filter(i -> !tasks.get(i).done() && tasks.get(i).text().equals(task.text()))
                     .findFirst()
                     .orElse(-1);
         }
+
         if (idx < 0) {
             logger.error("Task not found !? {}", task.toString());
             return context;
         }
 
         var updated = new ArrayList<>(tasks);
-        updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
+        var original = tasks.get(idx);
+        updated.set(idx, new TaskList.TaskItem(original.id(), original.title(), original.text(), true));
         return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)));
     }
 
@@ -1900,13 +1908,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
-        analyzerWrapper.pause();
+        requireNonNull(analyzerWrapper).pause();
         try {
             return callable.call();
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
-            analyzerWrapper.resume();
+            requireNonNull(analyzerWrapper).resume();
         }
     }
 
@@ -2207,7 +2215,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
 
-            analyzerWrapper.pause();
+            requireNonNull(analyzerWrapper).pause();
         }
 
         /**
@@ -2297,7 +2305,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 captureGitState(finalCtx);
             }
 
-            analyzerWrapper.resume();
+            requireNonNull(analyzerWrapper).resume();
         }
     }
 

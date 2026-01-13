@@ -25,21 +25,16 @@
 ) @function.definition
 
 ; Test markers (non-definition captures)
-; Prefer query-side filtering to avoid emitting test-marker captures for every function/method.
-; Match names starting with "test" (case-insensitive).
+; Filtering (e.g., regex matching for "test" prefix or "@test" tag) 
+; is performed in PhpAnalyzer.containsTestMarkers().
 (function_definition
-  name: (name) @test_marker
-  (#match? @test_marker "^[Tt][Ee][Ss][Tt]")
-)
+  name: (name) @test_marker)
 
 (method_declaration
-  name: (name) @test_marker
-  (#match? @test_marker "^[Tt][Ee][Ss][Tt]")
-)
+  name: (name) @test_marker)
 
 ; Comments / Docblocks (potential test markers)
 (comment) @test_marker
-  (#match? @test_marker "@test")
 
 
 ; Class property / field

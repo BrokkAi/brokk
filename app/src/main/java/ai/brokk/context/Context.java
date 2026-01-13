@@ -136,13 +136,21 @@ public class Context {
             return this;
         }
 
-        // 1. Deduplicate the input 'toAdd' collection internally first.
-        var uniqueInputs = new ArrayList<ContextFragment>();
-        for (var f : toAdd) {
-            if (uniqueInputs.stream().noneMatch(existing -> existing.hasSameSource(f))) {
-                uniqueInputs.add(f);
+        // Expand with supporting fragments while guarding against cycles and redundancy.
+        LinkedHashSet<ContextFragment> expanded = new LinkedHashSet<>();
+        Deque<ContextFragment> queue = new ArrayDeque<>(toAdd);
+
+        while (!queue.isEmpty()) {
+            ContextFragment f = queue.poll();
+            // Check if we've already added a fragment with the same source.
+            // This is expensive, O(N^2), keep an eye on this
+            if (expanded.stream().noneMatch(f::hasSameSource)) {
+                expanded.add(f);
+                queue.addAll(f.supportingFragments());
             }
         }
+
+        var uniqueInputs = expanded;
 
         // 2. Identify files that are being added as full PATH fragments.
         // These will "kill" any existing SKELETON fragments for the same files.
