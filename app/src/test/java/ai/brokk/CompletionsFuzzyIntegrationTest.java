@@ -5,17 +5,18 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnitType;
-import java.util.Comparator;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -132,7 +133,7 @@ public class CompletionsFuzzyIntegrationTest {
                 .collect(Collectors.toList());
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     void classRanksHigherThanFieldUsage() {
         String pattern = "contextmanager";
         List<CodeUnitRecord> matches = getMatches(pattern);
@@ -145,7 +146,7 @@ public class CompletionsFuzzyIntegrationTest {
         assertEquals("ai.brokk.ContextManager", topMatch.fqName());
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     void exactClassNameRanksHigherThanNestedClass() {
         String pattern = "FuzzyMatcher";
         List<CodeUnitRecord> matches = getMatches(pattern);
@@ -164,7 +165,7 @@ public class CompletionsFuzzyIntegrationTest {
         }
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     void commonAbbreviationsRankCorrectly() {
         // Test CM -> ContextManager
         List<CodeUnitRecord> cmMatches = getMatches("CM");
