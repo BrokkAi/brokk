@@ -47,11 +47,9 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
     private static final double MIN_ZOOM = 0.5;
     private static final double MAX_ZOOM = 2.0;
 
-    public record SearchState(int totalMatches, int currentDisplayIndex) {}
-
     private final JCEFWebViewHost host;
     private final AtomicInteger epoch = new AtomicInteger();
-    private final List<Consumer<SearchState>> searchListeners = new CopyOnWriteArrayList<>();
+    private final List<Consumer<IWebViewHost.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
 
     // Context for symbol right-click handling
     private @Nullable Chrome chrome;
@@ -74,11 +72,11 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
         this.hostComponent = hostComponent;
     }
 
-    public void addSearchStateListener(Consumer<SearchState> l) {
+    public void addSearchStateListener(Consumer<IWebViewHost.SearchState> l) {
         searchListeners.add(l);
     }
 
-    public void removeSearchStateListener(Consumer<SearchState> l) {
+    public void removeSearchStateListener(Consumer<IWebViewHost.SearchState> l) {
         searchListeners.remove(l);
     }
 
@@ -217,7 +215,7 @@ public final class JCEFBridge extends CefMessageRouterHandlerAdapter {
 
     private void searchStateChanged(int total, int current) {
         logger.debug("searchStateChanged: total={}, current={}", total, current);
-        var state = new SearchState(total, current);
+        var state = new IWebViewHost.SearchState(total, current);
         SwingUtilities.invokeLater(() -> {
             for (var l : searchListeners) {
                 try {

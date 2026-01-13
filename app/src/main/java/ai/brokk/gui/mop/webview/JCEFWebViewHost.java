@@ -707,8 +707,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
     @Override
     public void addSearchStateListener(Consumer<IWebViewHost.SearchState> listener) {
         if (bridge != null) {
-            bridge.addSearchStateListener(
-                    s -> listener.accept(new SearchState(s.totalMatches(), s.currentDisplayIndex())));
+            bridge.addSearchStateListener(listener);
         }
     }
 
