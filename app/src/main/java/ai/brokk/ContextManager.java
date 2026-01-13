@@ -81,7 +81,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private IConsoleIO io; // for UI feedback - Initialized in createGui
 
-    @SuppressWarnings("NullAway.Init")
+    @Nullable
     private IAnalyzerWrapper analyzerWrapper; // also initialized in createGui/createHeadless
 
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
