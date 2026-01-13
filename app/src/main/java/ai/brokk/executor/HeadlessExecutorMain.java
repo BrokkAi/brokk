@@ -1364,11 +1364,11 @@ public final class HeadlessExecutorMain {
     private record AddContextTextResponse(String id, int chars) {}
 
     private record IssueJobRequest(
-            String owner,
-            String repo,
+            @Nullable String owner,
+            @Nullable String repo,
             int issueNumber,
-            String githubToken,
-            String plannerModel,
+            @Nullable String githubToken,
+            @Nullable String plannerModel,
             @Nullable String codeModel,
             @Nullable Map<String, Object> buildSettings) {}
 
@@ -1393,11 +1393,11 @@ public final class HeadlessExecutorMain {
             }
 
             // Validation
-            if (request.owner().isBlank()) {
+            if (request.owner() == null || request.owner().isBlank()) {
                 sendValidationError(exchange, "owner is required");
                 return;
             }
-            if (request.repo().isBlank()) {
+            if (request.repo() == null || request.repo().isBlank()) {
                 sendValidationError(exchange, "repo is required");
                 return;
             }
@@ -1405,11 +1405,11 @@ public final class HeadlessExecutorMain {
                 sendValidationError(exchange, "valid issueNumber is required");
                 return;
             }
-            if (request.githubToken().isBlank()) {
+            if (request.githubToken() == null || request.githubToken().isBlank()) {
                 sendValidationError(exchange, "githubToken is required");
                 return;
             }
-            if (request.plannerModel().isBlank()) {
+            if (request.plannerModel() == null || request.plannerModel().isBlank()) {
                 sendValidationError(exchange, "plannerModel is required");
                 return;
             }
@@ -1420,11 +1420,11 @@ public final class HeadlessExecutorMain {
             }
 
             var jobSpec = JobSpec.ofIssue(
-                    request.plannerModel(),
+                    Objects.requireNonNull(request.plannerModel()),
                     request.codeModel() != null ? request.codeModel().strip() : null,
-                    request.githubToken(),
-                    request.owner(),
-                    request.repo(),
+                    Objects.requireNonNull(request.githubToken()),
+                    Objects.requireNonNull(request.owner()),
+                    Objects.requireNonNull(request.repo()),
                     request.issueNumber(),
                     buildSettingsJson);
 
