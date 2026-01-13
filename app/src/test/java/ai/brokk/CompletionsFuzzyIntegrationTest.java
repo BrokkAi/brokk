@@ -33,14 +33,6 @@ public class CompletionsFuzzyIntegrationTest {
             return lastDot == -1 ? fqName : fqName.substring(lastDot + 1);
         }
 
-        String camelHumpAbbreviation() {
-            String name = shortName();
-            return name.chars()
-                    .filter(c -> Character.isUpperCase(c) || Character.isDigit(c))
-                    .mapToObj(c -> String.valueOf((char) c))
-                    .collect(Collectors.joining());
-        }
-
         @Override
         public String toString() {
             return "[%s] %s".formatted(type, fqName);
