@@ -2,7 +2,6 @@ package ai.brokk.util;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
@@ -75,15 +74,15 @@ public class Messages {
 
     /** Helper method to create a ChatMessage of the specified type */
     public static ChatMessage create(String text, ChatMessageType type) {
-        return create(text, type, false);
+        return create(text, type, LlmOutputMeta.DEFAULT);
     }
 
-    public static ChatMessage create(String text, ChatMessageType type, boolean isReasoning) {
+    public static ChatMessage create(String text, ChatMessageType type, LlmOutputMeta meta) {
+        boolean isReasoning = meta.isReasoning();
         return switch (type) {
             case USER -> new UserMessage(text);
             case AI -> isReasoning ? new AiMessage("", text) : new AiMessage(text);
             case CUSTOM -> customSystem(text);
-            // Add other cases as needed with appropriate implementations
             default -> {
                 logger.warn("Unsupported message type: {}, using AiMessage as fallback", type);
                 yield new AiMessage(text);

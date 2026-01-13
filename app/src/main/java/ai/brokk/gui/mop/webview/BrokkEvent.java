@@ -24,11 +24,9 @@ public sealed interface BrokkEvent {
             @JsonIgnore ChunkMeta chunkMeta)
             implements BrokkEvent {
 
-        private record JsonMeta(boolean isNewMessage, boolean isReasoning, boolean isTerminal) {}
-
         @JsonProperty("meta")
-        public JsonMeta meta() {
-            return new JsonMeta(chunkMeta.isNewMessage(), chunkMeta.isReasoning(), chunkMeta.isTerminal());
+        public ChunkMeta meta() {
+            return chunkMeta;
         }
 
         @Override

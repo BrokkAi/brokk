@@ -245,13 +245,13 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
                 || reasoning != lastMessageIsReasoning
                 || (!reasoning && type != messages.getLast().type())) {
             // new message
-            messages.add(Messages.create(text, type, reasoning));
+            messages.add(Messages.create(text, type, meta));
         } else {
             // merge with last message
             var lastIdx = messages.size() - 1;
             var last = messages.get(lastIdx);
             var combined = Messages.getText(last) + text;
-            messages.set(lastIdx, Messages.create(combined, type, reasoning));
+            messages.set(lastIdx, Messages.create(combined, type, meta));
         }
 
         webHost.append(text, type, true, chunkMeta);
