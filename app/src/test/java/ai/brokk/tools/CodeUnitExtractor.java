@@ -20,44 +20,47 @@ import org.apache.logging.log4j.Logger;
 public class CodeUnitExtractor {
     private static final Logger logger = LogManager.getLogger(CodeUnitExtractor.class);
     private static final String DEFAULT_APP_PATH = "app";
-    private static final String OUTPUT_PATH = "app/test/resources/codeunits.csv";
+    private static final String DEFAULT_OUTPUT_PATH = "app/test/resources/codeunits.csv";
 
     public static void main(String[] args) {
         Path projectRoot = Path.of(args.length > 0 ? args[0] : DEFAULT_APP_PATH).toAbsolutePath().normalize();
-        logger.info("Extracting CodeUnits from: {}", projectRoot);
-
-        if (!Files.isDirectory(projectRoot)) {
-            logger.error("Provided path is not a directory: {}", projectRoot);
-            System.exit(1);
-        }
+        Path outputPath = Path.of(args.length > 1 ? args[1] : DEFAULT_OUTPUT_PATH);
 
         try {
-            IProject project = createMinimalProject(projectRoot);
-            JavaAnalyzer analyzer = new JavaAnalyzer(project);
-            
-            logger.info("Analyzing files...");
-            analyzer.update();
-
-            List<CodeUnit> declarations = analyzer.getAllDeclarations();
-            logger.info("Found {} declarations. Writing to {}...", declarations.size(), OUTPUT_PATH);
-
-            List<String> lines = declarations.stream()
-                    .map(cu -> String.format("%s,%s", cu.kind(), cu.fqName()))
-                    .sorted()
-                    .toList();
-
-            Path outputPath = Path.of(OUTPUT_PATH);
-            Path parent = outputPath.getParent();
-            if (parent != null) {
-                Files.createDirectories(parent);
-            }
-            Files.write(outputPath, lines);
-
+            extract(projectRoot, outputPath);
             logger.info("Extraction complete.");
         } catch (Exception e) {
             logger.error("Failed to extract CodeUnits: {}", e.getMessage(), e);
             System.exit(1);
         }
+    }
+
+    public static void extract(Path projectRoot, Path outputPath) throws IOException {
+        logger.info("Extracting CodeUnits from: {}", projectRoot);
+
+        if (!Files.isDirectory(projectRoot)) {
+            throw new IllegalArgumentException("Provided path is not a directory: " + projectRoot);
+        }
+
+        IProject project = createMinimalProject(projectRoot);
+        JavaAnalyzer analyzer = new JavaAnalyzer(project);
+
+        logger.info("Analyzing files...");
+        analyzer.update();
+
+        List<CodeUnit> declarations = analyzer.getAllDeclarations();
+        logger.info("Found {} declarations. Writing to {}...", declarations.size(), outputPath);
+
+        List<String> lines = declarations.stream()
+                .map(cu -> String.format("%s,%s", cu.kind(), cu.fqName()))
+                .sorted()
+                .toList();
+
+        Path parent = outputPath.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        Files.write(outputPath, lines);
     }
 
     private static IProject createMinimalProject(Path root) {
