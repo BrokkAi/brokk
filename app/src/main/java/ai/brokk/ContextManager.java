@@ -1428,7 +1428,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Timeout, interruption, or execution error: fallback to original text as title
                 title = text;
             }
-            items.add(new TaskList.TaskItem(title, text, false));
+            items.add(new TaskList.TaskItem(UUID.randomUUID().toString(), title, text, false));
         }
 
         return items;
@@ -1563,21 +1563,27 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private Context markTaskDone(Context context, TaskList.TaskItem task) {
         var tasks = context.getTaskListDataOrEmpty().tasks();
 
-        // Find index: prefer exact match, fall back to first incomplete task with matching text
-        int idx = tasks.indexOf(task);
+        // Find index: prefer exact match by ID, fall back to first incomplete task with matching text
+        int idx = IntStream.range(0, tasks.size())
+                .filter(i -> tasks.get(i).id().equals(task.id()))
+                .findFirst()
+                .orElse(-1);
+
         if (idx < 0) {
             idx = IntStream.range(0, tasks.size())
                     .filter(i -> !tasks.get(i).done() && tasks.get(i).text().equals(task.text()))
                     .findFirst()
                     .orElse(-1);
         }
+
         if (idx < 0) {
             logger.error("Task not found !? {}", task.toString());
             return context;
         }
 
         var updated = new ArrayList<>(tasks);
-        updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
+        var original = tasks.get(idx);
+        updated.set(idx, new TaskList.TaskItem(original.id(), original.title(), original.text(), true));
         return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)));
     }
 

@@ -237,7 +237,7 @@ public final class JobRunner {
                                 switch (mode) {
                                     case ARCHITECT -> {
                                         cm.executeTask(
-                                                new TaskList.TaskItem("", spec.taskInput(), false),
+                                                new TaskList.TaskItem(null, spec.taskInput(), false),
                                                 Objects.requireNonNull(
                                                         architectPlannerModel,
                                                         "plannerModel required for ARCHITECT jobs"),
@@ -848,7 +848,7 @@ public final class JobRunner {
                                                                         "The build failed after the last task. Please fix the following error:\n\n"
                                                                                 + buildError;
                                                                 cm.executeTask(
-                                                                        new TaskList.TaskItem("", fixPrompt, false),
+                                                                        TaskList.TaskItem.createFixTask(fixPrompt),
                                                                         architectPlannerModel,
                                                                         architectCodeModel);
                                                             } else {
