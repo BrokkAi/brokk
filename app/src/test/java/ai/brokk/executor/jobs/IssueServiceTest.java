@@ -53,6 +53,23 @@ class IssueServiceTest {
     }
 
     @Test
+    void testGenerateBranchName_MultipleCollisions() throws Exception {
+        Path projectRoot = tempDir.resolve("project-multi-dup");
+        Path worktreeDir = tempDir.resolve("worktrees-multi-dup");
+        try (TestGitRepo repo = createInitializedRepo(projectRoot, worktreeDir)) {
+            // Create several existing branches
+            repo.getGit().branchCreate().setName("brokk/issue-42").call();
+            repo.getGit().branchCreate().setName("brokk/issue-42-2").call();
+            repo.getGit().branchCreate().setName("brokk/issue-42-3").call();
+            repo.invalidateCaches();
+
+            String branchName = IssueService.generateBranchName(42, repo);
+            // Should find the next available suffix
+            assertEquals("brokk/issue-42-4", branchName);
+        }
+    }
+
+    @Test
     void testBranchCreationWithExpectedName() throws Exception {
         Path projectRoot = tempDir.resolve("project-create");
         Path worktreeDir = tempDir.resolve("worktrees-create");
