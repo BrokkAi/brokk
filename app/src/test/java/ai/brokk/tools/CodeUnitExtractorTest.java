@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,7 +22,9 @@ class CodeUnitExtractorTest {
         Path projectRoot = tempDir.resolve("project");
         Files.createDirectories(projectRoot);
         Path javaFile = projectRoot.resolve("MyClass.java");
-        Files.writeString(javaFile, """
+        Files.writeString(
+                javaFile,
+                """
             package com.example;
             public class MyClass {
                 private int myField;
@@ -53,22 +54,18 @@ class CodeUnitExtractorTest {
         Path nonExistent = tempDir.resolve("non-existent");
         Path csvOutput = tempDir.resolve("output.csv");
 
-        assertThrows(IllegalArgumentException.class, () -> 
-            CodeUnitExtractor.extract(nonExistent, csvOutput)
-        );
+        assertThrows(IllegalArgumentException.class, () -> CodeUnitExtractor.extract(nonExistent, csvOutput));
     }
 
     @Test
     void testWritePermissionIssue() throws IOException {
         Path projectRoot = tempDir.resolve("project");
         Files.createDirectories(projectRoot);
-        
+
         // Create a directory where the file should be, making it unwritable as a file
         Path csvOutput = tempDir.resolve("unwritable_dir");
         Files.createDirectories(csvOutput);
 
-        assertThrows(IOException.class, () -> 
-            CodeUnitExtractor.extract(projectRoot, csvOutput)
-        );
+        assertThrows(IOException.class, () -> CodeUnitExtractor.extract(projectRoot, csvOutput));
     }
 }

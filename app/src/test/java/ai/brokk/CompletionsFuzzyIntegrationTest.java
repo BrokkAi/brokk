@@ -1,7 +1,6 @@
 package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.analyzer.CodeUnitType;
@@ -14,12 +13,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.Arguments;
-import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * Integration test that validates FuzzyMatcher logic against a large set of real-world
@@ -77,49 +72,16 @@ public class CompletionsFuzzyIntegrationTest {
 
         assertTrue(matches.size() >= 2, "Expected at least two matches for " + pattern);
 
-        // Find the index of the first Class match for ContextManager
-        int firstClassIdx = -1;
-        int firstFieldIdx = -1;
+        FuzzyMatcher matcher = new FuzzyMatcher(pattern);
+        System.out.println("Top 10 matches for '" + pattern + "':");
+        matches.stream().limit(10).forEach(m -> System.out.println("Score: " + matcher.score(m.fqName()) + " | " + m));
 
-        for (int i = 0; i < matches.size(); i++) {
-            CodeUnitRecord cu = matches.get(i);
-            if (cu.shortName().equalsIgnoreCase("ContextManager")) {
-                if (cu.type() == CodeUnitType.CLASS && firstClassIdx == -1) {
-                    firstClassIdx = i;
-                } else if (cu.type() == CodeUnitType.FIELD && firstFieldIdx == -1) {
-                    firstFieldIdx = i;
-                }
-            }
-        }
-
-        assertTrue(firstClassIdx != -1, "Should have found a CLASS match for ContextManager");
-        if (firstFieldIdx != -1) {
-            assertTrue(firstClassIdx < firstFieldIdx,
-                    "CLASS ContextManager should rank higher than FIELD contextManager. " +
-                            "Class at: " + firstClassIdx + ", Field at: " + firstFieldIdx);
-        }
-
-        // Based on current codebase, it should be in ai.brokk
-        assertEquals("ai.brokk.ContextManager", matches.get(firstClassIdx).fqName());
-    }
-
-    @Test
-    void classTypeBeatsFieldTypeOnTiedScore() {
-        String name = "TieBreaker";
-        CodeUnitRecord classRecord = new CodeUnitRecord(CodeUnitType.CLASS, "ai.brokk." + name);
-        CodeUnitRecord fieldRecord = new CodeUnitRecord(CodeUnitType.FIELD, "ai.brokk." + name);
-
-        FuzzyMatcher matcher = new FuzzyMatcher(name);
-        int classScore = matcher.score(classRecord.fqName());
-        int fieldScore = matcher.score(fieldRecord.fqName());
-
-        assertEquals(classScore, fieldScore, "Scores should be tied for identical names");
-
-        List<CodeUnitRecord> list = new ArrayList<>(List.of(fieldRecord, classRecord));
-        list.sort(Comparator.comparingInt((CodeUnitRecord cu) -> matcher.score(cu.fqName()))
-                .thenComparing(cu -> cu.type())); // CLASS (0) < FIELD (1) in enum ordinal
-
-        assertEquals(CodeUnitType.CLASS, list.getFirst().type(), "CLASS should beat FIELD on tied score");
+        CodeUnitRecord topMatch = matches.getFirst();
+        assertEquals(
+                CodeUnitType.CLASS,
+                topMatch.type(),
+                "Top match for '" + pattern + "' should be the CLASS, but was: " + topMatch);
+        assertEquals("ai.brokk.ContextManager", topMatch.fqName());
     }
 
     @Test
@@ -127,17 +89,20 @@ public class CompletionsFuzzyIntegrationTest {
         String pattern = "FuzzyMatcher";
         List<CodeUnitRecord> matches = getMatches(pattern);
 
-        assertTrue(matches.stream().anyMatch(cu -> cu.fqName().equals("ai.brokk.FuzzyMatcher")),
+        assertTrue(
+                matches.stream().anyMatch(cu -> cu.fqName().equals("ai.brokk.FuzzyMatcher")),
                 "Expected ai.brokk.FuzzyMatcher in results");
 
         CodeUnitRecord topMatch = matches.get(0);
-        assertEquals("ai.brokk.FuzzyMatcher", topMatch.fqName(),
+        assertEquals(
+                "ai.brokk.FuzzyMatcher",
+                topMatch.fqName(),
                 "Top match for '" + pattern + "' should be the exact class name");
 
         // Ensure it beats nested classes like FuzzyMatcher.TextRange if present
         if (matches.size() > 1 && matches.get(1).fqName().contains("FuzzyMatcher.")) {
-            assertTrue(new FuzzyMatcher(pattern).score(matches.get(0).fqName()) 
-                       < new FuzzyMatcher(pattern).score(matches.get(1).fqName()));
+            assertTrue(new FuzzyMatcher(pattern).score(matches.get(0).fqName())
+                    < new FuzzyMatcher(pattern).score(matches.get(1).fqName()));
         }
     }
 
@@ -159,10 +124,9 @@ public class CompletionsFuzzyIntegrationTest {
         List<CodeUnitRecord> asMatches = getMatches("AS");
         if (!asMatches.isEmpty()) {
             // Check if AbstractService exists and is well-ranked
-            boolean foundAbstractService = asMatches.stream()
-                    .limit(10)
-                    .anyMatch(cu -> cu.shortName().equals("AbstractService"));
-            
+            boolean foundAbstractService =
+                    asMatches.stream().limit(10).anyMatch(cu -> cu.shortName().equals("AbstractService"));
+
             if (foundAbstractService) {
                 // If AbstractService exists, verify it's in the top results
                 assertTrue(foundAbstractService, "AbstractService should be in top 10 for 'AS'");

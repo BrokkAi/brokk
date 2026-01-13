@@ -23,7 +23,9 @@ public class CodeUnitExtractor {
     private static final String DEFAULT_OUTPUT_PATH = "app/src/test/resources/codeunits.csv";
 
     public static void main(String[] args) {
-        Path projectRoot = Path.of(args.length > 0 ? args[0] : DEFAULT_APP_PATH).toAbsolutePath().normalize();
+        Path projectRoot = Path.of(args.length > 0 ? args[0] : DEFAULT_APP_PATH)
+                .toAbsolutePath()
+                .normalize();
         Path outputPath = Path.of(args.length > 1 ? args[1] : DEFAULT_OUTPUT_PATH);
 
         try {
@@ -73,8 +75,7 @@ public class CodeUnitExtractor {
             @Override
             public Set<ProjectFile> getAllFiles() {
                 try (Stream<Path> stream = Files.walk(root)) {
-                    return stream
-                            .filter(Files::isRegularFile)
+                    return stream.filter(Files::isRegularFile)
                             .filter(p -> p.toString().endsWith(".java"))
                             .map(p -> new ProjectFile(root, root.relativize(p)))
                             .collect(Collectors.toSet());
