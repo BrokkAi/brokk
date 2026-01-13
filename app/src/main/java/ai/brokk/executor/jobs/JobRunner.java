@@ -59,7 +59,8 @@ public final class JobRunner {
         ASK,
         SEARCH,
         REVIEW,
-        LUTZ
+        LUTZ,
+        ISSUE
     }
 
     static Mode parseMode(JobSpec spec) {
@@ -162,7 +163,7 @@ public final class JobRunner {
                                 : cm.getService().getScanModel())
                         : null;
                 final StreamingChatModel askPlannerModel =
-                        mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
+                        mode == Mode.ASK || mode == Mode.ISSUE ? resolveModelOrThrow(spec.plannerModel()) : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
@@ -181,7 +182,7 @@ public final class JobRunner {
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
+                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
                             case SEARCH -> service.nameOf(Objects.requireNonNull(searchPlannerModel));
                             case CODE -> {
@@ -192,7 +193,7 @@ public final class JobRunner {
                         };
                 String codeModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectCodeModel));
+                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(Objects.requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
@@ -200,7 +201,7 @@ public final class JobRunner {
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
-                            case ARCHITECT, LUTZ -> !hasCodeModelOverride;
+                            case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
                             case ASK, SEARCH, REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
                         };
@@ -733,6 +734,109 @@ public final class JobRunner {
                                                     prNumber,
                                                     postedComments,
                                                     skippedComments);
+                                        }
+                                    }
+                                    case ISSUE -> {
+                                        // 1. Extract and validate Issue metadata
+                                        String githubToken = spec.getGithubToken();
+                                        String repoOwner = spec.getRepoOwner();
+                                        String repoName = spec.getRepoName();
+                                        Integer issueNumber = spec.getIssueNumber();
+
+                                        if (githubToken == null || githubToken.isBlank()) {
+                                            throw new IllegalArgumentException("ISSUE requires github_token in tags");
+                                        }
+                                        if (repoOwner == null || repoOwner.isBlank()) {
+                                            throw new IllegalArgumentException("ISSUE requires repo_owner in tags");
+                                        }
+                                        if (repoName == null || repoName.isBlank()) {
+                                            throw new IllegalArgumentException("ISSUE requires repo_name in tags");
+                                        }
+                                        if (issueNumber == null) {
+                                            throw new IllegalArgumentException("ISSUE requires issue_number in tags");
+                                        }
+
+                                        // 2. Resolve issue details and build settings
+                                        var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+                                        var ghRepo = gitHubAuth.getGhRepository();
+                                        var details = IssueService.fetchIssueDetails(ghRepo, issueNumber);
+                                        var buildDetails = IssueService.parseBuildSettings(spec.getBuildSettingsJson());
+
+                                        if (!buildDetails.buildLintCommand().isEmpty()) {
+                                            cm.getProject().setBuildDetails(buildDetails);
+                                        }
+
+                                        String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
+                                                .formatted(issueNumber, details.title(), details.body());
+
+                                        // 3. Lutz-style execution: Planning then Task Iteration
+                                        try (var scope = cm.beginTaskUngrouped(issueTaskPrompt)) {
+                                            var context = cm.liveContext();
+                                            var searchAgent = new LutzAgent(
+                                                    context,
+                                                    issueTaskPrompt,
+                                                    Objects.requireNonNull(
+                                                            architectPlannerModel,
+                                                            "plannerModel required for ISSUE jobs"),
+                                                    SearchPrompts.Objective.TASKS_ONLY,
+                                                    scope);
+                                            var taskListResult = searchAgent.execute();
+                                            scope.append(taskListResult);
+
+                                            var generatedTasks = cm.getTaskList().tasks();
+                                            var incompleteTasks = generatedTasks.stream()
+                                                    .filter(t -> !t.done())
+                                                    .toList();
+
+                                            for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                if (cancelled.get()) return;
+
+                                                // Execute task with ArchitectAgent
+                                                cm.executeTask(
+                                                        generatedTask,
+                                                        architectPlannerModel,
+                                                        Objects.requireNonNull(architectCodeModel));
+
+                                                // 4. Verification loop: run build and retry on failure
+                                                int buildAttempts = 0;
+                                                int maxBuildAttempts = 3;
+                                                boolean verified = false;
+
+                                                while (!verified && buildAttempts < maxBuildAttempts) {
+                                                    buildAttempts++;
+                                                    String buildError = ai.brokk.agents.BuildAgent.runVerification(cm);
+                                                    if (buildError == null || buildError.isBlank()) {
+                                                        verified = true;
+                                                        logger.info(
+                                                                "ISSUE job {} task '{}' verified successfully",
+                                                                jobId,
+                                                                generatedTask.text());
+                                                    } else {
+                                                        logger.warn(
+                                                                "ISSUE job {} task '{}' build failed (attempt {}/{}): {}",
+                                                                jobId,
+                                                                generatedTask.text(),
+                                                                buildAttempts,
+                                                                maxBuildAttempts,
+                                                                buildError);
+
+                                                        if (buildAttempts < maxBuildAttempts) {
+                                                            // Ask architect to fix the build error
+                                                            String fixPrompt = "The build failed after the last task. Please fix the following error:\n\n"
+                                                                    + buildError;
+                                                            cm.executeTask(
+                                                                    new TaskList.TaskItem("", fixPrompt, false),
+                                                                    architectPlannerModel,
+                                                                    architectCodeModel);
+                                                        } else {
+                                                            throw new RuntimeException(
+                                                                    "Failed to pass build verification after "
+                                                                            + maxBuildAttempts + " attempts: "
+                                                                            + buildError);
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
