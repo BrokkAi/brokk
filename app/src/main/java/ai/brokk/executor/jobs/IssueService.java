@@ -63,7 +63,7 @@ public final class IssueService {
             return Json.fromJson(buildSettingsJson, BuildAgent.BuildDetails.class);
         } catch (Exception e) {
             logger.error("Failed to parse build settings JSON: {}", buildSettingsJson, e);
-            throw new RuntimeException("Error parsing build settings", e);
+            throw new IssueExecutionException("Error parsing build settings", e);
         }
     }
 

@@ -747,16 +747,16 @@ public final class JobRunner {
                                         Integer issueNumber = spec.getIssueNumber();
 
                                         if (githubToken == null || githubToken.isBlank()) {
-                                            throw new IllegalArgumentException("ISSUE requires github_token in tags");
+                                            throw new IssueExecutionException("ISSUE requires github_token in tags");
                                         }
                                         if (repoOwner == null || repoOwner.isBlank()) {
-                                            throw new IllegalArgumentException("ISSUE requires repo_owner in tags");
+                                            throw new IssueExecutionException("ISSUE requires repo_owner in tags");
                                         }
                                         if (repoName == null || repoName.isBlank()) {
-                                            throw new IllegalArgumentException("ISSUE requires repo_name in tags");
+                                            throw new IssueExecutionException("ISSUE requires repo_name in tags");
                                         }
                                         if (issueNumber == null) {
-                                            throw new IllegalArgumentException("ISSUE requires issue_number in tags");
+                                            throw new IssueExecutionException("ISSUE requires issue_number in tags");
                                         }
 
                                         // 2. Resolve issue details and build settings
@@ -857,7 +857,7 @@ public final class JobRunner {
                                                                     architectPlannerModel,
                                                                     architectCodeModel);
                                                         } else {
-                                                            throw new RuntimeException(
+                                                            throw new IssueExecutionException(
                                                                     "Failed to pass build verification after "
                                                                             + maxBuildAttempts + " attempts: "
                                                                             + buildError);
