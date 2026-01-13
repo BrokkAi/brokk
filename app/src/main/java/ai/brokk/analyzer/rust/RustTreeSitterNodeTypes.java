@@ -15,6 +15,7 @@ public final class RustTreeSitterNodeTypes {
     public static final String TRAIT_ITEM = "trait_item";
     public static final String STRUCT_ITEM = "struct_item";
     public static final String ENUM_ITEM = "enum_item";
+    public static final String MOD_ITEM = "mod_item";
 
     // Function-like declarations
     public static final String FUNCTION_ITEM = "function_item";
