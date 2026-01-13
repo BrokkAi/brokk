@@ -545,7 +545,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public void updateContent(
             DiffService.CumulativeChanges res,
-            List<Map.Entry<String, DiffService.DiffEntry>> prepared,
+            List<Map.Entry<String, DiffService.FragmentDiff>> prepared,
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
@@ -576,7 +576,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, DiffService.DiffEntry> entry) {
+    private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, DiffService.FragmentDiff> entry) {
         ProjectFile pf = null;
         try {
             pf = contextManager.toFile(entry.getKey());
@@ -585,8 +585,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
         return new FileComparisonInfo(
                 pf,
-                new BufferSource.StringSource(entry.getValue().oldContent(), "", entry.getKey(), null),
-                new BufferSource.StringSource(entry.getValue().newContent(), "", entry.getKey(), null));
+                new BufferSource.StringSource(entry.getValue().oldText(), "", entry.getKey(), null),
+                new BufferSource.StringSource(entry.getValue().newText(), "", entry.getKey(), null));
     }
 
     private void updateDropdownLabels() {
@@ -630,7 +630,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private void refreshUI(
             DiffService.CumulativeChanges res,
-            List<Map.Entry<String, DiffService.DiffEntry>> prepared,
+            List<Map.Entry<String, DiffService.FragmentDiff>> prepared,
             @Nullable BaselineMode baselineMode) {
 
         updateDropdownLabels();

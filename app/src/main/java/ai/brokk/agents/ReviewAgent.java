@@ -302,9 +302,9 @@ public class ReviewAgent {
         var filesToContext = changes.perFileChanges().stream()
                 .filter(de -> !testFiles.contains(
                         de.fragment().files().join().iterator().next()))
-                .filter(de -> !de.oldContent().isEmpty() && !de.newContent().isEmpty())
+                .filter(de -> !de.oldText().isEmpty() && !de.newText().isEmpty())
                 .filter(de -> de.diff().split("@@").length > 3) // > 2 hunks
-                .map(DiffService.DiffEntry::fragment)
+                .map(DiffService.FragmentDiff::fragment)
                 .toList();
         var ctx = initialContext.addFragments(filesToContext);
         ctx = ctx.addFragments(ctx.buildAutoContext(10));

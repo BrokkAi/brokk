@@ -952,7 +952,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void updateReviewTabContent(
-            DiffService.CumulativeChanges res, List<Map.Entry<String, DiffService.DiffEntry>> prepared) {
+            DiffService.CumulativeChanges res, List<Map.Entry<String, DiffService.FragmentDiff>> prepared) {
         assert SwingUtilities.isEventDispatchThread() : "updateReviewTabContent must run on EDT";
 
         // Dispose any previous diff panel
@@ -1020,7 +1020,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
     }
 
-    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, DiffService.DiffEntry>> prepared) {
+    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, DiffService.FragmentDiff>> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header
@@ -1044,9 +1044,9 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         // Use precomputed list in stable order; do not call Context.DiffEntry::title here
         for (var entry : prepared) {
             String title = entry.getKey();
-            DiffService.DiffEntry de = entry.getValue();
-            var left = new BufferSource.StringSource(de.oldContent(), title + " (base)");
-            var right = new BufferSource.StringSource(de.newContent(), title);
+            DiffService.FragmentDiff de = entry.getValue();
+            var left = new BufferSource.StringSource(de.oldText(), title + " (base)");
+            var right = new BufferSource.StringSource(de.newText(), title);
             builder.leftSource(left).rightSource(right);
         }
 

@@ -43,7 +43,7 @@ public final class DiffService {
     /** Identity-based pair for caching diffs between two specific context instances. */
     private record ContextPair(@Nullable Context prev, Context curr) {}
 
-    private final AsyncCache<ContextPair, List<DiffEntry>> cache =
+    private final AsyncCache<ContextPair, List<FragmentDiff>> cache =
             Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).buildAsync();
 
     private final ContextHistory history;
@@ -62,7 +62,7 @@ public final class DiffService {
      * @param curr the current (new) context to peek diffs for
      * @return Optional containing the diff list if already computed, or empty if not ready
      */
-    public Optional<List<DiffEntry>> peek(Context curr) {
+    public Optional<List<FragmentDiff>> peek(Context curr) {
         var prev = history.previousOf(curr);
         var cf = cache.getIfPresent(new ContextPair(prev, curr));
         if (cf != null && cf.isDone()) {
@@ -79,7 +79,7 @@ public final class DiffService {
      * @param curr the current (new) context to compute diffs for
      * @return CompletableFuture that will contain the list of diff entries
      */
-    public CompletableFuture<List<DiffEntry>> diff(Context curr) {
+    public CompletableFuture<List<FragmentDiff>> diff(Context curr) {
         var prev = history.previousOf(curr);
         var key = new ContextPair(prev, curr);
 
@@ -127,7 +127,7 @@ public final class DiffService {
      * Triggers async computations and awaits their completion.
      */
     @Blocking
-    private List<DiffEntry> computeDiff(Context ctx, Context other, String revision) {
+    private List<FragmentDiff> computeDiff(Context ctx, Context other, String revision) {
         // Candidates:
         // - Editable fragments
         // - Image fragments (non-text), including pasted images and image files.
@@ -159,7 +159,7 @@ public final class DiffService {
      * The DiffEntry returned is Nullable!
      */
     @Blocking
-    private CompletableFuture<DiffEntry> computeDiffForFragment(
+    private CompletableFuture<FragmentDiff> computeDiffForFragment(
             Context curr, ContextFragment thisFragment, Context other, String revision) {
         var otherFragment = other.allFragments()
                 .filter(thisFragment::hasSameSource)
@@ -190,7 +190,7 @@ public final class DiffService {
     }
 
     @Blocking
-    public static CompletableFuture<DiffEntry> computeDiff(
+    public static CompletableFuture<FragmentDiff> computeDiff(
             @Nullable ContextFragment oldFragment, ContextFragment newFragment) {
         // If fragments don't share the same source, we can't sensibly diff them here.
         if (oldFragment != null && !newFragment.hasSameSource(oldFragment)) {
@@ -210,7 +210,7 @@ public final class DiffService {
                 if (result.diff().isEmpty()) {
                     return null;
                 }
-                return new DiffEntry(newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+                return new FragmentDiff(newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
             });
         }
 
@@ -251,7 +251,8 @@ public final class DiffService {
                 return null;
             }
 
-            return new DiffEntry(newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+            return new FragmentDiff(
+                    newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
         });
     }
 
@@ -287,7 +288,7 @@ public final class DiffService {
     /**
      * Compute a placeholder diff entry for image fragments when the bytes differ.
      */
-    private static @Nullable DiffService.DiffEntry computeImageDiffEntry(
+    private static @Nullable DiffService.FragmentDiff computeImageDiffEntry(
             ContextFragment thisFragment, ContextFragment otherFragment) {
         // Prefer frozen bytes (snapshot), fall back to computed image bytes
         byte[] oldImageBytes = null;
@@ -310,7 +311,7 @@ public final class DiffService {
         // If one side has bytes and the other does not, treat as changed.
         if ((oldImageBytes == null) != (newImageBytes == null)) {
             String diff = "[Image changed]";
-            return new DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
+            return new FragmentDiff(thisFragment, diff, 1, 1, "[image]", "[image]");
         }
 
         boolean imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
@@ -318,7 +319,7 @@ public final class DiffService {
             return null;
         }
         String diff = "[Image changed]";
-        return new DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
+        return new FragmentDiff(thisFragment, diff, 1, 1, "[image]", "[image]");
     }
 
     /**
@@ -346,7 +347,7 @@ public final class DiffService {
             return new CumulativeChanges(0, 0, 0, List.of(), commits);
         }
 
-        List<DiffEntry> perFileChanges = new ArrayList<>();
+        List<FragmentDiff> perFileChanges = new ArrayList<>();
 
         files.stream()
                 .sorted(Comparator.comparing(mf -> mf.file().getRelPath()))
@@ -400,13 +401,14 @@ public final class DiffService {
 
                     synchronized (perFileChanges) {
                         perFileChanges.add(
-                                new DiffEntry(rightFrag, diffRes.diff(), added, deleted, leftContent, rightContent));
+                                new FragmentDiff(rightFrag, diffRes.diff(), added, deleted, leftContent, rightContent));
                     }
                 });
 
-        int totalAdded = perFileChanges.stream().mapToInt(DiffEntry::linesAdded).sum();
+        int totalAdded =
+                perFileChanges.stream().mapToInt(FragmentDiff::linesAdded).sum();
         int totalDeleted =
-                perFileChanges.stream().mapToInt(DiffEntry::linesDeleted).sum();
+                perFileChanges.stream().mapToInt(FragmentDiff::linesDeleted).sum();
 
         return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, commits);
     }
@@ -419,9 +421,9 @@ public final class DiffService {
      * @return list of (title, DiffEntry) pairs sorted by title
      */
     @Blocking
-    public static List<Map.Entry<String, DiffEntry>> preparePerFileSummaries(CumulativeChanges res) {
-        var list =
-                new ArrayList<Map.Entry<String, DiffEntry>>(res.perFileChanges().size());
+    public static List<Map.Entry<String, FragmentDiff>> preparePerFileSummaries(CumulativeChanges res) {
+        var list = new ArrayList<Map.Entry<String, FragmentDiff>>(
+                res.perFileChanges().size());
         var seen = new HashSet<String>();
         for (var de : res.perFileChanges()) {
             String title = de.title();
@@ -440,7 +442,7 @@ public final class DiffService {
             int filesChanged,
             int totalAdded,
             int totalDeleted,
-            List<DiffEntry> perFileChanges,
+            List<FragmentDiff> perFileChanges,
             List<CommitInfo> commits,
             // null when we don't have a GitRepo
             @Nullable GitWorkflow.PushPullState pushPullState) {
@@ -450,7 +452,7 @@ public final class DiffService {
                 int filesChanged,
                 int totalAdded,
                 int totalDeleted,
-                List<DiffEntry> perFileChanges,
+                List<FragmentDiff> perFileChanges,
                 List<CommitInfo> commits) {
             this(filesChanged, totalAdded, totalDeleted, perFileChanges, commits, null);
         }
@@ -499,13 +501,8 @@ public final class DiffService {
     /**
      * Per-fragment diff entry between two contexts.
      */
-    public record DiffEntry(
-            ContextFragment fragment,
-            String diff,
-            int linesAdded,
-            int linesDeleted,
-            String oldContent,
-            String newContent) {
+    public record FragmentDiff(
+            ContextFragment fragment, String diff, int linesAdded, int linesDeleted, String oldText, String newText) {
         @Blocking
         public String title() {
             var files = fragment.files().join();

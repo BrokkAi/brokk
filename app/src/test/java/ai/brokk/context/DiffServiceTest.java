@@ -270,10 +270,10 @@ class DiffServiceTest {
         assertEquals(1, diffs.size(), "Should produce a fallback diff even if new text is unresolved");
         var de = diffs.getFirst();
         assertTrue(de.diff().contains("old-line"), "Diff should reflect old content vs fallback new content");
-        assertEquals("old-line", de.oldContent());
+        assertEquals("old-line", de.oldText());
         assertEquals(
                 "Timeout loading contents. Please consider reporting a bug",
-                de.newContent(),
+                de.newText(),
                 "New content should fall back to error message on timeout");
     }
 
@@ -286,7 +286,7 @@ class DiffServiceTest {
         return ContextFragments.ContentSnapshot.textSnapshot(text, Set.of(), Set.of());
     }
 
-    private List<DiffService.DiffEntry> computeDiff(Context curr, Context prev) {
+    private List<DiffService.FragmentDiff> computeDiff(Context curr, Context prev) {
         var history = new ContextHistory(prev);
         history.pushContext(curr);
         return history.getDiffService().diff(curr).join();
