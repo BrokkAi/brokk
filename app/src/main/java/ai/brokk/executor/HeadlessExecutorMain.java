@@ -1448,7 +1448,11 @@ public final class HeadlessExecutorMain {
     private record CreateSessionRequest(String name) {}
 
     private record PrReviewJobRequest(
-            String owner, String repo, int prNumber, String githubToken, String plannerModel) {}
+            @Nullable String owner,
+            @Nullable String repo,
+            int prNumber,
+            @Nullable String githubToken,
+            @Nullable String plannerModel) {}
 
     private record JobSpecRequest(
             String sessionId,
