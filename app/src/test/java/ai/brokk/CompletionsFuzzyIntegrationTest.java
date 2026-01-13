@@ -140,6 +140,12 @@ public class CompletionsFuzzyIntegrationTest {
 
         assertTrue(matches.size() >= 2, "Expected at least two matches for " + pattern);
 
+        FuzzyMatcher matcher = new FuzzyMatcher(pattern);
+        System.out.println("Top 10 matches for '" + pattern + "':");
+        matches.stream().limit(10).forEach(m -> 
+            System.out.println("Score: " + matcher.score(m.fqName()) + " | " + m)
+        );
+
         CodeUnitRecord topMatch = matches.get(0);
         assertEquals(CodeUnitType.CLASS, topMatch.type(),
                 "Top match for '" + pattern + "' should be the CLASS, but was: " + topMatch);
