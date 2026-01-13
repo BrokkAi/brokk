@@ -100,7 +100,7 @@ public class Completions {
 
         return candidates.stream()
                 .map(cu -> {
-                    int baseScore = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.shortName());
+                    int baseScore = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
                     int typeBonus = (cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS) ? -CLASS_TYPE_PRIORITY_BONUS : 0;
                     return new ScoredCU(cu, baseScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : baseScore + typeBonus);
                 })

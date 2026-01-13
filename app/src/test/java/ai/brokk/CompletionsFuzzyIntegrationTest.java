@@ -23,9 +23,13 @@ import org.junit.jupiter.api.Test;
 public class CompletionsFuzzyIntegrationTest {
 
     private record CodeUnitRecord(CodeUnitType type, String fqName) {
-        String shortName() {
+        String identifier() {
             int lastDot = fqName.lastIndexOf('.');
             return lastDot == -1 ? fqName : fqName.substring(lastDot + 1);
+        }
+
+        String shortName() {
+            return identifier();
         }
 
         @Override
@@ -61,9 +65,9 @@ public class CompletionsFuzzyIntegrationTest {
         FuzzyMatcher matcher = new FuzzyMatcher(pattern);
         boolean hierarchicalQuery = pattern.indexOf('.') >= 0;
         return CODE_UNITS.stream()
-                .filter(cu -> hierarchicalQuery ? matcher.matches(cu.fqName()) : matcher.matches(cu.shortName()))
+                .filter(cu -> hierarchicalQuery ? matcher.matches(cu.fqName()) : matcher.matches(cu.identifier()))
                 .sorted(Comparator.<CodeUnitRecord>comparingInt(cu -> {
-                            int score = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.shortName());
+                            int score = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
                             if (score == Integer.MAX_VALUE) return score;
                             // Apply class priority bonus to match Completions.java logic
                             return cu.type() == CodeUnitType.CLASS ? score - 1000 : score;
