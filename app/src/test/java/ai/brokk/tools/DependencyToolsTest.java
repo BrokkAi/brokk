@@ -105,7 +105,41 @@ public class DependencyToolsTest {
 
         var tools = new DependencyTools(cm, mockFetcher);
         String result = tools.importMavenDependency("org.example:unknown");
-        
+
         assertTrue(result.contains("Could not resolve latest version"), "Should report resolution failure");
+    }
+
+    /**
+     * Integration test that actually downloads and decompiles a real library.
+     * Uses slf4j-api as it's small and stable.
+     */
+    @Test
+    void importMavenDependency_RealLibrary_DownloadsAndDecompiles() throws Exception {
+        var cm = new TestContextManager(new TestProject(tempDir));
+        var tools = new DependencyTools(cm);
+
+        // Import a small, well-known library with explicit version
+        String result = tools.importMavenDependency("org.slf4j:slf4j-api:2.0.9");
+
+        // Verify success
+        assertTrue(result.contains("Successfully imported"), "Expected success, got: " + result);
+        assertTrue(result.contains("slf4j-api"), "Should mention artifact name");
+        assertTrue(result.contains(".brokk/dependencies"), "Should mention output location");
+
+        // Verify files were extracted
+        var depsDir = tempDir.resolve(".brokk/dependencies");
+        assertTrue(java.nio.file.Files.exists(depsDir), "Dependencies dir should exist");
+
+        try (var dirs = java.nio.file.Files.list(depsDir)) {
+            var artifactDir = dirs.filter(p -> p.getFileName().toString().contains("slf4j"))
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("No slf4j directory found"));
+
+            // Count Java files
+            try (var walk = java.nio.file.Files.walk(artifactDir)) {
+                long javaFiles = walk.filter(p -> p.toString().endsWith(".java")).count();
+                assertTrue(javaFiles > 0, "Should have extracted Java files, found: " + javaFiles);
+            }
+        }
     }
 }
