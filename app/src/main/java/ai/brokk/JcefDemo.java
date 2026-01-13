@@ -15,7 +15,6 @@ public class JcefDemo {
     public static void main(String[] args) {
         // Initialize JCEF using jcefmaven pattern
         var builder = JCefSetup.builder();
-        builder.getCefSettings().windowless_rendering_enabled = false;
         builder.setAppHandler(new MavenCefAppHandlerAdapter() {
             @Override
             public void stateHasChanged(CefApp.CefAppState state) {

@@ -15,6 +15,8 @@ public class JCefSetup {
         Path jcefDir = getJcefDir();
         var builder = new CefAppBuilder();
         builder.setInstallDir(jcefDir.toFile());
+        // Default to console progress for downloads during dev/testing
+        builder.setProgressHandler(new me.friwi.jcefmaven.impl.progress.ConsoleProgressHandler());
         return builder;
     }
 

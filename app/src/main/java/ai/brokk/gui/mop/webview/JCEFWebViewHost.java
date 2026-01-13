@@ -310,7 +310,6 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             logger.info("Initializing JCEF with jcefmaven");
 
             var builder = JCefSetup.builder();
-            builder.setProgressHandler(new me.friwi.jcefmaven.impl.progress.ConsoleProgressHandler());
 
             String themeName = MainProject.getTheme();
             boolean isDark = !GuiTheme.THEME_LIGHT.equals(themeName) && !"BrokkLightPlus".equals(themeName);
