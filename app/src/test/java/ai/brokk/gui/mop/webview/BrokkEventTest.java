@@ -1,10 +1,14 @@
 package ai.brokk.gui.mop.webview;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.StreamSupport;
 import org.junit.jupiter.api.Test;
 
 public class BrokkEventTest {
@@ -88,15 +92,28 @@ public class BrokkEventTest {
     public void testChunkSerializationWithTerminal() throws Exception {
         var event = new BrokkEvent.Chunk("terminal output", true, ChatMessageType.AI, 100, false, false, true);
 
-        String json = MAPPER.writeValueAsString(event);
+        var node = MAPPER.readTree(MAPPER.writeValueAsString(event));
 
-        assertTrue(json.contains("\"type\":\"chunk\""));
-        assertTrue(json.contains("\"text\":\"terminal output\""));
-        assertTrue(json.contains("\"isNew\":true"));
-        assertTrue(json.contains("\"msgType\":\"AI\""));
-        assertTrue(json.contains("\"epoch\":100"));
-        assertTrue(json.contains("\"streaming\":false"));
-        assertTrue(json.contains("\"reasoning\":false"));
-        assertTrue(json.contains("\"terminal\":true"));
+        assertEquals("chunk", node.get("type").asText());
+        assertEquals("terminal output", node.get("text").asText());
+        assertEquals("AI", node.get("msgType").asText());
+        assertEquals(100, node.get("epoch").asInt());
+        assertFalse(node.get("streaming").asBoolean());
+
+        assertFalse(node.has("isNew"));
+        assertFalse(node.has("reasoning"));
+        assertFalse(node.has("terminal"));
+
+        assertTrue(node.has("meta"));
+        var meta = node.get("meta");
+
+        var metaKeys = StreamSupport.stream(
+                        java.util.Spliterators.spliteratorUnknownSize(meta.fieldNames(), 0), false)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(Set.of("isNewMessage", "isReasoning", "isTerminal"), metaKeys);
+
+        assertTrue(meta.get("isNewMessage").asBoolean());
+        assertFalse(meta.get("isReasoning").asBoolean());
+        assertTrue(meta.get("isTerminal").asBoolean());
     }
 }
