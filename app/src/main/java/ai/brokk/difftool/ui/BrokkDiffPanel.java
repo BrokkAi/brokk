@@ -1815,12 +1815,17 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public int getUnsavedCount() {
         int count = 0;
-        if (currentDiffPanel != null && currentDiffPanel.hasUnsavedChanges()) {
-            count++;
+        var visited = new HashSet<AbstractDiffPanel>();
+
+        if (currentDiffPanel != null) {
+            visited.add(currentDiffPanel);
+            if (currentDiffPanel.hasUnsavedChanges()) {
+                count++;
+            }
         }
-        for (int i = 0; i < getFileComparisonCount(); i++) {
-            var p = core.getCachedPanel(i);
-            if (p != null && p != currentDiffPanel && p.hasUnsavedChanges()) {
+
+        for (var p : core.getCachedPanels()) {
+            if (visited.add(p) && p.hasUnsavedChanges()) {
                 count++;
             }
         }
