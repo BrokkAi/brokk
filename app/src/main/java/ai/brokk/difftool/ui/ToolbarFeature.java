@@ -36,11 +36,6 @@ public enum ToolbarFeature {
 
     /** View-only features for read-only diff preview (no edit/capture) */
     public static Set<ToolbarFeature> viewOnly() {
-        return EnumSet.of(
-                CHANGE_NAVIGATION,
-                FILE_NAVIGATION,
-                VIEW_MODE_TOGGLE,
-                TOOLS_MENU,
-                FONT_CONTROLS);
+        return EnumSet.of(CHANGE_NAVIGATION, FILE_NAVIGATION, VIEW_MODE_TOGGLE, TOOLS_MENU, FONT_CONTROLS);
     }
 }

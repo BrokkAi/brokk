@@ -11,6 +11,7 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.difftool.ui.ToolbarFeature;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
@@ -2315,6 +2316,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                     .setMultipleCommitsContext(false)
                     .setRootTitle("Diff: " + actionDesc)
+                    .setToolbarFeatures(ToolbarFeature.viewOnly())
                     .setInitialFileIndex(0);
             String tabTitle = "Diff: " + actionDesc;
             if (diffs.size() == 1) {

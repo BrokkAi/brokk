@@ -6,18 +6,15 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.doc.AbstractBufferDocument;
 import ai.brokk.difftool.doc.BufferDocumentIF;
 import ai.brokk.difftool.node.JMDiffNode;
-import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.git.GitRepo;
 import ai.brokk.gui.PreviewManager;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.EditorFontSizeControl;
-import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.theme.FontSizeAware;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
-import ai.brokk.gui.util.Icons;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.GlobalUiSettings;
@@ -55,7 +52,11 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
 
 public class BrokkDiffPanel extends JPanel
-        implements ThemeAware, EditorFontSizeControl, FontSizeAware, DiffProjectFileNavigationTarget, DiffToolbarCallbacks {
+        implements ThemeAware,
+                EditorFontSizeControl,
+                FontSizeAware,
+                DiffProjectFileNavigationTarget,
+                DiffToolbarCallbacks {
     private static final Logger logger = LogManager.getLogger(BrokkDiffPanel.class);
     private final ContextManager contextManager;
     private final JTabbedPane tabbedPane;
@@ -71,6 +72,7 @@ public class BrokkDiffPanel extends JPanel
     // Toolbar for UI controls
     @Nullable
     private DiffToolbarPanel toolBar;
+
     private final Set<ToolbarFeature> toolbarFeatures;
 
     // Refactored state management

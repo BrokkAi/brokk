@@ -1,6 +1,5 @@
 package ai.brokk.difftool.ui;
 
-import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.Icons;
 import java.util.Set;
@@ -20,31 +19,60 @@ public class DiffToolbarPanel extends JToolBar {
     private final DiffToolbarCallbacks callbacks;
 
     // Navigation buttons
-    @Nullable private MaterialButton btnPrevious;
-    @Nullable private MaterialButton btnNext;
-    @Nullable private MaterialButton btnPreviousFile;
-    @Nullable private MaterialButton btnNextFile;
+    @Nullable
+    private MaterialButton btnPrevious;
+
+    @Nullable
+    private MaterialButton btnNext;
+
+    @Nullable
+    private MaterialButton btnPreviousFile;
+
+    @Nullable
+    private MaterialButton btnNextFile;
 
     // Edit buttons
-    @Nullable private MaterialButton btnUndo;
-    @Nullable private MaterialButton btnRedo;
-    @Nullable private MaterialButton btnSaveAll;
+    @Nullable
+    private MaterialButton btnUndo;
+
+    @Nullable
+    private MaterialButton btnRedo;
+
+    @Nullable
+    private MaterialButton btnSaveAll;
 
     // View mode
-    @Nullable private JToggleButton viewModeToggle;
-    @Nullable private MaterialButton btnTools;
-    @Nullable private JCheckBoxMenuItem menuShowBlame;
-    @Nullable private JCheckBoxMenuItem menuShowAllLines;
-    @Nullable private JCheckBoxMenuItem menuShowBlankLineDiffs;
+    @Nullable
+    private JToggleButton viewModeToggle;
+
+    @Nullable
+    private MaterialButton btnTools;
+
+    @Nullable
+    private JCheckBoxMenuItem menuShowBlame;
+
+    @Nullable
+    private JCheckBoxMenuItem menuShowAllLines;
+
+    @Nullable
+    private JCheckBoxMenuItem menuShowBlankLineDiffs;
 
     // Font controls
-    @Nullable private MaterialButton btnDecreaseFont;
-    @Nullable private MaterialButton btnResetFont;
-    @Nullable private MaterialButton btnIncreaseFont;
+    @Nullable
+    private MaterialButton btnDecreaseFont;
+
+    @Nullable
+    private MaterialButton btnResetFont;
+
+    @Nullable
+    private MaterialButton btnIncreaseFont;
 
     // Capture buttons
-    @Nullable private MaterialButton captureDiffButton;
-    @Nullable private MaterialButton captureAllDiffsButton;
+    @Nullable
+    private MaterialButton captureDiffButton;
+
+    @Nullable
+    private MaterialButton captureAllDiffsButton;
 
     public DiffToolbarPanel(Set<ToolbarFeature> features, DiffToolbarCallbacks callbacks) {
         this.features = features;
@@ -159,7 +187,8 @@ public class DiffToolbarPanel extends JToolBar {
 
             menuShowBlankLineDiffs = new JCheckBoxMenuItem("Show Empty Line Diffs");
             menuShowBlankLineDiffs.setSelected(callbacks.isShowingBlankLineDiffs());
-            menuShowBlankLineDiffs.addActionListener(e -> callbacks.setShowBlankLineDiffs(menuShowBlankLineDiffs.isSelected()));
+            menuShowBlankLineDiffs.addActionListener(
+                    e -> callbacks.setShowBlankLineDiffs(menuShowBlankLineDiffs.isSelected()));
             toolsMenu.add(menuShowBlankLineDiffs);
 
             btnTools.addActionListener(e -> toolsMenu.show(btnTools, 0, btnTools.getHeight()));
