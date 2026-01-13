@@ -90,7 +90,13 @@ public class BrokkEventTest {
 
     @Test
     public void testChunkSerializationWithTerminal() throws Exception {
-        var event = new BrokkEvent.Chunk("terminal output", true, ChatMessageType.AI, 100, false, false, true);
+        var event = new BrokkEvent.Chunk(
+                "terminal output",
+                true,
+                ChatMessageType.AI,
+                100,
+                false,
+                new BrokkEvent.ChunkFlags(false, true));
 
         var node = MAPPER.readTree(MAPPER.writeValueAsString(event));
 

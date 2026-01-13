@@ -219,14 +219,14 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void append(String text, ChatMessageType type,  LlmOutputMeta meta) {
+    public void append(String text, ChatMessageType type, LlmOutputMeta meta) {
         if (text.isEmpty()) {
             return;
         }
 
         boolean isNewMessage = meta.isNewMessage();
         boolean reasoning = meta.isReasoning();
-        boolean terminal = meta.isTerminal();
+        var flags = new ai.brokk.gui.mop.webview.BrokkEvent.ChunkFlags(reasoning, meta.isTerminal());
 
         // If transient message was visible, this chunk should start a new message
         boolean wasTransientVisible = transientMessageVisible;
@@ -253,7 +253,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             messages.set(lastIdx, Messages.create(combined, type, reasoning));
         }
 
-        webHost.append(text, isNew, type, true, reasoning, terminal);
+        webHost.append(text, isNew, type, true, flags);
         textChangeListeners.forEach(Runnable::run);
     }
 
@@ -262,7 +262,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         messages.addAll(newMessages);
         for (var message : newMessages) {
             var isReasoning = isReasoningMessage(message);
-            webHost.append(Messages.getText(message), true, message.type(), false, isReasoning, false);
+            var flags = new ai.brokk.gui.mop.webview.BrokkEvent.ChunkFlags(isReasoning, false);
+            webHost.append(Messages.getText(message), true, message.type(), false, flags);
         }
         // All appends are sent, now flush to make sure they are processed.
         webHost.flushAsync();

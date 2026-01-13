@@ -15,22 +15,22 @@ public sealed interface BrokkEvent {
 
     Integer getEpoch();
 
+    record ChunkFlags(boolean isReasoning, boolean isTerminal) {}
+
     record Chunk(
             String text,
             @JsonIgnore boolean isNew,
             @JsonSerialize(using = ToStringSerializer.class) ChatMessageType msgType,
             int epoch,
             boolean streaming,
-            @JsonIgnore boolean reasoning,
-            @JsonIgnore boolean terminal)
+            @JsonIgnore ChunkFlags flags)
             implements BrokkEvent {
 
         public record ChunkMeta(boolean isNewMessage, boolean isReasoning, boolean isTerminal) {}
 
-
         @JsonProperty("meta")
         public ChunkMeta meta() {
-            return new ChunkMeta(isNew, reasoning, terminal);
+            return new ChunkMeta(isNew, flags.isReasoning(), flags.isTerminal());
         }
 
         @Override

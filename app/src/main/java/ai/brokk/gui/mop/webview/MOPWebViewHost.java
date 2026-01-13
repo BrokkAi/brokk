@@ -65,13 +65,7 @@ public final class MOPWebViewHost extends JPanel {
 
     // Represents commands to be sent to the bridge; buffered until bridge is ready
     private sealed interface HostCommand {
-        record Append(
-                String text,
-                boolean isNew,
-                ChatMessageType msgType,
-                boolean streaming,
-                boolean reasoning,
-                boolean terminal)
+        record Append(String text, boolean isNew, ChatMessageType msgType, boolean streaming, BrokkEvent.ChunkFlags flags)
                 implements HostCommand {}
 
         record SetTheme(String themeName, boolean isDevMode, boolean wrapMode, double zoom) implements HostCommand {}
@@ -282,11 +276,10 @@ public final class MOPWebViewHost extends JPanel {
             boolean isNewMessage,
             ChatMessageType msgType,
             boolean streaming,
-            boolean reasoning,
-            boolean terminal) {
+            BrokkEvent.ChunkFlags flags) {
         sendOrQueue(
-                new HostCommand.Append(text, isNewMessage, msgType, streaming, reasoning, terminal),
-                bridge -> bridge.append(text, isNewMessage, msgType, streaming, reasoning, terminal));
+                new HostCommand.Append(text, isNewMessage, msgType, streaming, flags),
+                bridge -> bridge.append(text, isNewMessage, msgType, streaming, flags));
     }
 
     /**
@@ -573,7 +566,7 @@ public final class MOPWebViewHost extends JPanel {
             pendingCommands.forEach(command -> {
                 switch (command) {
                     case HostCommand.Append a ->
-                        bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.reasoning(), a.terminal());
+                        bridge.append(a.text(), a.isNew(), a.msgType(), a.streaming(), a.flags());
                     case HostCommand.SetTheme t ->
                         bridge.setTheme(t.themeName(), t.isDevMode(), t.wrapMode(), t.zoom());
                     case HostCommand.SetZoom z -> bridge.setZoom(z.zoom());
