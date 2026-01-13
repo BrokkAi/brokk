@@ -117,6 +117,9 @@ public final class MainProject extends AbstractProject {
     private static final String AUTO_UPDATE_LOCAL_DEPENDENCIES_KEY = "autoUpdateLocalDependencies";
     private static final String AUTO_UPDATE_GIT_DEPENDENCIES_KEY = "autoUpdateGitDependencies";
 
+    private static final String GPG_COMMIT_SIGNING_ENABLED_KEY = "gpgCommitSigningEnabled";
+    private static final String GPG_SIGNING_KEY_KEY = "gpgSigningKey";
+
     private static final List<SettingsChangeListener> settingsChangeListeners = new CopyOnWriteArrayList<>();
 
     public static final String DEFAULT_COMMIT_MESSAGE_FORMAT =
@@ -561,6 +564,32 @@ public final class MainProject extends AbstractProject {
         }
         saveProjectProperties();
         notifyAutoUpdateGitDependenciesChanged();
+    }
+
+    public boolean isGpgCommitSigningEnabled() {
+        return Boolean.parseBoolean(projectProps.getProperty(GPG_COMMIT_SIGNING_ENABLED_KEY, "false"));
+    }
+
+    public void setGpgCommitSigningEnabled(boolean enabled) {
+        if (enabled) {
+            projectProps.setProperty(GPG_COMMIT_SIGNING_ENABLED_KEY, "true");
+        } else {
+            projectProps.remove(GPG_COMMIT_SIGNING_ENABLED_KEY);
+        }
+        saveProjectProperties();
+    }
+
+    public String getGpgSigningKey() {
+        return workspaceProps.getProperty(GPG_SIGNING_KEY_KEY, "");
+    }
+
+    public void setGpgSigningKey(String key) {
+        if (key.isBlank()) {
+            workspaceProps.remove(GPG_SIGNING_KEY_KEY);
+        } else {
+            workspaceProps.setProperty(GPG_SIGNING_KEY_KEY, key.trim());
+        }
+        saveWorkspaceProperties();
     }
 
     @Override
