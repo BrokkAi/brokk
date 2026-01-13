@@ -1,15 +1,13 @@
-package ai.brokk.analyzer.tests;
+package ai.brokk.analyzer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import java.util.Collection;
 import org.junit.jupiter.api.Test;
 
-public class RustAnalyzerCodeUnitsTest {
+public class RustAnalyzerTest {
 
     @Test
     void testModuleClassAndFunctionCodeUnits() throws Exception {
