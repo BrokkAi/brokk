@@ -8,11 +8,13 @@ import ai.brokk.util.HistoryIo.ContentWriter;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.CustomMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -85,6 +87,7 @@ class DtoMapperChatMessageDtoTest {
         assertEquals(expectedRole, dto.role());
         assertNotNull(dto.contentId());
         assertNull(dto.reasoningContentId(), "reasoningContentId should be null for non-AI messages");
+        assertNull(dto.attributes(), "attributes should be null for non-custom messages");
 
         // Reconstruct
         ContentReader reader = createReaderFromWriter(writer);
@@ -92,6 +95,33 @@ class DtoMapperChatMessageDtoTest {
 
         assertEquals(message.type(), reconstructed.type());
         assertEquals(Messages.getRepr(message), Messages.getRepr(reconstructed));
+    }
+
+    @Test
+    void testCustomMessage_ToDto_And_FromDto_RoundTrip_PreservesAttributes() {
+        Map<String, Object> attrs = new HashMap<>();
+        attrs.put("terminal", "true");
+        attrs.put("content", "Hello from custom");
+        CustomMessage original = new CustomMessage(attrs);
+
+        ContentWriter writer = new ContentWriter();
+        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
+
+        assertEquals("custom", dto.role());
+        assertNotNull(dto.contentId());
+        assertNull(dto.reasoningContentId());
+        assertEquals(Map.of("terminal", "true"), dto.attributes());
+
+        ContentReader reader = createReaderFromWriter(writer);
+        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
+
+        assertInstanceOf(CustomMessage.class, reconstructed);
+        CustomMessage custom = (CustomMessage) reconstructed;
+
+        assertEquals("Hello from custom", reader.readContent(dto.contentId()));
+
+        assertEquals("true", custom.attributes().get("terminal"));
+        assertEquals("Hello from custom", custom.attributes().get("content"));
     }
 
     // ===== Helper Methods =====

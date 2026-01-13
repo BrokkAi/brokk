@@ -6,6 +6,7 @@ import ai.brokk.context.FragmentDtos.ChatMessageDto;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -58,6 +59,32 @@ class ChatMessageDtoSerializationTest {
         assertEquals("system", deserialized.role());
         assertEquals("content-old", deserialized.contentId());
         assertNull(deserialized.reasoningContentId());
+        assertNull(deserialized.attributes());
+    }
+
+    @Test
+    void testSerializeAndDeserializeWithAttributes() throws Exception {
+        ChatMessageDto original = new ChatMessageDto("custom", "content-123", null, Map.of("terminal", "true"));
+
+        String json = objectMapper.writeValueAsString(original);
+        ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
+
+        assertEquals("custom", deserialized.role());
+        assertEquals("content-123", deserialized.contentId());
+        assertNull(deserialized.reasoningContentId());
+        assertEquals(Map.of("terminal", "true"), deserialized.attributes());
+    }
+
+    @Test
+    void testDeserializeLegacyJsonWithoutAttributesField() throws Exception {
+        String legacyJson = "{\"role\":\"custom\",\"contentId\":\"content-old\",\"reasoningContentId\":null}";
+
+        ChatMessageDto deserialized = objectMapper.readValue(legacyJson, ChatMessageDto.class);
+
+        assertEquals("custom", deserialized.role());
+        assertEquals("content-old", deserialized.contentId());
+        assertNull(deserialized.reasoningContentId());
+        assertNull(deserialized.attributes());
     }
 
     @Test
