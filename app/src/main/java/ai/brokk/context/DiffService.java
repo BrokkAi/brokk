@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -361,7 +362,7 @@ public final class DiffService {
                             try {
                                 var leftFrag = ContextFragments.GitFileFragment.fromCommit(file, leftRef, gitRepo);
                                 leftContent = leftFrag.text().join();
-                            } catch (RuntimeException e) {
+                            } catch (GitAPIException e) {
                                 // File doesn't exist at leftRef (new file) - treat as empty baseline
                                 logger.debug("File {} not found at {}, treating as new file", file, leftRef);
                                 leftContent = "";
@@ -379,7 +380,7 @@ public final class DiffService {
                         try {
                             rightFrag = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
                             rightContent = rightFrag.text().join();
-                        } catch (RuntimeException e) {
+                        } catch (GitAPIException e) {
                             // File doesn't exist at rightRef (deleted file) - treat as empty right side
                             logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
                             rightContent = "";

@@ -535,15 +535,12 @@ public class ContextFragments {
 
         /**
          * Create a GitFileFragment representing the content of the given file at the given revision.
-         * This reads the file content via the provided GitRepo. On error, falls back to empty content.
+         * This reads the file content via the provided GitRepo.
          */
-        public static GitFileFragment fromCommit(ProjectFile file, String revision, GitRepo repo) {
-            try {
-                var content = repo.getFileContent(revision, file);
-                return new GitFileFragment(file, revision, content);
-            } catch (GitAPIException e) {
-                throw new RuntimeException(e);
-            }
+        public static GitFileFragment fromCommit(ProjectFile file, String revision, GitRepo repo)
+                throws GitAPIException {
+            var content = repo.getFileContent(revision, file);
+            return new GitFileFragment(file, revision, content);
         }
 
         public String revision() {

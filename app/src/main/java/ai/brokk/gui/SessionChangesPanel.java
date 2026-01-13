@@ -445,25 +445,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         List<CommitInfo> commits = List.of();
 
         switch (baselineMode) {
-            case NON_DEFAULT_BRANCH -> {
-                String defaultBranchRef = baselineLabel;
-                leftCommitSha = repo.getMergeBase("HEAD", defaultBranchRef);
-                if (leftCommitSha != null) {
-                    var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
-                    for (var mf : myChanges) {
-                        fileMap.putIfAbsent(mf.file(), mf);
-                    }
-                    commits = repo.listCommitsBetweenBranches(leftCommitSha, "HEAD", false);
-                } else {
-                    leftCommitSha = "HEAD";
-                }
-                for (var mf : repo.getModifiedFiles()) {
-                    fileMap.put(mf.file(), mf);
-                }
-            }
-            case DEFAULT_WITH_UPSTREAM -> {
-                String upstreamRef = baselineLabel;
-                leftCommitSha = repo.getMergeBase("HEAD", upstreamRef);
+            case NON_DEFAULT_BRANCH, DEFAULT_WITH_UPSTREAM -> {
+                leftCommitSha = repo.getMergeBase("HEAD", baselineLabel);
                 if (leftCommitSha != null) {
                     var myChanges = repo.listFilesChangedBetweenCommits(leftCommitSha, "HEAD");
                     for (var mf : myChanges) {
