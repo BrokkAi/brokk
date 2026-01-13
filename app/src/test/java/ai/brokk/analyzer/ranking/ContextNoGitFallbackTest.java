@@ -14,9 +14,10 @@ import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitDistance;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo;
-import ai.brokk.project.IProject;
 import ai.brokk.testutil.AnalyzerCreator;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -105,27 +106,7 @@ public class ContextNoGitFallbackTest {
                 }
             };
 
-            IContextManager cm = new IContextManager() {
-                @Override
-                public IAnalyzer getAnalyzer() {
-                    return analyzer;
-                }
-
-                @Override
-                public IAnalyzer getAnalyzerUninterrupted() {
-                    return analyzer;
-                }
-
-                @Override
-                public IProject getProject() {
-                    return project;
-                }
-
-                @Override
-                public IGitRepo getRepo() {
-                    return stubRepo;
-                }
-            };
+            IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, stubRepo);
 
             Context ctx = new Context(cm);
             ContextFragments.ProjectPathFragment seedFragment = new ContextFragments.ProjectPathFragment(a, cm);
@@ -189,24 +170,11 @@ public class ContextNoGitFallbackTest {
             ProjectFile c = byName.get("c.java");
             ProjectFile d = byName.get("d.java");
 
-            IContextManager cm = new IContextManager() {
-                @Override
-                public IAnalyzer getAnalyzer() {
-                    return analyzer;
-                }
+            IContextManager cm =
+                    new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, project.getRepo());
 
-                @Override
-                public IProject getProject() {
-                    return project;
-                }
-
-                @Override
-                public IGitRepo getRepo() {
-                    return project.getRepo();
-                }
-            };
-
-            Context ctx = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(a, cm));
+            Context ctx = new Context(cm);
+            ctx = ctx.addFragments(new ContextFragments.ProjectPathFragment(a, cm));
 
             // We want topK = 3.
             // 1. Git Distance will find D (co-committed with A).
@@ -295,23 +263,10 @@ public class ContextNoGitFallbackTest {
             ProjectFile b = files.get("B.java");
             ProjectFile c = files.get("C.java");
 
-            IContextManager cm = new IContextManager() {
-                @Override
-                public IAnalyzer getAnalyzer() {
-                    return analyzer;
-                }
-
-                @Override
-                public IProject getProject() {
-                    return project;
-                }
-
-                @Override
-                public IGitRepo getRepo() {
-                    return project.getRepo();
-                }
-            };
-            Context ctx = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(a, cm));
+            IContextManager cm =
+                    new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer, project.getRepo());
+            Context ctx = new Context(cm);
+            ctx = ctx.addFragments(new ContextFragments.ProjectPathFragment(a, cm));
 
             List<ProjectFile> results = ctx.getMostRelevantFiles(2);
 
@@ -348,22 +303,7 @@ public class ContextNoGitFallbackTest {
             ProjectFile b = files.get("B.java");
             ProjectFile c = files.get("C.java");
 
-            IContextManager cm = new IContextManager() {
-                @Override
-                public IAnalyzer getAnalyzer() {
-                    return analyzer;
-                }
-
-                @Override
-                public IProject getProject() {
-                    return project;
-                }
-
-                @Override
-                public IGitRepo getRepo() {
-                    return project.getRepo();
-                }
-            };
+            IContextManager cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
             Context ctx = new Context(cm).addFragments(new ContextFragments.ProjectPathFragment(a, cm));
 

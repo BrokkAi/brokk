@@ -38,10 +38,10 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -77,6 +77,26 @@ public class ContextFragments {
     public static final Logger logger = LogManager.getLogger(ContextFragments.class);
 
     public static final LoggingExecutorService FRAGMENT_EXECUTOR = createFragmentExecutor();
+
+    /**
+     * Resolves supporting summary fragments for the direct ancestors of the given code units.
+     * Filters out anonymous units.
+     */
+    public static Set<ContextFragment> resolveAncestorFragments(
+            Collection<CodeUnit> units, IContextManager contextManager) {
+        IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+        if (analyzer == null) {
+            return Set.of();
+        }
+        return units.stream()
+                .filter(CodeUnit::isClass)
+                .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                .filter(anc -> !anc.isAnonymous())
+                .distinct()
+                .map(anc -> new SummaryFragment(
+                        contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                .collect(Collectors.toSet());
+    }
 
     public static byte @Nullable [] convertToByteArray(@Nullable List<Byte> imageBytes) {
         if (imageBytes == null) {
@@ -463,6 +483,15 @@ public class ContextFragments {
         @Override
         public String toString() {
             return "ProjectPathFragment('%s')".formatted(description().renderNowOr(file.toString()));
+        }
+
+        @Override
+        public Set<ContextFragment> supportingFragments() {
+            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+            if (analyzer == null) {
+                return Set.of();
+            }
+            return resolveAncestorFragments(analyzer.getDeclarations(file), contextManager);
         }
     }
 
@@ -1435,6 +1464,15 @@ public class ContextFragments {
         public ContextFragment refreshCopy() {
             return new CodeFragment(id, contextManager, fullyQualifiedName);
         }
+
+        @Override
+        public Set<ContextFragment> supportingFragments() {
+            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+            if (analyzer == null) {
+                return Set.of();
+            }
+            return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager);
+        }
     }
 
     public static class CallGraphFragment extends AbstractComputedFragment {
@@ -1663,6 +1701,21 @@ public class ContextFragments {
             return summaryType;
         }
 
+        @Override
+        public Set<ContextFragment> supportingFragments() {
+            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+            if (analyzer == null || summaryType != SummaryType.CODEUNIT_SKELETON) {
+                return Set.of();
+            }
+
+            return analyzer.getDefinitions(targetIdentifier).stream()
+                    .filter(CodeUnit::isClass)
+                    .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                    .filter(anc -> !anc.isAnonymous())
+                    .map(anc -> new SummaryFragment(contextManager, anc.fqName(), SummaryType.CODEUNIT_SKELETON))
+                    .collect(Collectors.toSet());
+        }
+
         private static ContentSnapshot computeSnapshotFor(
                 String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
@@ -1676,31 +1729,14 @@ public class ContextFragments {
                 for (CodeUnit cu : primaryTargets) {
                     skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
                 }
-                var seenAncestors = new HashSet<String>();
-                primaryTargets.stream()
-                        .filter(CodeUnit::isClass)
-                        .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
-                        .filter(anc -> seenAncestors.add(anc.fqName()))
-                        .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
             }
 
             String text;
             if (skeletonsMap.isEmpty()) {
                 text = "No summary found for: " + targetIdentifier;
             } else {
-                CodeUnit primaryTarget = null;
-                List<CodeUnit> ancestors = List.of();
-                if (summaryType == SummaryType.CODEUNIT_SKELETON) {
-                    var maybeClassUnit =
-                            primaryTargets.stream().filter(CodeUnit::isClass).findFirst();
-                    if (maybeClassUnit.isPresent()) {
-                        primaryTarget = maybeClassUnit.get();
-                        ancestors = analyzer.getDirectAncestors(primaryTarget);
-                    }
-                }
                 text = new SkeletonFragmentFormatter()
-                        .format(new SkeletonFragmentFormatter.Request(
-                                primaryTarget, ancestors, skeletonsMap, summaryType));
+                        .format(new SkeletonFragmentFormatter.Request(null, List.of(), skeletonsMap, summaryType));
                 if (text.isEmpty()) text = "No summary found for: " + targetIdentifier;
             }
 

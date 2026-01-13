@@ -63,6 +63,7 @@ import java.util.stream.IntStream;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
@@ -1580,7 +1581,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)));
     }
 
-    private void captureGitState(Context frozenContext) {
+    private void captureGitState(Context ctx) {
         if (!project.hasGit()) {
             return;
         }
@@ -1592,8 +1593,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             var gitState = new ContextHistory.GitState(commitHash, diff.isEmpty() ? null : diff);
             logger.trace("Current git HEAD is {}", ((GitRepo) repo).shortHash(commitHash));
-            contextHistory.addGitState(frozenContext.id(), gitState);
-        } catch (Exception e) {
+            contextHistory.addGitState(ctx.id(), gitState);
+        } catch (GitAPIException e) {
             logger.error("Failed to capture git state", e);
         }
     }
@@ -2285,7 +2286,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
 
             if (groupAndCompress) {
-                contextHistory.replaceTop(ctx -> {
+                var finalCtx = contextHistory.replaceTop(ctx -> {
                     try {
                         return compressHistory(ctx);
                     } catch (InterruptedException e) {
@@ -2293,6 +2294,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         return ctx;
                     }
                 });
+                captureGitState(finalCtx);
             }
 
             analyzerWrapper.resume();
