@@ -816,22 +816,9 @@ public final class JobRunner {
 
                                                     // 4. Verification loop: run build and retry on failure
                                                     int buildAttempts = 0;
-                                                    int maxBuildAttempts = DEFAULT_MAX_BUILD_ATTEMPTS;
-
-                                                    // Allow override from build settings if present
-                                                    if (buildDetailsOverride
-                                                            .environmentVariables()
-                                                            .containsKey("maxBuildAttempts")) {
-                                                        try {
-                                                            maxBuildAttempts = Integer.parseInt(buildDetailsOverride
-                                                                    .environmentVariables()
-                                                                    .get("maxBuildAttempts"));
-                                                        } catch (Exception e) {
-                                                            logger.debug(
-                                                                    "Could not parse maxBuildAttempts from environmentVariables",
-                                                                    e);
-                                                        }
-                                                    }
+                                                    int maxBuildAttempts = Objects.requireNonNullElse(
+                                                            buildDetailsOverride.maxBuildAttempts(),
+                                                            DEFAULT_MAX_BUILD_ATTEMPTS);
 
                                                     boolean verified = false;
 

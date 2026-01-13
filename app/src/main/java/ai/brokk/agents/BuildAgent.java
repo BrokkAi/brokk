@@ -658,15 +658,31 @@ public class BuildAgent {
             @JsonDeserialize(as = LinkedHashSet.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
                     Set<String> exclusionPatterns,
             @JsonDeserialize(as = LinkedHashMap.class) @JsonSetter(nulls = Nulls.AS_EMPTY)
-                    Map<String, String> environmentVariables) {
+                    Map<String, String> environmentVariables,
+            @Nullable Integer maxBuildAttempts) {
 
         @VisibleForTesting
         public BuildDetails(
                 String buildLintCommand, String testAllCommand, String testSomeCommand, Set<String> exclusionPatterns) {
-            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of());
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, Map.of(), null);
         }
 
-        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of());
+        public BuildDetails(
+                String buildLintCommand,
+                String testAllCommand,
+                String testSomeCommand,
+                Set<String> exclusionPatterns,
+                Map<String, String> environmentVariables) {
+            this(
+                    buildLintCommand,
+                    testAllCommand,
+                    testSomeCommand,
+                    exclusionPatterns,
+                    environmentVariables,
+                    null);
+        }
+
+        public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null);
 
         /**
          * Migrate legacy excludedDirectories to exclusionPatterns.
@@ -679,7 +695,8 @@ public class BuildAgent {
                 @JsonProperty("testSomeCommand") @Nullable String testSomeCommand,
                 @JsonProperty("exclusionPatterns") @Nullable Set<String> exclusionPatterns,
                 @JsonProperty("excludedDirectories") @Nullable Set<String> excludedDirectories,
-                @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables) {
+                @JsonProperty("environmentVariables") @Nullable Map<String, String> environmentVariables,
+                @JsonProperty("maxBuildAttempts") @Nullable Integer maxBuildAttempts) {
             // Migrate legacy excludedDirectories to exclusionPatterns
             Set<String> patterns = new LinkedHashSet<>();
             if (exclusionPatterns != null) {
@@ -693,7 +710,8 @@ public class BuildAgent {
                     testAllCommand != null ? testAllCommand : "",
                     testSomeCommand != null ? testSomeCommand : "",
                     patterns,
-                    environmentVariables != null ? environmentVariables : Map.of());
+                    environmentVariables != null ? environmentVariables : Map.of(),
+                    maxBuildAttempts);
         }
     }
 
