@@ -367,68 +367,71 @@ curl -sS "http://localhost:8080/v1/jobs/550e8400-e29b-41d4-a716-446655440000/eve
 **Sample events:**
 
 ```json
-[
-  {
-    "seq": 1,
-    "type": "NOTIFICATION",
-    "data": "Job started: 550e8400-e29b-41d4-a716-446655440000"
-  },
-  {
-    "seq": 2,
-    "type": "LLM_TOKEN",
-    "data": "Planning phase: Analyzing refactoring objectives..."
-  },
-  {
-    "seq": 3,
-    "type": "NOTIFICATION",
-    "data": "Task list generated with 3 subtasks"
-  },
-  {
-    "seq": 4,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 1/3: Improve error handling..."
-  },
-  {
-    "seq": 5,
-    "type": "LLM_TOKEN",
-    "data": "[code changes shown here]"
-  },
-  {
-    "seq": 6,
-    "type": "NOTIFICATION",
-    "data": "Task 1 completed, progress: 33%"
-  },
-  {
-    "seq": 7,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 2/3: Add logging..."
-  },
-  {
-    "seq": 8,
-    "type": "LLM_TOKEN",
-    "data": "[code changes shown here]"
-  },
-  {
-    "seq": 9,
-    "type": "NOTIFICATION",
-    "data": "Task 2 completed, progress: 66%"
-  },
-  {
-    "seq": 10,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 3/3: Create unit tests..."
-  },
-  {
-    "seq": 11,
-    "type": "LLM_TOKEN",
-    "data": "[code changes shown here]"
-  },
-  {
-    "seq": 12,
-    "type": "NOTIFICATION",
-    "data": "Task 3 completed, progress: 100%"
-  }
-]
+{
+  "events": [
+    {
+      "seq": 1,
+      "type": "NOTIFICATION",
+      "data": "Job started: 550e8400-e29b-41d4-a716-446655440000"
+    },
+    {
+      "seq": 2,
+      "type": "LLM_TOKEN",
+      "data": "Planning phase: Analyzing refactoring objectives..."
+    },
+    {
+      "seq": 3,
+      "type": "NOTIFICATION",
+      "data": "Task list generated with 3 subtasks"
+    },
+    {
+      "seq": 4,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 1/3: Improve error handling..."
+    },
+    {
+      "seq": 5,
+      "type": "LLM_TOKEN",
+      "data": "[code changes shown here]"
+    },
+    {
+      "seq": 6,
+      "type": "NOTIFICATION",
+      "data": "Task 1 completed, progress: 33%"
+    },
+    {
+      "seq": 7,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 2/3: Add logging..."
+    },
+    {
+      "seq": 8,
+      "type": "LLM_TOKEN",
+      "data": "[code changes shown here]"
+    },
+    {
+      "seq": 9,
+      "type": "NOTIFICATION",
+      "data": "Task 2 completed, progress: 66%"
+    },
+    {
+      "seq": 10,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 3/3: Create unit tests..."
+    },
+    {
+      "seq": 11,
+      "type": "LLM_TOKEN",
+      "data": "[code changes shown here]"
+    },
+    {
+      "seq": 12,
+      "type": "NOTIFICATION",
+      "data": "Task 3 completed, progress: 100%"
+    }
+  ],
+  "nextAfter": 12
+}
 ```
 
 **Key characteristics of LUTZ mode:**
@@ -711,68 +714,71 @@ curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
 **Sample Events:**
 
 ```json
-[
-  {
-    "seq": 1,
-    "type": "NOTIFICATION",
-    "data": "Job started: <job-id>"
-  },
-  {
-    "seq": 2,
-    "type": "LLM_TOKEN",
-    "data": "Planning phase: Analyzing issue #42..."
-  },
-  {
-    "seq": 3,
-    "type": "NOTIFICATION",
-    "data": "Task list generated with 2 subtasks"
-  },
-  {
-    "seq": 4,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 1/2: Implement fix..."
-  },
-  {
-    "seq": 5,
-    "type": "NOTIFICATION",
-    "data": "Running build verification..."
-  },
-  {
-    "seq": 6,
-    "type": "NOTIFICATION",
-    "data": "Build verification passed"
-  },
-  {
-    "seq": 7,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 2/2: Add tests..."
-  },
-  {
-    "seq": 8,
-    "type": "NOTIFICATION",
-    "data": "Running build verification..."
-  },
-  {
-    "seq": 9,
-    "type": "NOTIFICATION",
-    "data": "Build failed, attempting fix (1/3)..."
-  },
-  {
-    "seq": 10,
-    "type": "LLM_TOKEN",
-    "data": "Fixing build error..."
-  },
-  {
-    "seq": 11,
-    "type": "NOTIFICATION",
-    "data": "Build verification passed"
-  },
-  {
-    "seq": 12,
-    "type": "NOTIFICATION",
-    "data": "Task 2 completed, progress: 100%"
-  }
-]
+{
+  "events": [
+    {
+      "seq": 1,
+      "type": "NOTIFICATION",
+      "data": "Job started: <job-id>"
+    },
+    {
+      "seq": 2,
+      "type": "LLM_TOKEN",
+      "data": "Planning phase: Analyzing issue #42..."
+    },
+    {
+      "seq": 3,
+      "type": "NOTIFICATION",
+      "data": "Task list generated with 2 subtasks"
+    },
+    {
+      "seq": 4,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 1/2: Implement fix..."
+    },
+    {
+      "seq": 5,
+      "type": "NOTIFICATION",
+      "data": "Running build verification..."
+    },
+    {
+      "seq": 6,
+      "type": "NOTIFICATION",
+      "data": "Build verification passed"
+    },
+    {
+      "seq": 7,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 2/2: Add tests..."
+    },
+    {
+      "seq": 8,
+      "type": "NOTIFICATION",
+      "data": "Running build verification..."
+    },
+    {
+      "seq": 9,
+      "type": "NOTIFICATION",
+      "data": "Build failed, attempting fix (1/3)..."
+    },
+    {
+      "seq": 10,
+      "type": "LLM_TOKEN",
+      "data": "Fixing build error..."
+    },
+    {
+      "seq": 11,
+      "type": "NOTIFICATION",
+      "data": "Build verification passed"
+    },
+    {
+      "seq": 12,
+      "type": "NOTIFICATION",
+      "data": "Task 2 completed, progress: 100%"
+    }
+  ],
+  "nextAfter": 12
+}
 ```
 
 **Key characteristics:**
