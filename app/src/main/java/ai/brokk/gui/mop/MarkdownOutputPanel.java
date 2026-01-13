@@ -226,7 +226,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
         boolean isNewMessage = meta.isNewMessage();
         boolean reasoning = meta.isReasoning();
-        var flags = new ChunkMeta(reasoning, meta.isTerminal());
 
         // If transient message was visible, this chunk should start a new message
         boolean wasTransientVisible = transientMessageVisible;
@@ -237,6 +236,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
         // Compute effective isNew: force true if transient was visible
         boolean isNew = isNewMessage || wasTransientVisible;
+
+        var chunkMeta = new ChunkMeta(isNew, reasoning, meta.isTerminal());
 
         var lastMessageIsReasoning = !messages.isEmpty() && isReasoningMessage(messages.getLast());
         if (isNew
@@ -253,7 +254,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             messages.set(lastIdx, Messages.create(combined, type, reasoning));
         }
 
-        webHost.append(text, isNew, type, true, flags);
+        webHost.append(text, type, true, chunkMeta);
         textChangeListeners.forEach(Runnable::run);
     }
 
@@ -262,8 +263,8 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         messages.addAll(newMessages);
         for (var message : newMessages) {
             var isReasoning = isReasoningMessage(message);
-            var flags = new ChunkMeta(isReasoning, false);
-            webHost.append(Messages.getText(message), true, message.type(), false, flags);
+            var chunkMeta = new ChunkMeta(true, isReasoning, false);
+            webHost.append(Messages.getText(message), message.type(), false, chunkMeta);
         }
         // All appends are sent, now flush to make sure they are processed.
         webHost.flushAsync();
