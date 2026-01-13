@@ -1,83 +1,52 @@
 package ai.brokk.gui.dialogs;
 
 import static ai.brokk.SessionManager.SessionInfo;
-import static ai.brokk.gui.ActivityTableRenderers.COL_ACTION;
 import static ai.brokk.gui.ActivityTableRenderers.COL_CONTEXT;
-import static ai.brokk.gui.ActivityTableRenderers.COL_ICON;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
 import ai.brokk.SessionRegistry;
-import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
-import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.ActivityTableRenderers;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.HistoryCellRenderer;
-import ai.brokk.gui.HistoryGrouping;
 import ai.brokk.gui.WorkspaceItemsChipPanel;
 import ai.brokk.gui.components.LoadingTextBox;
 import ai.brokk.gui.components.MaterialButton;
+import ai.brokk.gui.history.HistoryTable;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
-import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.GitDiffUiUtil;
-import ai.brokk.gui.util.Icons;
 import ai.brokk.project.MainProject;
-import ai.brokk.util.ComputedValue;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.geom.Path2D;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
 import java.util.ArrayList;
+import java.util.UUID;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.plaf.LayerUI;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import org.jetbrains.annotations.Nullable;
 
 /** Modal dialog for managing sessions with Activity log, Workspace panel, and MOP preview */
-public class SessionsDialog extends BaseThemedDialog implements ActivityTableRenderers.HistoryTableHost {
+public class SessionsDialog extends BaseThemedDialog {
     private static final int SEARCH_DEBOUNCE_DELAY = 300;
     private final Chrome chrome;
     private final ContextManager contextManager;
-
-    private final Map<UUID, Boolean> groupExpandedState = new HashMap<>();
-    private volatile java.util.List<HistoryGrouping.GroupDescriptor> latestDescriptors = java.util.List.of();
-    private @Nullable ContextHistory currentHistory;
-
-    // Selection directives applied after a table rebuild (for expand/collapse UX)
-    private PendingSelectionType pendingSelectionType = PendingSelectionType.NONE;
-    private @Nullable UUID pendingSelectionGroupKey = null;
-
-    // Viewport preservation flags for group expand/collapse operations
-    private boolean suppressScrollOnNextUpdate = false;
-    private @Nullable Point pendingViewportPosition = null;
-
-    private enum PendingSelectionType {
-        NONE,
-        CLEAR,
-        FIRST_IN_GROUP
-    }
 
     // Column index constants
     // Sessions table model: [Active, Session Name, Date, SessionInfo]
@@ -94,9 +63,7 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
     private Timer searchDebounceTimer;
 
     // Activity history components
-    private JTable activityTable;
-    private DefaultTableModel activityTableModel;
-    private ResetArrowLayerUI arrowLayerUI;
+    private HistoryTable historyTable;
 
     // Preview components
     private WorkspaceItemsChipPanel workspaceItemsChipPanel;
@@ -162,74 +129,11 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
             }
         });
 
-        // Initialize activity table model
-        activityTableModel = new DefaultTableModel(new Object[] {"", "Action", "Context"}, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
-
-        // Initialize activity table
-        activityTable = new JTable(activityTableModel);
-        activityTable.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        activityTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        activityTable.setTableHeader(null);
-        // Allow Tab/Shift+Tab to exit the activity table instead of trapping focus
-        activityTable.setFocusTraversalKeysEnabled(false);
-        activityTable
-                .getInputMap(JComponent.WHEN_FOCUSED)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "sessActNext");
-        activityTable.getActionMap().put("sessActNext", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                activityTable.transferFocus();
-            }
-        });
-        activityTable
-                .getInputMap(JComponent.WHEN_FOCUSED)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, KeyEvent.SHIFT_DOWN_MASK), "sessActPrev");
-        activityTable.getActionMap().put("sessActPrev", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                activityTable.transferFocusBackward();
-            }
-        });
-
-        // Set up custom renderers for activity table columns
-        activityTable
-                .getColumnModel()
-                .getColumn(COL_ICON)
-                .setCellRenderer(new ActivityTableRenderers.IndentedIconRenderer());
-        activityTable
-                .getColumnModel()
-                .getColumn(COL_ACTION)
-                .setCellRenderer(new HistoryCellRenderer(this, contextManager, chrome));
-
-        // Adjust activity table column widths
-        activityTable.getColumnModel().getColumn(COL_ICON).setPreferredWidth(44);
-        activityTable.getColumnModel().getColumn(COL_ICON).setMinWidth(44);
-        activityTable.getColumnModel().getColumn(COL_ICON).setMaxWidth(44);
-        activityTable.getColumnModel().getColumn(COL_ACTION).setPreferredWidth(250);
-        activityTable.getColumnModel().getColumn(COL_CONTEXT).setMinWidth(0);
-        activityTable.getColumnModel().getColumn(COL_CONTEXT).setMaxWidth(0);
-        activityTable.getColumnModel().getColumn(COL_CONTEXT).setWidth(0);
+        // Initialize history table component
+        historyTable = new HistoryTable(contextManager, chrome);
 
         // Add mouse listener for right-click context menu on activity table
-        activityTable.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                int row = activityTable.rowAtPoint(e.getPoint());
-                if (row < 0) return;
-
-                if (SwingUtilities.isLeftMouseButton(e)) {
-                    Object val = activityTableModel.getValueAt(row, COL_CONTEXT);
-                    if (val instanceof ActivityTableRenderers.GroupRow) {
-                        toggleGroupRow(row);
-                    }
-                }
-            }
-
+        historyTable.getTable().addMouseListener(new MouseAdapter() {
             @Override
             public void mousePressed(MouseEvent e) {
                 if (e.isPopupTrigger()) {
@@ -257,9 +161,6 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
         markdownScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
         markdownScrollPane.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
 
-        // Initialize arrow layer UI for activity table
-        this.arrowLayerUI = new ResetArrowLayerUI(this.activityTable);
-
         // Initialize buttons
         closeButton = new MaterialButton("Close");
 
@@ -282,12 +183,7 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
         // Create activity panel
         JPanel activityPanel = new JPanel(new BorderLayout());
         activityPanel.setBorder(BorderFactory.createTitledBorder("Activity"));
-        JScrollPane activityScrollPane = new JScrollPane(activityTable);
-        activityScrollPane.setBorder(
-                BorderFactory.createEmptyBorder(5, 5, 10, 5)); // slight bottom pad to align with Output
-        var layer = new JLayer<>(activityScrollPane, arrowLayerUI);
-        activityScrollPane.getViewport().addChangeListener(e -> layer.repaint());
-        activityPanel.add(layer, BorderLayout.CENTER);
+        activityPanel.add(historyTable, BorderLayout.CENTER);
 
         // Create workspace panel
         JPanel workspacePanelContainer = new JPanel(new BorderLayout());
@@ -347,17 +243,17 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
                 var info = (SessionInfo) sessionsTableModel.getValueAt(selected[0], COL_INFO);
                 loadSessionHistory(info.id());
             } else { // multi-select: clear preview panels
-                activityTableModel.setRowCount(0);
+                historyTable.getModel().setRowCount(0);
                 clearPreviewPanels();
             }
         });
 
         // Activity selection listener - update workspace and MOP
-        activityTable.getSelectionModel().addListSelectionListener(e -> {
+        historyTable.getTable().getSelectionModel().addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) {
-                int row = activityTable.getSelectedRow();
-                if (row >= 0 && row < activityTable.getRowCount()) {
-                    selectedActivityContext = (Context) activityTableModel.getValueAt(row, COL_CONTEXT);
+                int row = historyTable.getTable().getSelectedRow();
+                if (row >= 0 && row < historyTable.getTable().getRowCount()) {
+                    selectedActivityContext = (Context) historyTable.getModel().getValueAt(row, COL_CONTEXT);
                     updatePreviewPanels(selectedActivityContext);
                 } else {
                     clearPreviewPanels();
@@ -433,7 +329,6 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
     }
 
     private void loadSessionHistory(UUID sessionId) {
-        groupExpandedState.clear();
         // Clear current preview panels
         clearPreviewPanels();
 
@@ -442,186 +337,16 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
                 .loadSessionHistoryAsync(sessionId)
                 .thenAccept(history -> {
                     SwingUtilities.invokeLater(() -> {
-                        populateActivityTable(history);
+                        historyTable.setHistory(history, null);
                     });
                 })
                 .exceptionally(throwable -> {
                     SwingUtilities.invokeLater(() -> {
                         chrome.toolError("Failed to load session history: " + throwable.getMessage());
-                        activityTableModel.setRowCount(0);
+                        historyTable.getModel().setRowCount(0);
                     });
                     return null;
                 });
-    }
-
-    private void populateActivityTable(ContextHistory history) {
-        this.currentHistory = history;
-        activityTableModel.setRowCount(0);
-
-        if (history.getHistory().isEmpty()) {
-            arrowLayerUI.setResetEdges(List.of());
-            latestDescriptors = List.of();
-            return;
-        }
-
-        var contexts = history.getHistory();
-        var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, history);
-        latestDescriptors = descriptors;
-
-        var resetEdges = history.getResetEdges();
-        var resetTargetIds =
-                resetEdges.stream().map(ContextHistory.ResetEdge::targetId).collect(Collectors.toSet());
-
-        for (var descriptor : descriptors) {
-            var children = descriptor.children();
-
-            if (!descriptor.shouldShowHeader()) {
-                var ctx = children.getFirst();
-                Context prev = history.previousOf(ctx);
-
-                ComputedValue<String> description = resetTargetIds.contains(ctx.id())
-                        ? ComputedValue.completed("Copy From History")
-                        : ctx.getAction(prev);
-
-                ComputedSubscription.bind(description, activityTable, activityTable::repaint);
-                var actionVal = new ActivityTableRenderers.ActionText(description, 0);
-
-                Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
-
-                activityTableModel.addRow(new Object[] {icon, actionVal, ctx});
-                continue;
-            }
-
-            // Group header
-            var uuidKey = UUID.fromString(descriptor.key());
-            boolean expandedDefault = descriptor.isLastGroup();
-            boolean expanded = groupExpandedState.computeIfAbsent(uuidKey, k -> expandedDefault);
-
-            boolean containsClearHistory = children.stream().anyMatch(c -> {
-                var prev = history.previousOf(c);
-                return prev != null
-                        && !prev.getTaskHistory().isEmpty()
-                        && c.getTaskHistory().isEmpty();
-            });
-
-            var groupRow = new ActivityTableRenderers.GroupRow(uuidKey, expanded, containsClearHistory);
-            var headerLabel = descriptor.label();
-            ComputedSubscription.bind(headerLabel, activityTable, activityTable::repaint);
-
-            activityTableModel.addRow(
-                    new Object[] {new ActivityTableRenderers.TriangleIcon(expanded), headerLabel, groupRow});
-
-            if (expanded) {
-                for (Context child : children) {
-                    Context prev = history.previousOf(child);
-                    var childDesc = child.getAction(prev);
-                    ComputedSubscription.bind(childDesc, activityTable, activityTable::repaint);
-                    var childAction = new ActivityTableRenderers.ActionText(childDesc, 1);
-                    Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                    activityTableModel.addRow(new Object[] {childIcon, childAction, child});
-                }
-            }
-        }
-
-        // Update reset edges for arrow painter
-        arrowLayerUI.setResetEdges(resetEdges);
-
-        // Apply pending selection directive, if any
-        boolean suppress = suppressScrollOnNextUpdate;
-        int rowToSelect = -1;
-
-        if (pendingSelectionType == PendingSelectionType.FIRST_IN_GROUP && pendingSelectionGroupKey != null) {
-            int headerRow = findGroupHeaderRow(pendingSelectionGroupKey);
-            int candidate = headerRow >= 0 ? headerRow + 1 : -1;
-            if (candidate >= 0 && candidate < activityTableModel.getRowCount()) {
-                Object v = activityTableModel.getValueAt(candidate, COL_CONTEXT);
-                if (v instanceof Context) {
-                    rowToSelect = candidate;
-                }
-            }
-        }
-
-        if (pendingSelectionType == PendingSelectionType.CLEAR) {
-            activityTable.clearSelection();
-        } else if (rowToSelect >= 0) {
-            activityTable.setRowSelectionInterval(rowToSelect, rowToSelect);
-            if (!suppress) {
-                activityTable.scrollRectToVisible(activityTable.getCellRect(rowToSelect, COL_ICON, true));
-            }
-        } else if (!suppress && activityTableModel.getRowCount() > 0) {
-            int lastRow = activityTableModel.getRowCount() - 1;
-            activityTable.setRowSelectionInterval(lastRow, lastRow);
-            activityTable.scrollRectToVisible(activityTable.getCellRect(lastRow, COL_ICON, true));
-        }
-
-        // Restore viewport if requested
-        if (suppress && pendingViewportPosition != null) {
-            Point desired = pendingViewportPosition;
-            var scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, activityTable);
-            if (scrollPane != null) {
-                SwingUtilities.invokeLater(() -> {
-                    scrollPane.getViewport().setViewPosition(clampViewportPosition(scrollPane, desired));
-                });
-            }
-        }
-
-        // Reset directives after applying
-        pendingSelectionType = PendingSelectionType.NONE;
-        pendingSelectionGroupKey = null;
-        suppressScrollOnNextUpdate = false;
-        pendingViewportPosition = null;
-    }
-
-    private void toggleGroupRow(int row) {
-        Object val = activityTableModel.getValueAt(row, COL_CONTEXT);
-        if (!(val instanceof ActivityTableRenderers.GroupRow groupRow)) {
-            return;
-        }
-        boolean newState = !groupExpandedState.getOrDefault(groupRow.key(), groupRow.expanded());
-        groupExpandedState.put(groupRow.key(), newState);
-
-        // Set selection directive
-        if (newState) {
-            pendingSelectionType = PendingSelectionType.FIRST_IN_GROUP;
-        } else {
-            pendingSelectionType = PendingSelectionType.CLEAR;
-        }
-        pendingSelectionGroupKey = groupRow.key();
-
-        // Preserve viewport
-        var scrollPane = (JScrollPane) SwingUtilities.getAncestorOfClass(JScrollPane.class, activityTable);
-        if (scrollPane != null) {
-            pendingViewportPosition = scrollPane.getViewport().getViewPosition();
-        }
-        suppressScrollOnNextUpdate = true;
-
-        if (currentHistory != null) {
-            populateActivityTable(currentHistory);
-        }
-    }
-
-    private int findGroupHeaderRow(UUID groupKey) {
-        for (int i = 0; i < activityTableModel.getRowCount(); i++) {
-            var v = activityTableModel.getValueAt(i, COL_CONTEXT);
-            if (v instanceof ActivityTableRenderers.GroupRow gr && gr.key().equals(groupKey)) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private static Point clampViewportPosition(JScrollPane sp, Point desired) {
-        JViewport vp = sp.getViewport();
-        if (vp == null) return desired;
-        Component view = vp.getView();
-        if (view == null) return desired;
-        Dimension viewSize = view.getSize();
-        Dimension extent = vp.getExtentSize();
-        int maxX = Math.max(0, viewSize.width - extent.width);
-        int maxY = Math.max(0, viewSize.height - extent.height);
-        int x = Math.max(0, Math.min(desired.x, maxX));
-        int y = Math.max(0, Math.min(desired.y, maxY));
-        return new Point(x, y);
     }
 
     private void updatePreviewPanels(Context context) {
@@ -654,13 +379,14 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
     }
 
     private void showActivityContextMenu(MouseEvent e) {
-        int row = activityTable.rowAtPoint(e.getPoint());
+        var table = historyTable.getTable();
+        int row = table.rowAtPoint(e.getPoint());
         if (row < 0) return;
 
         // Select the row if not already selected
-        activityTable.setRowSelectionInterval(row, row);
+        table.setRowSelectionInterval(row, row);
 
-        Object value = activityTableModel.getValueAt(row, COL_CONTEXT);
+        Object value = historyTable.getModel().getValueAt(row, COL_CONTEXT);
         if (!(value instanceof Context context)) {
             return;
         }
@@ -701,7 +427,7 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
         // Register popup with theme manager
         chrome.getTheme().registerPopupMenu(popup);
 
-        popup.show(activityTable, e.getX(), e.getY());
+        popup.show(table, e.getX(), e.getY());
     }
 
     public void refreshSessionsTable() {
@@ -868,181 +594,6 @@ public class SessionsDialog extends BaseThemedDialog implements ActivityTableRen
         super.dispose();
     }
 
-    /** A LayerUI that paints reset-from-history arrows over the history table. */
-    private class ResetArrowLayerUI extends LayerUI<JScrollPane> {
-        private final JTable table;
-        private List<ContextHistory.ResetEdge> resetEdges = List.of();
-        private final Map<ContextHistory.ResetEdge, Integer> edgePaletteIndices = new HashMap<>();
-        private int nextPaletteIndex = 0;
-
-        public ResetArrowLayerUI(JTable table) {
-            this.table = table;
-        }
-
-        public void setResetEdges(List<ContextHistory.ResetEdge> edges) {
-            this.resetEdges = edges;
-            // remove color mappings for edges that no longer exist
-            edgePaletteIndices.keySet().retainAll(new HashSet<>(edges));
-            firePropertyChange("resetEdges", null, edges); // Triggers repaint for the JLayer
-        }
-
-        private record Arrow(ContextHistory.ResetEdge edge, int sourceRow, int targetRow, int length) {}
-
-        private Color colorFor(ContextHistory.ResetEdge edge, boolean isDark) {
-            int paletteIndex = edgePaletteIndices.computeIfAbsent(edge, e -> {
-                int i = nextPaletteIndex;
-                nextPaletteIndex = (nextPaletteIndex + 1) % 4; // Cycle through 4 colors
-                return i;
-            });
-
-            // For light mode, we want darker lines for better contrast against a light background.
-            // For dark mode, we want brighter lines.
-            var palette = List.of(
-                    isDark ? Color.LIGHT_GRAY : Color.DARK_GRAY,
-                    isDark
-                            ? ColorUtil.brighter(ThemeColors.getDiffAdded(true), 0.4f)
-                            : ColorUtil.brighter(ThemeColors.getDiffAdded(false), -0.4f),
-                    isDark
-                            ? ColorUtil.brighter(ThemeColors.getDiffChanged(true), 0.6f)
-                            : ColorUtil.brighter(ThemeColors.getDiffChanged(false), -0.4f),
-                    isDark
-                            ? ColorUtil.brighter(ThemeColors.getDiffDeleted(true), 1.2f)
-                            : ColorUtil.brighter(ThemeColors.getDiffDeleted(false), -0.4f));
-            return palette.get(paletteIndex);
-        }
-
-        @Override
-        public void paint(Graphics g, JComponent c) {
-            super.paint(g, c);
-            if (resetEdges.isEmpty()) {
-                return;
-            }
-
-            Map<UUID, Integer> contextIdToRow = HistoryGrouping.buildContextToRowMap(latestDescriptors, table);
-
-            // 1. Build list of all possible arrows with their geometry
-            List<Arrow> arrows = new ArrayList<>();
-            for (var edge : resetEdges) {
-                Integer sourceRow = contextIdToRow.get(edge.sourceId());
-                Integer targetRow = contextIdToRow.get(edge.targetId());
-                if (sourceRow != null && targetRow != null) {
-                    var sourceRect = table.getCellRect(sourceRow, COL_ICON, true);
-                    var targetRect = table.getCellRect(targetRow, COL_ICON, true);
-                    int y1 = sourceRect.y + sourceRect.height / 2;
-                    int y2 = targetRect.y + targetRect.height / 2;
-                    arrows.add(new Arrow(edge, sourceRow, targetRow, Math.abs(y1 - y2)));
-                }
-            }
-
-            // 2. Draw arrows, longest first to prevent shorter arrows from being hidden
-            arrows.sort(Comparator.comparingInt((Arrow a) -> a.length).reversed());
-
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-                float lineWidth = (float)
-                        (c.getGraphicsConfiguration().getDefaultTransform().getScaleX() >= 2 ? 0.75 : 1.0);
-                g2.setStroke(new BasicStroke(lineWidth));
-
-                boolean isDark = chrome.getTheme().isDarkTheme();
-                for (var arrow : arrows) {
-                    g2.setColor(colorFor(arrow.edge(), isDark));
-                    drawArrow(g2, c, arrow.sourceRow(), arrow.targetRow());
-                }
-            } finally {
-                g2.dispose();
-            }
-        }
-
-        private void drawArrow(Graphics2D g2, JComponent c, int sourceRow, int targetRow) {
-            Rectangle sourceRect = table.getCellRect(sourceRow, COL_ICON, true);
-            Rectangle targetRect = table.getCellRect(targetRow, COL_ICON, true);
-
-            // Convert cell rectangles to the JLayer's coordinate system
-            Point sourcePoint = SwingUtilities.convertPoint(
-                    table, new Point(sourceRect.x, sourceRect.y + sourceRect.height / 2), c);
-            Point targetPoint = SwingUtilities.convertPoint(
-                    table, new Point(targetRect.x, targetRect.y + targetRect.height / 2), c);
-
-            // Don't draw if either point is outside the visible viewport
-            if (!c.getVisibleRect().contains(sourcePoint) && !c.getVisibleRect().contains(targetPoint)) {
-                // a bit of a hack -- if just one is visible, we still want to draw part of the arrow
-                if (c.getVisibleRect().contains(sourcePoint)
-                        || c.getVisibleRect().contains(targetPoint)) {
-                    // one is visible, fall through
-                } else {
-                    return;
-                }
-            }
-
-            int iconColWidth = table.getColumnModel().getColumn(COL_ICON).getWidth();
-            int arrowHeadLength = 5;
-            int arrowLeadIn = 1; // length of the line segment before the arrowhead
-            int arrowRightMargin = -2; // margin from the right edge of the column
-
-            int tipX = sourcePoint.x + iconColWidth - arrowRightMargin;
-            int baseX = tipX - arrowHeadLength;
-            int verticalLineX = baseX - arrowLeadIn;
-
-            // Define the path for the arrow shaft
-            Path2D.Double path = new Path2D.Double();
-            path.moveTo(tipX, sourcePoint.y); // Start at source, aligned with the eventual arrowhead tip
-            path.lineTo(verticalLineX, sourcePoint.y); // Horizontal segment at source row
-            path.lineTo(verticalLineX, targetPoint.y); // Vertical segment connecting rows
-            path.lineTo(baseX, targetPoint.y); // Horizontal segment leading to arrowhead base
-            g2.draw(path);
-
-            // Draw the arrowhead at the target, pointing left-to-right
-            drawArrowHead(g2, new Point(tipX, targetPoint.y), arrowHeadLength);
-        }
-
-        private void drawArrowHead(Graphics2D g2, Point to, int size) {
-            // The arrow is always horizontal, left-to-right. Build an isosceles triangle.
-            int tipX = to.x;
-            int midY = to.y;
-            int baseX = to.x - size;
-            int halfHeight = (int) Math.round(size * 0.6); // Make it slightly wider than it is long
-
-            var head = new Polygon(
-                    new int[] {tipX, baseX, baseX}, new int[] {midY, midY - halfHeight, midY + halfHeight}, 3);
-            g2.fill(head);
-        }
-    }
-
-    // ---------- Static helpers for other UI components ----------
-    @Override
-    public void adjustRowHeightForContext(Context ctx) {
-        assert SwingUtilities.isEventDispatchThread() : "adjustRowHeightForContext must be called on EDT";
-
-        int targetRow = -1;
-        for (int row = 0; row < activityTableModel.getRowCount(); row++) {
-            Object val = activityTableModel.getValueAt(row, COL_CONTEXT);
-            if (val == ctx) {
-                targetRow = row;
-                break;
-            }
-        }
-        if (targetRow < 0) {
-            return;
-        }
-
-        int actionCol = COL_ACTION;
-        if (actionCol >= activityTable.getColumnCount()) {
-            return;
-        }
-
-        var renderer = activityTable.getCellRenderer(targetRow, actionCol);
-        Component comp = activityTable.prepareRenderer(renderer, targetRow, actionCol);
-
-        int colWidth = activityTable.getColumnModel().getColumn(actionCol).getWidth();
-        comp.setSize(colWidth, Short.MAX_VALUE);
-        int prefHeight = Math.max(18, comp.getPreferredSize().height + 2);
-
-        if (activityTable.getRowHeight(targetRow) != prefHeight) {
-            activityTable.setRowHeight(targetRow, prefHeight);
-        }
-    }
 
     public static void renameCurrentSession(Component parent, Chrome chrome, ContextManager contextManager) {
         var sessionManager = contextManager.getProject().getSessionManager();
