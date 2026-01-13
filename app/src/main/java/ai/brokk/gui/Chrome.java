@@ -2490,7 +2490,6 @@ public class Chrome
         }
     }
 
-    @Blocking
     private void refreshGit(@Nullable String branchName) {
         try {
             var repo = getProject().getRepo();
@@ -2507,8 +2506,6 @@ public class Chrome
 
         updateGitRepo();
         refreshBranchUi(branchName);
-
-        getRightPanel().requestReviewUpdate();
     }
 
     /**

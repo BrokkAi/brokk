@@ -61,6 +61,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private DiffService.CumulativeChanges lastCumulativeChanges = null;
 
+    /** Monotonically increasing token to track the latest requestUpdate invocation. */
+    private volatile long updateGeneration = 0;
+
     public record ReviewState(@Nullable String commitHash, long generatedAtMillis) {}
 
     public record StalenessInfo(
@@ -303,29 +306,60 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     public void requestUpdate() {
-        deferredUpdateHelper.requestUpdate();
-    }
+        // Capture this generation so we can ignore stale results
+        final long thisGeneration = ++updateGeneration;
 
-    public void refreshTitleAsync() {
+        // Immediately show placeholder (file count will be computed async)
         SwingUtilities.invokeLater(() -> {
             tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
         });
 
-        contextManager
-                .submitBackgroundTask("Refreshing review title", () -> {
-                    var state = resolveBaselineState();
+        // Kick off async computation
+        CompletableFuture.supplyAsync(() -> {
+            var state = resolveBaselineState();
+            int modifiedCount;
+            try {
+                modifiedCount = repo.getModifiedFiles().size();
+            } catch (GitAPIException e) {
+                logger.debug("Failed to get modified files count", e);
+                modifiedCount = 0;
+            }
+            try {
+                var result = computeCumulativeChanges(state.baselineLabel(), state.baselineMode());
+                return new ComputedUpdate(state, result, modifiedCount);
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
+        }).thenAccept(computed -> {
+            // Check if this computation is still relevant
+            if (thisGeneration != updateGeneration) {
+                return; // A newer requestUpdate superseded us
+            }
 
-                    var result = computeCumulativeChanges(state.baselineLabel(), state.baselineMode());
-                    SwingUtilities.invokeLater(() -> updateTitleAndTooltipFromResult(result, state.baselineLabel()));
-                    return null;
-                })
-                .exceptionally(ex -> {
-                    logger.warn("Failed to refresh title async", ex);
-                    SwingUtilities.invokeLater(
-                            () -> tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes"));
-                    return null;
-                });
+            lastBaselineLabel = computed.state.baselineLabel();
+            lastBaselineMode = computed.state.baselineMode();
+            lastCumulativeChanges = computed.result;
+
+            // Update title on EDT
+            SwingUtilities.invokeLater(() -> {
+                if (thisGeneration != updateGeneration) return;
+                updateTitleAndTooltipFromResult(computed.result, computed.state.baselineLabel());
+            });
+
+            // Trigger deferred UI update
+            deferredUpdateHelper.requestUpdate();
+        }).exceptionally(ex -> {
+            if (thisGeneration != updateGeneration) return null;
+            logger.warn("Failed to compute cumulative changes", ex);
+            SwingUtilities.invokeLater(() -> {
+                if (thisGeneration != updateGeneration) return;
+                tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes");
+            });
+            return null;
+        });
     }
+
+    private record ComputedUpdate(BaselineState state, DiffService.CumulativeChanges result, int modifiedFileCount) {}
 
     private record BaselineState(BaselineMode baselineMode, String baselineLabel) {}
 
@@ -385,51 +419,35 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
+    /**
+     * Called by DeferredUpdateHelper when the panel becomes visible (or immediately if already visible).
+     * This handles only the GUI update using the cached lastCumulativeChanges.
+     */
     private void performRefresh() {
-        tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
+        assert SwingUtilities.isEventDispatchThread();
 
-        contextManager
-                .submitBackgroundTask("Computing review changes", this::resolveBaselineState)
-                .thenCompose(state -> {
-                    lastBaselineLabel = state.baselineLabel();
-                    lastBaselineMode = state.baselineMode();
+        var result = lastCumulativeChanges;
+        if (result == null) {
+            // No cached result yet; nothing to display
+            return;
+        }
 
-                    SwingUtilities.invokeLater(() -> {
-                        tabTitleUpdater.updateTitleAndTooltip("Review (...)", "Computing branch-based changes...");
-                    });
+        var prepared = DiffService.preparePerFileSummaries(result);
 
-                    return refreshCumulativeChangesAsync(state.baselineLabel(), state.baselineMode());
-                })
-                .thenAccept(result -> {
-                    if (result == null) return;
-                    lastCumulativeChanges = result;
-                    var prepared = DiffService.preparePerFileSummaries(result);
+        StalenessInfo staleness = null;
+        if (lastReviewState != null) {
+            staleness = computeStaleness();
+        }
 
-                    StalenessInfo staleness = null;
-                    if (lastReviewState != null) {
-                        staleness = computeStaleness();
-                    }
+        String label = lastBaselineLabel != null ? lastBaselineLabel : "";
+        BaselineMode mode = lastBaselineMode != null ? lastBaselineMode : BaselineMode.NO_BASELINE;
 
-                    final StalenessInfo finalStaleness = staleness;
-                    final String label = lastBaselineLabel != null ? lastBaselineLabel : "";
-                    final BaselineMode mode = lastBaselineMode != null ? lastBaselineMode : BaselineMode.NO_BASELINE;
+        updateTitleAndTooltipFromResult(result, label);
+        updateContent(result, prepared, label, mode);
 
-                    SwingUtilities.invokeLater(() -> {
-                        updateTitleAndTooltipFromResult(result, label);
-                        updateContent(result, prepared, label, mode);
-
-                        if (finalStaleness != null) {
-                            codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(finalStaleness));
-                        }
-                    });
-                })
-                .exceptionally(ex -> {
-                    logger.warn("Failed to compute cumulative changes", ex);
-                    SwingUtilities.invokeLater(() -> {
-                        tabTitleUpdater.updateTitleAndTooltip("Review", "Failed to compute changes");
-                    });
-                    return null;
-                });
+        if (staleness != null) {
+            codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
+        }
     }
 
     private DiffService.CumulativeChanges computeCumulativeChanges(String baselineLabel, BaselineMode baselineMode)
@@ -488,11 +506,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 pushPullState);
     }
 
-    private CompletableFuture<DiffService.CumulativeChanges> refreshCumulativeChangesAsync(
-            String baselineLabel, BaselineMode baselineMode) {
-        return contextManager.submitBackgroundTask(
-                "Computing review changes", () -> computeCumulativeChanges(baselineLabel, baselineMode));
-    }
 
     private void updateTitleAndTooltipFromResult(DiffService.CumulativeChanges result, String baselineLabel) {
         String title;
