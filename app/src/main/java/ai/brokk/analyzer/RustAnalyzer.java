@@ -20,7 +20,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     private static final LanguageSyntaxProfile RS_SYNTAX_PROFILE = new LanguageSyntaxProfile(
-            Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM),
+            Set.of(IMPL_ITEM, TRAIT_ITEM, STRUCT_ITEM, ENUM_ITEM, MOD_ITEM),
             Set.of(FUNCTION_ITEM, FUNCTION_SIGNATURE_ITEM),
             Set.of(FIELD_DECLARATION, CONST_ITEM, STATIC_ITEM, ENUM_VARIANT),
             Set.of(ATTRIBUTE_ITEM), // Rust attributes like #[derive(...)]
@@ -33,6 +33,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             Map.of(
                     CaptureNames.CLASS_DEFINITION, SkeletonType.CLASS_LIKE,
                     CaptureNames.IMPL_DEFINITION, SkeletonType.CLASS_LIKE,
+                    CaptureNames.MODULE_DEFINITION, SkeletonType.MODULE_STATEMENT,
                     CaptureNames.FUNCTION_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE),
             "",
@@ -186,8 +187,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
         return switch (captureName) {
             // "class.definition" is for struct, trait, enum.
             // "impl.definition" is for impl blocks. Both create class-like CodeUnits.
+            // "module.definition" is for mod blocks.
             // simpleName for "impl.definition" will be the type being implemented (e.g., "Point").
-            case CaptureNames.CLASS_DEFINITION, CaptureNames.IMPL_DEFINITION ->
+            case CaptureNames.CLASS_DEFINITION,
+                    CaptureNames.IMPL_DEFINITION,
+                    CaptureNames.MODULE_DEFINITION ->
                 CodeUnit.cls(file, packageName, simpleName);
             case CaptureNames.FUNCTION_DEFINITION -> {
                 // For methods, classChain will be the struct/impl type name.
