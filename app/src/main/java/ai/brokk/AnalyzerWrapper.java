@@ -153,32 +153,11 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             }
         }
 
-        // AnalyzerWrapper now focuses only on analyzer-relevant changes.
-        // Git metadata and tracked file change notifications are handled by ContextManager's listener.
-
         logger.trace(
-                "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}, gitMetaDir={}",
+                "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}",
                 batch.getFiles().size(),
                 batch.isOverflowed(),
                 batch.isUntrackedGitignoreChanged());
-
-        // 1) Handle untracked gitignore file changes by invalidating project cache
-        if (batch.isUntrackedGitignoreChanged()) {
-            logger.debug("Untracked gitignore files changed, invalidating project file cache");
-            project.invalidateAllFiles();
-        }
-
-        // 2) Possibly refresh Git
-        if (gitRepoRoot != null) {
-            Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
-            boolean gitMetaTouched =
-                    batch.getFiles().stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
-            if (batch.isOverflowed() || gitMetaTouched) {
-                logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
-                listener.onRepoChange();
-                listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
-            }
-        }
 
         // 1) Handle overflow - trigger full analyzer rebuild
         if (batch.isOverflowed()) {
@@ -193,7 +172,7 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             return; // No need to process individual files after full rebuild
         }
 
-        // 2) Filter for analyzer-relevant files
+        // 2) Filter for analyzer-relevant files.
         var trackedFiles = project.getRepo().getTrackedFiles();
         var projectLanguages = requireNonNull(currentAnalyzer).languages();
 

@@ -553,9 +553,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Creates a file watch listener that receives raw file system events directly from IWatchService.
      * This listener handles git metadata changes, tracked file changes, and preview window refreshes.
-     * <p>
-     * This replaces the temporary uiListener created in AnalyzerWrapper (Phase 2), moving file watching
-     * responsibility to ContextManager where it belongs.
      */
     AbstractWatchService.Listener createFileWatchListener() {
         Path gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
@@ -565,6 +562,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
             @Override
             public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 logger.trace("ContextManager file watch listener received events batch: {}", batch);
+
+                // Handle untracked gitignore file changes by invalidating project cache
+                // (must happen before classification so trackedFiles reflects new gitignore rules)
+                if (batch.isUntrackedGitignoreChanged()) {
+                    logger.debug("Untracked gitignore files changed, invalidating project file cache");
+                    project.invalidateAllFiles();
+                }
 
                 // Classify the changes using helper
                 var trackedFiles = project.getRepo().getTrackedFiles();
