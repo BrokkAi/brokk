@@ -46,6 +46,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class JobRunner {
     private static final Logger logger = LogManager.getLogger(JobRunner.class);
+    private static final int DEFAULT_MAX_BUILD_ATTEMPTS = 3;
 
     private final ContextManager cm;
     private final JobStore store;
@@ -813,7 +814,18 @@ public final class JobRunner {
 
                                                 // 4. Verification loop: run build and retry on failure
                                                 int buildAttempts = 0;
-                                                int maxBuildAttempts = 3;
+                                                int maxBuildAttempts = DEFAULT_MAX_BUILD_ATTEMPTS;
+
+                                                // Allow override from build settings if present
+                                                if (buildDetailsOverride.environmentVariables().containsKey("maxBuildAttempts")) {
+                                                    try {
+                                                        maxBuildAttempts = Integer.parseInt(
+                                                                buildDetailsOverride.environmentVariables().get("maxBuildAttempts"));
+                                                    } catch (Exception e) {
+                                                        logger.debug("Could not parse maxBuildAttempts from environmentVariables", e);
+                                                    }
+                                                }
+
                                                 boolean verified = false;
 
                                                 while (!verified && buildAttempts < maxBuildAttempts) {
