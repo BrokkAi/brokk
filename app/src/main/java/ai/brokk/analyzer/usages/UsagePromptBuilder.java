@@ -2,6 +2,7 @@ package ai.brokk.analyzer.usages;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -26,20 +27,26 @@ public final class UsagePromptBuilder {
      *
      * @param hit single usage occurrence (snippet should contain ~3 lines above/below already if desired)
      * @param codeUnitTarget the intended target code unit
+     * @param alternatives other code units with the same short name that are not the target
      * @param analyzer used to retrieve import statements for the file containing the usage
      * @param shortName the short name being searched (e.g., "A.method2")
      * @param maxTokens rough token budget (approx 4 characters per token); non-positive to disable
      * @return UsagePrompt containing filterDescription, candidateText, and promptText
      */
     public static UsagePrompt buildPrompt(
-            UsageHit hit, CodeUnit codeUnitTarget, IAnalyzer analyzer, String shortName, int maxTokens) {
+            UsageHit hit,
+            CodeUnit codeUnitTarget,
+            Collection<CodeUnit> alternatives,
+            IAnalyzer analyzer,
+            String shortName,
+            int maxTokens) {
 
         // Approximate token-to-character budget (very conservative)
         final int maxChars = (maxTokens <= 0) ? Integer.MAX_VALUE : Math.max(512, maxTokens * 4);
         var sb = new StringBuilder(Math.min(maxChars, 32_000));
 
         // Filter description for RelevanceClassifier.relevanceScore
-        String filterDescription = buildFilterDescription(codeUnitTarget);
+        String filterDescription = buildFilterDescription(codeUnitTarget, !alternatives.isEmpty());
 
         // Candidate text is the raw snippet for this single usage
         String candidateText = hit.snippet();
@@ -47,6 +54,16 @@ public final class UsagePromptBuilder {
         // Metadata headers
         sb.append("Short Name of Search: ").append(shortName).append("\n");
         sb.append("Code Unit Target: ").append(codeUnitTarget).append("\n");
+
+        sb.append("Other Possible Matches: ");
+        if (alternatives.isEmpty()) {
+            sb.append("(none)\n");
+        } else {
+            sb.append("\n");
+            for (CodeUnit alt : alternatives) {
+                sb.append(alt.fqName()).append("\n");
+            }
+        }
 
         sb.append("File of Hit: ").append(hit.file().getRelPath()).append("\n");
 
@@ -83,12 +100,16 @@ public final class UsagePromptBuilder {
         return new UsagePrompt(filterDescription, candidateText, sb.toString());
     }
 
-    private static String buildFilterDescription(CodeUnit targetCodeUnit) {
+    private static String buildFilterDescription(CodeUnit targetCodeUnit, boolean hasAlternatives) {
+        String base = "Determine if the snippet represents a usage of " + targetCodeUnit;
+        if (hasAlternatives) {
+            base += ". Consider the <candidates> list of alternative code units and score how likely the usage matches ONLY the target (not any alternative)";
+        }
+
         if (UsageConfig.isBooleanUsageMode()) {
-            return ("Determine if the snippet represents a usage of " + targetCodeUnit + ".");
+            return base + ".";
         } else {
-            return ("Determine if the snippet represents a usage of " + targetCodeUnit
-                    + ". Score how likely the usage matches the target. Return a real number in [0.0, 1.0].");
+            return base + ". Return a real number in [0.0, 1.0].";
         }
     }
 }

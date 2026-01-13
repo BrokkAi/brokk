@@ -77,7 +77,7 @@ public class UsagePromptBuilderJavaTest {
 
         // When
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit, target, analyzer, "A.method2", 10_000 // generous token budget
+                hit, target, List.of(), analyzer, "A.method2", 10_000 // generous token budget
                 );
 
         // Field-level assertions
@@ -92,6 +92,7 @@ public class UsagePromptBuilderJavaTest {
                 """
                 Short Name of Search: A.method2
                 Code Unit Target: FUNCTION[test.method2]
+                Other Possible Matches: (none)
                 File of Hit: A.java
                 ```java
                 import java.util.function.Function;
@@ -116,7 +117,7 @@ public class UsagePromptBuilderJavaTest {
         UsageHit hit = new UsageHit(file, 1, 0, largeSnippet.length(), enclosing, 1.0, largeSnippet);
 
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit, target, analyzer, "A.method2", 32 // ~128 chars budget to trigger truncation
+                hit, target, List.of(), analyzer, "A.method2", 32 // ~128 chars budget to trigger truncation
                 );
 
         assertTrue(prompt.promptText().contains("truncated due to token limit"), "Expected truncation note in prompt");
@@ -129,13 +130,13 @@ public class UsagePromptBuilderJavaTest {
         CodeUnit target = CodeUnit.fn(file, "", "A.method2");
         UsageHit hit = new UsageHit(file, 5, 0, 3, enclosing, 1.0, "sa");
 
-        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(hit, target, analyzer, "A.method2", 10_000);
+        UsagePrompt prompt = UsagePromptBuilder.buildPrompt(hit, target, List.of(), analyzer, "A.method2", 10_000);
 
         String text = prompt.promptText();
-        assertTrue(text.contains("Short Name: "), "Expected Short Name: prefix");
-        assertTrue(text.contains("Code Unit: "), "Expected Code Unit: prefix");
-        assertTrue(text.contains("File: "), "Expected File: prefix");
+        assertTrue(text.contains("Short Name of Search: "), "Expected Short Name of Search: prefix");
+        assertTrue(text.contains("Code Unit Target: "), "Expected Code Unit Target: prefix");
+        assertTrue(text.contains("File of Hit: "), "Expected File of Hit: prefix");
         assertTrue(text.contains("```"), "Expected Markdown code fence");
-        assertTrue(text.contains(file.absPath().toString()), "Expected the correct file path in prompt");
+        assertTrue(text.contains(file.getRelPath().toString()), "Expected the correct file path in prompt");
     }
 }
