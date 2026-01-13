@@ -448,40 +448,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void afterFirstBuild(String msg) {
-                if (io instanceof Chrome chrome) {
-                    chrome.notifyActionComplete("Analyzer build completed");
-                }
-                if (msg.isEmpty()) {
-                    io.systemNotify(
-                            "Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.",
-                            "Code Intelligence Warning",
-                            JOptionPane.WARNING_MESSAGE);
-                } else {
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                }
-            }
-
-            @Override
-            public void onRepoChange() {
-                // NOTE: This callback is no longer used in GUI mode.
-                // ContextManager.fileWatchListener now handles git changes directly via handleGitMetadataChange().
-                // This method is kept for backward compatibility only.
-                logger.debug("AnalyzerListener.onRepoChange fired (backward compatibility path)");
-                handleGitMetadataChange();
-            }
-
-            @Override
-            public void onTrackedFileChange() {
-                // NOTE: This callback is no longer used in GUI mode.
-                // ContextManager.fileWatchListener now handles tracked file changes directly via
-                // handleTrackedFileChange().
-                // This method is kept for backward compatibility only.
-                logger.debug("AnalyzerListener.onTrackedFileChange fired (backward compatibility path)");
-                handleTrackedFileChange(project.getAllFiles());
-            }
-
-            @Override
             public void beforeEachBuild() {
                 if (io instanceof Chrome chrome) {
                     chrome.showAnalyzerRebuildStatus();

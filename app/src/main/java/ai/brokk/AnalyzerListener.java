@@ -11,15 +11,6 @@ public interface AnalyzerListener {
     /** Called when the Analyzer is requested but it is not yet complete. */
     void onBlocked();
 
-    /** Called with details of the first build, which is used to infer auto rebuild policy. */
-    void afterFirstBuild(String msg);
-
-    /** Called when changes to tracked files are detected, after the initial build */
-    void onTrackedFileChange();
-
-    /** Called when external changes to the git repo are detected */
-    void onRepoChange();
-
     /** Called before each Analyzer build starts. */
     void beforeEachBuild();
 
