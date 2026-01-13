@@ -499,7 +499,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         var fileSet = new HashSet<>(fileMap.values());
         var summarizedChanges =
-                DiffService.summarizeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet, commits);
+                DiffService.computeComulativeDiff(repo, requireNonNull(leftCommitSha), "WORKING", fileSet, commits);
 
         GitWorkflow.PushPullState pushPullState = null;
         try {

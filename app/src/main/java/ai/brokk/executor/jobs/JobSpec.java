@@ -2,7 +2,9 @@ package ai.brokk.executor.jobs;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -23,6 +25,26 @@ public record JobSpec(
         @JsonProperty("tags") Map<String, String> tags,
         @JsonProperty("sourceBranch") @Nullable String sourceBranch,
         @JsonProperty("targetBranch") @Nullable String targetBranch) {
+
+    /**
+     * Tag keys that contain sensitive data and should not be persisted to disk.
+     */
+    private static final Set<String> SENSITIVE_TAG_KEYS = Set.of("github_token");
+
+    /**
+     * Returns a copy of tags with sensitive values redacted for safe persistence/logging.
+     * Sensitive keys are replaced with "[REDACTED]" rather than removed entirely,
+     * to preserve the structure for debugging while protecting the actual values.
+     */
+    public Map<String, String> redactedTags() {
+        var result = new HashMap<>(tags);
+        for (var key : SENSITIVE_TAG_KEYS) {
+            if (result.containsKey(key)) {
+                result.put(key, "[REDACTED]");
+            }
+        }
+        return Map.copyOf(result);
+    }
 
     /**
      * Creates a JobSpec with minimal required fields.

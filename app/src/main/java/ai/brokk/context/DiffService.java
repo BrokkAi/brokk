@@ -331,7 +331,7 @@ public final class DiffService {
      * @return CumulativeChanges with per-file diffs and aggregated statistics
      */
     @Blocking
-    public static CumulativeChanges summarizeDiff(
+    public static CumulativeChanges computeComulativeDiff(
             IGitRepo repo,
             String leftRef,
             String rightRef,
@@ -508,7 +508,7 @@ public final class DiffService {
         @Blocking
         public String title() {
             var files = fragment.files().join();
-            if (files != null && !files.isEmpty()) {
+            if (!files.isEmpty()) {
                 var pf = files.iterator().next();
                 return pf.getRelPath().toString();
             }

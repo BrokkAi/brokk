@@ -18,7 +18,7 @@ import { envStore } from './stores/envStore';
 import { setSummaryEntry, deleteSummaryEntry, getSummaryEntry, updateSummaryTree, summaryStore } from './stores/summaryStore';
 import { register, unregister, isRegistered } from './worker/parseRouter';
 import { parse } from './worker/worker-bridge';
-import { allocSummarySeq, STATIC_DOC_SEQ } from './shared/seq';
+import { allocSummarySeq, allocStaticDocSeq } from './shared/seq';
 import { staticDocStore } from './stores/staticDocStore';
 
 const mainLog = createLogger('main');
@@ -174,12 +174,17 @@ function onLiveSummary(payload: any): void {
     parse(summary, summarySeq, false, false);
 }
 
+// Track current static doc sequence to cancel stale parse results
+let currentStaticDocSeq: number | null = null;
+
 function onStaticDocument(payload: any): void {
     const markdown = payload.markdown;
-    const seq = STATIC_DOC_SEQ;
 
-    // Always clean up any existing handler first
-    unregister(seq);
+    // Clean up any existing handler for previous static doc
+    if (currentStaticDocSeq !== null) {
+        unregister(currentStaticDocSeq);
+        currentStaticDocSeq = null;
+    }
 
     // Null/empty markdown means exit static mode
     if (markdown == null || markdown === '') {
@@ -187,8 +192,15 @@ function onStaticDocument(payload: any): void {
         return;
     }
 
+    // Allocate new unique sequence for this static doc
+    const seq = allocStaticDocSeq();
+    currentStaticDocSeq = seq;
+
     register(seq, (msg: any) => {
-        staticDocStore.set({seq, text: markdown, tree: msg.tree});
+        // Only apply if this is still the current document
+        if (currentStaticDocSeq === seq) {
+            staticDocStore.set({seq, text: markdown, tree: msg.tree});
+        }
     });
 
     parse(markdown, seq, false, false);

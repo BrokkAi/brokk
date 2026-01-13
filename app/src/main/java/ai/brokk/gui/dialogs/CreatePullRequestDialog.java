@@ -948,7 +948,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         Set<ai.brokk.git.IGitRepo.ModifiedFile> fileSet = new HashSet<>(files);
 
         // Use DiffService to summarize changes between merge base and source branch
-        return DiffService.summarizeDiff(repo, mergeBaseCommit, sourceBranch, fileSet, currentCommits);
+        return DiffService.computeComulativeDiff(repo, mergeBaseCommit, sourceBranch, fileSet, currentCommits);
     }
 
     private void updateReviewTabContent(
