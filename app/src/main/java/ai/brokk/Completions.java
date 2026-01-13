@@ -93,19 +93,14 @@ public class Completions {
 
     private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
         var matcher = new FuzzyMatcher(query);
-        boolean hierarchicalQuery = isHierarchicalQuery(query);
 
         record ScoredCU(CodeUnit cu, int score) {}
 
         return candidates.stream()
-                .map(cu -> {
-                    int score = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
-                    return new ScoredCU(cu, score);
-                })
+                .map(cu -> new ScoredCU(cu, matcher.score(cu.fqName())))
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                         .thenComparingInt(sc -> sc.cu().identifier().length())
-                        .thenComparingInt(sc -> typeOrder(sc.cu().kind()))
                         .thenComparing(sc -> sc.cu().fqName()))
                 .map(ScoredCU::cu)
                 .collect(Collectors.collectingAndThen(
@@ -237,15 +232,6 @@ public class Completions {
         } catch (IOException e) {
             return List.of();
         }
-    }
-
-    private static int typeOrder(ai.brokk.analyzer.CodeUnitType type) {
-        return switch (type) {
-            case CLASS -> 0;
-            case FUNCTION -> 1;
-            case FIELD -> 2;
-            case MODULE -> 3;
-        };
     }
 
     private static boolean looksAbsolute(String s) {
