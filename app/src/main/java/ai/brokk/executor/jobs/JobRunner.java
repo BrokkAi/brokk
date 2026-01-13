@@ -147,14 +147,15 @@ public final class JobRunner {
                 var rawCodeModelName = spec.codeModel() != null
                         ? spec.codeModel()
                         : spec.tags().get("code_model");
-                var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();
-                var hasCodeModelOverride = trimmedCodeModelName != null && !trimmedCodeModelName.isEmpty();
+                var trimmedCodeModelName =
+                        (rawCodeModelName != null && !rawCodeModelName.isBlank()) ? rawCodeModelName.trim() : null;
+                var hasCodeModelOverride = trimmedCodeModelName != null;
 
                 final StreamingChatModel architectPlannerModel =
                         mode == Mode.ARCHITECT || mode == Mode.LUTZ ? resolveModelOrThrow(spec.plannerModel()) : null;
                 final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
-                        ? (hasCodeModelOverride
-                                ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
+                        ? (trimmedCodeModelName != null
+                                ? resolveModelOrThrow(trimmedCodeModelName)
                                 : defaultCodeModel())
                         : null;
                 final StreamingChatModel reviewPlannerModel =
