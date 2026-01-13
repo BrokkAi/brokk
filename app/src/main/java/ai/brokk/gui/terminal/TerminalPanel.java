@@ -169,12 +169,8 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         widget = new BrokkJediTermWidget(terminalSettings);
         add(widget, BorderLayout.CENTER);
 
-        // Apply initial theme to terminal based on current UI theme
-        boolean dark = false;
-        if (console instanceof Chrome c) {
-            dark = c.getTheme().isDarkTheme();
-        }
-        applyTerminalColors(dark);
+        // Apply initial dark terminal colors
+        applyTerminalColors();
         startProcessAsync(cmd);
     }
 
@@ -459,24 +455,22 @@ public class TerminalPanel extends JPanel implements ThemeAware {
         // Refresh the entire component tree to apply theme changes
         SwingUtilities.updateComponentTreeUI(this);
 
-        boolean dark = guiTheme.isDarkTheme();
         if (widget != null) {
-            applyTerminalColors(dark);
+            applyTerminalColors();
         }
     }
 
-    private void applyTerminalColors(boolean dark) {
+    private void applyTerminalColors() {
         var settings = terminalSettings;
         if (settings == null) {
             return;
         }
 
-        // Define terminal colors based on theme
-        TerminalColor bg = dark ? new TerminalColor(30, 30, 30) : new TerminalColor(255, 255, 255);
-        TerminalColor fg = dark ? new TerminalColor(221, 221, 221) : new TerminalColor(0, 0, 0);
-        // Selection colors: explicit background/foreground to ensure visibility
-        TerminalColor selBg = dark ? new TerminalColor(60, 100, 170) : new TerminalColor(173, 214, 255);
-        TerminalColor selFg = dark ? new TerminalColor(255, 255, 255) : new TerminalColor(0, 0, 0);
+        // Always use dark terminal colors for consistent cross-platform visibility
+        TerminalColor bg = new TerminalColor(30, 30, 30);
+        TerminalColor fg = new TerminalColor(221, 221, 221);
+        TerminalColor selBg = new TerminalColor(60, 100, 170);
+        TerminalColor selFg = new TerminalColor(255, 255, 255);
 
         // Apply colors through JediTerm's settings system
         settings.setBackground(bg);

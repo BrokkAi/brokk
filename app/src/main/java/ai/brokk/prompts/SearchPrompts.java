@@ -312,8 +312,8 @@ public class SearchPrompts {
                       Guidance:
                         - Each task must be self-contained; the Code Agent will not have access to your instructions or conversation history.
                         - Wherever possible, include instructions to add or update automated tests to demonstrate behavior; if automation is not a good fit, it is acceptable to omit tests rather than prescribe manual steps.
-                        - Keep the project buildable and testable after each step.
-                        - The executing agent may adjust task scope/order based on more up-to-date information discovered during implementation.
+                        - It is CRITICAL to keep the project buildable and testable after each task; in the VERY RARE case where breaking the build
+                          temporarily is necessary, YOU MUST BE EXPLICIT about this to avoid confusing the Code Agent.
                         - Each task needs to be Markdown-formatted, use `inline code` (for file, directory, function, class names and other symbols).
                     """);
         }

@@ -764,7 +764,6 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     public void requestReviewUpdate() {
         if (reviewTabComponent instanceof SessionChangesPanel scp) {
-            scp.refreshTitleAsync();
             scp.requestUpdate();
         }
     }
@@ -777,10 +776,17 @@ public class RightPanel extends JPanel implements ThemeAware {
      * @param context The context associated with this review
      */
     public void loadReviewFromMarkdown(String markdown, ai.brokk.context.Context context) {
-        // Select the Review tab
-        int reviewIdx = buildReviewTabs.indexOfTab("Review");
-        if (reviewIdx != -1) {
-            buildReviewTabs.setSelectedIndex(reviewIdx);
+        // Focus the Review tab/frame
+        if (!GlobalUiSettings.isReviewDocked() && reviewFrame != null) {
+            // Review is undocked - bring the frame to front
+            reviewFrame.toFront();
+            reviewFrame.requestFocus();
+        } else {
+            // Review is docked - select the tab by component reference (title may be modified)
+            int reviewIdx = getReviewTabIndex();
+            if (reviewIdx != -1) {
+                buildReviewTabs.setSelectedIndex(reviewIdx);
+            }
         }
 
         // Load the review into SessionChangesPanel

@@ -585,12 +585,83 @@ JSON
 **Note:** `plannerModel` is still required here for validation, but CODE execution uses `codeModel`. Omit `codeModel`
 to fall back to the project's default code model.
 
+### REVIEW Mode (GitHub PR Review)
+
+REVIEW mode automates code review for GitHub Pull Requests.
+
+#### Option 1: Convenience Endpoint (Recommended)
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs/pr-review" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "owner": "myorg",
+  "repo": "myrepo",
+  "prNumber": 123,
+  "githubToken": "ghp_xxxxxxxxxxxx",
+  "plannerModel": "gpt-5"
+}
+JSON
+```
+
+#### Option 2: Standard Endpoint with Tags
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "REVIEW",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo",
+    "pr_number": "123"
+  }
+}
+JSON
+```
+
+**Key characteristics:**
+- Fetches PR from GitHub and computes merge-base diff
+- Generates LLM-powered code review
+- Posts summary comment and inline line comments to the PR
+- Skips duplicate comments; falls back to PR comment if inline fails
+- `codeModel` is ignored (no code generation)
+
 ## Job Status
 
 ```bash
 curl -sS "${BASE}/v1/jobs/<job-id>" \
   -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
+
+**Response (200 OK):**
+
+```json
+{
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "state": "COMPLETED",
+  "startTime": 1734567890123,
+  "endTime": 1734567890456,
+  "progressPercent": 100,
+  "result": null,
+  "error": null,
+  "metadata": {}
+}
+```
+
+Possible `state` values: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`.
 
 ## Job Events
 

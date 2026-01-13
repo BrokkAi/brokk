@@ -84,19 +84,17 @@
   )
 
 ; Test markers for JUnit/ScalaTest detection
+; Filtering (e.g. for specific annotation names or keywords) is performed in the analyzer
 (annotation
   name: (type_identifier) @test.annotation
-  (#match? @test.annotation "^(Test|ParameterizedTest|RepeatedTest)$")
 )
 
 ; ScalaTest FunSuite: test("description") { ... }
 (call_expression
   function: (identifier) @test.call
-  (#eq? @test.call "test")
 )
 
 ; ScalaTest FlatSpec: "test" should "work" in { ... }
 (infix_expression
   operator: (identifier) @test.infix
-  (#match? @test.infix "^(in|should|must|can)$")
 )

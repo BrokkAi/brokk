@@ -5,8 +5,9 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.GuidedReview;
-import ai.brokk.util.ReviewParser.ReviewFeedback;
+import ai.brokk.util.ReviewParser.KeyChanges;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
+import ai.brokk.util.ReviewParser.TestFeedback;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -91,6 +92,11 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
 
         addItem("Overview", review.overview(), true);
 
+        addHeader("Key Changes");
+        for (KeyChanges change : review.keyChanges()) {
+            addItem(change.title(), change, false);
+        }
+
         addHeader("Design");
         for (DesignFeedback design : review.designNotes()) {
             addItem(design.title(), design, false);
@@ -102,7 +108,7 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         }
 
         addHeader("Tests");
-        for (ReviewFeedback test : review.additionalTests()) {
+        for (TestFeedback test : review.additionalTests()) {
             addItem(test.title(), test, false);
         }
 

@@ -151,7 +151,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         // Ensure tooltip is visible even though we return a composite panel.
         outerPanel.setToolTipText(ActivityTableRenderers.buildTooltipWithModel(ctx, actionText));
 
-        List<DiffService.DiffEntry> diffs = cachedOpt.orElseGet(List::of);
+        List<DiffService.FragmentDiff> diffs = cachedOpt.orElseGet(List::of);
         if (!diffs.isEmpty()) {
             boolean isDark = chrome.getTheme().isDarkTheme();
             Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
@@ -162,7 +162,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
             for (int i = 0; i < diffRows.size(); i++) {
                 DiffRow dr = diffRows.get(i);
                 if (i < diffs.size()) {
-                    DiffService.DiffEntry de = diffs.get(i);
+                    DiffService.FragmentDiff de = diffs.get(i);
                     String bareName = computeBareName(de);
 
                     dr.nameLabel.setText(bareName + " ");
@@ -208,7 +208,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
      * Computes a short display name for a diff entry: preferably the filename of the first ProjectFile,
      * or the fragment's shortDescription() as a fallback.
      */
-    private String computeBareName(DiffService.DiffEntry de) {
+    private String computeBareName(DiffService.FragmentDiff de) {
         var fragment = de.fragment();
         Set<ProjectFile> files = Set.of();
         var computedFilesOpt = fragment.files();

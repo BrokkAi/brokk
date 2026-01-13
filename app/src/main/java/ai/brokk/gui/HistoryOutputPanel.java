@@ -1759,7 +1759,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         ds.diff(ctx).thenAccept(diffs -> SwingUtilities.invokeLater(() -> showDiffWindow(ctx, diffs)));
     }
 
-    private void showDiffWindow(Context ctx, List<DiffService.DiffEntry> diffs) {
+    private void showDiffWindow(Context ctx, List<DiffService.FragmentDiff> diffs) {
 
         record BufferedSourcePair(BufferSource left, BufferSource right) {}
 
@@ -1798,7 +1798,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     // Use the typed API matching buildAggregatedChangesPanel: BufferSource.StringSource +
                     // addComparison(BufferSource, BufferSource)
-                    String leftContent = de.oldContent();
+                    String leftContent = de.oldText();
                     String rightContent = safeFragmentText(de);
                     BufferSource left = new BufferSource.StringSource(leftContent, "Previous", pathDisplay, null);
                     BufferSource right = new BufferSource.StringSource(rightContent, "Current", pathDisplay, null);
@@ -1825,7 +1825,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     @Blocking
-    private static String safeFragmentText(DiffService.DiffEntry de) {
+    private static String safeFragmentText(DiffService.FragmentDiff de) {
         try {
             return de.fragment().text().join();
         } catch (Throwable t) {

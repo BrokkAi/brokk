@@ -17,10 +17,10 @@ import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.RawExcerpt;
-import ai.brokk.util.WhitespaceMatch;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
@@ -116,8 +116,13 @@ public class ReviewAgent {
         long startTime = System.currentTimeMillis();
 
         // Prepare the initial context with the diff pinned
-        var diff = changes.perFileChanges().stream()
-                .map(de -> "File: " + de.title() + "\n" + de.diff())
+        String diff = changes.perFileChanges().stream()
+                .map(fd -> {
+                    String oldName = fd.oldFile() == null ? null : fd.oldFile().toString();
+                    String newName = fd.newFile() == null ? null : fd.newFile().toString();
+                    return ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), oldName, newName)
+                            .diff();
+                })
                 .collect(Collectors.joining("\n\n"));
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -232,8 +237,7 @@ public class ReviewAgent {
             logPhaseTime("Total review generation", startTime);
 
             var publishedMessages = List.of(
-                    new UserMessage("Please review this diff"),
-                    new AiMessage(ReviewParser.instance.stripExcerpts(mergedReviewText), mergedReasoning));
+                    new UserMessage("Please review this diff"), new AiMessage(mergedReviewText, mergedReasoning));
 
             var result = new ai.brokk.TaskResult(
                     cm,
@@ -302,12 +306,20 @@ public class ReviewAgent {
         // Fallback
         var testFiles = cm.getTestFiles();
         var filesToContext = changes.perFileChanges().stream()
-                .filter(de -> !testFiles.contains(
-                        de.fragment().files().join().iterator().next()))
-                .filter(de -> !de.oldContent().isEmpty() && !de.newContent().isEmpty())
-                .filter(de -> de.diff().split("@@").length > 3) // > 2 hunks
-                .map(DiffService.DiffEntry::fragment)
-                .toList();
+                .filter(fd -> {
+                    var file = fd.newFile() != null ? fd.newFile() : fd.oldFile();
+                    return file != null && !testFiles.contains(file);
+                })
+                .filter(fd -> !fd.oldText().isEmpty() && !fd.newText().isEmpty())
+                .filter(fd -> {
+                    var diffRes = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new");
+                    return diffRes.diff().split("@@").length > 3; // > 2 hunks
+                })
+                .map(fd -> {
+                    var file = requireNonNull(fd.newFile() != null ? fd.newFile() : fd.oldFile());
+                    return new ContextFragments.GitFileFragment(file, "WORKING", fd.newText());
+                })
+                .collect(Collectors.toList());
         var ctx = initialContext.addFragments(filesToContext);
         ctx = ctx.addFragments(ctx.buildAutoContext(10));
         return new ContextSetupResult(ctx, false);
@@ -320,7 +332,8 @@ public class ReviewAgent {
         }
     }
 
-    static @Nullable FileComparisonInfo findFileComparison(String relPath, List<FileComparisonInfo> fileComparisons) {
+    public static @Nullable FileComparisonInfo findFileComparison(
+            String relPath, List<FileComparisonInfo> fileComparisons) {
         return fileComparisons.stream()
                 .filter(info ->
                         (info.file() != null && relPath.equals(info.file().toString()))
@@ -328,32 +341,6 @@ public class ReviewAgent {
                                 || relPath.equals(info.leftSource().filename()))
                 .findFirst()
                 .orElse(null);
-    }
-
-    record ExcerptMatch(int line, ReviewParser.DiffSide side, String matchedText) {}
-
-    static @Nullable ExcerptMatch matchExcerptInFile(RawExcerpt excerpt, FileComparisonInfo fileInfo) {
-        String[] excerptLines = excerpt.excerpt().split("\\R", -1);
-
-        // Try NEW content first
-        String newContent = fileInfo.rightSource().content();
-        String[] newLines = newContent.split("\\R", -1);
-        var newMatches = WhitespaceMatch.findAll(newLines, excerptLines);
-        if (!newMatches.isEmpty()) {
-            var best = ReviewParser.findBestMatch(newMatches, excerpt.line());
-            return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.NEW, best.matchedText());
-        }
-
-        // Try OLD content
-        String oldContent = fileInfo.leftSource().content();
-        String[] oldLines = oldContent.split("\\R", -1);
-        var oldMatches = WhitespaceMatch.findAll(oldLines, excerptLines);
-        if (!oldMatches.isEmpty()) {
-            var best = ReviewParser.findBestMatch(oldMatches, excerpt.line());
-            return new ExcerptMatch(best.startLine() + 1, ReviewParser.DiffSide.OLD, best.matchedText());
-        }
-
-        return null;
     }
 
     boolean fileExists(String text) {
@@ -376,7 +363,7 @@ public class ReviewAgent {
             currentResponseText = correctFailedNotes(llm, currentResponseText, validationErrors);
         }
 
-        List<ChatMessage> retryMessages = new ArrayList<>(turn1Messages);
+        List<ChatMessage> retryFileMessages = new ArrayList<>(turn1Messages);
         Map<Integer, RawExcerpt> validPathExcerpts = new HashMap<>();
         int totalRetries = 0;
 
@@ -409,26 +396,26 @@ public class ReviewAgent {
             String reasoning = (currentResult.chatResponse() != null)
                     ? requireNonNullElse(currentResult.chatResponse().reasoningContent(), "")
                     : "";
-            retryMessages.add(new AiMessage(textToValidate, reasoning));
-            retryMessages.add(new UserMessage(
+            retryFileMessages.add(new AiMessage(textToValidate, reasoning));
+            retryFileMessages.add(new UserMessage(
                     """
                     The following excerpts referenced unknown file paths.
-                    Please provide corrected code blocks starting with 'path/to/file @line' for ONLY these excerpts.
+                    Please provide corrected excerpts for ONLY these excerpts.
                     All other excerpts have been recorded successfully and do not need to be repeated.
 
                     %s
 
                     Use this format:
                     Excerpt 1:
+                    At `path/to/file.java` line 42:
                     ```
-                    path/to/file.java @42
                     corrected code
                     ```
                     """
                             .formatted(errorList)));
 
             llm.setOutput(io);
-            currentResult = llm.sendRequest(retryMessages);
+            currentResult = llm.sendRequest(retryFileMessages);
             totalRetries++;
             if (currentResult.error() != null) {
                 throw new ReviewGenerationException("LLM error during file resolution retry", currentResult.error());
@@ -476,7 +463,7 @@ public class ReviewAgent {
                 continue;
             }
 
-            ExcerptMatch match = matchExcerptInFile(excerpt, fileInfo);
+            ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(excerpt, fileInfo);
             if (match == null) {
                 pendingTextErrors.put(id, "Excerpt text not found in " + excerpt.file());
             } else {
@@ -506,32 +493,32 @@ public class ReviewAgent {
 
             Context filteredCtx = new Context(cm).addFragments(cm.toPathFragments(filesToInclude));
 
-            retryMessages.clear();
-            retryMessages.add(buildSystemMessage());
-            retryMessages.add(buildAnalysisRequestMessage());
-            retryMessages.add(new AiMessage(mergedResponseText));
-            retryMessages.addAll(
+            var retryTextMessages = new ArrayList<ChatMessage>();
+            retryTextMessages.add(buildSystemMessage());
+            retryTextMessages.addAll(
                     WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
+            retryTextMessages.add(buildAnalysisRequestMessage());
+            retryTextMessages.add(new AiMessage(mergedResponseText));
 
-            retryMessages.add(new UserMessage(
+            retryTextMessages.add(new UserMessage(
                     """
                     The following excerpts could not be matched in the file content.
-                    Please provide corrected code blocks starting with 'path/to/file @line' for ONLY these excerpts.
+                    Please provide corrected excerpts for ONLY these excerpts.
                     All other excerpts have been recorded successfully and do not need to be repeated.
 
                     %s
 
                     Use this format:
                     Excerpt 1:
+                    At `path/to/file.java` line 42:
                     ```
-                    path/to/file.java @42
                     corrected code
                     ```
                     """
                             .formatted(errorList)));
 
             llm.setOutput(io);
-            Llm.StreamingResult textResult = llm.sendRequest(retryMessages);
+            Llm.StreamingResult textResult = llm.sendRequest(retryTextMessages);
             totalRetries++;
             if (textResult.error() != null) {
                 throw new ReviewGenerationException("LLM error during text resolution retry", textResult.error());
@@ -559,7 +546,7 @@ public class ReviewAgent {
                     continue;
                 }
 
-                ExcerptMatch match = matchExcerptInFile(fixed, fileInfo);
+                ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fixed, fileInfo);
                 if (match != null) {
                     var file = cm.toFile(fixed.file());
                     int lineCount = (int) match.matchedText().lines().count();
@@ -781,23 +768,34 @@ public class ReviewAgent {
                 Write a complete code review in Markdown of the proposed diff, informed by the gathered workspace context.
                 This response will be MACHINE-PARSED. Exact conformance to the header levels and structure in <review_format> is CRITICAL.
 
-                Your goal is to call attention to tricky, subtle, or simply incorrect choices in the diff.
+                Your goal is to surface the most important changes and call attention to tricky, subtle, or simply incorrect choices in the diff.
+                - Key changes: highlight the most important changes, especially to data structures.
                 - Design notes: Higher level concerns (architectural issues, coupling, abstraction problems).
                 - Tactical notes: Simple issues localized to a single method or file.
-                - Design notes MUST have AT LEAST ONE excerpt block illustrating the subject, and may include as many excerpts as are relevant
-                - Tactical notes must include EXACTLY ONE excerpt block.
+                - Each design note MUST have AT LEAST ONE excerpt block illustrating the subject, and may include as many excerpts as are relevant
+                - Each Tactical note must include EXACTLY ONE excerpt block.
+
+                All titles should be 3-6 words.
+
+                Overview comes LAST, after you've had time to think through the design.
+
+                Every section except Overview is optional; omit them if there is nothing important to say.
                 </instructions>
                 <excerpt_format>
-                When referencing code, use standard Markdown code blocks. The first line of the code block MUST be the file path and line number, followed by the excerpt.
+                When referencing code, use the following format with the file path and line number on a separate line before the code block:
 
+                At `path/to/file.java` line $line:
                 ```
-                path/to/file.java @$line
                 $code
                 ```
                 </excerpt_format>
                 <review_format>
-                ## Overview
-                [One or more paragraphs describing what the changes accomplish and big-picture analysis]
+                ## Key Changes
+                ### [Title of first key change]
+                [Description of what changed and why it matters. Include code blocks showing the key code.]
+
+                ### [Title of second key change, etc.]
+                ...
 
                 ## Design Notes
                 ### [Title of first design note]
@@ -813,9 +811,14 @@ public class ReviewAgent {
                 **Recommendation:** [Detailed instructions for the fix.]
 
                 ## Additional Tests [Omit this if no additional tests are needed]
-                - [Test description 1]
-                - [Test description 2]
-                - [etc]
+                ### [Title of first test suggestion]
+                **Recommendation:** [Detailed instructions for what to test and how.]
+
+                ### [Title of second test suggestion, etc.]
+                ...
+
+                ## Overview
+                [One or more paragraphs describing what the changes accomplish and big-picture analysis]
                 </review_format>
                 """);
     }
