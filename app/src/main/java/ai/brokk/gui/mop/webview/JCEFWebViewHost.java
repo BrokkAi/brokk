@@ -132,7 +132,27 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                         CefLoadHandler.ErrorCode errorCode,
                         String errorText,
                         String failedUrl) {
+                    // ERR_ABORTED is common during navigation changes and usually not fatal
+                    if (errorCode == CefLoadHandler.ErrorCode.ERR_ABORTED) {
+                        logger.debug("Load aborted (non-fatal): {} for URL: {}", errorText, failedUrl);
+                        return;
+                    }
                     logger.error("Load error: {} - {} for URL: {}", errorCode, errorText, failedUrl);
+
+                    // Retry once for connection errors (server may not be ready)
+                    if (frame.isMain() && (errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_REFUSED
+                            || errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_RESET)) {
+                        logger.info("Retrying load after connection error...");
+                        // Retry after a short delay
+                        new Thread(() -> {
+                            try {
+                                Thread.sleep(500);
+                                browser.reload();
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                        }).start();
+                    }
                 }
             });
 
@@ -143,10 +163,39 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             System.out.println("*** JCEF (JBR): Creating browser for URL: " + url + " ***");
             logger.info("Creating JCEF browser for URL: {}", url);
 
-            // Create browser (windowed mode) - use deprecated API like working sample
-            @SuppressWarnings("deprecation")
-            var createdBrowser = client.createBrowser(url, false, false);
-            browser = createdBrowser;
+            // Wait for CEF to be initialized before creating browser with URL
+            // This prevents navigation attempts before CEF is ready
+            CefApp.CefAppState state = cefApp.getState();
+            if (state != CefApp.CefAppState.INITIALIZED) {
+                logger.info("Waiting for CefApp to initialize (current state: {})", state);
+                // Create browser with blank page first, navigate after initialization
+                @SuppressWarnings("deprecation")
+                var createdBrowser = client.createBrowser("about:blank", false, false);
+                browser = createdBrowser;
+
+                // Navigate to actual URL after a delay to allow CEF to initialize
+                String targetUrl = url;
+                new Thread(() -> {
+                    try {
+                        // Wait for CEF to initialize
+                        int maxWait = 5000;
+                        int waited = 0;
+                        while (cefApp.getState() != CefApp.CefAppState.INITIALIZED && waited < maxWait) {
+                            Thread.sleep(100);
+                            waited += 100;
+                        }
+                        logger.info("CefApp initialized, navigating to {}", targetUrl);
+                        browser.loadURL(targetUrl);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }, "JCEF-DelayedNav").start();
+            } else {
+                // CEF already initialized, create browser with URL directly
+                @SuppressWarnings("deprecation")
+                var createdBrowser = client.createBrowser(url, false, false);
+                browser = createdBrowser;
+            }
             System.out.println("*** JCEF (JBR): Browser created: " + browser + " ***");
 
             // Get the UI component and add it
