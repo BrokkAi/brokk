@@ -278,15 +278,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
         }
 
         var dialog = new SettingsDialog(chrome.getFrame(), chrome);
-
-        // Register dialog and add cleanup on close
         chrome.registerOpenDialog(DIALOG_KEY, dialog);
-        dialog.addWindowListener(new WindowAdapter() {
-            @Override
-            public void windowClosed(WindowEvent e) {
-                chrome.removeOpenDialog(DIALOG_KEY);
-            }
-        });
 
         // Load settings after dialog construction but before showing
         // This ensures any background file writes (e.g., style guide generation) have completed

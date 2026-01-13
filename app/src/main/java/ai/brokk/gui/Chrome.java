@@ -1435,14 +1435,15 @@ public class Chrome
         return openDialogs.get(key);
     }
 
-    /** Registers a dialog as open. Call removeOpenDialog when it closes. */
+    /** Registers a dialog as open. Automatically removes it when the dialog closes. */
     public void registerOpenDialog(String key, JDialog dialog) {
         openDialogs.put(key, dialog);
-    }
-
-    /** Removes a dialog from tracking when it closes. */
-    public void removeOpenDialog(String key) {
-        openDialogs.remove(key);
+        dialog.addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosed(WindowEvent e) {
+                openDialogs.remove(key);
+            }
+        });
     }
 
     /**
