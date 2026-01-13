@@ -134,10 +134,10 @@ public final class FuzzyUsageFinder {
             logger.debug("Disambiguating {} hits among {} code units", hits.size(), matchingCodeUnits.size());
             var unscoredHits = new HashSet<>(hits);
             var scoredHits = new HashSet<UsageHit>(hits.size());
+            var alternatives = matchingCodeUnits.stream()
+                    .filter(cu -> !cu.fqName().equals(target.fqName()))
+                    .collect(Collectors.toSet());
             try {
-                var alternatives = matchingCodeUnits.stream()
-                        .filter(cu -> !cu.fqName().equals(target.fqName()))
-                        .collect(Collectors.toSet());
                 var tasks = new ArrayList<RelevanceTask>(hits.size());
                 var mapping = new ArrayList<UsageHit>(hits.size());
                 for (var hit : hits) {

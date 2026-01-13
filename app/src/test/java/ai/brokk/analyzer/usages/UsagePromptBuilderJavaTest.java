@@ -73,11 +73,12 @@ public class UsagePromptBuilderJavaTest {
         String snippet = "{ // line1\n\tA.method2();//<T> & \"quotes\" and 'single'\n} // line3";
         CodeUnit enclosing = CodeUnit.cls(file, "test", "A");
         CodeUnit target = CodeUnit.fn(file, "test", "method2");
+        CodeUnit alt = CodeUnit.fn(file, "other", "method2");
         UsageHit hit = new UsageHit(file, 10, 0, snippet.length(), enclosing, 1.0, snippet);
 
         // When
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit, target, List.of(), analyzer, "A.method2", 10_000 // generous token budget
+                hit, target, List.of(alt), analyzer, "A.method2", 10_000 // generous token budget
                 );
 
         // Field-level assertions
@@ -85,6 +86,9 @@ public class UsagePromptBuilderJavaTest {
         assertTrue(
                 prompt.filterDescription().contains(target.toString()),
                 "filterDescription should include the target code unit");
+        assertTrue(
+                prompt.filterDescription().contains("alternative code units"),
+                "filterDescription should mention alternatives");
         assertEquals(snippet, prompt.candidateText(), "candidateText should equal the usage snippet");
 
         String text = prompt.promptText();
@@ -92,7 +96,8 @@ public class UsagePromptBuilderJavaTest {
                 """
                 Short Name of Search: A.method2
                 Code Unit Target: FUNCTION[test.method2]
-                Other Possible Matches: (none)
+                Other Possible Matches:
+                other.method2
                 File of Hit: A.java
                 ```java
                 import java.util.function.Function;

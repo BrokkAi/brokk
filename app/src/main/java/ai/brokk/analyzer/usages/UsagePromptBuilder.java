@@ -55,9 +55,9 @@ public final class UsagePromptBuilder {
         sb.append("Short Name of Search: ").append(shortName).append("\n");
         sb.append("Code Unit Target: ").append(codeUnitTarget).append("\n");
 
-        sb.append("Other Possible Matches: ");
+        sb.append("Other Possible Matches:");
         if (alternatives.isEmpty()) {
-            sb.append("(none)\n");
+            sb.append(" (none)\n");
         } else {
             sb.append("\n");
             for (CodeUnit alt : alternatives) {
