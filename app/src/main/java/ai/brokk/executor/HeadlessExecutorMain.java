@@ -42,6 +42,8 @@ import org.jetbrains.annotations.Nullable;
 
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
+    private static final com.fasterxml.jackson.databind.ObjectMapper OBJECT_MAPPER =
+            new com.fasterxml.jackson.databind.ObjectMapper();
 
     // Valid argument keys that the application accepts
     private static final Set<String> VALID_ARGS =
@@ -555,6 +557,12 @@ public final class HeadlessExecutorMain {
         // POST /v1/jobs - create job
         if (path.equals("/v1/jobs") && method.equals("POST")) {
             handlePostJobs(exchange);
+            return;
+        }
+
+        // POST /v1/jobs/issue - convenience endpoint for issue resolution
+        if (path.equals("/v1/jobs/issue") && method.equals("POST")) {
+            handlePostIssueJob(exchange);
             return;
         }
 
@@ -1354,6 +1362,125 @@ public final class HeadlessExecutorMain {
     private record AddContextTextRequest(String text) {}
 
     private record AddContextTextResponse(String id, int chars) {}
+
+    private record IssueJobRequest(
+            String owner,
+            String repo,
+            int issueNumber,
+            String githubToken,
+            String plannerModel,
+            @Nullable String codeModel,
+            @Nullable Map<String, Object> buildSettings) {}
+
+    /**
+     * POST /v1/jobs/issue - Convenience endpoint for starting an ISSUE mode job.
+     */
+    void handlePostIssueJob(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+            if (idempotencyKey == null || idempotencyKey.isBlank()) {
+                sendValidationError(exchange, "Idempotency-Key header is required");
+                return;
+            }
+
+            var request = parseJsonOr400(exchange, IssueJobRequest.class, "/v1/jobs/issue");
+            if (request == null) {
+                return;
+            }
+
+            // Validation
+            if (request.owner().isBlank()) {
+                sendValidationError(exchange, "owner is required");
+                return;
+            }
+            if (request.repo().isBlank()) {
+                sendValidationError(exchange, "repo is required");
+                return;
+            }
+            if (request.issueNumber() <= 0) {
+                sendValidationError(exchange, "valid issueNumber is required");
+                return;
+            }
+            if (request.githubToken().isBlank()) {
+                sendValidationError(exchange, "githubToken is required");
+                return;
+            }
+            if (request.plannerModel().isBlank()) {
+                sendValidationError(exchange, "plannerModel is required");
+                return;
+            }
+
+            String buildSettingsJson = "";
+            if (request.buildSettings() != null) {
+                buildSettingsJson = OBJECT_MAPPER.writeValueAsString(request.buildSettings());
+            }
+
+            var jobSpec = JobSpec.ofIssue(
+                    request.plannerModel(),
+                    request.githubToken(),
+                    request.owner(),
+                    request.repo(),
+                    request.issueNumber(),
+                    buildSettingsJson);
+
+            // Add codeModel to spec if provided (JobSpec.ofIssue doesn't take it directly,
+            // so we rely on the tags and fields being correctly populated via the internal factory)
+            if (request.codeModel() != null && !request.codeModel().isBlank()) {
+                jobSpec = new JobSpec(
+                        jobSpec.taskInput(),
+                        jobSpec.autoCommit(),
+                        jobSpec.autoCompress(),
+                        jobSpec.plannerModel(),
+                        jobSpec.scanModel(),
+                        request.codeModel().strip(),
+                        jobSpec.preScan(),
+                        jobSpec.tags(),
+                        jobSpec.sourceBranch(),
+                        jobSpec.targetBranch());
+            }
+
+            // Create or get job
+            var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
+            var jobId = createResult.jobId();
+            var isNewJob = createResult.isNewJob();
+
+            var status = jobStore.loadStatus(jobId);
+            var state = status != null ? status.state() : "queued";
+
+            var response = new HashMap<String, Object>();
+            response.put("jobId", jobId);
+            response.put("state", state);
+
+            if (isNewJob) {
+                if (!tryReserveJobSlot(jobId)) {
+                    var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+                    SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+
+                try {
+                    executeJobAsync(jobId, jobSpec, List.of());
+                } catch (Exception ex) {
+                    jobReservation.releaseIfOwner(jobId);
+                    logger.error("Failed to start issue job {}", jobId, ex);
+                    var error = ErrorPayload.internalError("Failed to start job execution", ex);
+                    SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+                    return;
+                }
+                SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+            } else {
+                SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+            }
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/jobs/issue", e);
+            var error = ErrorPayload.internalError("Failed to create issue job", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
 
     /**
      * POST /v1/context/classes - Add class summaries to the current session context.
