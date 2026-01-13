@@ -140,14 +140,26 @@ public class UsagePromptBuilderJavaTest {
         CodeUnit target = CodeUnit.fn(file, "", "A.method2");
         UsageHit hit = new UsageHit(file, 1, 0, largeSnippet.length(), enclosing, 1.0, largeSnippet);
 
+        int maxTokens = 200; // 800 chars, well above the 512 min floor in the builder
+        int maxChars = maxTokens * 4;
         UsagePrompt prompt = UsagePromptBuilder.buildPrompt(
-                hit, target, List.of(), analyzer, "A.method2", 32 // ~128 chars budget to trigger truncation
+                hit, target, List.of(), analyzer, "A.method2", maxTokens
                 );
 
         String text = prompt.promptText();
+
+        // 1. Verify truncation marker is present
         assertTrue(text.contains("truncated due to token limit"), "Expected truncation note in prompt");
-        // Ensure that even if truncated, we have a closing fence before the marker or as part of the structure
-        assertTrue(text.contains("```"), "Expected Markdown code fence to be present even when truncated");
+
+        // 2. Verify length is within reasonable budget (maxChars + safety for marker/fence)
+        // The builder uses maxChars as a target for the content before the marker.
+        assertTrue(text.length() <= maxChars + 100,
+                "Prompt length " + text.length() + " exceeded budget of " + (maxChars + 100));
+
+        // 3. Verify it ends with closing fence (even if marker follows) or is well-formed
+        // Note: The builder appends the marker AFTER the closing fence logic.
+        assertTrue(text.strip().endsWith("```") || text.contains("```\n... [truncated"),
+                "Prompt should contain a closing code fence to remain well-formed Markdown");
     }
 
     @Test
