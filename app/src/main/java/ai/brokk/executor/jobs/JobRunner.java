@@ -854,7 +854,9 @@ public final class JobRunner {
                                                             if (buildAttempts < maxBuildAttempts) {
                                                                 // Ask architect to fix the build error
                                                                 String fixPrompt =
-                                                                        "The build failed after the last task. Please fix the following error:\n\n"
+                                                                        "The build failed after the last task '"
+                                                                                + generatedTask.text()
+                                                                                + "'. Please fix the following error:\n\n"
                                                                                 + buildError;
                                                                 cm.executeTask(
                                                                         TaskList.TaskItem.createFixTask(fixPrompt),
