@@ -140,6 +140,33 @@ class CompletionsFuzzyTest {
     }
 
     @Test
+    @DisplayName("Exact match (case-insensitive) outranks longer suffix or prefix matches")
+    void exactMatchOutranksSuffixOrPrefix() {
+        // (1) "contextmanager" -> "ContextManager" vs "ContextManagerFactory" or "MyContextManager"
+        assertBetterScore("contextmanager", "ContextManager", "ContextManagerFactory");
+        assertBetterScore("contextmanager", "ContextManager", "MyContextManager");
+    }
+
+    @Test
+    @DisplayName("Case-insensitive exact matches rank better than partial or substring matches")
+    void caseInsensitiveExactOutranksPartial() {
+        // (2) "foo" -> "Foo" vs substring or partial
+        assertBetterScore("foo", "Foo", "Food");
+        assertBetterScore("foo", "Foo", "BarFoo");
+
+        // "FOO" -> "foo" vs substring or partial
+        assertBetterScore("FOO", "foo", "fooBar");
+        assertBetterScore("FOO", "foo", "Myfoo");
+    }
+
+    @Test
+    @DisplayName("Exact case match ranks better than prefix match")
+    void exactCaseMatchRanksBetterThanPrefix() {
+        // (3) "HTTP" -> "HTTP" (exact) vs "HTTP" -> "HttpClient"
+        assertBetterScore("HTTP", "HTTP", "HttpClient");
+    }
+
+    @Test
     @DisplayName("Non‑matching pattern returns Integer.MAX_VALUE")
     void nonMatchReturnsMaxValue() {
         var matcher = new FuzzyMatcher("xyz");
