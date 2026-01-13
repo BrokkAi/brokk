@@ -27,7 +27,7 @@ class ChatMessageDtoSerializationTest {
 
     @Test
     void testSerializeAndDeserializeWithReasoningContentId() throws Exception {
-        ChatMessageDto original = new ChatMessageDto("ai", "content-123", "reasoning-456");
+        ChatMessageDto original = new ChatMessageDto("ai", "content-123", "reasoning-456", null);
 
         String json = objectMapper.writeValueAsString(original);
         ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
@@ -39,7 +39,7 @@ class ChatMessageDtoSerializationTest {
 
     @Test
     void testSerializeAndDeserializeWithoutReasoningContentId() throws Exception {
-        ChatMessageDto original = new ChatMessageDto("user", "content-789");
+        ChatMessageDto original = new ChatMessageDto("user", "content-789", null, null);
 
         String json = objectMapper.writeValueAsString(original);
         ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
@@ -89,7 +89,7 @@ class ChatMessageDtoSerializationTest {
 
     @Test
     void testSerializeWithNullReasoningContentId() throws Exception {
-        ChatMessageDto original = new ChatMessageDto("ai", "content-111", null);
+        ChatMessageDto original = new ChatMessageDto("ai", "content-111", null, null);
 
         String json = objectMapper.writeValueAsString(original);
         ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
@@ -102,7 +102,7 @@ class ChatMessageDtoSerializationTest {
     @Test
     void testBackwardCompatibleConstructor() {
         // Verify the backward-compatible 2-arg constructor still works
-        ChatMessageDto dto = new ChatMessageDto("custom", "content-abc");
+        ChatMessageDto dto = new ChatMessageDto("custom", "content-abc", null, null);
 
         assertEquals("custom", dto.role());
         assertEquals("content-abc", dto.contentId());

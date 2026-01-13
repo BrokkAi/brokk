@@ -128,16 +128,6 @@ public class FragmentDtos {
                 attributes = Map.copyOf(attributes);
             }
         }
-
-        /** Backward-compatible constructor for older code that doesn't provide reasoningContentId. */
-        public ChatMessageDto(String role, String contentId) {
-            this(role, contentId, null, null);
-        }
-
-        /** Backward-compatible constructor for older code that doesn't provide attributes. */
-        public ChatMessageDto(String role, String contentId, @Nullable String reasoningContentId) {
-            this(role, contentId, reasoningContentId, null);
-        }
     }
 
     /** DTO for StringFragment - contains text content with description and syntax style. */
