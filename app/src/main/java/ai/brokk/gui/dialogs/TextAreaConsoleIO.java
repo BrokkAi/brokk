@@ -13,12 +13,13 @@ import javax.swing.*;
  * Supports reasoning vs content token streams: clears interim reasoning tokens when transitioning to content.
  */
 public class TextAreaConsoleIO implements IConsoleIO {
-    private final JTextArea commitMessageArea;
+    private final JTextArea textArea;
     private final IConsoleIO errorReporter;
 
     private final Timer thinkingAnimationTimer;
     private int dotCount = 0;
     private boolean hasReceivedTokens = false;
+    private final boolean clearOnReasoningTransition;
 
     // Reasoning/content stream handling
     private boolean lastWasReasoning = true;
@@ -29,22 +30,28 @@ public class TextAreaConsoleIO implements IConsoleIO {
      *
      * @param initialMessage initial placeholder shown while the LLM hasn't emitted the first token
      */
-    public TextAreaConsoleIO(JTextArea commitMessageArea, IConsoleIO errorReporter, String initialMessage) {
-        this.commitMessageArea = commitMessageArea;
+    public TextAreaConsoleIO(JTextArea textArea, IConsoleIO errorReporter, String initialMessage) {
+        this(textArea, errorReporter, initialMessage, true);
+    }
+
+    public TextAreaConsoleIO(
+            JTextArea textArea, IConsoleIO errorReporter, String initialMessage, boolean clearOnReasoningTransition) {
+        this.textArea = textArea;
         this.errorReporter = errorReporter;
+        this.clearOnReasoningTransition = clearOnReasoningTransition;
         thinkingAnimationTimer = new Timer(500, e -> {
             if (!hasReceivedTokens) {
                 dotCount = (dotCount + 1) % 4;
                 String dots = ".".repeat(dotCount);
                 String spaces = " ".repeat(3 - dotCount);
-                SwingUtilities.invokeLater(() -> commitMessageArea.setText(initialMessage + dots + spaces));
+                SwingUtilities.invokeLater(() -> textArea.setText(initialMessage + dots + spaces));
             }
         });
 
         SwingUtilities.invokeLater(() -> {
-            commitMessageArea.setEnabled(false);
-            commitMessageArea.setText(initialMessage);
-            commitMessageArea.setCaretPosition(0);
+            textArea.setEnabled(false);
+            textArea.setText(initialMessage);
+            textArea.setCaretPosition(0);
             thinkingAnimationTimer.start();
         });
     }
@@ -52,12 +59,14 @@ public class TextAreaConsoleIO implements IConsoleIO {
     @Override
     public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
         // Handle transition from reasoning -> content by clearing any interim reasoning tokens first.
-        if (!isReasoning && lastWasReasoning && !hasStartedContent) {
-            SwingUtilities.invokeLater(() -> commitMessageArea.setText(""));
-            hasStartedContent = true;
-        } else if (isReasoning && !lastWasReasoning) {
-            // Illegal transition back to reasoning once non-reasoning content has started.
-            throw new IllegalStateException("Stream switched from non-reasoning to reasoning");
+        if (clearOnReasoningTransition) {
+            if (!isReasoning && lastWasReasoning && !hasStartedContent) {
+                SwingUtilities.invokeLater(() -> textArea.setText(""));
+                hasStartedContent = true;
+            } else if (isReasoning && !lastWasReasoning && hasStartedContent) {
+                // Illegal transition back to reasoning once non-reasoning content has started.
+                throw new IllegalStateException("Stream switched from non-reasoning to reasoning");
+            }
         }
 
         if (token.isEmpty()) {
@@ -69,17 +78,17 @@ public class TextAreaConsoleIO implements IConsoleIO {
             if (!hasReceivedTokens) {
                 hasReceivedTokens = true;
                 thinkingAnimationTimer.stop();
-                commitMessageArea.setEnabled(true);
+                textArea.setEnabled(true);
                 // Restore default text color for TextArea
                 Color defaultFg = UIManager.getColor("TextArea.foreground");
                 if (defaultFg != null) {
-                    commitMessageArea.setForeground(defaultFg);
+                    textArea.setForeground(defaultFg);
                 }
                 // Ensure content area is fresh for streamed content
-                commitMessageArea.setText("");
+                textArea.setText("");
             }
-            commitMessageArea.append(token);
-            commitMessageArea.setCaretPosition(commitMessageArea.getText().length());
+            textArea.append(token);
+            textArea.setCaretPosition(textArea.getText().length());
         });
 
         lastWasReasoning = isReasoning;
@@ -88,8 +97,8 @@ public class TextAreaConsoleIO implements IConsoleIO {
     public void onComplete() {
         thinkingAnimationTimer.stop();
         SwingUtilities.invokeLater(() -> {
-            commitMessageArea.setEnabled(true);
-            commitMessageArea.setCaretPosition(commitMessageArea.getText().length());
+            textArea.setEnabled(true);
+            textArea.setCaretPosition(textArea.getText().length());
         });
     }
 

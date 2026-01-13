@@ -18,7 +18,8 @@ import { envStore } from './stores/envStore';
 import { setSummaryEntry, deleteSummaryEntry, getSummaryEntry, updateSummaryTree, summaryStore } from './stores/summaryStore';
 import { register, unregister, isRegistered } from './worker/parseRouter';
 import { parse } from './worker/worker-bridge';
-import { allocSummarySeq } from './shared/seq';
+import { allocSummarySeq, allocStaticDocSeq } from './shared/seq';
+import { staticDocStore } from './stores/staticDocStore';
 
 const mainLog = createLogger('main');
 
@@ -74,6 +75,11 @@ function setupBrokkInterface(): any[] {
         // Transient message API
         showTransientMessage: (msg: string) => transientStore.show(msg),
         hideTransientMessage: () => transientStore.hide(),
+
+        setShowEmptyState: (show: boolean) => {
+            // Placeholder for empty state store toggle if implemented;
+            // for now no-op to satisfy the bridge guard.
+        },
 
         // Search API
         setSearch: (query: string, caseSensitive: boolean) => searchCtrl?.setQuery(query, caseSensitive),
@@ -137,8 +143,11 @@ async function handleEvent(payload: any): Promise<void> {
             window.javaBridge.jsLog('INFO', 'Theme event: ' + payload.themeName + ', devMode=' + payload.isDevMode + ', wrap=' + payload.wrapMode);
         }
         setAppTheme(payload.themeName, payload.isDevMode, payload.wrapMode);
+    } else if (payload.type === 'static-document') {
+        onStaticDocument(payload);
     } else {
-        onBrokkEvent(payload); // updates store & talks to worker
+        // live-streaming
+        onBrokkEvent(payload);
     }
 
     // Wait until Svelte updated *and* browser painted
@@ -180,6 +189,39 @@ function onLiveSummary(payload: any): void {
     parse(summary, summarySeq, false, false);
 }
 
+// Track current static doc sequence to cancel stale parse results
+let currentStaticDocSeq: number | null = null;
+
+function onStaticDocument(payload: any): void {
+    const markdown = payload.markdown;
+
+    // Clean up any existing handler for previous static doc
+    if (currentStaticDocSeq !== null) {
+        unregister(currentStaticDocSeq);
+        currentStaticDocSeq = null;
+    }
+
+    // Null/empty markdown means exit static mode
+    if (markdown == null || markdown === '') {
+        staticDocStore.set(null);
+        return;
+    }
+
+    // Allocate new unique sequence for this static doc
+    const seq = allocStaticDocSeq();
+    currentStaticDocSeq = seq;
+
+    register(seq, (msg: any) => {
+        // Only apply if this is still the current document
+        if (currentStaticDocSeq === seq) {
+            staticDocStore.set({seq, text: markdown, tree: msg.tree});
+        }
+    });
+
+    parse(markdown, seq, false, false);
+    staticDocStore.set({seq, text: markdown});
+}
+
 function getCurrentSelection(): string {
     return window.getSelection()?.toString() ?? '';
 }
@@ -187,6 +229,7 @@ function getCurrentSelection(): string {
 function clearChat(): void {
     onBrokkEvent({type: 'clear', epoch: 0});
     onHistoryEvent({type: 'history-reset', epoch: 0});
+    onStaticDocument({type: 'static-document', markdown: null, epoch: 0});
 }
 
 function setAppTheme(themeName: string, isDevMode?: boolean, wrapMode?: boolean, zoom?: number): void {

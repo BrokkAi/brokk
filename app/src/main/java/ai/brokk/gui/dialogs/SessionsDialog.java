@@ -221,7 +221,7 @@ public class SessionsDialog extends BaseThemedDialog {
 
         // Initialize markdown output panel for preview
         markdownOutputPanel = new MarkdownOutputPanel();
-        markdownOutputPanel.withContextForLookups(contextManager, chrome);
+        markdownOutputPanel.setContextForLookups(contextManager, chrome);
         markdownOutputPanel.updateTheme(MainProject.getTheme());
         markdownScrollPane = new JScrollPane(markdownOutputPanel);
         markdownScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));

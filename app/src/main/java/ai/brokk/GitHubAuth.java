@@ -57,13 +57,21 @@ public class GitHubAuth {
     @Nullable
     private final String host; // For GHES endpoint
 
+    @Nullable
+    private final String tokenOverride;
+
     private @Nullable GitHub githubClient;
     private @Nullable GHRepository ghRepository;
 
-    public GitHubAuth(String owner, String repoName, @Nullable String host) {
+    public GitHubAuth(String owner, String repoName, @Nullable String host, @Nullable String tokenOverride) {
         this.owner = owner;
         this.repoName = repoName;
-        this.host = (host == null || host.isBlank()) ? null : host.trim(); // Store null if blank/default
+        this.host = (host == null || host.isBlank()) ? null : host.trim();
+        this.tokenOverride = tokenOverride;
+    }
+
+    public GitHubAuth(String owner, String repoName, @Nullable String host) {
+        this(owner, repoName, host, null);
     }
 
     /**
@@ -106,7 +114,10 @@ public class GitHubAuth {
         if (!usingOverride
                 || (effectiveOwner == null || effectiveOwner.isBlank())
                 || (effectiveRepoName == null || effectiveRepoName.isBlank())) {
-            var repo = (GitRepo) project.getRepo();
+            if (!(project.getRepo() instanceof GitRepo repo)) {
+                throw new IOException("GitHub authentication requires a Git repository, but project uses "
+                        + project.getRepo().getClass().getSimpleName());
+            }
 
             var remoteUrl = repo.getOriginRemoteUrl();
             // Use GitUiUtil for parsing owner/repo from URL
@@ -660,7 +671,7 @@ public class GitHubAuth {
         }
 
         // Try with token
-        var token = getStoredToken();
+        var token = (tokenOverride != null && !tokenOverride.isBlank()) ? tokenOverride : getStoredToken();
         var builder = createBaseBuilder();
         String targetHostDisplay = (this.host == null || this.host.isBlank()) ? "api.github.com" : this.host;
 
@@ -794,6 +805,24 @@ public class GitHubAuth {
     /** Lists pull requests for the connected repository based on the given state. */
     public List<GHPullRequest> listOpenPullRequests(GHIssueState state) throws IOException {
         return getGhRepository().getPullRequests(state);
+    }
+
+    /**
+     * Checks if an open pull request already exists for the given head branch.
+     * This is useful to prevent creating duplicate PRs.
+     *
+     * @param headBranch The source/head branch name to check
+     * @return true if an open PR exists with the given head branch, false otherwise
+     * @throws IOException if there's a problem connecting to GitHub
+     */
+    public boolean hasOpenPullRequestForBranch(String headBranch) throws IOException {
+        var prs = listPullRequestsPaginated(GHIssueState.OPEN, 100);
+        for (var pr : prs) {
+            if (headBranch.equals(pr.getHead().getRef())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

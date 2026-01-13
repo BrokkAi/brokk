@@ -3,6 +3,7 @@ package ai.brokk;
 import static java.lang.Math.min;
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.BuildOutputPreprocessor;
@@ -41,7 +42,7 @@ public class LlmTest {
         contextManager = new TestContextManager(tempDir, consoleIO);
     }
 
-    private dev.langchain4j.model.chat.StreamingChatModel getModel(String modelName) {
+    private StreamingChatModel getModel(String modelName) {
         return contextManager.getService().getModel(new AbstractService.ModelConfig(modelName));
     }
 
@@ -214,7 +215,7 @@ public class LlmTest {
     // uncomment when you need it, this makes live API calls
     // @Test
     void testBuildErrorExtractionIncludesAllErrors() throws InterruptedException {
-        var project = new ai.brokk.project.MainProject(tempDir);
+        var project = new MainProject(tempDir);
         var cm = new ContextManager(project);
 
         var models = cm.getService();

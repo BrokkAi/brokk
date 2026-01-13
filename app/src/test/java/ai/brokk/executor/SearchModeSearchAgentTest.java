@@ -12,6 +12,7 @@ import ai.brokk.testutil.TestService;
 import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -301,7 +302,7 @@ class SearchModeSearchAgentTest {
     // ============================================================================
 
     private byte[] createEmptyZip() throws IOException {
-        var out = new java.io.ByteArrayOutputStream();
+        var out = new ByteArrayOutputStream();
         try (var zos = new ZipOutputStream(out)) {
             var fragmentsEntry = new ZipEntry("fragments-v4.json");
             zos.putNextEntry(fragmentsEntry);

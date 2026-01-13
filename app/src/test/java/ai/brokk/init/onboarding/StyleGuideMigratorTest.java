@@ -8,6 +8,7 @@ import ai.brokk.git.GitTestCleanupUtil;
 import ai.brokk.init.onboarding.StyleGuideMigrator.MigrationResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Collection;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -262,7 +263,7 @@ class StyleGuideMigratorTest {
             }
 
             @Override
-            public synchronized void add(java.util.Collection<ProjectFile> files) {
+            public synchronized void add(Collection<ProjectFile> files) {
                 throw new RuntimeException("Simulated add failure");
             }
 

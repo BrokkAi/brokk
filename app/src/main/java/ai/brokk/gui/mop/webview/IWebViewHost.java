@@ -96,6 +96,10 @@ public interface IWebViewHost {
 
     void scrollToCurrent();
 
+    void sendStaticDocument(@Nullable String markdown);
+
+    void setShowEmptyState(boolean show);
+
     void addSearchStateListener(Consumer<SearchState> listener);
 
     void removeSearchStateListener(Consumer<SearchState> listener);

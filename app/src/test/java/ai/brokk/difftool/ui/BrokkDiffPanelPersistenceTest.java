@@ -54,8 +54,8 @@ public class BrokkDiffPanelPersistenceTest {
         var theme = new GuiTheme(frame, null, chrome);
 
         // Minimal comparison
-        var left = new BufferSource.StringSource("left content", "Left", "file.txt");
-        var right = new BufferSource.StringSource("right content", "Right", "file.txt");
+        var left = new BufferSource.StringSource("left content", "Left", "file.txt", null);
+        var right = new BufferSource.StringSource("right content", "Right", "file.txt", null);
 
         var builder1 = new BrokkDiffPanel.Builder(theme, contextManager);
         builder1.addComparison(left, right);

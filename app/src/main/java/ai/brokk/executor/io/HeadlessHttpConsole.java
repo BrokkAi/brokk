@@ -11,6 +11,7 @@ import java.awt.Component;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import javax.swing.JOptionPane;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -265,8 +266,8 @@ public class HeadlessHttpConsole extends MemoryConsole {
      * <ul>
      *     <li>{@code message} - dialog body text (empty string if absent)</li>
      *     <li>{@code title} - dialog title (empty string if absent)</li>
-     *     <li>{@code optionType} - Swing {@link javax.swing.JOptionPane} option constant</li>
-     *     <li>{@code messageType} - Swing {@link javax.swing.JOptionPane} message constant</li>
+     *     <li>{@code optionType} - Swing {@link JOptionPane} option constant</li>
+     *     <li>{@code messageType} - Swing {@link JOptionPane} message constant</li>
      *     <li>{@code defaultDecision} - the automatically selected decision per headless policy</li>
      * </ul>
      * Callers receive the {@code defaultDecision} synchronously, while observers can inspect the durable event.
@@ -287,10 +288,9 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     private static int defaultDecisionFor(int optionType) {
         return switch (optionType) {
-            case javax.swing.JOptionPane.YES_NO_OPTION, javax.swing.JOptionPane.YES_NO_CANCEL_OPTION ->
-                javax.swing.JOptionPane.YES_OPTION;
-            case javax.swing.JOptionPane.OK_CANCEL_OPTION -> javax.swing.JOptionPane.OK_OPTION;
-            default -> javax.swing.JOptionPane.OK_OPTION;
+            case JOptionPane.YES_NO_OPTION, JOptionPane.YES_NO_CANCEL_OPTION -> JOptionPane.YES_OPTION;
+            case JOptionPane.OK_CANCEL_OPTION -> JOptionPane.OK_OPTION;
+            default -> JOptionPane.OK_OPTION;
         };
     }
 
@@ -299,11 +299,11 @@ public class HeadlessHttpConsole extends MemoryConsole {
      */
     private static String mapMessageTypeToLevel(int messageType) {
         return switch (messageType) {
-            case javax.swing.JOptionPane.ERROR_MESSAGE -> "ERROR";
-            case javax.swing.JOptionPane.WARNING_MESSAGE -> "WARNING";
-            case javax.swing.JOptionPane.INFORMATION_MESSAGE -> "INFO";
-            case javax.swing.JOptionPane.QUESTION_MESSAGE -> "INFO";
-            case javax.swing.JOptionPane.PLAIN_MESSAGE -> "INFO";
+            case JOptionPane.ERROR_MESSAGE -> "ERROR";
+            case JOptionPane.WARNING_MESSAGE -> "WARNING";
+            case JOptionPane.INFORMATION_MESSAGE -> "INFO";
+            case JOptionPane.QUESTION_MESSAGE -> "INFO";
+            case JOptionPane.PLAIN_MESSAGE -> "INFO";
             default -> "INFO";
         };
     }

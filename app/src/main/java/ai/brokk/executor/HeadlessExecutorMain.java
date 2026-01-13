@@ -11,6 +11,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.http.SimpleHttpServer;
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
@@ -52,7 +53,7 @@ public final class HeadlessExecutorMain {
     private final JobStore jobStore;
     private final SessionManager sessionManager;
     private final JobReservation jobReservation = new JobReservation();
-    private final ai.brokk.executor.jobs.JobRunner jobRunner;
+    private final JobRunner jobRunner;
     // Indicates whether a session has been loaded (either uploaded or created) at least once.
     // Used to gate /health/ready until the first session is available.
     private volatile boolean sessionLoaded = false;
@@ -215,7 +216,7 @@ public final class HeadlessExecutorMain {
         initThread.start();
 
         // Initialize JobRunner
-        this.jobRunner = new ai.brokk.executor.jobs.JobRunner(this.contextManager, this.jobStore);
+        this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
 
         // Create HTTP server with authentication
         this.server = new SimpleHttpServer(host, port, authToken, 4);
@@ -297,7 +298,7 @@ public final class HeadlessExecutorMain {
         jobRunner.runAsync(jobId, jobSpec).whenComplete((unused, throwable) -> {
             try {
                 if (!fragmentIds.isEmpty()) {
-                    var idSet = new java.util.HashSet<>(fragmentIds);
+                    var idSet = new HashSet<>(fragmentIds);
                     var live = contextManager.liveContext();
                     var toDrop = live.allFragments()
                             .filter(f -> idSet.contains(f.id()))
@@ -387,7 +388,7 @@ public final class HeadlessExecutorMain {
      * Extract jobId from path like /v1/jobs/abc123 or /v1/jobs/abc123/events.
      * Returns null if the path is invalid or if the extracted jobId is blank.
      */
-    static @org.jetbrains.annotations.Nullable String extractJobIdFromPath(String path) {
+    static @Nullable String extractJobIdFromPath(String path) {
         var parts = Splitter.on('/').splitToList(path);
         if (parts.size() >= 4 && "jobs".equals(parts.get(2))) {
             var jobId = parts.get(3);
@@ -431,7 +432,7 @@ public final class HeadlessExecutorMain {
     /**
      * Parse query string into a map.
      */
-    static Map<String, String> parseQueryParams(@org.jetbrains.annotations.Nullable String query) {
+    static Map<String, String> parseQueryParams(@Nullable String query) {
         var params = new HashMap<String, String>();
         if (query == null || query.isBlank()) {
             return params;
@@ -1283,14 +1284,14 @@ public final class HeadlessExecutorMain {
                         .map(f -> (ContextFragments.PathFragment) f)
                         .filter(p -> {
                             var bf = p.file();
-                            if (!(bf instanceof ai.brokk.analyzer.ProjectFile)) {
+                            if (!(bf instanceof ProjectFile)) {
                                 return false;
                             }
                             var a = bf.absPath();
                             var b = projectFile.absPath();
                             return a.equals(b);
                         })
-                        .map(ai.brokk.context.ContextFragment::id)
+                        .map(ContextFragment::id)
                         .findFirst()
                         .orElse("");
 

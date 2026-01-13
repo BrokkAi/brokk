@@ -210,7 +210,7 @@ public final class GitDistance {
 
         Map<ProjectFile, Double> scores;
         try {
-            var commits = ((GitRepo) repo).getFileHistories(files, Integer.MAX_VALUE);
+            var commits = gr.getFileHistories(files, Integer.MAX_VALUE);
             scores = computeImportanceScores(gr, commits);
             logger.trace("Computed importance scores for sortByImportance: {}", scores);
         } catch (GitAPIException e) {

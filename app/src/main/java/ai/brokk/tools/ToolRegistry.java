@@ -181,6 +181,19 @@ public class ToolRegistry {
         return toolMap.containsKey(toolName);
     }
 
+    /**
+     * Executes a tool with a requirement that the request name matches the expected name.
+     * Throws FatalLlmException if the names do not match.
+     */
+    public ToolExecutionResult executeRequiredTool(String expectedToolName, ToolExecutionRequest request)
+            throws InterruptedException {
+        if (!expectedToolName.equals(request.name())) {
+            throw new FatalLlmException(
+                    "Expected tool '%s' but received '%s'".formatted(expectedToolName, request.name()));
+        }
+        return executeTool(request);
+    }
+
     /** Executes a tool exclusively from the registry (no instance tools). */
     public ToolExecutionResult executeTool(ToolExecutionRequest request) throws InterruptedException {
         try {

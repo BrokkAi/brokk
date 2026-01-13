@@ -7,8 +7,10 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.project.ModelProperties.ModelType;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
+import com.google.errorprone.annotations.Immutable;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -16,8 +18,10 @@ import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
+import dev.langchain4j.model.output.Response;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.*;
 import java.util.function.Function;
@@ -74,7 +78,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     }
 
     // Helper record to store model name and reasoning level for checking
-    @com.google.errorprone.annotations.Immutable
+    @Immutable
     public record ModelConfig(String name, ReasoningLevel reasoning, ProcessingTier tier) {
         public ModelConfig(String name, ReasoningLevel reasoning) {
             this(name, reasoning, ProcessingTier.DEFAULT);
@@ -148,6 +152,64 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         public String toString() {
             return name().charAt(0) + name().substring(1).toLowerCase(Locale.ROOT);
         }
+
+        public static ProcessingTier fromString(@Nullable String value) {
+            if (value == null) {
+                return DEFAULT;
+            }
+            if ("priority".equalsIgnoreCase(value)) {
+                return PRIORITY;
+            }
+            if ("flex".equalsIgnoreCase(value)) {
+                return FLEX;
+            }
+            return DEFAULT;
+        }
+
+        /** Returns the API string value, or null for DEFAULT (no tier override). */
+        public @Nullable String toApiString() {
+            return this == DEFAULT ? null : name().toLowerCase(Locale.ROOT);
+        }
+
+        /** Returns the cost multiplier label for display (e.g., "2x", "0.5x"), or empty for DEFAULT. */
+        public String getMultiplierLabel() {
+            return switch (this) {
+                case PRIORITY -> "2x";
+                case FLEX -> "0.5x";
+                default -> "";
+            };
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record TierPricing(
+            double input_cost_per_token, double output_cost_per_token, double cache_read_input_token_cost) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record PricingTiers(
+            @Nullable TierPricing standard,
+            @Nullable TierPricing priority,
+            @Nullable TierPricing flex,
+            @Nullable TierPricing batch) {
+        public boolean supportsPriority() {
+            return priority != null;
+        }
+
+        public boolean supportsFlex() {
+            return flex != null;
+        }
+
+        public boolean supportsBatch() {
+            return batch != null;
+        }
+
+        public @Nullable TierPricing getTierPricing(ProcessingTier tier) {
+            return switch (tier) {
+                case PRIORITY -> priority;
+                case FLEX -> flex;
+                case DEFAULT -> standard;
+            };
+        }
     }
 
     public enum ReasoningLevel {
@@ -176,6 +238,9 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     /** Represents the parsed Brokk API key components. */
     public record KeyParts(UUID userId, String token) {}
+
+    /** Represents a cost estimate with both the raw value and formatted string. */
+    public record CostEstimate(double cost, String formatted) {}
 
     /** Represents a user-defined favorite model alias. */
     public record FavoriteModel(String alias, ModelConfig config) {}
@@ -208,7 +273,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return new ModelPricing(List.of());
         }
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, cannot get prices.", location);
             return new ModelPricing(List.of());
         }
@@ -249,6 +314,58 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         }
     }
 
+    public ModelPricing getModelPricing(String modelName, ProcessingTier tier) {
+        var location = modelLocations.get(modelName);
+        if (location == null) {
+            return new ModelPricing(List.of());
+        }
+        var info = getModelInfo(location);
+        var pricingTiers = info.get("pricing_tiers");
+
+        if (pricingTiers instanceof PricingTiers pt) {
+            var tp = pt.getTierPricing(tier);
+            if (tp != null) {
+                var band = new PriceBand(
+                        0,
+                        Long.MAX_VALUE,
+                        tp.input_cost_per_token(),
+                        tp.cache_read_input_token_cost(),
+                        tp.output_cost_per_token());
+                return new ModelPricing(List.of(band));
+            }
+        }
+        return getModelPricing(modelName);
+    }
+
+    /**
+     * Estimates the cost for a request given the model config and input token count.
+     * Assumes output is min(4000, inputTokens/2), plus 1000 for reasoning models.
+     */
+    public CostEstimate estimateCost(ModelConfig config, long inputTokens) {
+        long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
+        if (isReasoning(config)) {
+            estimatedOutputTokens += 1000;
+        }
+        return estimateCost(config, inputTokens, estimatedOutputTokens);
+    }
+
+    /**
+     * Estimates the cost for a request with explicit output token count.
+     */
+    public CostEstimate estimateCost(ModelConfig config, long inputTokens, long outputTokens) {
+        var pricing = getModelPricing(config.name(), config.tier());
+        if (pricing.bands().isEmpty()) {
+            return new CostEstimate(0, "");
+        }
+
+        double cost = pricing.getCostFor(inputTokens, 0, outputTokens);
+
+        if (isFreeTier(config.name())) {
+            return new CostEstimate(0, "$0.00 (Free Tier)");
+        }
+        return new CostEstimate(cost, String.format("$%.2f", cost));
+    }
+
     /** Returns the display name for a given model instance */
     public String nameOf(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
@@ -277,7 +394,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var info = getModelInfo(location);
 
         Integer value;
-        if (info == null || !info.containsKey("max_output_tokens")) {
+        if (!info.containsKey("max_output_tokens")) {
             logger.warn("max_output_tokens not found for model location: {}", location);
             value = 8192;
         } else {
@@ -299,7 +416,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     private int getMaxInputTokens(String location) {
         var info = getModelInfo(location);
-        if (info == null || !info.containsKey("max_input_tokens")) {
+        if (!info.containsKey("max_input_tokens")) {
             logger.warn("max_input_tokens not found for model location: {}", location);
             return 65536;
         }
@@ -314,7 +431,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public @Nullable Integer getMaxConcurrentRequests(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
-        if (info == null || !info.containsKey("max_concurrent_requests")) {
+        if (!info.containsKey("max_concurrent_requests")) {
             return null;
         }
         return (Integer) info.get("max_concurrent_requests");
@@ -324,7 +441,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public @Nullable Integer getTokensPerMinute(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
-        if (info == null || !info.containsKey("tokens_per_minute")) {
+        if (!info.containsKey("tokens_per_minute")) {
             return null;
         }
         return (Integer) info.get("tokens_per_minute");
@@ -338,7 +455,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return false;
         }
         var info = getModelInfo(location);
-        if (info == null || !info.containsKey("supports_tool_choice")) {
+        if (!info.containsKey("supports_tool_choice")) {
             return false;
         }
 
@@ -348,11 +465,15 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public boolean supportsProcessingTier(String modelName) {
         var location = modelLocations.get(modelName);
         if (location == null) {
-            logger.warn("Location not found for model name {}, assuming no reasoning-disable support.", modelName);
+            logger.warn("Location not found for model name {}, assuming no processing tier support.", modelName);
             return false;
         }
-        return location.equals("openai/gpt-5")
-                || location.equals("openai/gpt-5-mini"); // TODO move this into a yaml field
+        var info = getModelInfo(location);
+        var pricingTiers = info.get("pricing_tiers");
+        if (!(pricingTiers instanceof PricingTiers pt)) {
+            return false;
+        }
+        return pt.supportsPriority();
     }
 
     public boolean supportsReasoningDisable(String modelName) {
@@ -362,7 +483,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return false;
         }
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no reasoning-disable support.", location);
             return false;
         }
@@ -381,7 +502,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     private boolean supportsReasoningEffortInternal(String location) {
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no reasoning effort support.", location);
             return false;
         }
@@ -394,7 +515,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     private boolean supportsReasoning(String location) {
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.trace("Model info not found for location {}, assuming no reasoning support.", location);
             return false;
         }
@@ -424,13 +545,11 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
                 .logResponses(true)
                 .strictJsonSchema(true)
                 .baseUrl(baseUrl)
+                .serviceTier(config.tier)
                 .timeout(Duration.ofSeconds(
                         config.tier == ProcessingTier.FLEX
                                 ? FLEX_FIRST_TOKEN_TIMEOUT_SECONDS
                                 : Math.max(DEFAULT_FIRST_TOKEN_TIMEOUT_SECONDS, NEXT_TOKEN_TIMEOUT_SECONDS)));
-        if (config.tier != ProcessingTier.DEFAULT) {
-            builder.serviceTier(config.tier.toString().toLowerCase(Locale.ROOT));
-        }
         params = params.maxCompletionTokens(getMaxOutputTokens(location));
 
         if (MainProject.getProxySetting() == MainProject.LlmProxySetting.LOCALHOST) {
@@ -472,7 +591,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return false;
         }
 
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no JSON schema support.", location);
             return false;
         }
@@ -495,7 +614,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         var location = model.defaultRequestParameters().modelName();
 
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming tool emulation required.", location);
             return true;
         }
@@ -504,18 +623,19 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         return !(b instanceof Boolean bVal) || !bVal;
     }
 
-    protected @Nullable Map<String, Object> getModelInfo(String location) {
+    protected Map<String, Object> getModelInfo(String location) {
         try {
-            return modelInfoMap.get(location);
+            var info = modelInfoMap.get(location);
+            return info != null ? info : Map.of();
         } catch (NullPointerException e) {
-            return null;
+            return Map.of();
         }
     }
 
     public boolean supportsParallelCalls(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no parallel tool call support.", location);
             return false;
         }
@@ -570,7 +690,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public boolean usesThinkTags(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no think-tag usage.", location);
             return false;
         }
@@ -581,7 +701,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public boolean supportsVision(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming no vision support.", location);
             return false;
         }
@@ -594,17 +714,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
     public static ProcessingTier getProcessingTier(StreamingChatModel model) {
         if (model instanceof OpenAiStreamingChatModel om) {
             var tier = om.defaultRequestParameters().serviceTier();
-            if (tier == null) {
-                return ProcessingTier.DEFAULT;
-            }
-            var normalized = tier.toLowerCase(Locale.ROOT);
-            if ("flex".equals(normalized)) {
-                return ProcessingTier.FLEX;
-            } else if ("priority".equals(normalized)) {
-                return ProcessingTier.PRIORITY;
-            } else {
-                return ProcessingTier.DEFAULT;
-            }
+            return tier != null ? tier : ProcessingTier.DEFAULT;
         }
         return ProcessingTier.DEFAULT;
     }
@@ -619,7 +729,7 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
             return false;
         }
         var info = getModelInfo(location);
-        if (info == null) {
+        if (info.isEmpty()) {
             logger.warn("Model info not found for location {}, assuming not free-tier.", location);
             return false;
         }
@@ -685,13 +795,13 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
 
     /** Interface for speech-to-text operations. */
     public interface SpeechToTextModel {
-        String transcribe(java.nio.file.Path audioFile, java.util.Set<String> symbols) throws java.io.IOException;
+        String transcribe(Path audioFile, Set<String> symbols) throws IOException;
     }
 
     /** Stubbed STT model when speech-to-text is unavailable. */
     public static class UnavailableSTT implements SpeechToTextModel {
         @Override
-        public String transcribe(java.nio.file.Path audioFile, java.util.Set<String> symbols) {
+        public String transcribe(Path audioFile, Set<String> symbols) {
             return "Speech-to-text is unavailable (no suitable model found via proxy or connection failed).";
         }
     }
@@ -701,25 +811,25 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         public UnavailableStreamingModel() {}
 
         public void generate(String userMessage, StreamingResponseHandler<AiMessage> handler) {
-            handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
+            handler.onComplete(new Response<>(new AiMessage(UNAVAILABLE)));
         }
 
         public void generate(List<ChatMessage> messages, StreamingResponseHandler<AiMessage> handler) {
-            handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
+            handler.onComplete(new Response<>(new AiMessage(UNAVAILABLE)));
         }
 
         public void generate(
                 List<ChatMessage> messages,
                 List<ToolSpecification> toolSpecifications,
                 StreamingResponseHandler<AiMessage> handler) {
-            handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
+            handler.onComplete(new Response<>(new AiMessage(UNAVAILABLE)));
         }
 
         public void generate(
                 List<ChatMessage> messages,
                 ToolSpecification toolSpecification,
                 StreamingResponseHandler<AiMessage> handler) {
-            handler.onComplete(new dev.langchain4j.model.output.Response<>(new AiMessage(UNAVAILABLE)));
+            handler.onComplete(new Response<>(new AiMessage(UNAVAILABLE)));
         }
 
         @Override

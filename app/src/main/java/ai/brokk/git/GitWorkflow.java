@@ -13,6 +13,7 @@ import ai.brokk.tools.WorkspaceTools;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
+import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.net.URI;
@@ -248,10 +249,10 @@ public final class GitWorkflow {
         var tr = cm.getToolRegistry()
                 .builder()
                 .register(this)
-                .register(new WorkspaceTools((ContextManager) cm))
+                .register(new WorkspaceTools(((ContextManager) cm).liveContext()))
                 .build();
 
-        var toolSpecs = new ArrayList<dev.langchain4j.agent.tool.ToolSpecification>();
+        var toolSpecs = new ArrayList<ToolSpecification>();
         toolSpecs.addAll(tr.getTools(List.of("suggestPrDetails")));
         var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
 

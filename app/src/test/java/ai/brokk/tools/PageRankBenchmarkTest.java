@@ -12,7 +12,10 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -80,9 +83,9 @@ class PageRankBenchmarkTest {
                 allPossibleEdges.add(((long) i << 32) | (j & 0xffffffffL));
             }
         }
-        java.util.Collections.shuffle(allPossibleEdges, random);
+        Collections.shuffle(allPossibleEdges, random);
         int targetEdges = (int) Math.round((n * (n - 1)) * fraction);
-        java.util.Map<Integer, List<Integer>> adjacency = new java.util.HashMap<>();
+        Map<Integer, List<Integer>> adjacency = new HashMap<>();
         allPossibleEdges.stream().limit(targetEdges).forEach(edge -> {
             int src = (int) (edge >> 32);
             int dst = (int) (edge.longValue());

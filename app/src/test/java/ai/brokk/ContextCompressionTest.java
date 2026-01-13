@@ -3,6 +3,7 @@ package ai.brokk;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.context.ContextFragments;
+import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -40,7 +41,7 @@ public class ContextCompressionTest {
             private volatile Service service;
 
             @Override
-            public void reinit(ai.brokk.project.IProject project) {
+            public void reinit(IProject project) {
                 service = new Service(project) {
                     @Override
                     public StreamingChatModel summarizeModel() {

@@ -213,6 +213,26 @@ class ToolRegistryTest {
     }
 
     @Test
+    void executeRequiredTool_SucceedsOnMatch() throws Exception {
+        var map = new LinkedHashMap<String, Object>();
+        map.put("reasoning", "Match test");
+        var json = MAPPER.writeValueAsString(map);
+        var req = ToolExecutionRequest.builder().name("think").arguments(json).build();
+
+        var result = registry.executeRequiredTool("think", req);
+        assertTrue(result.resultText().contains("Good thinking"));
+    }
+
+    @Test
+    void executeRequiredTool_ThrowsOnMismatch() throws Exception {
+        var req =
+                ToolExecutionRequest.builder().name("wrongTool").arguments("{}").build();
+
+        var ex = assertThrows(ToolRegistry.FatalLlmException.class, () -> registry.executeRequiredTool("think", req));
+        assertTrue(ex.getMessage().contains("Expected tool 'think' but received 'wrongTool'"));
+    }
+
+    @Test
     void executeToolGlobal_SucceedsForRegisteredGlobalTool() throws Exception {
         // "think" is registered globally in ToolRegistry constructor
         var map = new LinkedHashMap<String, Object>();

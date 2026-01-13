@@ -3,19 +3,27 @@ package ai.brokk.context;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
+import ai.brokk.SessionManager;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
+import ai.brokk.testutil.TestProject;
 import ai.brokk.util.ComputedValue;
+import com.github.f4b6a3.uuid.UuidCreator;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -300,7 +308,7 @@ class DiffServiceTest {
             if (!written) {
                 throw new IOException("ImageIO.write returned false for " + file.getFileName());
             }
-            Files.move(tempFile, file.absPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.move(tempFile, file.absPath(), StandardCopyOption.REPLACE_EXISTING);
 
             // Ensure file is readable and has content
             if (!Files.isReadable(file.absPath()) || Files.size(file.absPath()) == 0) {
@@ -445,5 +453,54 @@ class DiffServiceTest {
         var results2 = ds.diff(ctx2).join();
         assertEquals(results, results2, "Recomputed results should match original results");
         assertTrue(ds.peek(ctx2).isPresent(), "Cache should be populated again after re-computation");
+    }
+
+    @Test
+    void testFindOverlappingSessions_emptyCommitList_returnsEmptyList() {
+        var overlapping = DiffService.CumulativeChanges.findOverlappingSessions(contextManager, List.of());
+        assertTrue(overlapping.isEmpty(), "Empty commit list should return empty overlapping sessions");
+    }
+
+    @Test
+    void testFindOverlappingSessions_noOverlappingSessions_returnsEmptyList() throws Exception {
+        var commitId = "abc123commit";
+        var commits = List.of(new CommitInfo(commitId, "msg", "author", Instant.now()));
+
+        // Setup a custom project that provides a SessionManager with non-overlapping data
+        var project = new TestProject(tempDir) {
+            @Override
+            public SessionManager getSessionManager() {
+                return new SessionManager(tempDir) {
+                    @Override
+                    public List<SessionInfo> listSessions() {
+                        // Return one session created now (within time bounds)
+                        // Use V7 UUID because findOverlappingSessions extracts Instant from the UUID
+                        return List.of(new SessionInfo(
+                                UuidCreator.getTimeOrderedEpoch(),
+                                "Test Session",
+                                System.currentTimeMillis(),
+                                System.currentTimeMillis()));
+                    }
+
+                    @Override
+                    public @Nullable ContextHistory loadHistory(UUID sessionId, IContextManager cm) {
+                        // Return history with a different git state by overriding getGitStates
+                        var gitState = new ContextHistory.GitState("different_hash", "branch");
+                        return new ContextHistory(new Context(cm)) {
+                            @Override
+                            public Map<UUID, ContextHistory.GitState> getGitStates() {
+                                return Map.of(UUID.randomUUID(), gitState);
+                            }
+                        };
+                    }
+                };
+            }
+        };
+
+        var customCm =
+                new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new ai.brokk.testutil.TestAnalyzer());
+        var overlapping = DiffService.CumulativeChanges.findOverlappingSessions(customCm, commits);
+
+        assertTrue(overlapping.isEmpty(), "Should return empty list when no session git states match commit IDs");
     }
 }

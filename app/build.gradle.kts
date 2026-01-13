@@ -318,14 +318,6 @@ val jdwpDebugArgsProvider = object : CommandLineArgumentProvider {
     }
 }
 
-val webviewImplArgsProvider = object : CommandLineArgumentProvider {
-    override fun asArguments(): Iterable<String> {
-        // Allow switching WebView implementation: javafx (default) or jcef
-        // Usage: ./gradlew run -Pwebview=jcef
-        val impl = (project.findProperty("webview") as String?) ?: return emptyList()
-        return listOf("-Dbrokk.webview.impl=$impl")
-    }
-}
 
 // Configure main source compilation without ErrorProne (fast incremental)
 tasks.named<JavaCompile>("compileJava") {
@@ -454,7 +446,6 @@ tasks.withType<JavaExec>().configureEach {
     // Baseline JVM args provided lazily; composes with applicationDefaultJvmArgs and other plugins
     jvmArgumentProviders.add(baselineJvmArgsProvider)
     jvmArgumentProviders.add(jdwpDebugArgsProvider)
-    jvmArgumentProviders.add(webviewImplArgsProvider)
 }
 
 // Static analysis task without tests (fast, for git hooks)
