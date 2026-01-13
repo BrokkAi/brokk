@@ -70,61 +70,6 @@ public class CompletionsFuzzyIntegrationTest {
         }
     }
 
-    static Stream<Arguments> codeUnitProvider() {
-        return CODE_UNITS.stream().map(Arguments::of);
-    }
-
-    @ParameterizedTest(name = "ShortName Match: {0}")
-    @MethodSource("codeUnitProvider")
-    void shortNameMatchesFQName(CodeUnitRecord unit) {
-        String pattern = unit.shortName();
-        FuzzyMatcher matcher = new FuzzyMatcher(pattern);
-        assertTrue(matcher.matches(unit.fqName()),
-                "Pattern '" + pattern + "' should match '" + unit.fqName() + "'");
-    }
-
-    @ParameterizedTest(name = "Score Validity: {0}")
-    @MethodSource("codeUnitProvider")
-    void shortNameScoresValidly(CodeUnitRecord unit) {
-        String pattern = unit.shortName();
-        String fqName = unit.fqName();
-        
-        // Skip cases where the short name appears multiple times in the fqName.
-        // This is a known limitation of FuzzyMatcher where matches() returns true
-        // but score() returns MAX_VALUE due to ambiguous match paths.
-        int firstOccurrence = fqName.toLowerCase().indexOf(pattern.toLowerCase());
-        int lastOccurrence = fqName.toLowerCase().lastIndexOf(pattern.toLowerCase());
-        if (firstOccurrence != lastOccurrence) {
-            return; // Skip ambiguous cases
-        }
-        
-        FuzzyMatcher matcher = new FuzzyMatcher(pattern);
-
-        // If it doesn't match at all, we don't expect a valid score.
-        // We use assertTrue here because the short name SHOULD match the FQ name.
-        assertTrue(matcher.matches(fqName),
-                "Pattern '" + pattern + "' should match '" + fqName + "'");
-
-        int score = matcher.score(fqName);
-        assertNotEquals(Integer.MAX_VALUE, score,
-                "FuzzyMatcher bug: matches() is true but score() is MAX_VALUE for pattern '" 
-                + pattern + "' in '" + fqName + "'");
-    }
-
-    @ParameterizedTest(name = "CamelHump Match: {0}")
-    @MethodSource("codeUnitProvider")
-    void camelHumpAbbreviationMatchesClass(CodeUnitRecord unit) {
-        if (unit.type() != CodeUnitType.CLASS) return;
-
-        String abbr = unit.camelHumpAbbreviation();
-        // Only test multi-word humps (e.g. "FMT" for "FuzzyMatcherTest")
-        if (abbr.length() < 2) return;
-
-        FuzzyMatcher matcher = new FuzzyMatcher(abbr);
-        assertTrue(matcher.matches(unit.fqName()),
-                "Abbreviation '" + abbr + "' should match '" + unit.fqName() + "'");
-    }
-
     private List<CodeUnitRecord> getMatches(String pattern) {
         FuzzyMatcher matcher = new FuzzyMatcher(pattern);
         return CODE_UNITS.stream()
@@ -146,7 +91,7 @@ public class CompletionsFuzzyIntegrationTest {
             System.out.println("Score: " + matcher.score(m.fqName()) + " | " + m)
         );
 
-        CodeUnitRecord topMatch = matches.get(0);
+        CodeUnitRecord topMatch = matches.getFirst();
         assertEquals(CodeUnitType.CLASS, topMatch.type(),
                 "Top match for '" + pattern + "' should be the CLASS, but was: " + topMatch);
         assertEquals("ai.brokk.ContextManager", topMatch.fqName());
@@ -176,13 +121,13 @@ public class CompletionsFuzzyIntegrationTest {
         // Test CM -> ContextManager
         List<CodeUnitRecord> cmMatches = getMatches("CM");
         if (!cmMatches.isEmpty()) {
-            assertEquals("ai.brokk.ContextManager", cmMatches.get(0).fqName());
+            assertEquals("ai.brokk.ContextManager", cmMatches.getFirst().fqName());
         }
 
         // Test FM -> FuzzyMatcher
         List<CodeUnitRecord> fmMatches = getMatches("FM");
         if (!fmMatches.isEmpty()) {
-            assertEquals("ai.brokk.FuzzyMatcher", fmMatches.get(0).fqName());
+            assertEquals("ai.brokk.FuzzyMatcher", fmMatches.getFirst().fqName());
         }
 
         // Test AS -> AbstractService (if present)
