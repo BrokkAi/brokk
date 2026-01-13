@@ -606,7 +606,7 @@ public final class JobRunner {
                                                         e.getMessage());
                                                 throw new IllegalStateException(
                                                         "Failed to fetch PR ref for PR #" + prNumber + " from remote '"
-                                                                + remoteName + "'",
+                                                                + remoteName + "': " + e.getMessage(),
                                                         e);
                                             }
 
@@ -621,7 +621,8 @@ public final class JobRunner {
                                                         e.getMessage());
                                                 throw new IllegalStateException(
                                                         "Failed to fetch base branch '" + baseBranch + "' for PR #"
-                                                                + prNumber + " from remote '" + remoteName + "'",
+                                                                + prNumber + " from remote '" + remoteName + "': "
+                                                                + e.getMessage(),
                                                         e);
                                             }
 
