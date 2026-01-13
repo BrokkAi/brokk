@@ -93,8 +93,18 @@ public final class UsagePromptBuilder {
         sb.append("```\n");
 
         if (sb.length() > maxChars) {
-            sb.setLength(maxChars);
-            sb.append("\n... [truncated due to token limit]");
+            String marker = "\n... [truncated due to token limit]";
+            int markerLength = marker.length();
+            int safeLimit = Math.max(512, maxChars - markerLength);
+
+            sb.setLength(safeLimit);
+
+            // Ensure we don't leave a markdown code block open
+            String current = sb.toString();
+            if (!current.trim().endsWith("```")) {
+                sb.append("\n```");
+            }
+            sb.append(marker);
         }
 
         return new UsagePrompt(filterDescription, candidateText, sb.toString());

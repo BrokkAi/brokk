@@ -144,7 +144,10 @@ public class UsagePromptBuilderJavaTest {
                 hit, target, List.of(), analyzer, "A.method2", 32 // ~128 chars budget to trigger truncation
                 );
 
-        assertTrue(prompt.promptText().contains("truncated due to token limit"), "Expected truncation note in prompt");
+        String text = prompt.promptText();
+        assertTrue(text.contains("truncated due to token limit"), "Expected truncation note in prompt");
+        // Ensure that even if truncated, we have a closing fence before the marker or as part of the structure
+        assertTrue(text.contains("```"), "Expected Markdown code fence to be present even when truncated");
     }
 
     @Test
