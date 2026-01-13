@@ -421,6 +421,20 @@ Once running, the executor exposes the following endpoints:
 
 - **`GET /v1/jobs/{jobId}`** - Get job status
   - Returns: `JobStatus` JSON with current state and metadata
+  - Example response:
+    ```json
+    {
+      "jobId": "550e8400-e29b-41d4-a716-446655440000",
+      "state": "COMPLETED",
+      "startTime": 1734567890123,
+      "endTime": 1734567890456,
+      "progressPercent": 100,
+      "result": null,
+      "error": null,
+      "metadata": {}
+    }
+    ```
+  - Possible `state` values: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`
 
 - **`GET /v1/jobs/{jobId}/events`** - Get job events (supports polling)
   - Query params: `?after={seq}&limit={n}`
