@@ -65,4 +65,28 @@ public class RustTestDetectionTest {
                 ContextManager.isTestFile(regularFile, analyzer),
                 "ContextManager should not identify regular lib.rs as test file");
     }
+
+    @Test
+    void testNonTestAttributesDoNotTriggerDetection() throws Exception {
+        String nonTestContent =
+                """
+            #[foo]
+            fn bar() {}
+
+            #[derive(Debug)]
+            struct Baz;
+            """;
+
+        String fileName = "not_a_test.rs";
+
+        IProject project = InlineTestProjectCreator.code(nonTestContent, fileName).build();
+        RustAnalyzer analyzer = new RustAnalyzer(project);
+        analyzer.update();
+
+        ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+
+        assertFalse(
+                analyzer.containsTests(file),
+                "File with non-test attributes should not be detected as containing tests");
+    }
 }

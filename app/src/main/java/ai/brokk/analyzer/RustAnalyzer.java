@@ -406,7 +406,7 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected boolean containsTestMarkers(TSTree tree) {
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
         TSQueryCursor cursor = new TSQueryCursor();
         TSQuery rustQuery = getThreadLocalQuery();
         cursor.exec(rustQuery, tree.getRootNode());
@@ -416,7 +416,11 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             for (TSQueryCapture capture : match.getCaptures()) {
                 String captureName = rustQuery.getCaptureNameForId(capture.getIndex());
                 if (TEST_MARKER.equals(captureName)) {
-                    return true;
+                    String text = sourceContent.substringFromBytes(
+                            capture.getNode().getStartByte(), capture.getNode().getEndByte());
+                    if ("test".equals(text)) {
+                        return true;
+                    }
                 }
             }
         }
