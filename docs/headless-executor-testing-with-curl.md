@@ -641,7 +641,9 @@ JSON
 
 ### ISSUE Mode (Automated Issue Resolution)
 
-ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, generates a task list, executes changes, and automatically retries on build failures (up to 3 attempts per task).
+ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, creates a dedicated branch, generates a task list, executes changes, and automatically retries on build failures (up to 3 attempts per task).
+
+Upon success, it automatically commits the work, pushes the branch, and creates a Pull Request.
 
 #### Option 1: Convenience Endpoint (Recommended)
 
@@ -773,13 +775,15 @@ curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
 ```
 
 **Key characteristics:**
-- Fetches issue title and body from GitHub
-- Uses LUTZ-style planning to decompose issue into tasks
-- Executes each task with ArchitectAgent (uses `plannerModel` + `codeModel`)
-- Runs build verification after each task
-- Automatically retries failed builds (up to 3 attempts per task)
-- `buildSettings` overrides project defaults for the job duration
-- `codeModel` is optional; defaults to project default if omitted
+- Fetches issue title and body from GitHub.
+- **Branching**: Automatically creates a branch named `brokk/issue-{number}`.
+- Uses LUTZ-style planning to decompose issue into tasks.
+- Executes each task with ArchitectAgent (uses `plannerModel` + `codeModel`).
+- Runs build verification after each task.
+- Automatically retries failed builds (up to 3 attempts per task).
+- **PR Creation**: On success, pushes changes and creates a Pull Request with an AI-generated title and description.
+- `buildSettings` overrides project defaults for the job duration.
+- `codeModel` is optional; defaults to project default if omitted.
 
 ## Job Status
 

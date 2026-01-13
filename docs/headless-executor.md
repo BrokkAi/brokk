@@ -388,11 +388,17 @@ ISSUE mode enables **end-to-end resolution of GitHub Issues**. It fetches the is
 
 When you submit an ISSUE job, the system follows these steps:
 1. **Fetch Issue**: Retrieves the title and body of the GitHub issue.
-2. **Task Planning**: Uses the `plannerModel` to decompose the issue into a series of actionable tasks.
-3. **Execution & Verification Loop**: For each generated task:
+2. **Branch Creation**: Creates and checks out a new branch following the convention `brokk/issue-{number}`. If the branch already exists, it appends a suffix to ensure uniqueness.
+3. **Task Planning**: Uses the `plannerModel` to decompose the issue into a series of actionable tasks.
+4. **Execution & Verification Loop**: For each generated task:
     - **Implementation**: ArchitectAgent implements the task using `plannerModel` and `codeModel`.
     - **Build Verification**: Runs the project's build/lint command.
     - **Self-Correction**: If the build fails, the system automatically attempts to fix the errors (up to 3 attempts per task) before proceeding.
+5. **Completion & PR**: Upon successful verification of all tasks, the system:
+    - Commits the changes with an automated message (e.g., `Resolves #42: ...`).
+    - Pushes the branch to the remote.
+    - Automatically generates a Pull Request title and description.
+    - Creates the Pull Request on GitHub.
 
 ### Configuration
 
