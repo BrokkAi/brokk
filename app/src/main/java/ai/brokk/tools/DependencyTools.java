@@ -17,9 +17,15 @@ public class DependencyTools {
     private static final Logger logger = LogManager.getLogger(DependencyTools.class);
 
     private final IContextManager contextManager;
+    private final MavenArtifactFetcher fetcher;
 
     public DependencyTools(IContextManager cm) {
+        this(cm, new MavenArtifactFetcher());
+    }
+
+    public DependencyTools(IContextManager cm, MavenArtifactFetcher fetcher) {
         this.contextManager = cm;
+        this.fetcher = fetcher;
     }
 
     @Blocking
@@ -45,7 +51,6 @@ public class DependencyTools {
         var groupId = parts[0].trim();
         var artifactId = parts[1].trim();
         String version;
-        var fetcher = new MavenArtifactFetcher();
 
         if (parts.length == 3) {
             version = parts[2].trim();
@@ -74,8 +79,8 @@ public class DependencyTools {
         var jarPathOpt = fetcher.fetch(fullCoordinates, null);
         if (jarPathOpt.isEmpty()) {
             System.out.println("[DependencyTools] ERROR: Could not find artifact on Maven Central");
-            return "Could not find artifact %s on Maven Central. "
-                    + "Check the coordinates and try again.".formatted(fullCoordinates);
+            return "Could not find artifact %s on Maven Central. Check the coordinates and try again."
+                    .formatted(fullCoordinates);
         }
 
         var jarPath = jarPathOpt.get();
