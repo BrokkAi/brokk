@@ -1205,11 +1205,7 @@ public final class HeadlessExecutorMain {
             }
 
             var jobSpec = JobSpec.ofPrReview(
-                    request.plannerModel(),
-                    request.githubToken(),
-                    request.owner(),
-                    request.repo(),
-                    request.prNumber());
+                    request.plannerModel(), request.githubToken(), request.owner(), request.repo(), request.prNumber());
 
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
             var jobId = createResult.jobId();
@@ -1452,11 +1448,7 @@ public final class HeadlessExecutorMain {
     private record CreateSessionRequest(String name) {}
 
     private record PrReviewJobRequest(
-            String owner,
-            String repo,
-            int prNumber,
-            String githubToken,
-            String plannerModel) {}
+            String owner, String repo, int prNumber, String githubToken, String plannerModel) {}
 
     private record JobSpecRequest(
             String sessionId,
