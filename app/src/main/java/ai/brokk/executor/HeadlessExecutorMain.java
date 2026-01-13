@@ -558,6 +558,12 @@ public final class HeadlessExecutorMain {
             return;
         }
 
+        // POST /v1/jobs/pr-review - convenience endpoint for PR review
+        if (path.equals("/v1/jobs/pr-review") && method.equals("POST")) {
+            handlePostPrReviewJob(exchange);
+            return;
+        }
+
         // Extract jobId from path for other operations
         var jobId = extractJobIdFromPath(path);
         if (jobId == null || jobId.isBlank()) {
@@ -1131,6 +1137,133 @@ public final class HeadlessExecutorMain {
     }
 
     /**
+     * POST /v1/jobs/pr-review - Convenience endpoint for PR review jobs.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Headers:</b>
+     * <ul>
+     *   <li>Idempotency-Key (required): Unique key for idempotent job creation</li>
+     * </ul>
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "owner": "repo-owner",
+     *   "repo": "repo-name",
+     *   "prNumber": 123,
+     *   "githubToken": "ghp_...",
+     *   "plannerModel": "gpt-4"
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (201 Created / 200 OK):</b>
+     * <pre>
+     * {
+     *   "jobId": "uuid",
+     *   "state": "queued"
+     * }
+     * </pre>
+     */
+    void handlePostPrReviewJob(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+            if (idempotencyKey == null || idempotencyKey.isBlank()) {
+                sendValidationError(exchange, "Idempotency-Key header is required");
+                return;
+            }
+
+            var request = parseJsonOr400(exchange, PrReviewJobRequest.class, "/v1/jobs/pr-review");
+            if (request == null) {
+                return;
+            }
+
+            // Validate required fields
+            if (request.owner() == null || request.owner().isBlank()) {
+                sendValidationError(exchange, "owner is required");
+                return;
+            }
+            if (request.repo() == null || request.repo().isBlank()) {
+                sendValidationError(exchange, "repo is required");
+                return;
+            }
+            if (request.prNumber() <= 0) {
+                sendValidationError(exchange, "prNumber must be a positive integer");
+                return;
+            }
+            if (request.githubToken() == null || request.githubToken().isBlank()) {
+                sendValidationError(exchange, "githubToken is required");
+                return;
+            }
+            if (request.plannerModel() == null || request.plannerModel().isBlank()) {
+                sendValidationError(exchange, "plannerModel is required");
+                return;
+            }
+
+            var jobSpec = JobSpec.ofPrReview(
+                    request.plannerModel(),
+                    request.githubToken(),
+                    request.owner(),
+                    request.repo(),
+                    request.prNumber());
+
+            var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
+            var jobId = createResult.jobId();
+            var isNewJob = createResult.isNewJob();
+
+            logger.info(
+                    "PR Review job {}: isNewJob={}, jobId={}, owner={}, repo={}, pr={}",
+                    idempotencyKey,
+                    isNewJob,
+                    jobId,
+                    request.owner(),
+                    request.repo(),
+                    request.prNumber());
+
+            var status = jobStore.loadStatus(jobId);
+            var state = status != null ? status.state() : "queued";
+
+            var response = new HashMap<String, Object>();
+            response.put("jobId", jobId);
+            response.put("state", state);
+
+            if (isNewJob) {
+                if (!tryReserveJobSlot(jobId)) {
+                    logger.info(
+                            "PR Review job reservation failed; another job in progress: {}, requested jobId={}",
+                            jobReservation.current(),
+                            jobId);
+                    var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+                    SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+
+                try {
+                    executeJobAsync(jobId, jobSpec, List.of());
+                } catch (Exception ex) {
+                    jobReservation.releaseIfOwner(jobId);
+                    logger.error("Failed to start PR review job {}", jobId, ex);
+                    var error = ErrorPayload.internalError("Failed to start job execution", ex);
+                    SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+                    return;
+                }
+
+                SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+            } else {
+                SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+            }
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/jobs/pr-review", e);
+            var error = ErrorPayload.internalError("Failed to create PR review job", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
      * GET /v1/jobs/{jobId}/diff - Get git diff for job.
      */
     void handleGetJobDiff(HttpExchange exchange, String jobId) throws IOException {
@@ -1317,6 +1450,13 @@ public final class HeadlessExecutorMain {
     }
 
     private record CreateSessionRequest(String name) {}
+
+    private record PrReviewJobRequest(
+            String owner,
+            String repo,
+            int prNumber,
+            String githubToken,
+            String plannerModel) {}
 
     private record JobSpecRequest(
             String sessionId,
@@ -1758,6 +1898,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    PUT  /v1/sessions                 - import/load a session from zip");
             System.out.println("    GET  /v1/sessions/{sessionId}     - download a session zip");
             System.out.println("    POST /v1/jobs                     - create and start a job");
+            System.out.println("    POST /v1/jobs/pr-review           - create a PR review job");
             System.out.println("    GET  /v1/jobs/{jobId}             - get job status");
             System.out.println("    GET  /v1/jobs/{jobId}/events      - stream job execution events");
             System.out.println("    POST /v1/jobs/{jobId}/cancel      - cancel job execution");
