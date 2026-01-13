@@ -45,6 +45,7 @@ public class DependencyTools {
         var groupId = parts[0].trim();
         var artifactId = parts[1].trim();
         String version;
+        var fetcher = new MavenArtifactFetcher();
 
         if (parts.length == 3) {
             version = parts[2].trim();
@@ -53,7 +54,6 @@ public class DependencyTools {
             // Resolve latest version from Maven Central
             System.out.println("[DependencyTools] No version specified, resolving latest from Maven Central...");
             logger.info("No version specified for {}:{}, resolving latest from Maven Central", groupId, artifactId);
-            var fetcher = new MavenArtifactFetcher();
             var latestOpt = fetcher.resolveLatestVersion(groupId, artifactId);
             if (latestOpt.isEmpty()) {
                 System.out.println("[DependencyTools] ERROR: Could not resolve latest version");
@@ -71,7 +71,6 @@ public class DependencyTools {
         // Download JAR
         System.out.println("[DependencyTools] Fetching JAR from Maven Central...");
         logger.info("Fetching artifact: {}", fullCoordinates);
-        var fetcher = new MavenArtifactFetcher();
         var jarPathOpt = fetcher.fetch(fullCoordinates, null);
         if (jarPathOpt.isEmpty()) {
             System.out.println("[DependencyTools] ERROR: Could not find artifact on Maven Central");

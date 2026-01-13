@@ -118,10 +118,7 @@ public class MavenArtifactFetcher {
      * @return the latest version if found, empty otherwise
      */
     public Optional<String> resolveLatestVersion(String groupId, String artifactId) {
-        var query = "g:%s AND a:%s"
-                .formatted(
-                        URLEncoder.encode(groupId, StandardCharsets.UTF_8),
-                        URLEncoder.encode(artifactId, StandardCharsets.UTF_8));
+        var query = "g:%s AND a:%s".formatted(groupId, artifactId);
         var url = "https://search.maven.org/solrsearch/select?q=%s&rows=1&wt=json"
                 .formatted(URLEncoder.encode(query, StandardCharsets.UTF_8));
 
