@@ -322,6 +322,10 @@ public class BrokkDiffPanel extends JPanel
         });
     }
 
+    /**
+     * @return the undo button if the toolbar has been initialized.
+     * Note: The toolbar is initialized when the panel is first added to the UI.
+     */
     @Nullable
     public JButton getBtnUndo() {
         return toolBar != null ? toolBar.getUndoButton() : null;

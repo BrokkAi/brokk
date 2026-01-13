@@ -81,6 +81,8 @@ public class DiffToolbarPanel extends JToolBar {
     }
 
     private void buildToolbar() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+
         // Change navigation buttons
         if (features.contains(ToolbarFeature.CHANGE_NAVIGATION)) {
             btnPrevious = new MaterialButton();
