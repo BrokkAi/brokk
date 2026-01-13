@@ -416,10 +416,18 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             for (TSQueryCapture capture : match.getCaptures()) {
                 String captureName = rustQuery.getCaptureNameForId(capture.getIndex());
                 if (TEST_MARKER.equals(captureName)) {
-                    String text = sourceContent.substringFromBytes(
-                            capture.getNode().getStartByte(), capture.getNode().getEndByte());
-                    if ("test".equals(text)) {
-                        return true;
+                    // Walk up to find the attribute_item ancestor
+                    TSNode current = capture.getNode();
+                    while (current != null && !current.isNull()) {
+                        if (ATTRIBUTE.equals(current.getType())) {
+                            String content = sourceContent.substringFrom(current);
+                            // Check for valid test marker patterns
+                            if (content.equals("test") || content.equals("cfg(test)")) {
+                                return true;
+                            }
+                            break;  // Found attribute_item, no need to continue walking up
+                        }
+                        current = current.getParent();
                     }
                 }
             }

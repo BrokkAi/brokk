@@ -39,31 +39,31 @@ public class RustTestDetectionTest {
         String testFileName = "logic.rs";
         String regularFileName = "lib.rs";
 
-        IProject project = InlineTestProjectCreator.code(testFileContent, testFileName)
+        try (IProject project = InlineTestProjectCreator.code(testFileContent, testFileName)
                 .addFileContents(regularFileContent, regularFileName)
-                .build();
+                .build()) {
 
-        RustAnalyzer analyzer = new RustAnalyzer(project);
-        analyzer.update();
+            RustAnalyzer analyzer = new RustAnalyzer(project);
 
-        ProjectFile testFile = new ProjectFile(project.getRoot(), testFileName);
-        ProjectFile regularFile = new ProjectFile(project.getRoot(), regularFileName);
+            ProjectFile testFile = new ProjectFile(project.getRoot(), testFileName);
+            ProjectFile regularFile = new ProjectFile(project.getRoot(), regularFileName);
 
-        // Assert analyzer semantic detection
-        assertTrue(analyzer.containsTests(testFile), "File with #[cfg(test)] should be detected as containing tests");
-        assertFalse(
-                analyzer.containsTests(regularFile), "File without markers should not be detected as containing tests");
+            // Assert analyzer semantic detection
+            assertTrue(analyzer.containsTests(testFile), "File with #[cfg(test)] should be detected as containing tests");
+            assertFalse(
+                    analyzer.containsTests(regularFile), "File without markers should not be detected as containing tests");
 
-        // Assert ContextManager integration
-        // ContextManager.isTestFile should return true for logic.rs because the analyzer confirms it contains tests,
-        // even though "logic.rs" doesn't match the filename regex.
-        assertTrue(
-                ContextManager.isTestFile(testFile, analyzer),
-                "ContextManager should identify file as test file via analyzer despite non-matching filename");
+            // Assert ContextManager integration
+            // ContextManager.isTestFile should return true for logic.rs because the analyzer confirms it contains tests,
+            // even though "logic.rs" doesn't match the filename regex.
+            assertTrue(
+                    ContextManager.isTestFile(testFile, analyzer),
+                    "ContextManager should identify file as test file via analyzer despite non-matching filename");
 
-        assertFalse(
-                ContextManager.isTestFile(regularFile, analyzer),
-                "ContextManager should not identify regular lib.rs as test file");
+            assertFalse(
+                    ContextManager.isTestFile(regularFile, analyzer),
+                    "ContextManager should not identify regular lib.rs as test file");
+        }
     }
 
     @Test
@@ -79,14 +79,56 @@ public class RustTestDetectionTest {
 
         String fileName = "not_a_test.rs";
 
-        IProject project = InlineTestProjectCreator.code(nonTestContent, fileName).build();
-        RustAnalyzer analyzer = new RustAnalyzer(project);
-        analyzer.update();
+        try (IProject project = InlineTestProjectCreator.code(nonTestContent, fileName).build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
 
-        ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
 
-        assertFalse(
-                analyzer.containsTests(file),
-                "File with non-test attributes should not be detected as containing tests");
+            assertFalse(
+                    analyzer.containsTests(file),
+                    "File with non-test attributes should not be detected as containing tests");
+        }
+    }
+
+    @Test
+    void testCfgTestDetection() throws Exception {
+        String cfgTestContent =
+                """
+            #[cfg(test)]
+            mod tests {
+            }
+            """;
+
+        String fileName = "test_mod.rs";
+
+        try (IProject project = InlineTestProjectCreator.code(cfgTestContent, fileName).build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+
+            assertTrue(analyzer.containsTests(file), "File with #[cfg(test)] should be detected as containing tests");
+        }
+    }
+
+    @Test
+    void testFalsePositiveFunctionName() throws Exception {
+        String content =
+                """
+            fn test_function_name() {
+                // This has "test" in the name but no attribute marker
+            }
+            """;
+
+        String fileName = "false_positive.rs";
+
+        try (IProject project = InlineTestProjectCreator.code(content, fileName).build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+
+            assertFalse(
+                    analyzer.containsTests(file),
+                    "Function name containing 'test' should not trigger test detection without markers");
+        }
     }
 }

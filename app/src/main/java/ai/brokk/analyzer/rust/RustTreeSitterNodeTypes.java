@@ -31,6 +31,7 @@ public final class RustTreeSitterNodeTypes {
     public static final String SCOPED_TYPE_IDENTIFIER = "scoped_type_identifier";
 
     // Other declarations
+    public static final String ATTRIBUTE = "attribute";
     public static final String ATTRIBUTE_ITEM = "attribute_item";
     public static final String VISIBILITY_MODIFIER = "visibility_modifier";
 

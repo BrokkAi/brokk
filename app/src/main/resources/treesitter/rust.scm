@@ -119,12 +119,14 @@
   )
 )
 
-;; Test markers
+;; Test markers - capture identifiers within attributes for validation in Java
 (attribute_item
   (attribute
-    (identifier) @test_marker))
+    (identifier)) @test_marker
+  )
 
 (attribute_item
   (attribute
     (identifier)
-    (token_tree (identifier) @test_marker)))
+    (token_tree (identifier) )) @test_marker
+  )
