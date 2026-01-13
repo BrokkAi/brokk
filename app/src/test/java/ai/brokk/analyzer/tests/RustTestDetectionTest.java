@@ -11,7 +11,6 @@ import ai.brokk.testutil.InlineTestProjectCreator;
 import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.Test;
 
-@NullMarked
 public class RustTestDetectionTest {
 
     @Test
