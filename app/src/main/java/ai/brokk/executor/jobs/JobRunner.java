@@ -779,11 +779,12 @@ public final class JobRunner {
                                                 originalBranch);
                                         gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
 
-                                        String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
-                                                .formatted(issueNumber, details.title(), details.body());
+                                        try {
+                                            String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
+                                                    .formatted(issueNumber, details.title(), details.body());
 
-                                        // 4. Lutz-style execution: Planning then Task Iteration
-                                        try (var scope = cm.beginTaskUngrouped(issueTaskPrompt)) {
+                                            // 4. Lutz-style execution: Planning then Task Iteration
+                                            try (var scope = cm.beginTaskUngrouped(issueTaskPrompt)) {
                                             var context = cm.liveContext();
                                             var searchAgent = new LutzAgent(
                                                     context,
@@ -869,11 +870,21 @@ public final class JobRunner {
                                                     suggestion.title(),
                                                     suggestion.description());
 
-                                            logger.info("ISSUE job {} created PR: {}", jobId, prUri);
-                                            if (console != null) {
-                                                console.showNotification(
-                                                        IConsoleIO.NotificationRole.INFO,
-                                                        "Created Pull Request: " + prUri);
+                                                logger.info("ISSUE job {} created PR: {}", jobId, prUri);
+                                                if (console != null) {
+                                                    console.showNotification(
+                                                            IConsoleIO.NotificationRole.INFO,
+                                                            "Created Pull Request: " + prUri);
+                                                }
+                                            }
+                                        } finally {
+                                            // Ensure we roll back to the original branch on failure or cancellation
+                                            if (!gitRepo.getCurrentBranch().equals(originalBranch)) {
+                                                logger.info(
+                                                        "ISSUE job {}: Restoring original branch {}",
+                                                        jobId,
+                                                        originalBranch);
+                                                gitRepo.checkout(originalBranch);
                                             }
                                         }
                                     }
