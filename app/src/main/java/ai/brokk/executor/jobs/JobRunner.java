@@ -887,9 +887,13 @@ public final class JobRunner {
                                             // Ensure we roll back to the original branch on failure or cancellation
                                             try {
                                                 if (!gitRepo.getCurrentBranch().equals(originalBranch)) {
-                                                    // Stash any uncommitted changes to ensure checkout of original branch succeeds
-                                                    if (!gitRepo.getModifiedFiles().isEmpty()) {
-                                                        logger.info("ISSUE job {}: Stashing uncommitted changes before branch restoration", jobId);
+                                                    // Stash any uncommitted changes to ensure checkout of original
+                                                    // branch succeeds
+                                                    if (!gitRepo.getModifiedFiles()
+                                                            .isEmpty()) {
+                                                        logger.info(
+                                                                "ISSUE job {}: Stashing uncommitted changes before branch restoration",
+                                                                jobId);
                                                         gitRepo.createStash("Brokk ISSUE job " + jobId + " cleanup");
                                                     }
 
@@ -899,18 +903,31 @@ public final class JobRunner {
                                                             originalBranch);
                                                     gitRepo.checkout(originalBranch);
 
-                                                    // If the issue branch was never committed to, delete it to avoid orphans
-                                                    if (gitRepo.isBranchMerged(issueBranchName) || gitRepo.countCommitsSince(originalBranch) == 0) {
+                                                    // If the issue branch was never committed to, delete it to avoid
+                                                    // orphans
+                                                    if (gitRepo.isBranchMerged(issueBranchName)
+                                                            || gitRepo.countCommitsSince(originalBranch) == 0) {
                                                         try {
                                                             gitRepo.deleteBranch(issueBranchName);
-                                                            logger.info("ISSUE job {}: Deleted empty issue branch {}", jobId, issueBranchName);
+                                                            logger.info(
+                                                                    "ISSUE job {}: Deleted empty issue branch {}",
+                                                                    jobId,
+                                                                    issueBranchName);
                                                         } catch (Exception e) {
-                                                            logger.warn("ISSUE job {}: Failed to delete temporary branch {}", jobId, issueBranchName, e);
+                                                            logger.warn(
+                                                                    "ISSUE job {}: Failed to delete temporary branch {}",
+                                                                    jobId,
+                                                                    issueBranchName,
+                                                                    e);
                                                         }
                                                     }
                                                 }
                                             } catch (Exception e) {
-                                                logger.error("ISSUE job {}: Failed to restore original branch {}", jobId, originalBranch, e);
+                                                logger.error(
+                                                        "ISSUE job {}: Failed to restore original branch {}",
+                                                        jobId,
+                                                        originalBranch,
+                                                        e);
                                             }
                                         }
                                     }

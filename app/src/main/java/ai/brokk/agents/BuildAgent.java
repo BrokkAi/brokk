@@ -673,13 +673,7 @@ public class BuildAgent {
                 String testSomeCommand,
                 Set<String> exclusionPatterns,
                 Map<String, String> environmentVariables) {
-            this(
-                    buildLintCommand,
-                    testAllCommand,
-                    testSomeCommand,
-                    exclusionPatterns,
-                    environmentVariables,
-                    null);
+            this(buildLintCommand, testAllCommand, testSomeCommand, exclusionPatterns, environmentVariables, null);
         }
 
         public static final BuildDetails EMPTY = new BuildDetails("", "", "", Set.of(), Map.of(), null);
