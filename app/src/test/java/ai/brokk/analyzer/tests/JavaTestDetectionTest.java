@@ -85,4 +85,31 @@ public class JavaTestDetectionTest {
             assertFalse(analyzer.containsTests(file), "@Nullable annotation should NOT be detected as test marker");
         }
     }
+
+    @Test
+    void testQualifiedAndWhitespaceTestAnnotations() throws Exception {
+        String code =
+                """
+            package com.example;
+            public class MixedTests {
+                @org.junit.jupiter.api.Test
+                void qualifiedTest() {}
+
+                @  RepeatedTest(5)
+                void whitespaceTest() {}
+            }
+            """;
+
+        String fileName = "src/com/example/MixedTests.java";
+
+        try (var project = InlineTestProjectCreator.code(code, fileName).build()) {
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+            JavaAnalyzer analyzer = new JavaAnalyzer(project);
+            analyzer = (JavaAnalyzer) analyzer.update();
+
+            assertTrue(
+                    analyzer.containsTests(file),
+                    "Should detect qualified and whitespace-padded test annotations");
+        }
+    }
 }
