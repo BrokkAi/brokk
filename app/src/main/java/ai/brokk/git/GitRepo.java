@@ -1173,7 +1173,7 @@ public class GitRepo implements Closeable, IGitRepo {
         // Build squash commit message
         String squashCommitMessage;
         try {
-            var commitMessages = getCommitMessagesBetween(branchName, targetBranch);
+            var commitMessages = getCommitMessagesBetween(targetBranch, branchName);
             String header = "Squash merge branch '" + branchName + "' into '" + targetBranch + "'\n\n";
             String body = commitMessages.isEmpty()
                     ? "- No individual commit messages found between " + branchName + " and " + targetBranch + "."
@@ -1210,7 +1210,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         // Check for untracked files in the target worktree that would be overwritten by the merge
-        var changedFiles = listFilesChangedBetweenBranches(branchName, targetBranch).stream()
+        var changedFiles = listFilesChangedBetweenBranches(targetBranch, branchName).stream()
                 .map(mf -> mf.file().toString())
                 .collect(Collectors.toSet());
         var untrackedFiles = status.getUntracked();
@@ -1488,66 +1488,17 @@ public class GitRepo implements Closeable, IGitRepo {
     }
     /**
      * Lists files changed in a specific commit compared to its primary parent. For an initial commit, lists all files
-     * in that commit. This is implemented in terms of listFilesChangedBetweenCommits to ensure consistent handling
-     * of renames and file status tracking.
+     * in that commit.
      */
     public List<ModifiedFile> listFilesChangedInCommit(String commitId) throws GitAPIException {
-        var commitObjectId = resolveToCommit(commitId);
-
-        try (var revWalk = new RevWalk(repository);
-                var treeWalk = new TreeWalk(repository)) {
-            var commit = revWalk.parseCommit(commitObjectId);
-
-            if (commit.getParentCount() == 0) {
-                // Initial commit: list all files in the commit as NEW
-                var result = new ArrayList<ModifiedFile>();
-                treeWalk.addTree(commit.getTree());
-                treeWalk.setRecursive(true);
-                while (treeWalk.next()) {
-                    var path = treeWalk.getPathString();
-                    var projectFileOpt = toProjectFile(path);
-                    projectFileOpt.ifPresent(
-                            projectFile -> result.add(new ModifiedFile(projectFile, IGitRepo.ModificationType.NEW)));
-                }
-                return result;
-            } else {
-                // Regular commit: diff against primary parent
-                var parentId = commit.getParent(0).getId().getName();
-                return listFilesChangedBetweenCommits(commitId, parentId);
-            }
-        } catch (IOException e) {
-            throw new GitWrappedIOException(e);
-        }
+        return data.listFilesChangedInCommit(commitId);
     }
 
     /** Lists files changed between two commit SHAs (from oldCommitId to newCommitId). */
     @Override
-    public List<ModifiedFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
+    public List<ModifiedFile> listFilesChangedBetweenCommits(String oldCommitId, String newCommitId)
             throws GitAPIException {
-        var newObjectId = resolveToCommit(newCommitId);
-        var oldObjectId = resolveToCommit(oldCommitId);
-
-        if (newObjectId.equals(oldObjectId)) {
-            logger.debug(
-                    "listFilesChangedBetweenCommits: newCommitId and oldCommitId are the same ('{}'). Returning empty list.",
-                    newCommitId);
-            return List.of();
-        }
-
-        try (var revWalk = new RevWalk(repository)) {
-            var newCommit = revWalk.parseCommit(newObjectId);
-            var oldCommit = revWalk.parseCommit(oldObjectId);
-
-            try (var diffFormatter =
-                    new DiffFormatter(new ByteArrayOutputStream())) { // Output stream is not used for listing files
-                diffFormatter.setRepository(repository);
-                diffFormatter.setDetectRenames(true); // Enable rename detection to avoid leaking old paths
-                var diffs = diffFormatter.scan(oldCommit.getTree(), newCommit.getTree());
-                return data.extractFilesFromDiffEntries(diffs);
-            }
-        } catch (IOException e) {
-            throw new GitWrappedIOException(e);
-        }
+        return data.listFilesChangedBetweenCommits(oldCommitId, newCommitId);
     }
 
     /** Show diff between two commits (or a commit and the working directory if newCommitId == HEAD). */
@@ -2279,8 +2230,8 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public List<String> getCommitMessagesBetween(String branchName, String targetBranchName) throws GitAPIException {
-        var revCommits = getRevCommitsBetween(branchName, targetBranchName, false);
+    public List<String> getCommitMessagesBetween(String oldBranch, String newBranch) throws GitAPIException {
+        var revCommits = getRevCommitsBetween(oldBranch, newBranch, false);
         return revCommits.stream().map(RevCommit::getShortMessage).collect(Collectors.toList());
     }
 
@@ -2290,33 +2241,31 @@ public class GitRepo implements Closeable, IGitRepo {
      * (oldest first).
      */
     public List<CommitInfo> listCommitsBetweenBranches(
-            String sourceBranchName, String targetBranchName, boolean excludeMergeCommitsFromTarget)
-            throws GitAPIException {
-        var revCommits = getRevCommitsBetween(sourceBranchName, targetBranchName, excludeMergeCommitsFromTarget);
+            String oldBranchName, String newBranchName, boolean excludeMergeCommitsFromTarget) throws GitAPIException {
+        var revCommits = getRevCommitsBetween(oldBranchName, newBranchName, excludeMergeCommitsFromTarget);
         return revCommits.stream().map(this::fromRevCommit).collect(Collectors.toList());
     }
 
     private List<RevCommit> getRevCommitsBetween(
-            String sourceBranchName, String targetBranchName, boolean excludeMergeCommitsFromTarget)
-            throws GitAPIException {
+            String oldBranchName, String newBranchName, boolean excludeMergeCommitsFromTarget) throws GitAPIException {
         List<RevCommit> commits = new ArrayList<>();
-        ObjectId sourceHead = resolveToCommit(sourceBranchName);
-        ObjectId targetHead = resolveToCommit(targetBranchName);
+        ObjectId newHead = resolveToCommit(newBranchName);
+        ObjectId oldHead = resolveToCommit(oldBranchName);
 
         // targetHead can be null if the target branch doesn't exist (e.g. creating a PR to a new remote branch)
 
         try (RevWalk revWalk = new RevWalk(repository)) {
-            RevCommit sourceCommit = revWalk.parseCommit(sourceHead);
-            revWalk.markStart(sourceCommit);
+            RevCommit newCommit = revWalk.parseCommit(newHead);
+            revWalk.markStart(newCommit); // start here and go backwards
 
-            RevCommit targetCommit = revWalk.parseCommit(targetHead);
+            RevCommit oldCommit = revWalk.parseCommit(oldHead);
 
             if (excludeMergeCommitsFromTarget) {
-                revWalk.markUninteresting(targetCommit); // Hide everything reachable from target
+                revWalk.markUninteresting(oldCommit); // Hide everything reachable from target
                 revWalk.setRevFilter(RevFilter.NO_MERGES); // Exclude all merge commits
             } else {
                 // Original logic for "target..source"
-                ObjectId mergeBaseId = computeMergeBase(sourceCommit.getId(), targetCommit.getId());
+                ObjectId mergeBaseId = computeMergeBase(newCommit.getId(), oldCommit.getId());
                 if (mergeBaseId != null) {
                     // The RevCommit must be parsed by this revWalk instance to be used by it
                     RevCommit mergeBaseForRevWalk = revWalk.parseCommit(mergeBaseId);
@@ -2326,13 +2275,13 @@ public class GitRepo implements Closeable, IGitRepo {
                     // or they are unrelated. To get `target..source` behavior, mark target as uninteresting.
                     logger.warn(
                             "No common merge base found between {} ({}) and {} ({}). Listing commits from {} not on {}.",
-                            sourceBranchName,
-                            sourceCommit.getName(),
-                            targetBranchName,
-                            targetCommit.getName(),
-                            sourceBranchName,
-                            targetBranchName);
-                    revWalk.markUninteresting(targetCommit);
+                            newBranchName,
+                            newCommit.getName(),
+                            oldBranchName,
+                            oldCommit.getName(),
+                            newBranchName,
+                            oldBranchName);
+                    revWalk.markUninteresting(oldCommit);
                 }
             }
 
@@ -2352,46 +2301,42 @@ public class GitRepo implements Closeable, IGitRepo {
      * Lists files changed between two branches, specifically the changes introduced on the source branch since it
      * diverged from the target branch.
      */
-    public List<ModifiedFile> listFilesChangedBetweenBranches(String sourceBranch, String targetBranch)
+    public List<ModifiedFile> listFilesChangedBetweenBranches(String oldBranch, String newBranch)
             throws GitAPIException {
-        ObjectId sourceHeadId = resolveToCommit(sourceBranch);
-        ObjectId targetHeadId = resolveToCommit(targetBranch); // Can be null if target branch doesn't exist
+        ObjectId newHeadId = resolveToCommit(newBranch);
+        ObjectId oldHeadId = resolveToCommit(oldBranch); // Can be null if target branch doesn't exist
         logger.debug(
-                "Resolved source branch '{}' to {}, target branch '{}' to {}",
-                sourceBranch,
-                sourceHeadId,
-                targetBranch,
-                targetHeadId);
+                "Resolved old branch '{}' to {}, new branch '{}' to {}", oldBranch, oldHeadId, newBranch, newHeadId);
 
-        ObjectId mergeBaseId = computeMergeBase(sourceHeadId, targetHeadId);
+        ObjectId mergeBaseId = computeMergeBase(newHeadId, oldHeadId);
 
         if (mergeBaseId == null) {
             logger.debug(
                     "No common merge base computed for source {} ({}) and target {} ({}). "
                             + "Falling back to target head {}.",
-                    sourceBranch,
-                    sourceHeadId,
-                    targetBranch,
-                    targetHeadId,
-                    targetHeadId);
-            mergeBaseId = targetHeadId;
+                    newBranch,
+                    newHeadId,
+                    oldBranch,
+                    oldHeadId,
+                    oldHeadId);
+            mergeBaseId = oldHeadId;
         }
         logger.debug(
                 "Effective merge base for diffing {} ({}) against {} ({}) is {}",
-                sourceBranch,
-                sourceHeadId,
-                targetBranch,
-                targetHeadId,
+                newBranch,
+                newHeadId,
+                oldBranch,
+                oldHeadId,
                 mergeBaseId);
 
         // Reuse listFilesChangedBetweenCommits which already handles rename detection properly
-        var files = listFilesChangedBetweenCommits(sourceHeadId.getName(), mergeBaseId.getName());
+        var files = listFilesChangedBetweenCommits(mergeBaseId.getName(), newHeadId.getName());
 
         // Sort for consistent UI presentation (create mutable copy since listFilesChangedBetweenCommits may return
         // immutable list)
         var result = new ArrayList<>(files);
         result.sort(Comparator.comparing(mf -> mf.file().toString()));
-        logger.debug("Found {} files changed between {} and {}: {}", result.size(), sourceBranch, targetBranch, result);
+        logger.debug("Found {} files changed between {} and {}: {}", result.size(), oldBranch, newBranch, result);
         return result;
     }
 

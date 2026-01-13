@@ -121,7 +121,7 @@ public interface IGitRepo {
         throw new UnsupportedOperationException();
     }
 
-    default List<ModifiedFile> listFilesChangedBetweenCommits(String newCommitId, String oldCommitId)
+    default List<ModifiedFile> listFilesChangedBetweenCommits(String oldCommitId, String newCommitId)
             throws GitAPIException {
         throw new UnsupportedOperationException();
     }
@@ -196,7 +196,7 @@ public interface IGitRepo {
         throw new UnsupportedOperationException("checkMergeConflicts not implemented");
     }
 
-    default List<String> getCommitMessagesBetween(String branchName, String targetBranchName) throws GitAPIException {
+    default List<String> getCommitMessagesBetween(String oldBranch, String newBranch) throws GitAPIException {
         throw new UnsupportedOperationException("getCommitMessagesBetween not implemented");
     }
 

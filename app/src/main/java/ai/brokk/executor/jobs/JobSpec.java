@@ -2,7 +2,9 @@ package ai.brokk.executor.jobs;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -23,6 +25,26 @@ public record JobSpec(
         @JsonProperty("tags") Map<String, String> tags,
         @JsonProperty("sourceBranch") @Nullable String sourceBranch,
         @JsonProperty("targetBranch") @Nullable String targetBranch) {
+
+    /**
+     * Tag keys that contain sensitive data and should not be persisted to disk.
+     */
+    private static final Set<String> SENSITIVE_TAG_KEYS = Set.of("github_token");
+
+    /**
+     * Returns a copy of tags with sensitive values redacted for safe persistence/logging.
+     * Sensitive keys are replaced with "[REDACTED]" rather than removed entirely,
+     * to preserve the structure for debugging while protecting the actual values.
+     */
+    public Map<String, String> redactedTags() {
+        var result = new HashMap<>(tags);
+        for (var key : SENSITIVE_TAG_KEYS) {
+            if (result.containsKey(key)) {
+                result.put(key, "[REDACTED]");
+            }
+        }
+        return Map.copyOf(result);
+    }
 
     /**
      * Creates a JobSpec with minimal required fields.
@@ -53,6 +75,39 @@ public record JobSpec(
                         "repo_owner", owner,
                         "repo_name", repo,
                         "pr_number", String.valueOf(prNumber)),
+                null,
+                null);
+    }
+
+    /**
+     * Creates a JobSpec for Issue remediation jobs.
+     *
+     * <p>This factory creates a job with empty taskInput and stores Issue metadata in tags.
+     * Auto-commit and auto-compress are disabled for Issue remediation jobs.</p>
+     */
+    public static JobSpec ofIssue(
+            String plannerModel,
+            @Nullable String codeModel,
+            String githubToken,
+            String owner,
+            String repo,
+            int issueNumber,
+            String buildSettingsJson) {
+        return new JobSpec(
+                "",
+                false,
+                false,
+                plannerModel,
+                null,
+                codeModel,
+                false,
+                Map.of(
+                        "mode", "ISSUE",
+                        "github_token", githubToken,
+                        "repo_owner", owner,
+                        "repo_name", repo,
+                        "issue_number", String.valueOf(issueNumber),
+                        "build_settings", buildSettingsJson),
                 null,
                 null);
     }
@@ -130,5 +185,25 @@ public record JobSpec(
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    @JsonIgnore
+    @Nullable
+    public Integer getIssueNumber() {
+        var issueNumberStr = tags.get("issue_number");
+        if (issueNumberStr == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(issueNumberStr);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    @JsonIgnore
+    @Nullable
+    public String getBuildSettingsJson() {
+        return tags.get("build_settings");
     }
 }

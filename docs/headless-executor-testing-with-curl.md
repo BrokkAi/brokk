@@ -367,68 +367,71 @@ curl -sS "http://localhost:8080/v1/jobs/550e8400-e29b-41d4-a716-446655440000/eve
 **Sample events:**
 
 ```json
-[
-  {
-    "seq": 1,
-    "type": "NOTIFICATION",
-    "data": "Job started: 550e8400-e29b-41d4-a716-446655440000"
-  },
-  {
-    "seq": 2,
-    "type": "LLM_TOKEN",
-    "data": "Planning phase: Analyzing refactoring objectives..."
-  },
-  {
-    "seq": 3,
-    "type": "NOTIFICATION",
-    "data": "Task list generated with 3 subtasks"
-  },
-  {
-    "seq": 4,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 1/3: Improve error handling..."
-  },
-  {
-    "seq": 5,
-    "type": "LLM_TOKEN",
-    "data": "[code changes shown here]"
-  },
-  {
-    "seq": 6,
-    "type": "NOTIFICATION",
-    "data": "Task 1 completed, progress: 33%"
-  },
-  {
-    "seq": 7,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 2/3: Add logging..."
-  },
-  {
-    "seq": 8,
-    "type": "LLM_TOKEN",
-    "data": "[code changes shown here]"
-  },
-  {
-    "seq": 9,
-    "type": "NOTIFICATION",
-    "data": "Task 2 completed, progress: 66%"
-  },
-  {
-    "seq": 10,
-    "type": "LLM_TOKEN",
-    "data": "Executing task 3/3: Create unit tests..."
-  },
-  {
-    "seq": 11,
-    "type": "LLM_TOKEN",
-    "data": "[code changes shown here]"
-  },
-  {
-    "seq": 12,
-    "type": "NOTIFICATION",
-    "data": "Task 3 completed, progress: 100%"
-  }
-]
+{
+  "events": [
+    {
+      "seq": 1,
+      "type": "NOTIFICATION",
+      "data": "Job started: 550e8400-e29b-41d4-a716-446655440000"
+    },
+    {
+      "seq": 2,
+      "type": "LLM_TOKEN",
+      "data": "Planning phase: Analyzing refactoring objectives..."
+    },
+    {
+      "seq": 3,
+      "type": "NOTIFICATION",
+      "data": "Task list generated with 3 subtasks"
+    },
+    {
+      "seq": 4,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 1/3: Improve error handling..."
+    },
+    {
+      "seq": 5,
+      "type": "LLM_TOKEN",
+      "data": "[code changes shown here]"
+    },
+    {
+      "seq": 6,
+      "type": "NOTIFICATION",
+      "data": "Task 1 completed, progress: 33%"
+    },
+    {
+      "seq": 7,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 2/3: Add logging..."
+    },
+    {
+      "seq": 8,
+      "type": "LLM_TOKEN",
+      "data": "[code changes shown here]"
+    },
+    {
+      "seq": 9,
+      "type": "NOTIFICATION",
+      "data": "Task 2 completed, progress: 66%"
+    },
+    {
+      "seq": 10,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 3/3: Create unit tests..."
+    },
+    {
+      "seq": 11,
+      "type": "LLM_TOKEN",
+      "data": "[code changes shown here]"
+    },
+    {
+      "seq": 12,
+      "type": "NOTIFICATION",
+      "data": "Task 3 completed, progress: 100%"
+    }
+  ],
+  "nextAfter": 12
+}
 ```
 
 **Key characteristics of LUTZ mode:**
@@ -639,12 +642,179 @@ JSON
 - Skips duplicate comments; falls back to PR comment if inline fails
 - `codeModel` is ignored (no code generation)
 
+### ISSUE Mode (Automated Issue Resolution)
+
+ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, creates a dedicated branch, generates a task list, executes changes, and automatically retries on build failures (up to 3 attempts per task).
+
+Upon success, it automatically commits the work, pushes the branch, and creates a Pull Request.
+
+#### Option 1: Convenience Endpoint (Recommended)
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs/issue" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "owner": "myorg",
+  "repo": "myrepo",
+  "issueNumber": 42,
+  "githubToken": "ghp_xxxxxxxxxxxx",
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "buildSettings": {
+    "buildLintCommand": "./gradlew classes",
+    "testAllCommand": "./gradlew test",
+    "testSomeCommand": "./gradlew test --tests",
+    "environmentVariables": {
+      "JAVA_HOME": "/usr/lib/jvm/java-21"
+    },
+    "maxBuildAttempts": 5
+  }
+}
+JSON
+```
+
+#### Option 2: Standard Endpoint with Tags
+
+```bash
+curl -sS -X POST "${BASE}/v1/jobs" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: ${IDEMP_KEY}" \
+  --data @- <<'JSON'
+{
+  "sessionId": "replace-with-session-id",
+  "taskInput": "",
+  "autoCommit": false,
+  "autoCompress": false,
+  "plannerModel": "gpt-5",
+  "tags": {
+    "mode": "ISSUE",
+    "github_token": "ghp_xxxxxxxxxxxx",
+    "repo_owner": "myorg",
+    "repo_name": "myrepo",
+    "issue_number": "42",
+    "build_settings": "{\"buildLintCommand\":\"./gradlew classes\",\"testAllCommand\":\"./gradlew test\"}"
+  }
+}
+JSON
+```
+
+#### Streaming Events
+
+Observe the iterative workflow by streaming job events:
+
+```bash
+curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
+  -H "Authorization: Bearer ${AUTH_TOKEN}"
+```
+
+**Sample Events:**
+
+```json
+{
+  "events": [
+    {
+      "seq": 1,
+      "type": "NOTIFICATION",
+      "data": "Job started: <job-id>"
+    },
+    {
+      "seq": 2,
+      "type": "LLM_TOKEN",
+      "data": "Planning phase: Analyzing issue #42..."
+    },
+    {
+      "seq": 3,
+      "type": "NOTIFICATION",
+      "data": "Task list generated with 2 subtasks"
+    },
+    {
+      "seq": 4,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 1/2: Implement fix..."
+    },
+    {
+      "seq": 5,
+      "type": "NOTIFICATION",
+      "data": "Running build verification..."
+    },
+    {
+      "seq": 6,
+      "type": "NOTIFICATION",
+      "data": "Build verification passed"
+    },
+    {
+      "seq": 7,
+      "type": "LLM_TOKEN",
+      "data": "Executing task 2/2: Add tests..."
+    },
+    {
+      "seq": 8,
+      "type": "NOTIFICATION",
+      "data": "Running build verification..."
+    },
+    {
+      "seq": 9,
+      "type": "NOTIFICATION",
+      "data": "Build failed, attempting fix (1/3)..."
+    },
+    {
+      "seq": 10,
+      "type": "LLM_TOKEN",
+      "data": "Fixing build error..."
+    },
+    {
+      "seq": 11,
+      "type": "NOTIFICATION",
+      "data": "Build verification passed"
+    },
+    {
+      "seq": 12,
+      "type": "NOTIFICATION",
+      "data": "Task 2 completed, progress: 100%"
+    }
+  ],
+  "nextAfter": 12
+}
+```
+
+**Key characteristics:**
+- Fetches issue title and body from GitHub.
+- **Branching**: Automatically creates a branch named `brokk/issue-{number}`.
+- Uses LUTZ-style planning to decompose issue into tasks.
+- Executes each task with ArchitectAgent (uses `plannerModel` + `codeModel`).
+- Runs build verification after each task.
+- Automatically retries failed builds (default: 3 attempts per task, configurable via `maxBuildAttempts`).
+- **PR Creation**: On success, pushes changes and creates a Pull Request with an AI-generated title and description.
+- `buildSettings` overrides project defaults for the job duration.
+- `codeModel` is optional; defaults to project default if omitted.
+
 ## Job Status
 
 ```bash
 curl -sS "${BASE}/v1/jobs/<job-id>" \
   -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
+
+**Response (200 OK):**
+
+```json
+{
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "state": "COMPLETED",
+  "startTime": 1734567890123,
+  "endTime": 1734567890456,
+  "progressPercent": 100,
+  "result": null,
+  "error": null,
+  "metadata": {}
+}
+```
+
+Possible `state` values: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`.
 
 ## Job Events
 

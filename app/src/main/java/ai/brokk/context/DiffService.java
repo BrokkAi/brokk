@@ -6,6 +6,7 @@ import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
@@ -21,6 +22,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -42,7 +44,7 @@ public final class DiffService {
     /** Identity-based pair for caching diffs between two specific context instances. */
     private record ContextPair(@Nullable Context prev, Context curr) {}
 
-    private final AsyncCache<ContextPair, List<DiffEntry>> cache =
+    private final AsyncCache<ContextPair, List<FragmentDiff>> cache =
             Caffeine.newBuilder().maximumSize(MAX_CACHE_SIZE).buildAsync();
 
     private final ContextHistory history;
@@ -61,7 +63,7 @@ public final class DiffService {
      * @param curr the current (new) context to peek diffs for
      * @return Optional containing the diff list if already computed, or empty if not ready
      */
-    public Optional<List<DiffEntry>> peek(Context curr) {
+    public Optional<List<FragmentDiff>> peek(Context curr) {
         var prev = history.previousOf(curr);
         var cf = cache.getIfPresent(new ContextPair(prev, curr));
         if (cf != null && cf.isDone()) {
@@ -78,7 +80,7 @@ public final class DiffService {
      * @param curr the current (new) context to compute diffs for
      * @return CompletableFuture that will contain the list of diff entries
      */
-    public CompletableFuture<List<DiffEntry>> diff(Context curr) {
+    public CompletableFuture<List<FragmentDiff>> diff(Context curr) {
         var prev = history.previousOf(curr);
         var key = new ContextPair(prev, curr);
 
@@ -126,7 +128,7 @@ public final class DiffService {
      * Triggers async computations and awaits their completion.
      */
     @Blocking
-    private List<DiffEntry> computeDiff(Context ctx, Context other, String revision) {
+    private List<FragmentDiff> computeDiff(Context ctx, Context other, String revision) {
         // Candidates:
         // - Editable fragments
         // - Image fragments (non-text), including pasted images and image files.
@@ -158,7 +160,7 @@ public final class DiffService {
      * The DiffEntry returned is Nullable!
      */
     @Blocking
-    private CompletableFuture<DiffEntry> computeDiffForFragment(
+    private CompletableFuture<FragmentDiff> computeDiffForFragment(
             Context curr, ContextFragment thisFragment, Context other, String revision) {
         var otherFragment = other.allFragments()
                 .filter(thisFragment::hasSameSource)
@@ -189,7 +191,7 @@ public final class DiffService {
     }
 
     @Blocking
-    public static CompletableFuture<DiffEntry> computeDiff(
+    public static CompletableFuture<FragmentDiff> computeDiff(
             @Nullable ContextFragment oldFragment, ContextFragment newFragment) {
         // If fragments don't share the same source, we can't sensibly diff them here.
         if (oldFragment != null && !newFragment.hasSameSource(oldFragment)) {
@@ -209,7 +211,7 @@ public final class DiffService {
                 if (result.diff().isEmpty()) {
                     return null;
                 }
-                return new DiffEntry(newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
+                return new FragmentDiff(newFragment, result.diff(), result.added(), result.deleted(), "", newContent);
             });
         }
 
@@ -250,7 +252,8 @@ public final class DiffService {
                 return null;
             }
 
-            return new DiffEntry(newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
+            return new FragmentDiff(
+                    newFragment, result.diff(), result.added(), result.deleted(), oldContent, newContent);
         });
     }
 
@@ -286,7 +289,7 @@ public final class DiffService {
     /**
      * Compute a placeholder diff entry for image fragments when the bytes differ.
      */
-    private static @Nullable DiffService.DiffEntry computeImageDiffEntry(
+    private static @Nullable DiffService.FragmentDiff computeImageDiffEntry(
             ContextFragment thisFragment, ContextFragment otherFragment) {
         // Prefer frozen bytes (snapshot), fall back to computed image bytes
         byte[] oldImageBytes = null;
@@ -309,7 +312,7 @@ public final class DiffService {
         // If one side has bytes and the other does not, treat as changed.
         if ((oldImageBytes == null) != (newImageBytes == null)) {
             String diff = "[Image changed]";
-            return new DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
+            return new FragmentDiff(thisFragment, diff, 1, 1, "[image]", "[image]");
         }
 
         boolean imagesEqual = Arrays.equals(oldImageBytes, newImageBytes);
@@ -317,118 +320,66 @@ public final class DiffService {
             return null;
         }
         String diff = "[Image changed]";
-        return new DiffEntry(thisFragment, diff, 1, 1, "[image]", "[image]");
+        return new FragmentDiff(thisFragment, diff, 1, 1, "[image]", "[image]");
     }
 
     /**
-     * Summarizes cumulative changes between two Git references for a given set of files.
-     * Handles git IO errors gracefully by skipping problematic files rather than failing the entire operation.
+     * Summarizes cumulative changes between two Git references.
+     * Uses JGit's structured diff for proper rename and copy detection.
      *
      * @param repo the Git repository
      * @param leftRef the baseline commit/branch reference (left/old side)
      * @param rightRef the target commit/branch reference (right/new side)
-     * @param files the set of modified files to diff
+     * @param commits the list of commits in the range
      * @return CumulativeChanges with per-file diffs and aggregated statistics
      */
     @Blocking
-    public static CumulativeChanges summarizeDiff(
-            IGitRepo repo,
-            String leftRef,
-            String rightRef,
-            Set<IGitRepo.ModifiedFile> files,
-            List<CommitInfo> commits) {
+    public static CumulativeChanges computeCumulativeDiff(
+            IGitRepo repo, String leftRef, String rightRef, List<CommitInfo> commits) {
         if (!(repo instanceof GitRepo gitRepo)) {
             return new CumulativeChanges(0, 0, 0, List.of(), commits);
         }
 
-        if (files.isEmpty()) {
+        List<FileDiff> fileDiffs;
+        try {
+            fileDiffs = gitRepo.data().getFileDiffs(leftRef, rightRef);
+        } catch (GitAPIException e) {
+            logger.error("Failed to compute cumulative diff: {}", e.getMessage());
             return new CumulativeChanges(0, 0, 0, List.of(), commits);
         }
 
-        List<DiffEntry> perFileChanges = new ArrayList<>();
+        int totalAdded = 0;
+        int totalDeleted = 0;
+        for (var fd : fileDiffs) {
+            var res = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new");
+            totalAdded += res.added();
+            totalDeleted += res.deleted();
+        }
 
-        files.stream()
-                .sorted(Comparator.comparing(mf -> mf.file().getRelPath()))
-                .forEach(modFile -> {
-                    var file = modFile.file();
-
-                    // Compute left content based on left reference
-                    String leftContent = "";
-                    if (!leftRef.isBlank()) {
-                        if ("WORKING".equals(leftRef)) {
-                            leftContent = file.read().orElse("");
-                        } else {
-                            try {
-                                var leftFrag = ContextFragments.GitFileFragment.fromCommit(file, leftRef, gitRepo);
-                                leftContent = leftFrag.text().join();
-                            } catch (RuntimeException e) {
-                                // File doesn't exist at leftRef (new file) - treat as empty baseline
-                                logger.debug("File {} not found at {}, treating as new file", file, leftRef);
-                                leftContent = "";
-                            }
-                        }
-                    }
-
-                    // Build right-side fragment and extract content
-                    ContextFragments.GitFileFragment rightFrag;
-                    String rightContent;
-                    if ("WORKING".equals(rightRef)) {
-                        rightContent = file.read().orElse("");
-                        rightFrag = new ContextFragments.GitFileFragment(file, "WORKING", rightContent);
-                    } else {
-                        try {
-                            rightFrag = ContextFragments.GitFileFragment.fromCommit(file, rightRef, gitRepo);
-                            rightContent = rightFrag.text().join();
-                        } catch (RuntimeException e) {
-                            // File doesn't exist at rightRef (deleted file) - treat as empty right side
-                            logger.debug("File {} not found at {}, treating as deleted file", file, rightRef);
-                            rightContent = "";
-                            rightFrag = new ContextFragments.GitFileFragment(file, rightRef, rightContent);
-                        }
-                    }
-
-                    // Compute line counts
-                    var diffRes = ContentDiffUtils.computeDiffResult(leftContent, rightContent, "old", "new");
-                    int added = diffRes.added();
-                    int deleted = diffRes.deleted();
-
-                    // Skip if no changes
-                    if (added == 0 && deleted == 0) {
-                        return;
-                    }
-
-                    synchronized (perFileChanges) {
-                        perFileChanges.add(
-                                new DiffEntry(rightFrag, diffRes.diff(), added, deleted, leftContent, rightContent));
-                    }
-                });
-
-        int totalAdded = perFileChanges.stream().mapToInt(DiffEntry::linesAdded).sum();
-        int totalDeleted =
-                perFileChanges.stream().mapToInt(DiffEntry::linesDeleted).sum();
-
-        return new CumulativeChanges(perFileChanges.size(), totalAdded, totalDeleted, perFileChanges, commits);
+        return new CumulativeChanges(fileDiffs.size(), totalAdded, totalDeleted, fileDiffs, commits);
     }
 
     /**
-     * Pre-computes titles for DiffEntries off-EDT to avoid blocking calls on the UI thread.
+     * Pre-computes titles for FileDiffs off-EDT to avoid blocking calls on the UI thread.
      * Deduplicates by title and returns a stable-sorted list.
      *
      * @param res the cumulative changes containing per-file diff entries
-     * @return list of (title, DiffEntry) pairs sorted by title
+     * @return list of (title, FileDiff) pairs sorted by title
      */
     @Blocking
-    public static List<Map.Entry<String, DiffEntry>> preparePerFileSummaries(CumulativeChanges res) {
+    public static List<Map.Entry<String, FileDiff>> preparePerFileSummaries(CumulativeChanges res) {
         var list =
-                new ArrayList<Map.Entry<String, DiffEntry>>(res.perFileChanges().size());
+                new ArrayList<Map.Entry<String, FileDiff>>(res.perFileChanges().size());
         var seen = new HashSet<String>();
-        for (var de : res.perFileChanges()) {
-            String title = de.title();
+        for (var fd : res.perFileChanges()) {
+            var file = fd.newFile() != null ? fd.newFile() : fd.oldFile();
+            if (file == null) continue;
+            String title = file.getRelPath().toString();
             if (!seen.add(title)) {
                 logger.warn("Duplicate cumulative change title '{}' detected; skipping extra entry.", title);
                 continue;
             }
-            list.add(Map.entry(title, de));
+            list.add(Map.entry(title, fd));
         }
         list.sort(Map.Entry.comparingByKey());
         return list;
@@ -439,7 +390,7 @@ public final class DiffService {
             int filesChanged,
             int totalAdded,
             int totalDeleted,
-            List<DiffEntry> perFileChanges,
+            List<FileDiff> perFileChanges,
             List<CommitInfo> commits,
             // null when we don't have a GitRepo
             @Nullable GitWorkflow.PushPullState pushPullState) {
@@ -449,7 +400,7 @@ public final class DiffService {
                 int filesChanged,
                 int totalAdded,
                 int totalDeleted,
-                List<DiffEntry> perFileChanges,
+                List<FileDiff> perFileChanges,
                 List<CommitInfo> commits) {
             this(filesChanged, totalAdded, totalDeleted, perFileChanges, commits, null);
         }
@@ -472,8 +423,7 @@ public final class DiffService {
             Instant timeBound = earliestCommit.minus(java.time.temporal.ChronoUnit.DAYS.getDuration());
 
             List<ai.brokk.SessionManager.SessionInfo> shortlisted = sessionManager.listSessions().stream()
-                    .filter(s -> com.github.f4b6a3.uuid.util.UuidUtil.getInstant(s.id())
-                            .isAfter(timeBound))
+                    .filter(s -> s.createdAt().isAfter(timeBound))
                     .toList();
 
             Set<String> changeCommitIds = commits.stream().map(CommitInfo::id).collect(Collectors.toSet());
@@ -498,17 +448,12 @@ public final class DiffService {
     /**
      * Per-fragment diff entry between two contexts.
      */
-    public record DiffEntry(
-            ContextFragment fragment,
-            String diff,
-            int linesAdded,
-            int linesDeleted,
-            String oldContent,
-            String newContent) {
+    public record FragmentDiff(
+            ContextFragment fragment, String diff, int linesAdded, int linesDeleted, String oldText, String newText) {
         @Blocking
         public String title() {
             var files = fragment.files().join();
-            if (files != null && !files.isEmpty()) {
+            if (!files.isEmpty()) {
                 var pf = files.iterator().next();
                 return pf.getRelPath().toString();
             }

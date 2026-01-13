@@ -17,6 +17,7 @@ import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.RawExcerpt;
@@ -115,8 +116,13 @@ public class ReviewAgent {
         long startTime = System.currentTimeMillis();
 
         // Prepare the initial context with the diff pinned
-        var diff = changes.perFileChanges().stream()
-                .map(de -> "File: " + de.title() + "\n" + de.diff())
+        String diff = changes.perFileChanges().stream()
+                .map(fd -> {
+                    String oldName = fd.oldFile() == null ? null : fd.oldFile().toString();
+                    String newName = fd.newFile() == null ? null : fd.newFile().toString();
+                    return ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), oldName, newName)
+                            .diff();
+                })
                 .collect(Collectors.joining("\n\n"));
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
@@ -300,12 +306,20 @@ public class ReviewAgent {
         // Fallback
         var testFiles = cm.getTestFiles();
         var filesToContext = changes.perFileChanges().stream()
-                .filter(de -> !testFiles.contains(
-                        de.fragment().files().join().iterator().next()))
-                .filter(de -> !de.oldContent().isEmpty() && !de.newContent().isEmpty())
-                .filter(de -> de.diff().split("@@").length > 3) // > 2 hunks
-                .map(DiffService.DiffEntry::fragment)
-                .toList();
+                .filter(fd -> {
+                    var file = fd.newFile() != null ? fd.newFile() : fd.oldFile();
+                    return file != null && !testFiles.contains(file);
+                })
+                .filter(fd -> !fd.oldText().isEmpty() && !fd.newText().isEmpty())
+                .filter(fd -> {
+                    var diffRes = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new");
+                    return diffRes.diff().split("@@").length > 3; // > 2 hunks
+                })
+                .map(fd -> {
+                    var file = requireNonNull(fd.newFile() != null ? fd.newFile() : fd.oldFile());
+                    return new ContextFragments.GitFileFragment(file, "WORKING", fd.newText());
+                })
+                .collect(Collectors.toList());
         var ctx = initialContext.addFragments(filesToContext);
         ctx = ctx.addFragments(ctx.buildAutoContext(10));
         return new ContextSetupResult(ctx, false);

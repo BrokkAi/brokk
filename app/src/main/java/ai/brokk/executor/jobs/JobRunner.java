@@ -6,12 +6,14 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessage;
@@ -45,6 +47,7 @@ import org.jetbrains.annotations.Nullable;
  */
 public final class JobRunner {
     private static final Logger logger = LogManager.getLogger(JobRunner.class);
+    private static final int DEFAULT_MAX_BUILD_ATTEMPTS = 3;
 
     private final ContextManager cm;
     private final JobStore store;
@@ -59,7 +62,8 @@ public final class JobRunner {
         ASK,
         SEARCH,
         REVIEW,
-        LUTZ
+        LUTZ,
+        ISSUE
     }
 
     static Mode parseMode(JobSpec spec) {
@@ -141,15 +145,18 @@ public final class JobRunner {
 
                 var completed = new AtomicInteger(0);
 
-                var rawCodeModelName = spec.codeModel();
-                var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();
-                var hasCodeModelOverride = trimmedCodeModelName != null && !trimmedCodeModelName.isEmpty();
+                var rawCodeModelName = spec.codeModel() != null
+                        ? spec.codeModel()
+                        : spec.tags().get("code_model");
+                var trimmedCodeModelName =
+                        (rawCodeModelName != null && !rawCodeModelName.isBlank()) ? rawCodeModelName.trim() : null;
+                var hasCodeModelOverride = trimmedCodeModelName != null;
 
                 final StreamingChatModel architectPlannerModel =
                         mode == Mode.ARCHITECT || mode == Mode.LUTZ ? resolveModelOrThrow(spec.plannerModel()) : null;
                 final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
-                        ? (hasCodeModelOverride
-                                ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
+                        ? (trimmedCodeModelName != null
+                                ? resolveModelOrThrow(trimmedCodeModelName)
                                 : defaultCodeModel())
                         : null;
                 final StreamingChatModel reviewPlannerModel =
@@ -162,7 +169,7 @@ public final class JobRunner {
                                 : cm.getService().getScanModel())
                         : null;
                 final StreamingChatModel askPlannerModel =
-                        mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
+                        mode == Mode.ASK || mode == Mode.ISSUE ? resolveModelOrThrow(spec.plannerModel()) : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
@@ -181,7 +188,8 @@ public final class JobRunner {
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
+                            case ARCHITECT, LUTZ, ISSUE ->
+                                service.nameOf(Objects.requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
                             case SEARCH -> service.nameOf(Objects.requireNonNull(searchPlannerModel));
                             case CODE -> {
@@ -192,7 +200,7 @@ public final class JobRunner {
                         };
                 String codeModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectCodeModel));
+                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(Objects.requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
@@ -200,7 +208,7 @@ public final class JobRunner {
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
-                            case ARCHITECT, LUTZ -> !hasCodeModelOverride;
+                            case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
                             case ASK, SEARCH, REVIEW -> true;
                             case CODE -> !hasCodeModelOverride;
                         };
@@ -230,7 +238,7 @@ public final class JobRunner {
                                 switch (mode) {
                                     case ARCHITECT -> {
                                         cm.executeTask(
-                                                new TaskList.TaskItem("", spec.taskInput(), false),
+                                                new TaskList.TaskItem(null, spec.taskInput(), false),
                                                 Objects.requireNonNull(
                                                         architectPlannerModel,
                                                         "plannerModel required for ARCHITECT jobs"),
@@ -733,6 +741,211 @@ public final class JobRunner {
                                                     prNumber,
                                                     postedComments,
                                                     skippedComments);
+                                        }
+                                    }
+                                    case ISSUE -> {
+                                        // 1. Extract and validate Issue metadata
+                                        String githubToken = spec.getGithubToken();
+                                        String repoOwner = spec.getRepoOwner();
+                                        String repoName = spec.getRepoName();
+                                        Integer issueNumber = spec.getIssueNumber();
+
+                                        if (githubToken == null || githubToken.isBlank()) {
+                                            throw new IssueExecutionException("ISSUE requires github_token in tags");
+                                        }
+                                        if (repoOwner == null || repoOwner.isBlank()) {
+                                            throw new IssueExecutionException("ISSUE requires repo_owner in tags");
+                                        }
+                                        if (repoName == null || repoName.isBlank()) {
+                                            throw new IssueExecutionException("ISSUE requires repo_name in tags");
+                                        }
+                                        if (issueNumber == null) {
+                                            throw new IssueExecutionException("ISSUE requires issue_number in tags");
+                                        }
+
+                                        // 2. Resolve issue details and build settings
+                                        var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+                                        var ghRepo = gitHubAuth.getGhRepository();
+                                        var details = IssueService.fetchIssueDetails(ghRepo, issueNumber);
+                                        var buildDetailsOverride =
+                                                IssueService.parseBuildSettings(spec.getBuildSettingsJson());
+
+                                        // 3. Branch management
+                                        var gitRepo = (GitRepo) cm.getProject().getRepo();
+                                        String originalBranch = gitRepo.getCurrentBranch();
+                                        String originalCommitId = null;
+
+                                        String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
+
+                                        try {
+                                            originalCommitId = gitRepo.getCurrentCommitId();
+                                        } catch (GitAPIException e) {
+                                            logger.warn("Failed to capture current commit ID for job {}", jobId, e);
+                                        }
+
+                                        logger.info(
+                                                "ISSUE job {}: Creating branch {} from {}",
+                                                jobId,
+                                                issueBranchName,
+                                                originalBranch);
+                                        gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
+
+                                        try {
+                                            String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
+                                                    .formatted(issueNumber, details.title(), details.body());
+
+                                            // 4. Lutz-style execution: Planning then Task Iteration
+                                            String taskDescription = "Issue #" + issueNumber + ": " + details.title();
+                                            try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
+                                                var context = cm.liveContext();
+                                                var searchAgent = new LutzAgent(
+                                                        context,
+                                                        issueTaskPrompt,
+                                                        Objects.requireNonNull(
+                                                                architectPlannerModel,
+                                                                "plannerModel required for ISSUE jobs"),
+                                                        SearchPrompts.Objective.TASKS_ONLY,
+                                                        scope);
+                                                var taskListResult = searchAgent.execute();
+                                                scope.append(taskListResult);
+
+                                                var generatedTasks =
+                                                        cm.getTaskList().tasks();
+                                                var incompleteTasks = generatedTasks.stream()
+                                                        .filter(t -> !t.done())
+                                                        .toList();
+
+                                                for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                    if (cancelled.get()) return;
+
+                                                    // Execute task with ArchitectAgent
+                                                    cm.executeTask(
+                                                            generatedTask,
+                                                            architectPlannerModel,
+                                                            Objects.requireNonNull(architectCodeModel));
+
+                                                    // 4. Verification loop: run build and retry on failure
+                                                    int buildAttempts = 0;
+                                                    int maxBuildAttempts = Objects.requireNonNullElse(
+                                                            buildDetailsOverride.maxBuildAttempts(),
+                                                            DEFAULT_MAX_BUILD_ATTEMPTS);
+
+                                                    boolean verified = false;
+
+                                                    while (!verified && buildAttempts < maxBuildAttempts) {
+                                                        buildAttempts++;
+                                                        String buildError =
+                                                                BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                        if (buildError.isBlank()) {
+                                                            verified = true;
+                                                            logger.info(
+                                                                    "ISSUE job {} task '{}' verified successfully",
+                                                                    jobId,
+                                                                    generatedTask.text());
+                                                        } else {
+                                                            logger.warn(
+                                                                    "ISSUE job {} task '{}' build failed (attempt {}/{}): {}",
+                                                                    jobId,
+                                                                    generatedTask.text(),
+                                                                    buildAttempts,
+                                                                    maxBuildAttempts,
+                                                                    buildError);
+
+                                                            if (buildAttempts < maxBuildAttempts) {
+                                                                // Ask architect to fix the build error
+                                                                String fixPrompt =
+                                                                        "The build failed after the last task '"
+                                                                                + generatedTask.text()
+                                                                                + "'. Please fix the following error:\n\n"
+                                                                                + buildError;
+                                                                cm.executeTask(
+                                                                        TaskList.TaskItem.createFixTask(fixPrompt),
+                                                                        architectPlannerModel,
+                                                                        architectCodeModel);
+                                                            } else {
+                                                                throw new IssueExecutionException(
+                                                                        "Failed to pass build verification after "
+                                                                                + maxBuildAttempts + " attempts: "
+                                                                                + buildError);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // 5. Commit and Create Pull Request
+                                                var workflow = new GitWorkflow(cm);
+                                                workflow.performAutoCommit(
+                                                        "Resolves #" + issueNumber + ": " + details.title());
+
+                                                String targetBranch = gitHubAuth.getDefaultBranch();
+                                                var suggestion = workflow.suggestPullRequestDetails(
+                                                        issueBranchName, targetBranch, cm.getIo());
+
+                                                var prUri = workflow.createPullRequest(
+                                                        issueBranchName,
+                                                        targetBranch,
+                                                        suggestion.title(),
+                                                        suggestion.description());
+
+                                                logger.info("ISSUE job {} created PR: {}", jobId, prUri);
+                                                if (console != null) {
+                                                    console.showNotification(
+                                                            IConsoleIO.NotificationRole.INFO,
+                                                            "Created Pull Request: " + prUri);
+                                                }
+                                            }
+                                        } finally {
+                                            // Ensure we roll back to the original branch on failure or cancellation
+                                            try {
+                                                if (!gitRepo.getCurrentBranch().equals(originalBranch)) {
+                                                    // Count commits on issue branch before switching away
+                                                    int issueBranchCommits = originalCommitId != null
+                                                            ? gitRepo.countCommitsSince(originalCommitId)
+                                                            : 0;
+
+                                                    // Stash any uncommitted changes to ensure checkout of original
+                                                    // branch succeeds
+                                                    if (!gitRepo.getModifiedFiles()
+                                                            .isEmpty()) {
+                                                        logger.info(
+                                                                "ISSUE job {}: Stashing uncommitted changes before branch restoration",
+                                                                jobId);
+                                                        gitRepo.createStash("Brokk ISSUE job " + jobId + " cleanup");
+                                                    }
+
+                                                    logger.info(
+                                                            "ISSUE job {}: Restoring original branch {}",
+                                                            jobId,
+                                                            originalBranch);
+                                                    gitRepo.checkout(originalBranch);
+
+                                                    // If the issue branch was never committed to, delete it to avoid
+                                                    // orphans
+                                                    boolean noCommitsSince = issueBranchCommits == 0;
+
+                                                    if (gitRepo.isBranchMerged(issueBranchName) || noCommitsSince) {
+                                                        try {
+                                                            gitRepo.deleteBranch(issueBranchName);
+                                                            logger.info(
+                                                                    "ISSUE job {}: Deleted empty issue branch {}",
+                                                                    jobId,
+                                                                    issueBranchName);
+                                                        } catch (Exception e) {
+                                                            logger.warn(
+                                                                    "ISSUE job {}: Failed to delete temporary branch {}",
+                                                                    jobId,
+                                                                    issueBranchName,
+                                                                    e);
+                                                        }
+                                                    }
+                                                }
+                                            } catch (Exception e) {
+                                                logger.error(
+                                                        "ISSUE job {}: Failed to restore original branch {}",
+                                                        jobId,
+                                                        originalBranch,
+                                                        e);
+                                            }
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);

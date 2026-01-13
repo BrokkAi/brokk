@@ -15,6 +15,7 @@ import ai.brokk.executor.jobs.JobRunner;
 import ai.brokk.executor.jobs.JobSpec;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Splitter;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -42,6 +43,7 @@ import org.jetbrains.annotations.Nullable;
 
 public final class HeadlessExecutorMain {
     private static final Logger logger = LogManager.getLogger(HeadlessExecutorMain.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     // Valid argument keys that the application accepts
     private static final Set<String> VALID_ARGS =
@@ -54,6 +56,7 @@ public final class HeadlessExecutorMain {
     private final SessionManager sessionManager;
     private final JobReservation jobReservation = new JobReservation();
     private final JobRunner jobRunner;
+    private final Thread initThread;
     // Indicates whether a session has been loaded (either uploaded or created) at least once.
     // Used to gate /health/ready until the first session is available.
     private volatile boolean sessionLoaded = false;
@@ -202,7 +205,7 @@ public final class HeadlessExecutorMain {
         this.sessionManager = new SessionManager(sessionsDir);
 
         // Initialize headless context asynchronously to avoid blocking constructor
-        var initThread = new Thread(
+        this.initThread = new Thread(
                 () -> {
                     try {
                         this.contextManager.createHeadless();
@@ -212,8 +215,8 @@ public final class HeadlessExecutorMain {
                     }
                 },
                 "ContextManager-Init");
-        initThread.setDaemon(true);
-        initThread.start();
+        this.initThread.setDaemon(true);
+        this.initThread.start();
 
         // Initialize JobRunner
         this.jobRunner = new JobRunner(this.contextManager, this.jobStore);
@@ -357,6 +360,14 @@ public final class HeadlessExecutorMain {
     }
 
     public void stop(int delaySeconds) {
+        // Interrupt and wait for init thread to prevent resource leak
+        initThread.interrupt();
+        try {
+            initThread.join(5000); // Wait up to 5 seconds
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
         try {
             this.contextManager.close();
         } catch (Exception e) {
@@ -555,6 +566,18 @@ public final class HeadlessExecutorMain {
         // POST /v1/jobs - create job
         if (path.equals("/v1/jobs") && method.equals("POST")) {
             handlePostJobs(exchange);
+            return;
+        }
+
+        // POST /v1/jobs/issue - convenience endpoint for issue resolution
+        if (path.equals("/v1/jobs/issue") && method.equals("POST")) {
+            handlePostIssueJob(exchange);
+            return;
+        }
+
+        // POST /v1/jobs/pr-review - convenience endpoint for PR review
+        if (path.equals("/v1/jobs/pr-review") && method.equals("POST")) {
+            handlePostPrReviewJob(exchange);
             return;
         }
 
@@ -839,8 +862,7 @@ public final class HeadlessExecutorMain {
         try {
             var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
-                var error = ErrorPayload.validationError("Idempotency-Key header is required");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                sendValidationError(exchange, "Idempotency-Key header is required");
                 return;
             }
             var sessionIdStr = exchange.getRequestHeaders().getFirst("X-Session-Id");
@@ -849,8 +871,7 @@ public final class HeadlessExecutorMain {
                 try {
                     sessionId = UUID.fromString(sessionIdStr);
                 } catch (IllegalArgumentException e) {
-                    var error = ErrorPayload.validationError("Invalid Session-Id format: must be a valid UUID");
-                    SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                    sendValidationError(exchange, "Invalid Session-Id format: must be a valid UUID");
                     return;
                 }
             }
@@ -859,16 +880,14 @@ public final class HeadlessExecutorMain {
             // Parse JobSpec payload from request body
             var jobSpecRequest = SimpleHttpServer.parseJsonRequest(exchange, JobSpecRequest.class);
             if (jobSpecRequest == null) {
-                var error = ErrorPayload.validationError("Invalid JobSpec in request body");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                sendValidationError(exchange, "Invalid JobSpec in request body");
                 return;
             }
 
             var plannerModel = Objects.requireNonNullElse(jobSpecRequest.plannerModel(), "")
                     .strip();
             if (plannerModel.isBlank()) {
-                var error = ErrorPayload.validationError("plannerModel is required");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                sendValidationError(exchange, "plannerModel is required");
                 return;
             }
 
@@ -1131,6 +1150,129 @@ public final class HeadlessExecutorMain {
     }
 
     /**
+     * POST /v1/jobs/pr-review - Convenience endpoint for PR review jobs.
+     * <p>
+     * <b>Authentication:</b> Required (via Authorization header)
+     * <p>
+     * <b>Request Headers:</b>
+     * <ul>
+     *   <li>Idempotency-Key (required): Unique key for idempotent job creation</li>
+     * </ul>
+     * <p>
+     * <b>Request Body (JSON):</b>
+     * <pre>
+     * {
+     *   "owner": "repo-owner",
+     *   "repo": "repo-name",
+     *   "prNumber": 123,
+     *   "githubToken": "ghp_...",
+     *   "plannerModel": "gpt-4"
+     * }
+     * </pre>
+     * <p>
+     * <b>Response (201 Created / 200 OK):</b>
+     * <pre>
+     * {
+     *   "jobId": "uuid",
+     *   "state": "queued"
+     * }
+     * </pre>
+     */
+    void handlePostPrReviewJob(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+            if (idempotencyKey == null || idempotencyKey.isBlank()) {
+                sendValidationError(exchange, "Idempotency-Key header is required");
+                return;
+            }
+
+            var request = parseJsonOr400(exchange, PrReviewJobRequest.class, "/v1/jobs/pr-review");
+            if (request == null) {
+                return;
+            }
+
+            // Validate required fields
+            if (request.owner() == null || request.owner().isBlank()) {
+                sendValidationError(exchange, "owner is required");
+                return;
+            }
+            if (request.repo() == null || request.repo().isBlank()) {
+                sendValidationError(exchange, "repo is required");
+                return;
+            }
+            if (request.prNumber() <= 0) {
+                sendValidationError(exchange, "prNumber must be a positive integer");
+                return;
+            }
+            if (request.githubToken() == null || request.githubToken().isBlank()) {
+                sendValidationError(exchange, "githubToken is required");
+                return;
+            }
+            if (request.plannerModel() == null || request.plannerModel().isBlank()) {
+                sendValidationError(exchange, "plannerModel is required");
+                return;
+            }
+
+            var jobSpec = JobSpec.ofPrReview(
+                    request.plannerModel(), request.githubToken(), request.owner(), request.repo(), request.prNumber());
+
+            var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
+            var jobId = createResult.jobId();
+            var isNewJob = createResult.isNewJob();
+
+            logger.info(
+                    "PR Review job {}: isNewJob={}, jobId={}, owner={}, repo={}, pr={}",
+                    idempotencyKey,
+                    isNewJob,
+                    jobId,
+                    request.owner(),
+                    request.repo(),
+                    request.prNumber());
+
+            var status = jobStore.loadStatus(jobId);
+            var state = status != null ? status.state() : "queued";
+
+            var response = new HashMap<String, Object>();
+            response.put("jobId", jobId);
+            response.put("state", state);
+
+            if (isNewJob) {
+                if (!tryReserveJobSlot(jobId)) {
+                    logger.info(
+                            "PR Review job reservation failed; another job in progress: {}, requested jobId={}",
+                            jobReservation.current(),
+                            jobId);
+                    var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+                    SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+
+                try {
+                    executeJobAsync(jobId, jobSpec, List.of());
+                } catch (Exception ex) {
+                    jobReservation.releaseIfOwner(jobId);
+                    logger.error("Failed to start PR review job {}", jobId, ex);
+                    var error = ErrorPayload.internalError("Failed to start job execution", ex);
+                    SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+                    return;
+                }
+
+                SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+            } else {
+                SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+            }
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/jobs/pr-review", e);
+            var error = ErrorPayload.internalError("Failed to create PR review job", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
+
+    /**
      * GET /v1/jobs/{jobId}/diff - Get git diff for job.
      */
     void handleGetJobDiff(HttpExchange exchange, String jobId) throws IOException {
@@ -1318,6 +1460,13 @@ public final class HeadlessExecutorMain {
 
     private record CreateSessionRequest(String name) {}
 
+    private record PrReviewJobRequest(
+            @Nullable String owner,
+            @Nullable String repo,
+            int prNumber,
+            @Nullable String githubToken,
+            @Nullable String plannerModel) {}
+
     private record JobSpecRequest(
             String sessionId,
             String taskInput,
@@ -1354,6 +1503,110 @@ public final class HeadlessExecutorMain {
     private record AddContextTextRequest(String text) {}
 
     private record AddContextTextResponse(String id, int chars) {}
+
+    private record IssueJobRequest(
+            @Nullable String owner,
+            @Nullable String repo,
+            int issueNumber,
+            @Nullable String githubToken,
+            @Nullable String plannerModel,
+            @Nullable String codeModel,
+            @Nullable Map<String, Object> buildSettings) {}
+
+    /**
+     * POST /v1/jobs/issue - Convenience endpoint for starting an ISSUE mode job.
+     */
+    void handlePostIssueJob(HttpExchange exchange) throws IOException {
+        if (!ensureMethod(exchange, "POST")) {
+            return;
+        }
+
+        try {
+            var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
+            if (idempotencyKey == null || idempotencyKey.isBlank()) {
+                sendValidationError(exchange, "Idempotency-Key header is required");
+                return;
+            }
+
+            var request = parseJsonOr400(exchange, IssueJobRequest.class, "/v1/jobs/issue");
+            if (request == null) {
+                return;
+            }
+
+            // Validation
+            if (request.owner() == null || request.owner().isBlank()) {
+                sendValidationError(exchange, "owner is required");
+                return;
+            }
+            if (request.repo() == null || request.repo().isBlank()) {
+                sendValidationError(exchange, "repo is required");
+                return;
+            }
+            if (request.issueNumber() <= 0) {
+                sendValidationError(exchange, "valid issueNumber is required");
+                return;
+            }
+            if (request.githubToken() == null || request.githubToken().isBlank()) {
+                sendValidationError(exchange, "githubToken is required");
+                return;
+            }
+            if (request.plannerModel() == null || request.plannerModel().isBlank()) {
+                sendValidationError(exchange, "plannerModel is required");
+                return;
+            }
+
+            String buildSettingsJson = "";
+            if (request.buildSettings() != null) {
+                buildSettingsJson = OBJECT_MAPPER.writeValueAsString(request.buildSettings());
+            }
+
+            var jobSpec = JobSpec.ofIssue(
+                    Objects.requireNonNull(request.plannerModel()),
+                    request.codeModel() != null ? request.codeModel().strip() : null,
+                    Objects.requireNonNull(request.githubToken()),
+                    Objects.requireNonNull(request.owner()),
+                    Objects.requireNonNull(request.repo()),
+                    request.issueNumber(),
+                    buildSettingsJson);
+
+            // Create or get job
+            var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
+            var jobId = createResult.jobId();
+            var isNewJob = createResult.isNewJob();
+
+            var status = jobStore.loadStatus(jobId);
+            var state = status != null ? status.state() : "queued";
+
+            var response = new HashMap<String, Object>();
+            response.put("jobId", jobId);
+            response.put("state", state);
+
+            if (isNewJob) {
+                if (!tryReserveJobSlot(jobId)) {
+                    var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
+                    SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+
+                try {
+                    executeJobAsync(jobId, jobSpec, List.of());
+                } catch (Exception ex) {
+                    jobReservation.releaseIfOwner(jobId);
+                    logger.error("Failed to start issue job {}", jobId, ex);
+                    var error = ErrorPayload.internalError("Failed to start job execution", ex);
+                    SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+                    return;
+                }
+                SimpleHttpServer.sendJsonResponse(exchange, 201, response);
+            } else {
+                SimpleHttpServer.sendJsonResponse(exchange, 200, response);
+            }
+        } catch (Exception e) {
+            logger.error("Error handling POST /v1/jobs/issue", e);
+            var error = ErrorPayload.internalError("Failed to create issue job", e);
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+        }
+    }
 
     /**
      * POST /v1/context/classes - Add class summaries to the current session context.
@@ -1758,6 +2011,7 @@ public final class HeadlessExecutorMain {
             System.out.println("    PUT  /v1/sessions                 - import/load a session from zip");
             System.out.println("    GET  /v1/sessions/{sessionId}     - download a session zip");
             System.out.println("    POST /v1/jobs                     - create and start a job");
+            System.out.println("    POST /v1/jobs/pr-review           - create a PR review job");
             System.out.println("    GET  /v1/jobs/{jobId}             - get job status");
             System.out.println("    GET  /v1/jobs/{jobId}/events      - stream job execution events");
             System.out.println("    POST /v1/jobs/{jobId}/cancel      - cancel job execution");
