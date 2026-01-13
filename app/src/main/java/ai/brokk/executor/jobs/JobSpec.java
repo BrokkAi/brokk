@@ -80,6 +80,7 @@ public record JobSpec(
                 codeModel,
                 false,
                 Map.of(
+                        "mode", "ISSUE",
                         "github_token", githubToken,
                         "repo_owner", owner,
                         "repo_name", repo,
