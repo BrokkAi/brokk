@@ -845,8 +845,7 @@ public final class HeadlessExecutorMain {
         try {
             var idempotencyKey = exchange.getRequestHeaders().getFirst("Idempotency-Key");
             if (idempotencyKey == null || idempotencyKey.isBlank()) {
-                var error = ErrorPayload.validationError("Idempotency-Key header is required");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                sendValidationError(exchange, "Idempotency-Key header is required");
                 return;
             }
             var sessionIdStr = exchange.getRequestHeaders().getFirst("X-Session-Id");
@@ -855,8 +854,7 @@ public final class HeadlessExecutorMain {
                 try {
                     sessionId = UUID.fromString(sessionIdStr);
                 } catch (IllegalArgumentException e) {
-                    var error = ErrorPayload.validationError("Invalid Session-Id format: must be a valid UUID");
-                    SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                    sendValidationError(exchange, "Invalid Session-Id format: must be a valid UUID");
                     return;
                 }
             }
@@ -865,16 +863,14 @@ public final class HeadlessExecutorMain {
             // Parse JobSpec payload from request body
             var jobSpecRequest = SimpleHttpServer.parseJsonRequest(exchange, JobSpecRequest.class);
             if (jobSpecRequest == null) {
-                var error = ErrorPayload.validationError("Invalid JobSpec in request body");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                sendValidationError(exchange, "Invalid JobSpec in request body");
                 return;
             }
 
             var plannerModel = Objects.requireNonNullElse(jobSpecRequest.plannerModel(), "")
                     .strip();
             if (plannerModel.isBlank()) {
-                var error = ErrorPayload.validationError("plannerModel is required");
-                SimpleHttpServer.sendJsonResponse(exchange, 400, error);
+                sendValidationError(exchange, "plannerModel is required");
                 return;
             }
 
