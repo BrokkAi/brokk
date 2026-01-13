@@ -96,8 +96,8 @@ public class GoTestDetectionTest {
                     func TestNotReally(t *testing.B) {}
                     """;
             String wrongParamPath = "pkg/wrong_param.go";
-            try (IProject project2 =
-                    InlineTestProjectCreator.code(wrongParamContent, wrongParamPath).build()) {
+            try (IProject project2 = InlineTestProjectCreator.code(wrongParamContent, wrongParamPath)
+                    .build()) {
                 GoAnalyzer analyzer2 = new GoAnalyzer(project2);
                 analyzer2 = (GoAnalyzer) analyzer2.update();
                 assertFalse(
@@ -122,8 +122,8 @@ public class GoTestDetectionTest {
                     func TestMulti(a, b *testing.T) {}
                     """;
             String multiParamPath = "pkg/multi_param.go";
-            try (IProject project3 =
-                    InlineTestProjectCreator.code(multiParamContent, multiParamPath).build()) {
+            try (IProject project3 = InlineTestProjectCreator.code(multiParamContent, multiParamPath)
+                    .build()) {
                 GoAnalyzer analyzer3 = new GoAnalyzer(project3);
                 analyzer3 = (GoAnalyzer) analyzer3.update();
                 assertFalse(

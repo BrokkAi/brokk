@@ -73,7 +73,8 @@ public class JavaTestDetectionTest {
 
         String fileName = "src/com/example/MyService.java";
 
-        try (var project = InlineTestProjectCreator.code(nullableContent, fileName).build()) {
+        try (var project =
+                InlineTestProjectCreator.code(nullableContent, fileName).build()) {
 
             ProjectFile file = new ProjectFile(project.getRoot(), fileName);
 

@@ -20,7 +20,8 @@ public class PythonTestDetectionTest {
                 assert 1 + 1 == 2
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.py").build()) {
             PythonAnalyzer analyzer = new PythonAnalyzer(project);
             analyzer.update();
 
@@ -39,7 +40,8 @@ public class PythonTestDetectionTest {
                     assert 1 + 1 == 2
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.py").build()) {
             PythonAnalyzer analyzer = new PythonAnalyzer(project);
             analyzer.update();
 
@@ -60,7 +62,8 @@ public class PythonTestDetectionTest {
                 return 123
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.py").build()) {
             PythonAnalyzer analyzer = new PythonAnalyzer(project);
             analyzer.update();
 
@@ -82,7 +85,8 @@ public class PythonTestDetectionTest {
                     return a + b
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.py").build()) {
             PythonAnalyzer analyzer = new PythonAnalyzer(project);
             analyzer.update();
 
@@ -103,7 +107,8 @@ public class PythonTestDetectionTest {
                 return 42
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.py").build()) {
             PythonAnalyzer analyzer = new PythonAnalyzer(project);
             analyzer.update();
 
@@ -120,7 +125,8 @@ public class PythonTestDetectionTest {
                 pass
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.py").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.py").build()) {
             PythonAnalyzer analyzer = new PythonAnalyzer(project);
             analyzer.update();
 

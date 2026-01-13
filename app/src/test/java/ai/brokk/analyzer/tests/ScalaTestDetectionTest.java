@@ -27,7 +27,8 @@ public class ScalaTestDetectionTest {
             }
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.scala").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.scala").build()) {
             ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
             analyzer.update();
 
@@ -48,7 +49,8 @@ public class ScalaTestDetectionTest {
             }
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.scala").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.scala").build()) {
             ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
             analyzer.update();
 
@@ -69,7 +71,8 @@ public class ScalaTestDetectionTest {
             }
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.scala").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.scala").build()) {
             ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
             analyzer.update();
 
@@ -90,7 +93,8 @@ public class ScalaTestDetectionTest {
             }
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.scala").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.scala").build()) {
             ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
             analyzer.update();
 
@@ -109,7 +113,8 @@ public class ScalaTestDetectionTest {
             }
             """;
 
-        try (IProject project = InlineTestProjectCreator.code(code, "Example.scala").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.scala").build()) {
             ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
             analyzer.update();
 

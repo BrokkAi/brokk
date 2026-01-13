@@ -3,7 +3,6 @@ package ai.brokk.analyzer.tests;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -14,34 +13,35 @@ public class RustAnalyzerCodeUnitsTest {
 
     @Test
     void testModuleClassAndFunctionCodeUnits() throws Exception {
-        String rustCode = """
+        String rustCode =
+                """
             mod utils {
                 pub fn helper() -> i32 {
                     42
                 }
             }
-            
+
             pub struct Point {
                 pub x: i32,
                 pub y: i32,
             }
-            
+
             impl Point {
                 pub fn new(x: i32, y: i32) -> Self {
                     Self { x, y }
                 }
             }
-            
+
             pub trait Drawable {
                 fn draw(&self);
             }
-            
+
             pub enum Color {
                 Red,
                 Green,
                 Blue,
             }
-            
+
             pub fn distance(a: &Point, b: &Point) -> f64 {
                 0.0
             }
@@ -49,7 +49,8 @@ public class RustAnalyzerCodeUnitsTest {
 
         String fileName = "lib.rs";
 
-        try (IProject project = InlineTestProjectCreator.code(rustCode, fileName).build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, fileName).build()) {
             RustAnalyzer analyzer = new RustAnalyzer(project);
             analyzer.update();
 
@@ -73,12 +74,7 @@ public class RustAnalyzerCodeUnitsTest {
     }
 
     private void assertCodeUnitType(
-            RustAnalyzer analyzer,
-            String fqName,
-            String label,
-            boolean isModule,
-            boolean isClass,
-            boolean isFunction) {
+            RustAnalyzer analyzer, String fqName, String label, boolean isModule, boolean isClass, boolean isFunction) {
         Collection<CodeUnit> units = analyzer.getDefinitions(fqName);
         assertFalse(units.isEmpty(), "Should find code unit for: " + fqName);
 

@@ -57,7 +57,8 @@ public class CSharpTestDetectionTest {
 
             // 1. Verify analyzer's semantic detection
             assertTrue(
-                    analyzer.containsTests(testFile), "File with [Test] attribute should be marked as containing tests");
+                    analyzer.containsTests(testFile),
+                    "File with [Test] attribute should be marked as containing tests");
             assertFalse(analyzer.containsTests(nonTestFile), "File without test attributes should not be marked");
 
             // 2. Verify ContextManager's integration (which uses the analyzer)

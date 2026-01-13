@@ -57,7 +57,8 @@ public class PhpTestDetectionTest {
                 public function normalMethod() { }
             }
             """;
-        try (IProject project = InlineTestProjectCreator.code(code, "Normal.php").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Normal.php").build()) {
             PhpAnalyzer analyzer = new PhpAnalyzer(project);
             analyzer.update();
 
@@ -122,7 +123,8 @@ public class PhpTestDetectionTest {
                 public function notATest() { }
             }
             """;
-        try (IProject project = InlineTestProjectCreator.code(code, "MyService.php").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "MyService.php").build()) {
             PhpAnalyzer analyzer = new PhpAnalyzer(project);
             analyzer.update();
 
@@ -144,7 +146,8 @@ public class PhpTestDetectionTest {
                 public function atest() { }
             }
             """;
-        try (IProject project = InlineTestProjectCreator.code(code, "Boundary.php").build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Boundary.php").build()) {
             PhpAnalyzer analyzer = new PhpAnalyzer(project);
             analyzer.update();
 
