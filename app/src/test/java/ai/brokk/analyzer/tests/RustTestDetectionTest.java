@@ -8,7 +8,6 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.RustAnalyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
-import org.jspecify.annotations.NullMarked;
 import org.junit.jupiter.api.Test;
 
 public class RustTestDetectionTest {
@@ -48,12 +47,15 @@ public class RustTestDetectionTest {
             ProjectFile regularFile = new ProjectFile(project.getRoot(), regularFileName);
 
             // Assert analyzer semantic detection
-            assertTrue(analyzer.containsTests(testFile), "File with #[cfg(test)] should be detected as containing tests");
+            assertTrue(
+                    analyzer.containsTests(testFile), "File with #[cfg(test)] should be detected as containing tests");
             assertFalse(
-                    analyzer.containsTests(regularFile), "File without markers should not be detected as containing tests");
+                    analyzer.containsTests(regularFile),
+                    "File without markers should not be detected as containing tests");
 
             // Assert ContextManager integration
-            // ContextManager.isTestFile should return true for logic.rs because the analyzer confirms it contains tests,
+            // ContextManager.isTestFile should return true for logic.rs because the analyzer confirms it contains
+            // tests,
             // even though "logic.rs" doesn't match the filename regex.
             assertTrue(
                     ContextManager.isTestFile(testFile, analyzer),
@@ -78,7 +80,8 @@ public class RustTestDetectionTest {
 
         String fileName = "not_a_test.rs";
 
-        try (IProject project = InlineTestProjectCreator.code(nonTestContent, fileName).build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(nonTestContent, fileName).build()) {
             RustAnalyzer analyzer = new RustAnalyzer(project);
 
             ProjectFile file = new ProjectFile(project.getRoot(), fileName);
@@ -91,8 +94,7 @@ public class RustTestDetectionTest {
 
     @Test
     void testCfgTestDetection() throws Exception {
-        String cfgTestContent =
-                """
+        String cfgTestContent = """
             #[cfg(test)]
             mod tests {
             }
@@ -100,7 +102,8 @@ public class RustTestDetectionTest {
 
         String fileName = "test_mod.rs";
 
-        try (IProject project = InlineTestProjectCreator.code(cfgTestContent, fileName).build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(cfgTestContent, fileName).build()) {
             RustAnalyzer analyzer = new RustAnalyzer(project);
 
             ProjectFile file = new ProjectFile(project.getRoot(), fileName);

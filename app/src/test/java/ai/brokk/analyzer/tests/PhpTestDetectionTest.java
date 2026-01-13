@@ -133,7 +133,7 @@ public class PhpTestDetectionTest {
         String code =
                 """
             <?php
-            class TestSuffix { 
+            class TestSuffix {
                 public function testingSetup() { }
                 public function atest() { }
             }

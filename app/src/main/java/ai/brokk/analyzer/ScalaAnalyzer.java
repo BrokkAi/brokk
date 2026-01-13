@@ -211,14 +211,16 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
                     }
                     case "test.annotation" -> {
                         String nodeText = sourceContent.substringFromBytes(
-                                capture.getNode().getStartByte(), capture.getNode().getEndByte());
+                                capture.getNode().getStartByte(),
+                                capture.getNode().getEndByte());
                         if (TEST_ANNOTATIONS.contains(nodeText)) {
                             return true;
                         }
                     }
                     case "test.infix" -> {
                         String nodeText = sourceContent.substringFromBytes(
-                                capture.getNode().getStartByte(), capture.getNode().getEndByte());
+                                capture.getNode().getStartByte(),
+                                capture.getNode().getEndByte());
                         if (TEST_INFIX_KEYWORDS.contains(nodeText)) {
                             return true;
                         }

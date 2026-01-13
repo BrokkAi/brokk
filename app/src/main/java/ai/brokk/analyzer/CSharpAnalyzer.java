@@ -255,15 +255,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
         cursor.exec(query, tree.getRootNode());
         TSQueryMatch match = new TSQueryMatch();
 
-        Set<String> testAttributes = Set.of(
-                "Test",
-                "Fact",
-                "Theory",
-                "TestCase",
-                "TestMethod",
-                "DataTestMethod",
-                "SetUp",
-                "TearDown");
+        Set<String> testAttributes =
+                Set.of("Test", "Fact", "Theory", "TestCase", "TestMethod", "DataTestMethod", "SetUp", "TearDown");
 
         while (cursor.nextMatch(match)) {
             boolean hasTestMarker = false;
@@ -282,7 +275,8 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
 
             if (hasTestMarker && capturedAttrName != null) {
                 final String finalName = capturedAttrName;
-                if (testAttributes.stream().anyMatch(attr -> finalName.equals(attr) || finalName.endsWith("." + attr))) {
+                if (testAttributes.stream()
+                        .anyMatch(attr -> finalName.equals(attr) || finalName.endsWith("." + attr))) {
                     return true;
                 }
             }

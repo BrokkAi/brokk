@@ -188,12 +188,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             // "class.definition" is for struct, trait, enum.
             // "impl.definition" is for impl blocks. Both create class-like CodeUnits.
             // simpleName for "impl.definition" will be the type being implemented (e.g., "Point").
-            case CaptureNames.CLASS_DEFINITION,
-                    CaptureNames.IMPL_DEFINITION ->
+            case CaptureNames.CLASS_DEFINITION, CaptureNames.IMPL_DEFINITION ->
                 CodeUnit.cls(file, packageName, simpleName);
             // "module.definition" is for mod blocks.
-            case CaptureNames.MODULE_DEFINITION ->
-                CodeUnit.module(file, packageName, simpleName);
+            case CaptureNames.MODULE_DEFINITION -> CodeUnit.module(file, packageName, simpleName);
             case CaptureNames.FUNCTION_DEFINITION -> {
                 // For methods, classChain will be the struct/impl type name.
                 // For free functions, classChain will be empty.
@@ -434,7 +432,10 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             }
 
             // We use the source file's computed package as the parent for these modules
-            String moduleName = SourceContent.read(file).map(sc -> sc.substringFrom(nameNode)).orElse("").strip();
+            String moduleName = SourceContent.read(file)
+                    .map(sc -> sc.substringFrom(nameNode))
+                    .orElse("")
+                    .strip();
             if (moduleName.isEmpty()) {
                 continue;
             }
@@ -456,7 +457,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
 
             // Children: include top-level CUs that belong to this module's scope
             // For Rust, nested items have a packageName that includes the inline module name
-            String expectedChildPackage = modulePackageName.isEmpty() ? moduleName : modulePackageName + "." + moduleName;
+            String expectedChildPackage =
+                    modulePackageName.isEmpty() ? moduleName : modulePackageName + "." + moduleName;
             List<CodeUnit> childrenInModule = new ArrayList<>();
             for (CodeUnit cu : localTopLevelCUs) {
                 if (expectedChildPackage.equals(cu.packageName())) {
@@ -488,8 +490,8 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                         if (ATTRIBUTE_ITEM.equals(current.getType())) {
                             String content = sourceContent.substringFrom(current);
                             // Rust attributes look like #[test] or #[cfg(test)]
-                            if (content.contains("test") && 
-                                (content.contains("#[test]") || content.contains("#[cfg(test)]"))) {
+                            if (content.contains("test")
+                                    && (content.contains("#[test]") || content.contains("#[cfg(test)]"))) {
                                 return true;
                             }
                             break;

@@ -279,8 +279,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 String captureName = query.getCaptureNameForId(capture.getIndex());
                 if (TEST_MARKER.equals(captureName)) {
                     TSNode node = capture.getNode();
-                    String annotationName =
-                            sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                    String annotationName = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
                     if (TEST_ANNOTATIONS.contains(annotationName)) {
                         return true;
                     }

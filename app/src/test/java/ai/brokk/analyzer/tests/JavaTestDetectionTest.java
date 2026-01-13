@@ -80,8 +80,6 @@ public class JavaTestDetectionTest {
         analyzer = (JavaAnalyzer) analyzer.update();
 
         // @Nullable should NOT be detected as a test marker
-        assertFalse(
-                analyzer.containsTests(file),
-                "@Nullable annotation should NOT be detected as test marker");
+        assertFalse(analyzer.containsTests(file), "@Nullable annotation should NOT be detected as test marker");
     }
 }
