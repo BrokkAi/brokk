@@ -274,7 +274,11 @@ public final class CSharpAnalyzer extends TreeSitterAnalyzer {
             }
 
             if (hasTestMarker && capturedAttrName != null) {
-                final String finalName = capturedAttrName;
+                String normalizedName = capturedAttrName;
+                if (normalizedName.endsWith("Attribute")) {
+                    normalizedName = normalizedName.substring(0, normalizedName.length() - "Attribute".length());
+                }
+                final String finalName = normalizedName;
                 if (testAttributes.stream()
                         .anyMatch(attr -> finalName.equals(attr) || finalName.endsWith("." + attr))) {
                     return true;

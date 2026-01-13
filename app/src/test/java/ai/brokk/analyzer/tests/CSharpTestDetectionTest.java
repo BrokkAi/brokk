@@ -118,6 +118,31 @@ public class CSharpTestDetectionTest {
     }
 
     @Test
+    void testAttributeSuffixHandling() throws Exception {
+        String code =
+                """
+                using NUnit.Framework;
+                public class SuffixTests {
+                    [TestAttribute]
+                    public void MyTest() {}
+
+                    [NUnit.Framework.FactAttribute]
+                    public void QualifiedSuffix() {}
+                }
+                """;
+        String path = "Tests/SuffixTests.cs";
+
+        try (IProject project = InlineTestProjectCreator.code(code, path).build()) {
+            CSharpAnalyzer analyzer = new CSharpAnalyzer(project);
+            analyzer = (CSharpAnalyzer) analyzer.update();
+
+            assertTrue(
+                    analyzer.containsTests(new ProjectFile(project.getRoot(), path)),
+                    "Attributes with 'Attribute' suffix should be correctly detected");
+        }
+    }
+
+    @Test
     void testNonTestAttributesDoNotTriggerDetection() throws Exception {
         String code =
                 """
