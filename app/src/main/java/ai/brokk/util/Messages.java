@@ -187,4 +187,9 @@ public class Messages {
                 && aiMessage.reasoningContent() != null
                 && !aiMessage.reasoningContent().isBlank();
     }
+
+    public static boolean isTerminalMessage(ChatMessage message) {
+        return message instanceof CustomMessage cm
+                && cm.attributes().get("isTerminal") != null;
+    }
 }

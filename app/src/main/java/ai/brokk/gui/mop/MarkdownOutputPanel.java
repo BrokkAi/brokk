@@ -26,6 +26,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.*;
+
+import dev.langchain4j.data.message.CustomMessage;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -239,7 +241,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
         var chunkMeta = new ChunkMeta(isNew, reasoning, meta.isTerminal());
 
-        var lastMessageIsReasoning = !messages.isEmpty() && isReasoningMessage(messages.getLast());
+        var lastMessageIsReasoning = !messages.isEmpty() && Messages.isReasoningMessage(messages.getLast());
         if (isNew
                 || messages.isEmpty()
                 || reasoning != lastMessageIsReasoning
@@ -262,8 +264,9 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         clearMain();
         messages.addAll(newMessages);
         for (var message : newMessages) {
-            var isReasoning = isReasoningMessage(message);
-            var chunkMeta = new ChunkMeta(true, isReasoning, false);
+            var isReasoning = Messages.isReasoningMessage(message);
+            var isTerminal = Messages.isTerminalMessage(message);
+            var chunkMeta = new ChunkMeta(true, isReasoning, isTerminal);
             webHost.append(Messages.getText(message), message.type(), false, chunkMeta);
         }
         // All appends are sent, now flush to make sure they are processed.
@@ -290,14 +293,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public List<ChatMessage> getRawMessages() {
         return List.copyOf(messages);
-    }
-
-    public static boolean isReasoningMessage(ChatMessage msg) {
-        if (msg instanceof AiMessage ai) {
-            var reasoning = ai.reasoningContent();
-            return reasoning != null && !reasoning.isEmpty();
-        }
-        return false;
     }
 
     public void addTextChangeListener(Runnable listener) {
