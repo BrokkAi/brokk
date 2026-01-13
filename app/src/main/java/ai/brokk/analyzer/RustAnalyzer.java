@@ -192,8 +192,9 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
                 CodeUnit.cls(file, packageName, simpleName);
             // "module.definition" is for mod blocks.
             case CaptureNames.MODULE_DEFINITION -> {
-                String fqPackage = classChain.isEmpty() ? packageName : 
-                    (packageName.isEmpty() ? classChain : packageName + "." + classChain);
+                String fqPackage = classChain.isEmpty()
+                        ? packageName
+                        : (packageName.isEmpty() ? classChain : packageName + "." + classChain);
                 yield CodeUnit.module(file, fqPackage, simpleName);
             }
             case CaptureNames.FUNCTION_DEFINITION -> {

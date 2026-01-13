@@ -93,7 +93,8 @@ public class RustAnalyzerTest {
 
         String fileName = "nested_test.rs";
 
-        try (IProject project = InlineTestProjectCreator.code(rustCode, fileName).build()) {
+        try (IProject project =
+                InlineTestProjectCreator.code(rustCode, fileName).build()) {
             RustAnalyzer analyzer = new RustAnalyzer(project);
             analyzer.update();
 
@@ -108,9 +109,7 @@ public class RustAnalyzerTest {
 
             // Verify test detection works for nested test
             ProjectFile file = new ProjectFile(project.getRoot(), fileName);
-            assertTrue(
-                    analyzer.containsTests(file),
-                    "File with nested #[test] should be detected as containing tests");
+            assertTrue(analyzer.containsTests(file), "File with nested #[test] should be detected as containing tests");
         }
     }
 }
