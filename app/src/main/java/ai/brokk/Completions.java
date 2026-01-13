@@ -104,6 +104,7 @@ public class Completions {
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
+                        .thenComparingInt(sc -> sc.cu().identifier().length())
                         .thenComparing(sc -> sc.cu().fqName()))
                 .map(ScoredCU::cu)
                 .collect(Collectors.collectingAndThen(
