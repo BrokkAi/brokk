@@ -63,6 +63,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         markdown: evt.text ?? '',
                         epoch: evt.epoch,
                         streaming: isStreaming,
+                        isTerminal: evt.meta.isTerminal || undefined,
                         reasoningState: evt.meta.isReasoning ? {
                             startTime: Date.now(),
                             complete: false,
@@ -82,6 +83,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         markdown: last.markdown + (evt.text ?? ''),
                         epoch: evt.epoch,
                         streaming: isStreaming,
+                        isTerminal: last.isTerminal || evt.meta.isTerminal || undefined,
                     };
                     list = [...list.slice(0, -1), bubble];
                 }

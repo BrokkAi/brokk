@@ -75,6 +75,9 @@ export type BubbleState = Bubble & {
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing
 
+  // If true, this bubble should be treated as terminal output by the UI.
+  isTerminal?: boolean;
+
   // Optional reasoning state - presence indicates this is a reasoning bubble
   reasoningState?: ReasoningState;
 };
