@@ -493,26 +493,25 @@ public class Helper {
         try (ZipArchiveOutputStream zos = new ZipArchiveOutputStream(zipFile.toFile())) {
             for (Path path : pathsToZip) {
                 if (Files.isDirectory(path)) {
-                    Files.walk(path)
-                         .forEach(p -> {
-                             if (!includeEmptyDirs && Files.isDirectory(p)) {
-                                 return;
-                             }
-                             String name = path.getParent().relativize(p).toString().replace('\\', '/');
-                             if (Files.isDirectory(p) && !name.endsWith("/")) {
-                                 name += "/";
-                             }
-                             ZipArchiveEntry entry = new ZipArchiveEntry(p.toFile(), name);
-                             try {
-                                 zos.putArchiveEntry(entry);
-                                 if (Files.isRegularFile(p)) {
-                                     Files.copy(p, zos);
-                                 }
-                                 zos.closeArchiveEntry();
-                             } catch (IOException e) {
-                                 throw new RuntimeException(e);
-                             }
-                         });
+                    List<Path> walkedPaths;
+                    try (var stream = Files.walk(path)) {
+                        walkedPaths = stream.toList();
+                    }
+                    for (Path p : walkedPaths) {
+                        if (!includeEmptyDirs && Files.isDirectory(p)) {
+                            continue;
+                        }
+                        String name = path.getParent().relativize(p).toString().replace('\\', '/');
+                        if (Files.isDirectory(p) && !name.endsWith("/")) {
+                            name += "/";
+                        }
+                        ZipArchiveEntry entry = new ZipArchiveEntry(p.toFile(), name);
+                        zos.putArchiveEntry(entry);
+                        if (Files.isRegularFile(p)) {
+                            Files.copy(p, zos);
+                        }
+                        zos.closeArchiveEntry();
+                    }
                 } else {
                     String name = path.getFileName().toString();
                     ZipArchiveEntry entry = new ZipArchiveEntry(path.toFile(), name);
