@@ -218,9 +218,6 @@ public class FileWatcherBenchmark {
                     }
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         };
 
         // Start watch service with selected implementation
@@ -334,9 +331,6 @@ public class FileWatcherBenchmark {
                     latch.countDown();
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         };
 
         AbstractWatchService watchService = createWatchService(projectRoot, implementation, List.of(listener));
@@ -416,9 +410,6 @@ public class FileWatcherBenchmark {
             public void onFilesChanged(AbstractWatchService.EventBatch batch) {
                 logger.warn("Unexpected file change during idle benchmark: {}", batch);
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         };
 
         AbstractWatchService watchService = createWatchService(projectRoot, implementation, List.of(listener));

@@ -292,8 +292,5 @@ class AnalyzerWrapperTest {
             filesChangedCount.incrementAndGet();
             filesChangedLatch.countDown();
         }
-
-        @Override
-        public void onNoFilesChangedDuringPollInterval() {}
     }
 }

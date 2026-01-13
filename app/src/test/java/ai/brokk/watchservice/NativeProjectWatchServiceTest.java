@@ -74,9 +74,6 @@ public class NativeProjectWatchServiceTest {
                     l.countDown();
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         });
 
         // Start service with an already-completed future so watcher begins immediately
@@ -146,9 +143,6 @@ public class NativeProjectWatchServiceTest {
                     l.countDown();
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         });
 
         service.start(CompletableFuture.completedFuture(null));
@@ -231,9 +225,6 @@ public class NativeProjectWatchServiceTest {
                     l.countDown();
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         });
 
         service.start(CompletableFuture.completedFuture(null));
@@ -329,9 +320,6 @@ public class NativeProjectWatchServiceTest {
                     l.countDown();
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         });
 
         service.start(CompletableFuture.completedFuture(null));
@@ -401,9 +389,6 @@ public class NativeProjectWatchServiceTest {
                     l.countDown();
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         });
 
         service.start(CompletableFuture.completedFuture(null));
@@ -470,9 +455,6 @@ public class NativeProjectWatchServiceTest {
                     l.countDown();
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         });
 
         service.start(CompletableFuture.completedFuture(null));
@@ -531,9 +513,6 @@ public class NativeProjectWatchServiceTest {
                     l.countDown();
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         });
 
         service.start(CompletableFuture.completedFuture(null));
@@ -581,9 +560,6 @@ public class NativeProjectWatchServiceTest {
                     l.countDown();
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {}
         });
 
         service.start(CompletableFuture.completedFuture(null));

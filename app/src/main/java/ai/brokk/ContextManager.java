@@ -562,11 +562,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     handleFileChange(batch.getFiles());
                 }
             }
-
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {
-                // No action needed for "no changes"
-            }
         };
     }
 
