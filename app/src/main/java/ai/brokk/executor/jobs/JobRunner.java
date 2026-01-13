@@ -12,6 +12,7 @@ import ai.brokk.agents.SearchAgent;
 import ai.brokk.context.Context;
 import ai.brokk.executor.io.HeadlessHttpConsole;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
 import dev.langchain4j.data.message.ChatMessage;
@@ -851,6 +852,24 @@ public final class JobRunner {
                                                         }
                                                     }
                                                 }
+                                            }
+
+                                            // 5. Commit and Create Pull Request
+                                            var workflow = new GitWorkflow(cm);
+                                            workflow.performAutoCommit("Resolves #" + issueNumber + ": " + details.title());
+
+                                            String targetBranch = gitHubAuth.getDefaultBranch();
+                                            var suggestion = workflow.suggestPullRequestDetails(issueBranchName, targetBranch, cm.getIo());
+
+                                            var prUri = workflow.createPullRequest(
+                                                    issueBranchName,
+                                                    targetBranch,
+                                                    suggestion.title(),
+                                                    suggestion.description());
+
+                                            logger.info("ISSUE job {} created PR: {}", jobId, prUri);
+                                            if (console != null) {
+                                                console.showNotification(IConsoleIO.NotificationRole.INFO, "Created Pull Request: " + prUri);
                                             }
                                         }
                                     }
