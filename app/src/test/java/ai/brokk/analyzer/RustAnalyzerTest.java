@@ -1,6 +1,7 @@
 package ai.brokk.analyzer;
 
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeUnitType;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.project.IProject;
 import ai.brokk.testutil.InlineTestProjectCreator;
@@ -67,6 +68,49 @@ public class RustAnalyzerTest {
 
             // 5. Verify function inside the module exists
             assertCodeUnitType(analyzer, "utils.helper", CodeUnitType.FUNCTION);
+        }
+    }
+
+    @Test
+    void testNestedModulesWithTestFunction() throws Exception {
+        String rustCode =
+                """
+            mod outer {
+                mod inner {
+                    #[test]
+                    fn my_test() {
+                        assert!(true);
+                    }
+                }
+
+                pub fn outer_helper() -> i32 {
+                    42
+                }
+            }
+
+            pub fn top_level() {}
+            """;
+
+        String fileName = "nested_test.rs";
+
+        try (IProject project = InlineTestProjectCreator.code(rustCode, fileName).build()) {
+            RustAnalyzer analyzer = new RustAnalyzer(project);
+            analyzer.update();
+
+            // Verify modules
+            assertCodeUnitType(analyzer, "outer", CodeUnitType.MODULE);
+            assertCodeUnitType(analyzer, "outer.inner", CodeUnitType.MODULE);
+
+            // Verify functions
+            assertCodeUnitType(analyzer, "outer.inner.my_test", CodeUnitType.FUNCTION);
+            assertCodeUnitType(analyzer, "outer.outer_helper", CodeUnitType.FUNCTION);
+            assertCodeUnitType(analyzer, "top_level", CodeUnitType.FUNCTION);
+
+            // Verify test detection works for nested test
+            ProjectFile file = new ProjectFile(project.getRoot(), fileName);
+            assertTrue(
+                    analyzer.containsTests(file),
+                    "File with nested #[test] should be detected as containing tests");
         }
     }
 }

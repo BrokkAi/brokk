@@ -191,16 +191,20 @@ public final class RustAnalyzer extends TreeSitterAnalyzer {
             case CaptureNames.CLASS_DEFINITION, CaptureNames.IMPL_DEFINITION ->
                 CodeUnit.cls(file, packageName, simpleName);
             // "module.definition" is for mod blocks.
-            case CaptureNames.MODULE_DEFINITION -> CodeUnit.module(file, packageName, simpleName);
+            case CaptureNames.MODULE_DEFINITION -> {
+                String fqPackage = classChain.isEmpty() ? packageName : 
+                    (packageName.isEmpty() ? classChain : packageName + "." + classChain);
+                yield CodeUnit.module(file, fqPackage, simpleName);
+            }
             case CaptureNames.FUNCTION_DEFINITION -> {
                 // For methods, classChain will be the struct/impl type name.
-                // For free functions, classChain will be empty.
+                // For free functions, classChain will be empty (or contain module names).
                 String fqSimpleName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
                 yield CodeUnit.fn(file, packageName, fqSimpleName);
             }
             case CaptureNames.FIELD_DEFINITION -> {
                 // For struct fields, classChain is the struct name.
-                // For top-level const/static, classChain is empty.
+                // For top-level const/static, classChain is empty (or contains module names).
                 String fieldShortName = classChain.isEmpty() ? "_module_." + simpleName : classChain + "." + simpleName;
                 yield CodeUnit.field(file, packageName, fieldShortName);
             }
