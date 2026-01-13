@@ -646,6 +646,23 @@ curl -sS "${BASE}/v1/jobs/<job-id>" \
   -H "Authorization: Bearer ${AUTH_TOKEN}"
 ```
 
+**Response (200 OK):**
+
+```json
+{
+  "jobId": "550e8400-e29b-41d4-a716-446655440000",
+  "state": "COMPLETED",
+  "startTime": 1734567890123,
+  "endTime": 1734567890456,
+  "progressPercent": 100,
+  "result": null,
+  "error": null,
+  "metadata": {}
+}
+```
+
+Possible `state` values: `QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`.
+
 ## Job Events
 
 ```bash
