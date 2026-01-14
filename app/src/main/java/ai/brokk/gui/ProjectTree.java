@@ -76,6 +76,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     /** Flag to prevent refresh during expansion state restoration */
     private volatile boolean isRestoringExpansion = false;
 
+    /** Flag to track if a refresh was requested during expansion restoration */
+    private volatile boolean pendingRefreshDuringRestore = false;
+
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
         this.contextManager = contextManager;
@@ -841,14 +844,21 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     }));
         }
 
-        // Clear the flag when restoration completes (success or failure)
-        chain.whenComplete((result, ex) -> isRestoringExpansion = false);
+        // Clear the flag when restoration completes and process any pending refresh
+        chain.whenComplete((result, ex) -> {
+            isRestoringExpansion = false;
+            if (pendingRefreshDuringRestore) {
+                pendingRefreshDuringRestore = false;
+                onTrackedFilesChanged();
+            }
+        });
     }
 
     @Override
     public void onTrackedFilesChanged() {
-        // Skip refresh during expansion state restoration to avoid race conditions
+        // Queue refresh request during expansion state restoration
         if (isRestoringExpansion) {
+            pendingRefreshDuringRestore = true;
             return;
         }
         // Debounce rapid calls - only refresh after 100ms of no new calls
