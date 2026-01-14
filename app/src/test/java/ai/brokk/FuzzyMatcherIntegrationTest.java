@@ -22,8 +22,7 @@ public class FuzzyMatcherIntegrationTest {
 
     @BeforeAll
     static void loadData() throws Exception {
-        Path absoluteRoot = Path.of("").toAbsolutePath();
-        Path projectRoot = absoluteRoot.resolve("src/main");
+        Path projectRoot = resolveProjectSourceRoot();
         TestProject project = new TestProject(projectRoot);
 
         extracted = CodeUnitExtractor.extract(project);
@@ -111,5 +110,17 @@ public class FuzzyMatcherIntegrationTest {
 
         FuzzyMatcher matcher = new FuzzyMatcher(query);
         assertTrue(matcher.matches(fqName), "Should match partial FQN '" + query + "' against '" + fqName + "'");
+    }
+
+    private static Path resolveProjectSourceRoot() {
+        Path cwd = Path.of("").toAbsolutePath();
+        if (java.nio.file.Files.isDirectory(cwd.resolve("app/src/main/java"))) {
+            return cwd.resolve("app/src/main/java");
+        } else if (java.nio.file.Files.isDirectory(cwd.resolve("src/main/java"))) {
+            return cwd.resolve("src/main/java");
+        } else {
+            throw new IllegalStateException(
+                    "Cannot find source directory. Run from project root.");
+        }
     }
 }

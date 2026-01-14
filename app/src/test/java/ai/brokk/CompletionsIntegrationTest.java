@@ -25,8 +25,7 @@ public class CompletionsIntegrationTest {
 
     @BeforeAll
     static void setup() throws Exception {
-        Path root = Path.of("").toAbsolutePath();
-        Path projectRoot = root.resolve("src/main");
+        Path projectRoot = resolveProjectSourceRoot();
         TestProject project = new TestProject(projectRoot);
 
         extracted = CodeUnitExtractor.extract(project);
@@ -161,5 +160,17 @@ public class CompletionsIntegrationTest {
                 String.format(
                         "Query '%s' match %s within top %d should be of type %s\n%s",
                         query, expectedFqn, n, expectedType, debugOutput));
+    }
+
+    private static Path resolveProjectSourceRoot() {
+        Path cwd = Path.of("").toAbsolutePath();
+        if (java.nio.file.Files.isDirectory(cwd.resolve("app/src/main/java"))) {
+            return cwd.resolve("app/src/main/java");
+        } else if (java.nio.file.Files.isDirectory(cwd.resolve("src/main/java"))) {
+            return cwd.resolve("src/main/java");
+        } else {
+            throw new IllegalStateException(
+                    "Cannot find source directory. Run from project root.");
+        }
     }
 }
