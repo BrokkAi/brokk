@@ -1841,6 +1841,24 @@ public class BrokkDiffPanel extends JPanel
     }
 
     @Override
+    public boolean isSaveEnabled() {
+        // Save is enabled only if there are unsaved changes AND at least one editable panel
+        var visited = new HashSet<AbstractDiffPanel>();
+        if (currentDiffPanel != null) {
+            visited.add(currentDiffPanel);
+            if (currentDiffPanel.hasUnsavedChanges() && currentDiffPanel.atLeastOneSideEditable()) {
+                return true;
+            }
+        }
+        for (var p : core.getCachedPanels()) {
+            if (visited.add(p) && p.hasUnsavedChanges() && p.atLeastOneSideEditable()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
     public boolean isBlameAvailable() {
         return blameService != null;
     }

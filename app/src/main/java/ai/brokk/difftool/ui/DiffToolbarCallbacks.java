@@ -56,6 +56,14 @@ interface DiffEditCallbacks {
     default int getUnsavedCount() {
         return 0;
     }
+
+    /**
+     * Returns true if saving is enabled. This combines hasUnsavedChanges() with editability checks
+     * (e.g., at least one side must be editable, not in unified view mode).
+     */
+    default boolean isSaveEnabled() {
+        return hasUnsavedChanges();
+    }
 }
 
 /** Callbacks for view mode and display options. */

@@ -271,7 +271,7 @@ public class DiffToolbarPanel extends JToolBar {
             int unsavedCount = callbacks.getUnsavedCount();
             String baseSaveText = callbacks.isMultiFile() ? "Save All" : "Save";
             btnSaveAll.setToolTipText(unsavedCount > 0 ? baseSaveText + " (" + unsavedCount + ")" : baseSaveText);
-            btnSaveAll.setEnabled(callbacks.hasUnsavedChanges());
+            btnSaveAll.setEnabled(callbacks.isSaveEnabled());
         }
 
         // View mode toggle
