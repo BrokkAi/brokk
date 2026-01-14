@@ -1,7 +1,7 @@
 package ai.brokk.executor.http;
 
+import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.executor.jobs.ErrorPayload;
-import ai.brokk.util.ExecutorsUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;

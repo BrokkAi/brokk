@@ -1,6 +1,6 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.util.LoggingFuture;
+import ai.brokk.concurrent.LoggingFuture;
 import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
 import java.awt.*;

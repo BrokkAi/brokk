@@ -57,13 +57,13 @@ with try/catch is unnecessary and futile; don't do that.
 ## Concurrency
 
 1. Always use utility classes that log exceptions appropriately. If you create an ExecutorService, you
-   should wrap it in a ai.brokk.util.LoggingExecutorService as follows:
+   should wrap it in a ai.brokk.concurrent.LoggingExecutorService as follows:
    ```
    ExecutorService delegateExecutor = ...;
    Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
    this.executor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
    ```
-   There are convenience methods for newVirtualThreadExecutor and newFixedThreadExecutor in ai.brokk.util.ExecutorsUtil
+   There are convenience methods for newVirtualThreadExecutor and newFixedThreadExecutor in ai.brokk.concurrent.ExecutorsUtil
    that you should use unless you need to roll a custom ThreadFactory.
 2. Use LoggingFuture.supplyAsync instead of CompletableFuture.supplyAsync; the API is the same.
 3. Avoid SwingWorker in favor of virtual threads using ExecutorsUtil.newVirtualThreadExecutor, or LoggingFuture.supplyAsync.

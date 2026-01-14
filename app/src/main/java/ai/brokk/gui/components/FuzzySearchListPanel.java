@@ -1,8 +1,8 @@
 package ai.brokk.gui.components;
 
 import ai.brokk.FuzzyMatcher;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.mop.ThemeColors;
-import ai.brokk.util.LoggingFuture;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.awt.*;

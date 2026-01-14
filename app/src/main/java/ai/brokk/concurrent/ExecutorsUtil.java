@@ -1,4 +1,4 @@
-package ai.brokk.util;
+package ai.brokk.concurrent;
 
 import ai.brokk.exception.GlobalExceptionHandler;
 import java.util.concurrent.Executors;

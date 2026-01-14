@@ -5,6 +5,7 @@ import static ai.brokk.gui.ActivityTableRenderers.COL_CONTEXT;
 import static ai.brokk.gui.ActivityTableRenderers.COL_ICON;
 
 import ai.brokk.ContextManager;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
@@ -15,7 +16,6 @@ import ai.brokk.gui.ActivityTableRenderers.TriangleIcon;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.util.ComputedValue;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;

@@ -2,6 +2,8 @@ package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.concurrent.LoggingFuture;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;

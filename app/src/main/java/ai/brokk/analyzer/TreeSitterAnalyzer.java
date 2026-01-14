@@ -1,9 +1,9 @@
 package ai.brokk.analyzer;
 
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
-import ai.brokk.util.ExecutorsUtil;
-import ai.brokk.util.LoggingFuture;
 import ai.brokk.util.TextCanonicalizer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Splitter;

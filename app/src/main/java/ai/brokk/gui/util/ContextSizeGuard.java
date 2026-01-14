@@ -2,9 +2,9 @@ package ai.brokk.gui.util;
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
-import ai.brokk.util.LoggingFuture;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;

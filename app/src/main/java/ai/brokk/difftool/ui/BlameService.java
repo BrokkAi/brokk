@@ -1,6 +1,6 @@
 package ai.brokk.difftool.ui;
 
-import ai.brokk.util.LoggingFuture;
+import ai.brokk.concurrent.LoggingFuture;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;

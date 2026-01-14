@@ -3,6 +3,7 @@ package ai.brokk;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.exception.GlobalExceptionHandler;
@@ -23,7 +24,6 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.Environment;
-import ai.brokk.util.LoggingFuture;
 import ai.brokk.util.Messages;
 import com.google.common.base.Splitter;
 import java.awt.*;

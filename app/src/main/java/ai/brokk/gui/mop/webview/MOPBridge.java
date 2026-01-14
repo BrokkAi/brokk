@@ -432,7 +432,7 @@ public final class MOPBridge {
             return;
         }
 
-        // Use Chrome's background task system instead of raw ai.brokk.util.LoggingFuture.supplyAsync()
+        // Use Chrome's background task system instead of raw ai.brokk.concurrent.LoggingFuture.supplyAsync()
         contextManager.submitBackgroundTask("Symbol lookup for " + symbolNames.size() + " symbols", () -> {
             // Assert background task is not running on EDT
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";

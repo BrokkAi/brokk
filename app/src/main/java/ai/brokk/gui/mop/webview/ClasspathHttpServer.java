@@ -1,6 +1,6 @@
 package ai.brokk.gui.mop.webview;
 
-import ai.brokk.util.ExecutorsUtil;
+import ai.brokk.concurrent.ExecutorsUtil;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;

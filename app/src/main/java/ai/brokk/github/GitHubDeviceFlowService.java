@@ -1,7 +1,7 @@
 package ai.brokk.github;
 
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.util.Json;
-import ai.brokk.util.LoggingFuture;
 import java.awt.Desktop;
 import java.io.IOException;
 import java.net.URI;

@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import ai.brokk.Brokk;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import com.google.common.base.Splitter;
 import com.sun.management.UnixOperatingSystemMXBean;

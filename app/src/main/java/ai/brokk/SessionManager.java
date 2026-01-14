@@ -1,5 +1,6 @@
 package ai.brokk;
 
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.exception.GlobalExceptionHandler;
@@ -8,7 +9,6 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.HistoryIo;
-import ai.brokk.util.LoggingExecutorService;
 import ai.brokk.util.SerialByKeyExecutor;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;

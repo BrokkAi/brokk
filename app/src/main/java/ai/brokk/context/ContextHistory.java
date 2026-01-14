@@ -4,6 +4,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.project.IProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,7 +24,7 @@ import org.jetbrains.annotations.Nullable;
  * callers need no extra locking.
  *
  * <p><strong>Contract:</strong> Contexts stored in this history are <em>live</em> (contain dynamic fragments with
- * {@link ai.brokk.util.ComputedValue} futures). This class does NOT freeze contexts before storing them. For
+ * {@link ComputedValue} futures). This class does NOT freeze contexts before storing them. For
  * serialization, use {@link #applySnapshotToWorkspace(Context, IConsoleIO)} (Context, java.time.Duration)} to
  * materialize computed values as needed without blocking the UI.
  */
@@ -60,7 +61,7 @@ public class ContextHistory {
 
     /**
      * Centralized diff service for computing and caching diffs between consecutive history entries.
-     * Works with live contexts and uses asynchronous {@link ai.brokk.util.ComputedValue} evaluation
+     * Works with live contexts and uses asynchronous {@link ComputedValue} evaluation
      * where needed to avoid blocking the UI.
      */
     private final DiffService diffService;
