@@ -258,11 +258,6 @@ public class GitCommitTab extends JPanel implements ThemeAware {
                     workflowService,
                     filesToCommit,
                     commitResult -> { // This is the onCommitSuccessCallback
-                        chrome.showNotification(
-                                IConsoleIO.NotificationRole.INFO,
-                                "Committed "
-                                        + getRepo().shortHash(commitResult.commitId())
-                                        + ": " + commitResult.firstLine());
                         requestUpdate(); // Refresh file list
                         chrome.updateLogTab();
                         chrome.selectCurrentBranchInLogTab();

@@ -1,7 +1,9 @@
 package ai.brokk.gui;
 
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -228,7 +230,11 @@ public class CommitDialog extends BaseThemedDialog {
         contextManager.submitBackgroundTask("Committing changes", () -> {
             try {
                 GitWorkflow.CommitResult result = workflowService.commit(filesToCommit, msg);
+                var repo = (GitRepo) chrome.contextManager.getRepo();
                 SwingUtilities.invokeLater(() -> {
+                    String shortHash = repo.shortHash(result.commitId());
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Committed " + shortHash + ": " + result.firstLine());
                     onCommitSuccessCallback.accept(result);
                     dispose();
                 });

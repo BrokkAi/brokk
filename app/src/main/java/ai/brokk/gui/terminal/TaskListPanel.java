@@ -8,7 +8,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
@@ -1060,14 +1059,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             var commitDialog = new CommitDialog(
                     chrome.getFrame(), chrome, chrome.getContextManager(), workflow, dirtyFiles, commitResult -> {
                         try {
-                            var repo = (GitRepo)
-                                    chrome.getContextManager().getProject().getRepo();
-                            chrome.showNotification(
-                                    IConsoleIO.NotificationRole.INFO,
-                                    "Committed "
-                                            + repo.shortHash(commitResult.commitId())
-                                            + ": "
-                                            + commitResult.firstLine());
                             chrome.updateCommitPanel();
                             chrome.updateLogTab();
                             chrome.selectCurrentBranchInLogTab();
