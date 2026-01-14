@@ -871,7 +871,7 @@ public class ReviewAgent {
         var sessionManager = cm.getProject().getSessionManager();
 
         // Extract instructions from all matching histories
-        List<String> instructions = sessionIds.stream()
+        List<String> instructions = sessionIds.stream().parallel()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
                 .filter(Objects::nonNull)
                 .flatMap(h -> h.getHistory().stream()) // Stream<Context>
