@@ -114,7 +114,7 @@ public final class UsagePromptBuilder {
         String base = "Determine if the snippet represents a usage of " + targetCodeUnit;
         if (hasAlternatives) {
             base +=
-                    ". Consider the <candidates> list of alternative code units and score how likely the usage matches ONLY the target (not any alternative)";
+                    ". Consider the list of alternative code units and score how likely the usage matches ONLY the target (not any alternative)";
         }
 
         if (UsageConfig.isBooleanUsageMode()) {
