@@ -50,14 +50,6 @@ public class FuzzyMatcher {
         }
     }
 
-    /**
-     * Weight added to the score if the match starts at the very beginning of the text. Equivalent to
-     * PreferStartMatchMatcherWrapper.START_MATCH_WEIGHT, but reduced.
-     */
-    private static final int START_MATCH_WEIGHT = 2000; // Reduced from 10000
-
-    /** Weight added if the pattern matches the entire name (case-insensitively). */
-    private static final int EXACT_MATCH_WEIGHT = 5000;
 
     /** Camel-hump matching is >O(n), so for larger prefixes we fall back to simpler matching to avoid pauses. */
     private static final int MAX_CAMEL_HUMP_MATCHING_LENGTH = 100;
@@ -202,12 +194,12 @@ public class FuzzyMatcher {
         var headFragment = requireNonNull(fragments.getHead());
         int startIndex = headFragment.getStartOffset();
         if (startIndex == 0) {
-            degree += START_MATCH_WEIGHT;
+            degree += ScoringConstants.START_MATCH_BONUS;
         }
 
         // Reward exact matches (case-insensitive) where the pattern covers the entire name.
         if (fragments.size() == 1 && startIndex == 0 && fragments.getLast().getEndOffset() == name.length()) {
-            degree += EXACT_MATCH_WEIGHT;
+            degree += ScoringConstants.EXACT_MATCH_BONUS;
         }
 
         // Add a small proximity bonus that favors earlier starts smoothly (tunable).

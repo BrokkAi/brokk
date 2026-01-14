@@ -20,16 +20,6 @@ import org.fife.ui.autocomplete.ShorthandCompletion;
 
 public class Completions {
     private static final Logger logger = LogManager.getLogger(Completions.class);
-    private static final int SHORT_TOLERANCE = 300;
-    /**
-     * Bonus applied to preferred extensions when ranking ProjectFile completions.
-     * Lower composite scores indicate better matches; subtracting this bonus for preferred extensions
-     * ensures analyzer-supported file types (e.g., .java) sort ahead of unrelated ones (e.g., .svg)
-     * when fuzzy scores are close.
-     */
-    private static final int PREFERRED_EXTENSION_PRIORITY_BONUS = 300;
-
-    private static final int CLASS_TYPE_PRIORITY_BONUS = 10000;
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String query = input.trim();
@@ -124,10 +114,10 @@ public class Completions {
                 .map(cu -> {
                     int baseScore = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
                     int typeBonus =
-                            (cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS) ? -CLASS_TYPE_PRIORITY_BONUS : 0;
+                            (cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS) ? -ScoringConstants.CLASS_TYPE_BONUS : 0;
                     // Tie-breaker: prefer shallower package depths (fewer dots)
                     int depthBonus =
-                            (int) cu.fqName().chars().filter(ch -> ch == '.').count() * 10;
+                            (int) cu.fqName().chars().filter(ch -> ch == '.').count() * ScoringConstants.PACKAGE_DEPTH_PENALTY;
                     int finalScore =
                             baseScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : baseScore + typeBonus + depthBonus;
                     return new ScoredCodeUnit(cu, finalScore);
@@ -284,7 +274,7 @@ public class Completions {
     }
 
     private static int calculateCompositeScore(int shortScore, int longScore, boolean preferred) {
-        return Math.min(shortScore, longScore) + (preferred ? -PREFERRED_EXTENSION_PRIORITY_BONUS : 0);
+        return Math.min(shortScore, longScore) + (preferred ? -ScoringConstants.PREFERRED_EXTENSION_BONUS : 0);
     }
 
     /**
@@ -343,7 +333,7 @@ public class Completions {
 
         int bestShortScore =
                 scoredCandidates.stream().mapToInt(ScoredPF::shortScore).min().orElse(Integer.MAX_VALUE);
-        int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + SHORT_TOLERANCE;
+        int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + ScoringConstants.FILE_SHORT_NAME_TOLERANCE;
 
         // Lower scores are better; subtracting the bonus for preferred extensions ensures they sort first.
         Comparator<ScoredPF> cmp = Comparator.<ScoredPF>comparingInt(
