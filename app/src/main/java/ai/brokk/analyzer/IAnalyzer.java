@@ -332,7 +332,7 @@ public interface IAnalyzer {
         for (CodeUnit cu : fuzzyResults)
             byFqName.computeIfAbsent(cu.fqName(), k -> new LinkedHashSet<>()).add(cu);
 
-        return byFqName.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
+        return byFqName.values().stream().flatMap(Set::stream).collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**

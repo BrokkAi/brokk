@@ -7,6 +7,7 @@ import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.AfterAll;
@@ -244,6 +245,29 @@ public class JavaAnalyzerSearchTest {
         var lowerUseNames = lowerUse.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
         assertEquals(
                 mixedCaseNames, lowerUseNames, "Case-insensitive: 'UsE' and 'use' should return identical results");
+    }
+
+    @Test
+    public void testAutocomplete_PreservesPrefixOrder() {
+        // Query "Base" should find "BaseClass" as a prefix.
+        // We then check that prefix results come before generic substring/fuzzy results.
+        var results = analyzer.autocompleteDefinitions("Base");
+        var names = results.stream().map(CodeUnit::fqName).toList();
+
+        assertTrue(names.contains("BaseClass"), "Should contain BaseClass as a prefix match");
+
+        // To test ordering between prefix and generic scan, we need a query that matches
+        // one symbol as a prefix and another symbol only as a substring.
+        // In the test dataset: "Class" matches "BaseClass" (substring) and "CamelClass" (substring).
+        // Let's use "Camel" which matches "CamelClass" (prefix).
+        var results2 = analyzer.autocompleteDefinitions("Camel");
+        var names2 = results2.stream().map(CodeUnit::fqName).toList();
+
+        assertTrue(names2.contains("CamelClass"), "Should contain CamelClass");
+        // "CamelClass" is a prefix match for "Camel", it should be first.
+        assertEquals("CamelClass", names2.get(0), "Prefix match should be first");
+
+        assertTrue(results2 instanceof LinkedHashSet, "Result should be a LinkedHashSet to preserve ordering");
     }
 
     @Test
