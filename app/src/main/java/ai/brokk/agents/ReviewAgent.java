@@ -7,6 +7,7 @@ import static java.util.Objects.requireNonNullElse;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.cli.MemoryConsole;
@@ -875,10 +876,12 @@ public class ReviewAgent {
                 .filter(Objects::nonNull)
                 .flatMap(h -> h.getHistory().stream()) // Stream<Context>
                 .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
-                .filter(te -> te.log() != null)
                 .filter(te -> te.meta() == null || te.meta().type() != TaskResult.Type.REVIEW)
-                .sorted(Comparator.comparing(te -> requireNonNull(te.log()).id()))
-                .map(te -> requireNonNull(te.log()).description().join())
+                .map(TaskEntry::log)
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(log -> log.id()))
+                .map(log -> log.description().join())
+                .filter(Objects::nonNull) // legacy entries can be null here
                 .filter(desc -> !desc.isBlank())
                 .distinct()
                 .toList();
