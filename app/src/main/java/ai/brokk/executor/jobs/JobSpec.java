@@ -28,6 +28,8 @@ public record JobSpec(
         @JsonProperty("reasoningLevel") @Nullable String reasoningLevel,
         @JsonProperty("temperature") @Nullable Double temperature) {
 
+    public record ModelOverrides(@Nullable String reasoningLevel, @Nullable Double temperature) {}
+
     /**
      * Tag keys that contain sensitive data and should not be persisted to disk.
      */
@@ -143,6 +145,34 @@ public record JobSpec(
                 null,
                 null,
                 null);
+    }
+
+    /**
+     * Creates a JobSpec with job-level overrides for reasoningLevel and temperature.
+     */
+    public static JobSpec of(
+            String taskInput,
+            boolean autoCommit,
+            boolean autoCompress,
+            String plannerModel,
+            @Nullable String scanModel,
+            @Nullable String codeModel,
+            boolean preScan,
+            Map<String, String> tags,
+            @Nullable ModelOverrides overrides) {
+        return new JobSpec(
+                taskInput,
+                autoCommit,
+                autoCompress,
+                plannerModel,
+                scanModel,
+                codeModel,
+                preScan,
+                tags,
+                null,
+                null,
+                overrides != null ? overrides.reasoningLevel() : null,
+                overrides != null ? overrides.temperature() : null);
     }
 
     /**

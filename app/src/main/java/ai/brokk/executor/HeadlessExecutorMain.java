@@ -904,6 +904,28 @@ public final class HeadlessExecutorMain {
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
             boolean preScanFlag = Objects.requireNonNullElse(jobSpecRequest.preScan(), false);
 
+            @Nullable String reasoningLevel = null;
+            var reasoningLevelRaw = jobSpecRequest.reasoningLevel();
+            if (reasoningLevelRaw != null && !reasoningLevelRaw.isBlank()) {
+                var normalized = reasoningLevelRaw.strip().toUpperCase(Locale.ROOT);
+                var allowed = Set.of("DEFAULT", "LOW", "MEDIUM", "HIGH", "DISABLE");
+                if (!allowed.contains(normalized)) {
+                    sendValidationError(exchange, "reasoningLevel must be one of: DEFAULT, LOW, MEDIUM, HIGH, DISABLE");
+                    return;
+                }
+                reasoningLevel = normalized;
+            }
+
+            @Nullable Double temperature = null;
+            var tempRaw = jobSpecRequest.temperature();
+            if (tempRaw != null) {
+                if (tempRaw.isNaN() || tempRaw.isInfinite() || tempRaw < 0.0 || tempRaw > 2.0) {
+                    sendValidationError(exchange, "temperature must be between 0.0 and 2.0");
+                    return;
+                }
+                temperature = tempRaw;
+            }
+
             // Optional job-scoped context text: accept from either top-level contextText or nested context.text
             var requestedJobContextTexts = new ArrayList<String>();
             var topLevelTexts = jobSpecRequest.contextText();
@@ -966,7 +988,8 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.scanModel(),
                     jobSpecRequest.codeModel(),
                     preScanFlag,
-                    safeTags);
+                    safeTags,
+                    new JobSpec.ModelOverrides(reasoningLevel, temperature));
 
             // Create or get job (idempotent)
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
@@ -1478,7 +1501,9 @@ public final class HeadlessExecutorMain {
             @Nullable Boolean preScan,
             @Nullable Map<String, String> tags,
             @Nullable List<String> contextText,
-            @Nullable ContextPayload context) {}
+            @Nullable ContextPayload context,
+            @Nullable String reasoningLevel,
+            @Nullable Double temperature) {}
 
     private record ContextPayload(@Nullable List<String> text) {}
 
