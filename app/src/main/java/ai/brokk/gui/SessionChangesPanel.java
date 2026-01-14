@@ -870,7 +870,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     @Blocking
-    private void ensureReviewSession(DiffService.CumulativeChanges changes) throws GitAPIException {
+    private void ensureReviewSession(DiffService.CumulativeChanges changes) {
         // Check if all commits are already in the current session
         Set<String> currentSessionCommits = contextManager.getContextHistory().getGitStates().values().stream()
                 .map(ContextHistory.GitState::commitHash)
@@ -880,7 +880,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         if (!currentSessionCommits.containsAll(reviewCommits) && !reviewCommits.isEmpty()) {
             // Create a new session for this review
-            String branchName = repo.getCurrentBranch();
+            String branchName = null;
+            try {
+                branchName = repo.getCurrentBranch();
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
             String time = LocalTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"));
             String sessionName = "Review " + branchName + " " + time;
             contextManager.createSessionAsync(sessionName).join();
@@ -908,10 +913,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      */
     private void generateGuidedReviewAsync(
             DiffService.CumulativeChanges changes, List<FileComparisonInfo> comparisons) {
+        // DO NOT nest this in the submitLlmAction, it enqueues the session switch on the same executor
+        // (so you would deadlock)
+        ensureReviewSession(changes);
+
         contextManager.submitLlmAction(() -> {
             try {
-                ensureReviewSession(changes);
-
                 List<UUID> sessions =
                         DiffService.CumulativeChanges.findOverlappingSessions(contextManager, changes.commits());
 
