@@ -97,7 +97,7 @@ public class Completions {
      * A CodeUnit paired with its calculated completion score.
      * Lower scores are better (more relevant matches).
      */
-    public record ScoredCodeUnit(CodeUnit codeUnit, int score) {
+    record ScoredCodeUnit(CodeUnit codeUnit, int score) {
         public CodeUnit codeUnit() {
             return codeUnit;
         }
