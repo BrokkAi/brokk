@@ -207,17 +207,7 @@ public class JCefSetup {
                     settings.browser_subprocess_path = helperExe.toString();
                     logger.info("Set browser_subprocess_path = {}", helperExe);
                 }
-                /*
-                  args.add(String.format("--framework-dir-path=%s/Chromium Embedded Framework.framework", getLibPath()));
-                args.add(String.format("--main-bundle-path=%s/jcef Helper.app", getLibPath()));
-                args.add(String.format("--browser-subprocess-path=%s/jcef Helper.app/Contents/MacOS/jcef Helper", getLibPath()));
 
-                 */
-
-                // Pass framework paths as command-line args (needed for proper CEF initialization)
-                args.add("--framework-dir-path=" + frameworkPath);
-                args.add("--main-bundle-path=" + helperAppDir);
-                args.add("--browser-subprocess-path=" + helperExe);
                 logger.info("Added framework command-line args");
             } else {
                 logger.warn("Framework resources not found at {}", frameworkResources);
