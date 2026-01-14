@@ -265,15 +265,6 @@ class AnalyzerWrapperTest {
         public void onBlocked() {}
 
         @Override
-        public void afterFirstBuild(String msg) {}
-
-        @Override
-        public void onTrackedFileChange() {}
-
-        @Override
-        public void onRepoChange() {}
-
-        @Override
         public void beforeEachBuild() {}
 
         @Override
