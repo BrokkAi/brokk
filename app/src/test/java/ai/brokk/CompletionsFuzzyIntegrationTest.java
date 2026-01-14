@@ -68,8 +68,10 @@ public class CompletionsFuzzyIntegrationTest {
                 .sorted(Comparator.<CodeUnitRecord>comparingInt(cu -> {
                             int score = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
                             if (score == Integer.MAX_VALUE) return score;
-                            // Apply class priority bonus to match Completions.java logic
-                            return cu.type() == CodeUnitType.CLASS ? score - 1000 : score;
+                            // Apply bonuses to match Completions.java logic
+                            int typeBonus = cu.type() == CodeUnitType.CLASS ? -10000 : 0;
+                            int depthBonus = (int) cu.fqName().chars().filter(ch -> ch == '.').count() * 10;
+                            return score + typeBonus + depthBonus;
                         })
                         .thenComparingInt(cu -> cu.shortName().length())
                         .thenComparingInt(cu -> cu.fqName().length())

@@ -28,7 +28,7 @@ public class Completions {
      * when fuzzy scores are close.
      */
     private static final int PREFERRED_EXTENSION_PRIORITY_BONUS = 300;
-    private static final int CLASS_TYPE_PRIORITY_BONUS = 1000;
+    private static final int CLASS_TYPE_PRIORITY_BONUS = 10000;
 
     public static List<CodeUnit> completeSymbols(String input, IAnalyzer analyzer) {
         String query = input.trim();
@@ -102,12 +102,14 @@ public class Completions {
                 .map(cu -> {
                     int baseScore = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
                     int typeBonus = (cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS) ? -CLASS_TYPE_PRIORITY_BONUS : 0;
-                    return new ScoredCU(cu, baseScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : baseScore + typeBonus);
+                    // Tie-breaker: prefer shallower package depths (fewer dots)
+                    int depthBonus = (int) cu.fqName().chars().filter(ch -> ch == '.').count() * 10;
+                    return new ScoredCU(cu, baseScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : baseScore + typeBonus + depthBonus);
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
                 .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
                         .thenComparingInt(sc -> sc.cu().shortName().length())
-                        .thenComparingInt(sc -> sc.cu().identifier().length())
+                        .thenComparingInt(sc -> sc.cu().fqName().length())
                         .thenComparing(sc -> sc.cu().fqName()))
                 .map(ScoredCU::cu)
                 .collect(Collectors.collectingAndThen(
