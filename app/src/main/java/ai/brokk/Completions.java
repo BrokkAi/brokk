@@ -138,21 +138,15 @@ public class Completions {
 
     private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
         List<ScoredCodeUnit> scored = scoreCodeUnits(query, candidates);
-
+        // we assume that we won't see duplicates as the source for "candidates" has been deduplicated by the analyzer
         return scored.stream()
-                .sorted(Comparator.<ScoredCodeUnit>comparingInt(ScoredCodeUnit::score)
+                .sorted(Comparator.comparingInt(ScoredCodeUnit::score)
                         .thenComparingInt(sc -> sc.codeUnit().shortName().length())
                         .thenComparingInt(sc -> sc.codeUnit().fqName().length())
                         .thenComparing(sc -> sc.codeUnit().fqName()))
                 .map(ScoredCodeUnit::codeUnit)
-                .collect(Collectors.collectingAndThen(
-                        Collectors.toMap(CodeUnit::fqName, Function.identity(), (a, b) -> a, LinkedHashMap::new), m -> {
-                            var ordered = new ArrayList<>(m.values());
-                            if (ordered.size() > 100) {
-                                return ordered.subList(0, 100);
-                            }
-                            return ordered;
-                        }));
+                .limit(100)
+                .toList();
     }
 
     /** Expand paths that may contain wildcards (*, ?), returning all matches. */
