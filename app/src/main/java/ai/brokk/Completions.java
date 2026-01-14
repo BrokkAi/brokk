@@ -122,9 +122,18 @@ public class Completions {
                     try {
                         finalScore = Math.addExact(baseScore, Math.addExact(typeBonus, depthPenalty));
                     } catch (ArithmeticException e) {
-                        // In case of overflow, saturate to MIN_VALUE (best possible score)
-                        // as this only happens with extremely good matches and large bonuses.
-                        finalScore = Integer.MIN_VALUE;
+                        // Overflow should be extremely rare with current constants.
+                        // Saturate to OVERFLOW_SCORE_SENTINEL (a high/bad score) so overflowed
+                        // candidates rank last, not first. Log a warning to alert maintainers
+                        // that constants may need review if this occurs in practice.
+                        logger.warn(
+                                "Score overflow for candidate: {}; baseScore={}, typeBonus={}, depthPenalty={}. "
+                                        + "Check if ScoringConstants need adjustment.",
+                                cu.fqName(),
+                                baseScore,
+                                typeBonus,
+                                depthPenalty);
+                        finalScore = ScoringConstants.OVERFLOW_SCORE_SENTINEL;
                     }
                     return new ScoredCodeUnit(cu, finalScore);
                 })
@@ -288,7 +297,9 @@ public class Completions {
         try {
             return Math.addExact(base, bonus);
         } catch (ArithmeticException e) {
-            return Integer.MIN_VALUE;
+            // Overflow in file scoring (rare). Return sentinel so overflowed
+            // candidates rank last in file completions.
+            return ScoringConstants.OVERFLOW_SCORE_SENTINEL;
         }
     }
 

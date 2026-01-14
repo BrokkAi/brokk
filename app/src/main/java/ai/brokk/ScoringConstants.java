@@ -44,4 +44,22 @@ public final class ScoringConstants {
      * Tolerance added to the best score when filtering short-name file matches.
      */
     public static final int FILE_SHORT_NAME_TOLERANCE = 300;
+
+    /**
+     * Sentinel score used when score computation would overflow.
+     * Intentionally set to a high (bad) value so overflowed candidates rank last,
+     * not first. This is semantically correct: lower scores are better, so overflow
+     * should produce a worst-case score, not a best-case score.
+     *
+     * Note: overflow should be rare with current constant values. If this sentinel
+     * is observed in production (via logging), it signals that constants may need review.
+     */
+    public static final int OVERFLOW_SCORE_SENTINEL = Integer.MAX_VALUE - 1;
+
+    /**
+     * Minimum safe bound for intermediate score calculations.
+     * Used to document the safe range for score arithmetic before clamping/saturation.
+     * Current constants are chosen to avoid overflow in typical scenarios.
+     */
+    public static final int MIN_SAFE_INTERMEDIATE_SCORE = Integer.MIN_VALUE / 2;
 }
