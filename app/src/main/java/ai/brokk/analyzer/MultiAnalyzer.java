@@ -230,7 +230,7 @@ public class MultiAnalyzer
     public Set<CodeUnit> autocompleteDefinitions(String query) {
         return delegates.values().stream()
                 .flatMap(analyzer -> analyzer.autocompleteDefinitions(query).stream())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+                .collect(Collectors.toSet());
     }
 
     @Override
