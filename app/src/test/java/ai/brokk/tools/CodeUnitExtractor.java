@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import ai.brokk.testutil.TestProject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -29,7 +31,7 @@ public class CodeUnitExtractor {
     public static void main(String[] args) {
         // Determine paths relative to project structure
         Path cwd = Path.of("").toAbsolutePath();
-        
+
         // Find the app source directory - try both from project root and from app directory
         Path appSrcPath;
         if (args.length > 0) {
@@ -39,21 +41,24 @@ public class CodeUnitExtractor {
         } else if (Files.isDirectory(cwd.resolve("src/main/java"))) {
             appSrcPath = cwd.resolve("src/main/java");
         } else {
-            throw new IllegalStateException("Cannot find source directory. Run from project root or specify path as argument.");
+            throw new IllegalStateException(
+                    "Cannot find source directory. Run from project root or specify path as argument.");
         }
-        
+
         // Find the output directory - try both from project root and from app directory
         Path outputPath;
         if (args.length > 1) {
             outputPath = Path.of(args[1]).toAbsolutePath().normalize();
-        } else if (Files.isDirectory(cwd.resolve("app/src/test/resources")) || Files.isDirectory(cwd.resolve("app/src/test"))) {
+        } else if (Files.isDirectory(cwd.resolve("app/src/test/resources"))
+                || Files.isDirectory(cwd.resolve("app/src/test"))) {
             outputPath = cwd.resolve("app/src/test/resources/codeunits.csv");
         } else if (Files.isDirectory(cwd.resolve("src/test/resources")) || Files.isDirectory(cwd.resolve("src/test"))) {
             outputPath = cwd.resolve("src/test/resources/codeunits.csv");
         } else {
-            throw new IllegalStateException("Cannot find test resources directory. Run from project root or specify path as argument.");
+            throw new IllegalStateException(
+                    "Cannot find test resources directory. Run from project root or specify path as argument.");
         }
-        
+
         Path projectRoot = appSrcPath;
 
         try {
@@ -112,7 +117,7 @@ public class CodeUnitExtractor {
             throw new IllegalArgumentException("Provided path is not a directory: " + projectRoot);
         }
 
-        IProject project = createMinimalProject(projectRoot);
+        IProject project = new TestProject(projectRoot);
         JavaAnalyzer analyzer = new JavaAnalyzer(project);
 
         logger.info("Analyzing files...");
@@ -133,32 +138,4 @@ public class CodeUnitExtractor {
         Files.write(outputPath, lines);
     }
 
-    private static IProject createMinimalProject(Path root) {
-        return new IProject() {
-            @Override
-            public Path getRoot() {
-                return root;
-            }
-
-            @Override
-            public Set<ProjectFile> getAllFiles() {
-                try (Stream<Path> stream = Files.walk(root)) {
-                    List<Path> paths = stream.filter(Files::isRegularFile)
-                            .filter(p -> p.toString().endsWith(".java"))
-                            .toList();
-                    logger.info("Found {} java files under {}", paths.size(), root);
-                    return paths.stream()
-                            .map(p -> new ProjectFile(root, root.relativize(p)))
-                            .collect(Collectors.toSet());
-                } catch (IOException e) {
-                    throw new RuntimeException("Failed to list files in " + root, e);
-                }
-            }
-
-            @Override
-            public void close() {
-                // No-op for this tool
-            }
-        };
-    }
 }

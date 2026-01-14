@@ -1,6 +1,5 @@
 package ai.brokk;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -11,7 +10,6 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -29,8 +27,13 @@ public class FuzzyMatcherIntegrationTest {
 
         // Minimal project to satisfy loadCodeUnits requirements
         IProject mockProject = new IProject() {
-            @Override public Path getRoot() { return absoluteRoot; }
-            @Override public void close() {}
+            @Override
+            public Path getRoot() {
+                return absoluteRoot;
+            }
+
+            @Override
+            public void close() {}
         };
 
         if (is != null) {
@@ -41,9 +44,14 @@ public class FuzzyMatcherIntegrationTest {
 
         // If dataset is still empty (missing resource or empty file), add synthetic data for logic testing
         if (CODE_UNITS.isEmpty()) {
-            CODE_UNITS.add(CodeUnit.cls(new ai.brokk.analyzer.ProjectFile(absoluteRoot, "FuzzyMatcher.java"), "ai.brokk", "FuzzyMatcher"));
-            CODE_UNITS.add(CodeUnit.cls(new ai.brokk.analyzer.ProjectFile(absoluteRoot, "ContextManager.java"), "ai.brokk", "ContextManager"));
-            CODE_UNITS.add(CodeUnit.fn(new ai.brokk.analyzer.ProjectFile(absoluteRoot, "Util.java"), "ai.brokk", "calculateScore"));
+            CODE_UNITS.add(CodeUnit.cls(
+                    new ai.brokk.analyzer.ProjectFile(absoluteRoot, "FuzzyMatcher.java"), "ai.brokk", "FuzzyMatcher"));
+            CODE_UNITS.add(CodeUnit.cls(
+                    new ai.brokk.analyzer.ProjectFile(absoluteRoot, "ContextManager.java"),
+                    "ai.brokk",
+                    "ContextManager"));
+            CODE_UNITS.add(CodeUnit.fn(
+                    new ai.brokk.analyzer.ProjectFile(absoluteRoot, "Util.java"), "ai.brokk", "calculateScore"));
         }
     }
 
@@ -52,10 +60,10 @@ public class FuzzyMatcherIntegrationTest {
         // Use a name known to be in synthetic or real data
         String query = "FuzzyMatcher";
         FuzzyMatcher matcher = new FuzzyMatcher(query);
-        
-        boolean found = CODE_UNITS.stream()
-                .anyMatch(cu -> matcher.matches(cu.identifier()) || matcher.matches(cu.shortName()));
-        
+
+        boolean found =
+                CODE_UNITS.stream().anyMatch(cu -> matcher.matches(cu.identifier()) || matcher.matches(cu.shortName()));
+
         assertTrue(found, "Should match '" + query + "' identifier or shortName in the dataset.");
     }
 
@@ -63,7 +71,8 @@ public class FuzzyMatcherIntegrationTest {
     void testCamelHumpMatching() {
         // Find a suitable CamelCase candidate from the data
         CodeUnit candidate = CODE_UNITS.stream()
-                .filter(cu -> cu.shortName().length() > 5 && !cu.shortName().equals(cu.shortName().toLowerCase()))
+                .filter(cu -> cu.shortName().length() > 5
+                        && !cu.shortName().equals(cu.shortName().toLowerCase()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("No CamelCase names found in dataset"));
 
@@ -79,7 +88,8 @@ public class FuzzyMatcherIntegrationTest {
         }
 
         FuzzyMatcher matcher = new FuzzyMatcher(pattern.toString());
-        assertTrue(matcher.matches(shortName), 
+        assertTrue(
+                matcher.matches(shortName),
                 "FuzzyMatcher should match '" + pattern + "' against '" + shortName + "' via CamelHumps");
     }
 
@@ -87,12 +97,12 @@ public class FuzzyMatcherIntegrationTest {
     void testScoreValidity() {
         String query = "Fuzzy";
         FuzzyMatcher matcher = new FuzzyMatcher(query);
-        
+
         CodeUnit exact = CODE_UNITS.stream()
                 .filter(cu -> cu.shortName().equalsIgnoreCase(query))
                 .findFirst()
                 .orElse(null);
-        
+
         if (exact != null) {
             int score = matcher.score(exact.shortName());
             assertNotEquals(Integer.MAX_VALUE, score, "Score for valid match should not be MAX_VALUE");
@@ -112,7 +122,7 @@ public class FuzzyMatcherIntegrationTest {
         // Take a prefix that includes a dot
         int dotIdx = fqName.indexOf('.');
         String query = fqName.substring(0, dotIdx + 2); // e.g., "ai.b"
-        
+
         FuzzyMatcher matcher = new FuzzyMatcher(query);
         assertTrue(matcher.matches(fqName), "Should match partial FQN '" + query + "' against '" + fqName + "'");
     }
