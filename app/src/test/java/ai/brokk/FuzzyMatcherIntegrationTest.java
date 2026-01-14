@@ -22,7 +22,7 @@ public class FuzzyMatcherIntegrationTest {
 
     @BeforeAll
     static void loadData() throws Exception {
-        Path projectRoot = resolveProjectSourceRoot();
+        Path projectRoot = CodeUnitExtractor.resolveProjectSourceRoot();
         TestProject project = new TestProject(projectRoot);
 
         extracted = CodeUnitExtractor.extract(project);
@@ -110,27 +110,5 @@ public class FuzzyMatcherIntegrationTest {
 
         FuzzyMatcher matcher = new FuzzyMatcher(query);
         assertTrue(matcher.matches(fqName), "Should match partial FQN '" + query + "' against '" + fqName + "'");
-    }
-
-    private static Path resolveProjectSourceRoot() {
-        Path cwd = Path.of("").toAbsolutePath();
-        // If we are in the repo root, the source is in app/src/main/java
-        if (java.nio.file.Files.isDirectory(cwd.resolve("app/src/main/java"))) {
-            return cwd.resolve("app/src/main/java");
-        }
-        // If we are in the app/ subdirectory, the source is in src/main/java
-        if (java.nio.file.Files.isDirectory(cwd.resolve("src/main/java"))) {
-            return cwd.resolve("src/main/java");
-        }
-        // Fallback: search upwards for the 'app' directory if nested deeper
-        Path current = cwd;
-        while (current != null) {
-            if (java.nio.file.Files.isDirectory(current.resolve("app/src/main/java"))) {
-                return current.resolve("app/src/main/java");
-            }
-            current = current.getParent();
-        }
-
-        throw new IllegalStateException("Cannot find source directory from: " + cwd);
     }
 }

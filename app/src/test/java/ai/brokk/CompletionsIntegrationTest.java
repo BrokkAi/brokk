@@ -7,6 +7,8 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.tools.CodeUnitExtractor;
+
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.stream.IntStream;
@@ -25,7 +27,7 @@ public class CompletionsIntegrationTest {
 
     @BeforeAll
     static void setup() throws Exception {
-        Path projectRoot = resolveProjectSourceRoot();
+        Path projectRoot = CodeUnitExtractor.resolveProjectSourceRoot();
         TestProject project = new TestProject(projectRoot);
 
         extracted = CodeUnitExtractor.extract(project);
@@ -160,27 +162,5 @@ public class CompletionsIntegrationTest {
                 String.format(
                         "Query '%s' match %s within top %d should be of type %s\n%s",
                         query, expectedFqn, n, expectedType, debugOutput));
-    }
-
-    private static Path resolveProjectSourceRoot() {
-        Path cwd = Path.of("").toAbsolutePath();
-        // If we are in the repo root, the source is in app/src/main/java
-        if (java.nio.file.Files.isDirectory(cwd.resolve("app/src/main/java"))) {
-            return cwd.resolve("app/src/main/java");
-        }
-        // If we are in the app/ subdirectory, the source is in src/main/java
-        if (java.nio.file.Files.isDirectory(cwd.resolve("src/main/java"))) {
-            return cwd.resolve("src/main/java");
-        }
-        // Fallback: search upwards for the 'app' directory if nested deeper
-        Path current = cwd;
-        while (current != null) {
-            if (java.nio.file.Files.isDirectory(current.resolve("app/src/main/java"))) {
-                return current.resolve("app/src/main/java");
-            }
-            current = current.getParent();
-        }
-
-        throw new IllegalStateException("Cannot find source directory from: " + cwd);
     }
 }
