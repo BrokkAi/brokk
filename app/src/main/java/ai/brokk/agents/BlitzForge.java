@@ -9,9 +9,11 @@ import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.AdaptiveExecutor;
 import ai.brokk.util.ExecutorsUtil;
+import ai.brokk.util.LoggingExecutorService;
 import ai.brokk.util.Messages;
 import ai.brokk.util.TokenAware;
 import dev.langchain4j.data.message.AiMessage;
@@ -30,6 +32,7 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -131,14 +134,15 @@ public final class BlitzForge {
         listener.onQueued(sortedFiles);
 
         // Prepare executor
-        final ExecutorService executor;
+        ExecutorService executor;
         if (config.model() instanceof Service.UnavailableStreamingModel) {
             // Fallback simple fixed pool for tests
             int pool = Math.min(Math.max(1, files.size()), Runtime.getRuntime().availableProcessors());
-            executor = ExecutorsUtil.newFixedThreadExecutor(pool, "blitzforge-");
+            executor = Executors.newFixedThreadPool(pool);
         } else {
             executor = AdaptiveExecutor.create(service, config.model(), files.size());
         }
+        executor = new LoggingExecutorService(executor, th -> GlobalExceptionHandler.handle(th, st -> {}));
 
         int processedCount = 0;
         var results = new ArrayList<FileResult>(files.size());
