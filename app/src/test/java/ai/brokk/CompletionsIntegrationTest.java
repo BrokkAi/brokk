@@ -57,6 +57,27 @@ public class CompletionsIntegrationTest {
         assertTopMatch("cm", "ai.brokk.ContextManager", CodeUnitType.CLASS);
     }
 
+    @Test
+    void testContextManagerPrefixRanking() {
+        String query = "contextman";
+        List<CodeUnit> results = Completions.completeSymbols(query, ANALYZER);
+        FuzzyMatcher matcher = new FuzzyMatcher(query);
+
+        System.out.println("Top 10 results for '" + query + "':");
+        for (int i = 0; i < Math.min(10, results.size()); i++) {
+            CodeUnit cu = results.get(i);
+            int baseScore = matcher.score(cu.identifier());
+            // Mirroring internal Completions scoring logic for debug visibility
+            int typeBonus = (cu.kind() == CodeUnitType.CLASS) ? -10000 : 0;
+            int depthBonus = (int) cu.fqName().chars().filter(ch -> ch == '.').count() * 10;
+            int finalScore = baseScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : baseScore + typeBonus + depthBonus;
+
+            System.out.printf("%2d. [%s] %-40s (Score: %d)%n", i + 1, cu.kind(), cu.fqName(), finalScore);
+        }
+
+        assertWithinTopN(query, "ai.brokk.ContextManager", CodeUnitType.CLASS, 5);
+    }
+
     private void assertTopMatch(String query, String expectedFqn, CodeUnitType expectedType) {
         List<CodeUnit> results = Completions.completeSymbols(query, ANALYZER);
 
