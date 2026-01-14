@@ -29,8 +29,12 @@ public class UserActionManager {
     // Single-thread executor to serialize all user actions; cancellation only applies to LLM actions
     private final LoggingExecutorService userExecutor;
 
-    // Track cancelable action state for Stop button & diagnostics
-    private final AtomicReference<@Nullable Thread> cancelableThread = new AtomicReference<>();
+    // Track active action state atomically: thread + whether it's cancelable
+    private record ActiveAction(@Nullable Thread thread, boolean cancelable) {
+        static final ActiveAction NONE = new ActiveAction(null, false);
+    }
+
+    private final AtomicReference<ActiveAction> activeAction = new AtomicReference<>(ActiveAction.NONE);
 
     public UserActionManager(IConsoleIO io) {
         this.io = io;
@@ -43,7 +47,8 @@ public class UserActionManager {
     }
 
     public boolean isCancelableActionInProgress() {
-        return cancelableThread.get() != null;
+        var action = activeAction.get();
+        return action.thread() != null && action.cancelable();
     }
 
     public boolean isLlmTaskInProgress() {
@@ -51,14 +56,23 @@ public class UserActionManager {
     }
 
     public boolean isCurrentThreadCancelableAction() {
-        return Thread.currentThread() == cancelableThread.get();
+        var action = activeAction.get();
+        return Thread.currentThread() == action.thread() && action.cancelable();
     }
 
     public void cancelActiveAction() {
-        var t = cancelableThread.get();
-        if (t != null && t.isAlive()) {
-            logger.debug("Interrupting cancelable user action thread " + t.getName());
-            t.interrupt();
+        var action = activeAction.get();
+        if (action.cancelable() && action.thread() != null && action.thread().isAlive()) {
+            logger.debug("Interrupting cancelable user action thread "
+                    + action.thread().getName());
+            action.thread().interrupt();
+        }
+    }
+
+    private void checkForDeadlock() {
+        if (Thread.currentThread() == activeAction.get().thread()) {
+            throw new IllegalStateException(
+                    "Deadlock detected: cannot submit action from within an active action on the same executor");
         }
     }
 
@@ -76,11 +90,14 @@ public class UserActionManager {
     }
 
     public <T> CompletableFuture<T> submitExclusiveAction(Callable<T> task) {
+        checkForDeadlock();
         return userExecutor.submit(() -> {
+            activeAction.set(new ActiveAction(Thread.currentThread(), false));
             io.disableActionButtons();
             try {
                 return task.call();
             } finally {
+                activeAction.set(ActiveAction.NONE);
                 // Clear any interrupt status on the worker thread
                 Thread.interrupted();
                 io.actionComplete();
@@ -97,8 +114,9 @@ public class UserActionManager {
      * THE PROVIDED TASK IS RESPONSIBLE FOR HANDLING InterruptedException WITHOUT PROPAGATING IT FURTHER.
      */
     public CompletableFuture<Void> submitLlmAction(ThrowingRunnable task) {
+        checkForDeadlock();
         return userExecutor.submit(() -> {
-            cancelableThread.set(Thread.currentThread());
+            activeAction.set(new ActiveAction(Thread.currentThread(), true));
             io.disableActionButtons();
             try {
                 task.run();
@@ -106,7 +124,7 @@ public class UserActionManager {
                 // let LoggingExecutorService handle
                 throw new RuntimeException(ex);
             } finally {
-                cancelableThread.set(null);
+                activeAction.set(ActiveAction.NONE);
                 // Clear interrupt status so subsequent exclusive actions are unaffected
                 Thread.interrupted();
                 io.actionComplete();
