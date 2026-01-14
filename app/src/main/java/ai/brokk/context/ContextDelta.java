@@ -6,7 +6,7 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.util.ComputedValue;
-import ai.brokk.util.ExecutorServiceUtil;
+import ai.brokk.util.ExecutorsUtil;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -66,7 +66,7 @@ public record ContextDelta(
      * @return a ContextDelta describing the changes
      */
     public static ComputedValue<ContextDelta> between(Context from, Context to) {
-        var executor = ExecutorServiceUtil.newVirtualThreadExecutor("delta-between-", 1);
+        var executor = ExecutorsUtil.newVirtualThreadExecutor("delta-between-", 1);
         return new ComputedValue<>(
                 "delta",
                 CompletableFuture.supplyAsync(() -> betweenInternal(from, to), executor)
@@ -165,7 +165,7 @@ public record ContextDelta(
             return ComputedValue.completed("(No changes)");
         }
 
-        var executor = ExecutorServiceUtil.newVirtualThreadExecutor("delta-desc-", 1);
+        var executor = ExecutorsUtil.newVirtualThreadExecutor("delta-desc-", 1);
         return new ComputedValue<>(CompletableFuture.supplyAsync(() -> descriptionInternal(icm), executor)
                 .whenComplete((r, e) -> executor.shutdown()));
     }

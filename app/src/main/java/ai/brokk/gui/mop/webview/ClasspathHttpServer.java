@@ -1,6 +1,6 @@
 package ai.brokk.gui.mop.webview;
 
-import ai.brokk.util.ExecutorServiceUtil;
+import ai.brokk.util.ExecutorsUtil;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -60,7 +60,7 @@ public final class ClasspathHttpServer {
         // Handle requests by serving resources from the classpath
         server.createContext("/", this::handleRequest);
         // Use a small thread pool for handling requests
-        server.setExecutor(ExecutorServiceUtil.newFixedThreadExecutor(2, "ClasspathHttpServer-"));
+        server.setExecutor(ExecutorsUtil.newFixedThreadExecutor(2, "ClasspathHttpServer-"));
         server.start();
         logger.info("Embedded HTTP server started on port {}", port);
     }

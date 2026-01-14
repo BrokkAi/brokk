@@ -16,6 +16,7 @@ import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
+import ai.brokk.util.ExecutorsUtil;
 import ai.brokk.util.SerialByKeyExecutor;
 import java.awt.*;
 import java.time.Duration;
@@ -73,7 +74,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private final TestRunsStore runsStore;
     private boolean restoringRuns = false;
     private final ExecutorService sessionExecutor =
-            ai.brokk.util.ExecutorServiceUtil.newFixedThreadExecutor(2, "TestRunner-");
+            ExecutorsUtil.newFixedThreadExecutor(2, "TestRunner-");
     private final SerialByKeyExecutor saveExecutor = new SerialByKeyExecutor(sessionExecutor);
 
     // Limit stored output size to avoid unbounded JSON growth

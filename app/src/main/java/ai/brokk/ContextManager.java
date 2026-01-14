@@ -139,7 +139,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             60L,
             TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(), // Unbounded queue
-            ExecutorServiceUtil.createNamedThreadFactory("ContextTask")));
+            ExecutorsUtil.createNamedThreadFactory("ContextTask")));
 
     // Internal background tasks (unrelated to user actions)
     // Lots of threads allowed since AutoContext updates get dropped here
@@ -150,7 +150,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             60L,
             TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
-            ExecutorServiceUtil.createNamedThreadFactory("BackgroundTask")));
+            ExecutorsUtil.createNamedThreadFactory("BackgroundTask")));
 
     private final Service.Provider serviceProvider;
 
@@ -2720,7 +2720,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
             List<Future<TaskEntry>> futures =
                     new ArrayList<>(ctx.getTaskHistory().size());
-            try (var exec = ExecutorServiceUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
+            try (var exec = ExecutorsUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
                 // Submit all compression tasks
                 for (TaskEntry entry : ctx.getTaskHistory()) {
                     futures.add(exec.submit(() -> compressHistory(entry)));

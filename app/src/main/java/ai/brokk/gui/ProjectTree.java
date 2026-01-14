@@ -10,7 +10,7 @@ import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
 import ai.brokk.project.IProject;
-import ai.brokk.util.ExecutorServiceUtil;
+import ai.brokk.util.ExecutorsUtil;
 import ai.brokk.util.FileManagerUtil;
 import ai.brokk.util.PathNormalizer;
 import ai.brokk.watchservice.AbstractWatchService;
@@ -55,7 +55,7 @@ import org.jetbrains.annotations.Nullable;
 public class ProjectTree extends JTree implements AbstractWatchService.Listener {
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
-    private static final ExecutorService IO_EXECUTOR = ExecutorServiceUtil.newFixedThreadExecutor(4, "ProjectTree-IO-");
+    private static final ExecutorService IO_EXECUTOR = ExecutorsUtil.newFixedThreadExecutor(4, "ProjectTree-IO-");
 
     private final IProject project;
     private final ContextManager contextManager;

@@ -2,7 +2,7 @@ package ai.brokk.analyzer;
 
 import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
-import ai.brokk.util.ExecutorServiceUtil;
+import ai.brokk.util.ExecutorsUtil;
 import ai.brokk.util.TextCanonicalizer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Splitter;
@@ -519,10 +519,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         var progressReporter = new DebouncedProgressReporter(totalFiles, "Parsing " + language.name() + " files", 100);
 
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
-        try (var ioExecutor = ExecutorServiceUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
-                var parseExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
+        try (var ioExecutor = ExecutorsUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
+             var parseExecutor = ExecutorsUtil.newFixedThreadExecutor(
                         Runtime.getRuntime().availableProcessors(), "ts-parse-");
-                var ingestExecutor = ExecutorServiceUtil.newFixedThreadExecutor(
+             var ingestExecutor = ExecutorsUtil.newFixedThreadExecutor(
                         Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
             for (var pf : filesToProcess) {
                 CompletableFuture<Void> future = CompletableFuture.supplyAsync(
@@ -3680,7 +3680,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         int parallelism = Math.max(1, Math.min(Runtime.getRuntime().availableProcessors(), total));
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
-        try (var executor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
+        try (var executor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "ts-update-")) {
             for (var file : relevantFiles) {
                 futures.add(CompletableFuture.runAsync(
                         () -> {
@@ -3820,7 +3820,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
         int parallelism = Math.max(1, Runtime.getRuntime().availableProcessors());
         var concurrentChanged = ConcurrentHashMap.<ProjectFile>newKeySet();
 
-        try (var detectExecutor = ExecutorServiceUtil.newFixedThreadExecutor(parallelism, "ts-detect-")) {
+        try (var detectExecutor = ExecutorsUtil.newFixedThreadExecutor(parallelism, "ts-detect-")) {
             List<CompletableFuture<?>> futures = new ArrayList<>();
             for (ProjectFile pf : currentFiles) {
                 if (!knownFiles.contains(pf)) {

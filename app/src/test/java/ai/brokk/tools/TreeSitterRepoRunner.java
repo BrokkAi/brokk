@@ -8,7 +8,7 @@ import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
-import ai.brokk.util.ExecutorServiceUtil;
+import ai.brokk.util.ExecutorsUtil;
 import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -313,7 +313,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         // Ensure the base directory exists
         Files.createDirectories(projectsBaseDir);
 
-        ExecutorService executor = ExecutorServiceUtil.newFixedThreadExecutor(threads, "TSRR-");
+        ExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(threads, "TSRR-");
         AtomicInteger successCount = new AtomicInteger(0);
         List<Callable<Void>> tasks = new ArrayList<>();
 

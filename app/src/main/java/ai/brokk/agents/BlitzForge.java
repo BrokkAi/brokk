@@ -11,6 +11,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.prompts.CodePrompts;
 import ai.brokk.util.AdaptiveExecutor;
+import ai.brokk.util.ExecutorsUtil;
 import ai.brokk.util.Messages;
 import ai.brokk.util.TokenAware;
 import dev.langchain4j.data.message.AiMessage;
@@ -134,7 +135,7 @@ public final class BlitzForge {
         if (config.model() instanceof Service.UnavailableStreamingModel) {
             // Fallback simple fixed pool for tests
             int pool = Math.min(Math.max(1, files.size()), Runtime.getRuntime().availableProcessors());
-            executor = ai.brokk.util.ExecutorServiceUtil.newFixedThreadExecutor(pool, "blitzforge-");
+            executor = ExecutorsUtil.newFixedThreadExecutor(pool, "blitzforge-");
         } else {
             executor = AdaptiveExecutor.create(service, config.model(), files.size());
         }

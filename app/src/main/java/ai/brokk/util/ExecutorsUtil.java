@@ -6,9 +6,9 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 
-public final class ExecutorServiceUtil {
+public final class ExecutorsUtil {
 
-    private ExecutorServiceUtil() {}
+    private ExecutorsUtil() {}
 
     public static LoggingExecutorService newFixedThreadExecutor(int parallelism, String threadPrefix) {
         assert parallelism >= 1 : "parallelism must be >= 1";

@@ -21,7 +21,7 @@ import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
 import ai.brokk.git.GitRepo;
 import ai.brokk.util.ComputedValue;
-import ai.brokk.util.ExecutorServiceUtil;
+import ai.brokk.util.ExecutorsUtil;
 import ai.brokk.util.FragmentUtils;
 import ai.brokk.util.ImageUtil;
 import ai.brokk.util.LoggingExecutorService;
@@ -132,7 +132,7 @@ public class ContextFragments {
     }
 
     private static LoggingExecutorService createFragmentExecutor() {
-        return ExecutorServiceUtil.newVirtualThreadExecutor("brokk-cf-", 1_000);
+        return ExecutorsUtil.newVirtualThreadExecutor("brokk-cf-", 1_000);
     }
 
     public sealed interface PathFragment extends ContextFragment

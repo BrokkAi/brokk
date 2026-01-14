@@ -59,8 +59,9 @@ with try/catch is unnecessary and futile; don't do that.
 1. Always use utility classes that log exceptions appropriately. This means that if you create an ExecutorService, you
    should wrap it in a ai.brokk.util.LoggingExecutorService as follows:
    ```
-   var delegateExecutor = // raw executor, e.g. Executors.newFixedThreadPool(...)
-   Consumer<Throwable> exceptionHandler = th -> logger.error("Uncaught exception in analyzer executor", th);
+   ExecutorService delegateExecutor = ...;
+   Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
    this.executor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
    ```
-   There are convenience methods for newVirtualThreadExecutor and newFixedThreadExecutor in ai.brokk.util.ExecutorServiceUtil.
+   There are convenience methods for newVirtualThreadExecutor and newFixedThreadExecutor in ai.brokk.util.ExecutorsUtil
+   that you should use unless you need to roll a custom ThreadFactory.

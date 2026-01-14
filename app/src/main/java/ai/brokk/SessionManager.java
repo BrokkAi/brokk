@@ -2,6 +2,7 @@ package ai.brokk;
 
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
@@ -109,7 +110,7 @@ public class SessionManager implements AutoCloseable {
         // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
         int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
         var delegateExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
-        Consumer<Throwable> exceptionHandler = th -> logger.error("Uncaught exception in analyzer executor", th);
+        Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
         sessionExecutor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();

@@ -34,7 +34,7 @@ public class UserActionManager {
 
     public UserActionManager(IConsoleIO io) {
         this.io = io;
-        var threadFactory = ExecutorServiceUtil.createNamedThreadFactory("UserActionManager");
+        var threadFactory = ExecutorsUtil.createNamedThreadFactory("UserActionManager");
         this.userExecutor = createLoggingExecutor(Executors.newSingleThreadExecutor(threadFactory));
     }
 
