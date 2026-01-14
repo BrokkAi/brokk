@@ -1203,7 +1203,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      * Font size state for EditorFontSizeControl.
      * This field is EDT-only; all reads and writes must happen on the Swing Event Dispatch Thread.
      */
-    private volatile int currentFontIndex = -1;
+    private int currentFontIndex = -1;
 
     /** Apply current font size to a panel if font has been initialized */
     private void applyFontSizeToPanel(AbstractDiffPanel panel) {
@@ -1232,6 +1232,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         @Override
         public void ensureFontIndexInitialized() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
             if (panel.currentFontIndex == -1) {
                 float saved = GlobalUiSettings.getEditorFontSize();
                 if (saved > 0f) {
@@ -1274,19 +1275,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         @Override
         public void nextFile() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
             int current = panel.diffCore.getCurrentIndex();
             if (current < panel.fileComparisons.size() - 1) {
                 panel.diffCore.showFile(current + 1);
-                SwingUtilities.invokeLater(() -> panel.diffToolbar.updateButtonStates());
+                panel.diffToolbar.updateButtonStates();
             }
         }
 
         @Override
         public void previousFile() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
             int current = panel.diffCore.getCurrentIndex();
             if (current > 0) {
                 panel.diffCore.showFile(current - 1);
-                SwingUtilities.invokeLater(() -> panel.diffToolbar.updateButtonStates());
+                panel.diffToolbar.updateButtonStates();
             }
         }
 
@@ -1394,6 +1397,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         private void applyFontSizeToAllPanels() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
             if (panel.currentFontIndex < 0) return;
             float fontSize = EditorFontSizeControl.FONT_SIZES.get(panel.currentFontIndex);
             GlobalUiSettings.saveEditorFontSize(fontSize);
