@@ -913,10 +913,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      */
     private void generateGuidedReviewAsync(
             DiffService.CumulativeChanges changes, List<FileComparisonInfo> comparisons) {
-        // DO NOT nest this in the submitLlmAction, it enqueues the session switch on the same executor
-        // (so you would deadlock)
-        ensureReviewSession(changes);
+        LoggingFuture.supplyAsync(() -> {
+            // these are broken out separately to avoid deadlock (they both want to run on the exclusive UAM thread)
+            ensureReviewSession(changes);
+            generateGuidedReviewInternal(changes, comparisons);
+        });
+    }
 
+    private void generateGuidedReviewInternal(
+            DiffService.CumulativeChanges changes, List<FileComparisonInfo> comparisons) {
         contextManager.submitLlmAction(() -> {
             try {
                 List<UUID> sessions =

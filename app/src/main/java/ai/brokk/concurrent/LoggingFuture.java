@@ -27,4 +27,17 @@ public final class LoggingFuture {
                 },
                 executor);
     }
+
+    public static CompletableFuture<Void> supplyAsync(Runnable runnable) {
+        return supplyAsync(runnable, ForkJoinPool.commonPool());
+    }
+
+    public static CompletableFuture<Void> supplyAsync(Runnable runnable, Executor executor) {
+        return supplyAsync(
+                () -> {
+                    runnable.run();
+                    return null;
+                },
+                executor);
+    }
 }
