@@ -908,11 +908,19 @@ public final class HeadlessExecutorMain {
             var reasoningLevelRaw = jobSpecRequest.reasoningLevel();
             if (reasoningLevelRaw != null && !reasoningLevelRaw.isBlank()) {
                 var normalized = reasoningLevelRaw.strip().toUpperCase(Locale.ROOT);
-                var allowed = Set.of("DEFAULT", "LOW", "MEDIUM", "HIGH", "DISABLE");
+
+                var allowed = java.util.Arrays.stream(ai.brokk.AbstractService.ReasoningLevel.values())
+                        .map(Enum::name)
+                        .collect(java.util.stream.Collectors.toSet());
+
                 if (!allowed.contains(normalized)) {
-                    sendValidationError(exchange, "reasoningLevel must be one of: DEFAULT, LOW, MEDIUM, HIGH, DISABLE");
+                    var allowedList = java.util.Arrays.stream(ai.brokk.AbstractService.ReasoningLevel.values())
+                            .map(Enum::name)
+                            .collect(java.util.stream.Collectors.joining(", "));
+                    sendValidationError(exchange, "reasoningLevel must be one of: " + allowedList);
                     return;
                 }
+
                 reasoningLevel = normalized;
             }
 

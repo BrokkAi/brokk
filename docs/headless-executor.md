@@ -518,7 +518,7 @@ These fields are accepted in the top-level job payload alongside `plannerModel` 
 
 - `reasoningLevel`:
   - If provided, must be a string.
-  - Accepted values: `"MINIMAL"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`.
+  - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
   - If omitted or null, the executor uses the model/service default reasoning configuration.
 
 - `temperature`:

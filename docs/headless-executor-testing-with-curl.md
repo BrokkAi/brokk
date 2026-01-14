@@ -834,7 +834,7 @@ curl -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
 
 You can pass these optional top-level fields in any `POST /v1/jobs` payload:
 
-- `reasoningLevel` (string): `"MINIMAL"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`.
+- `reasoningLevel` (string): `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
 - `temperature` (number): `0.0` to `2.0` inclusive.
 
 If omitted, the executor uses the model/service defaults.
@@ -868,7 +868,7 @@ JSON
 - Missing `plannerModel` triggers `HTTP 400` with a validation error (`plannerModel is required`).
 - Providing an unknown `plannerModel` yields a job that transitions to `FAILED` with an error containing `MODEL_UNAVAILABLE`.
 - In CODE mode, changing `plannerModel` does not alter execution, but it must still be supplied; `codeModel` selects the LLM used for code actions.
-- `reasoningLevel` must be one of `"MINIMAL"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`; invalid values trigger `HTTP 400`.
+- `reasoningLevel` must be one of `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`; invalid values trigger `HTTP 400`.
 - `temperature` must be a number between `0.0` and `2.0` inclusive; invalid values trigger `HTTP 400`.
 - Free-form text that exceeds 1 MiB (UTF-8 bytes) is rejected with `HTTP 400`.
 - Blank free-form text is rejected with `HTTP 400`.
