@@ -87,15 +87,7 @@ public class Completions {
      * A CodeUnit paired with its calculated completion score.
      * Lower scores are better (more relevant matches).
      */
-    record ScoredCodeUnit(CodeUnit codeUnit, int score) {
-        public CodeUnit codeUnit() {
-            return codeUnit;
-        }
-
-        public int score() {
-            return score;
-        }
-    }
+    record ScoredCodeUnit(CodeUnit codeUnit, int score) {}
 
     /**
      * Scores a list of CodeUnit candidates for symbol completion.
