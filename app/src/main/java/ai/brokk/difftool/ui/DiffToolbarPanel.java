@@ -80,6 +80,7 @@ public class DiffToolbarPanel extends JToolBar {
     }
 
     private void buildToolbar() {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         // Change navigation buttons (chevrons for fine navigation)
         if (features.contains(ToolbarFeature.CHANGE_NAVIGATION)) {
