@@ -109,12 +109,14 @@ public class Completions {
                         return new ScoredCodeUnit(cu, Integer.MAX_VALUE);
                     }
 
-                    int typeBonus =
-                            (cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS) ? -ScoringConstants.CLASS_TYPE_BONUS : 0;
+                    int typeBonus = (cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS)
+                            ? -ScoringConstants.CLASS_TYPE_BONUS
+                            : 0;
                     // Tie-breaker: prefer shallower package depths (fewer dots).
                     // This is a penalty, so it increases the score.
                     int depthPenalty =
-                            (int) cu.fqName().chars().filter(ch -> ch == '.').count() * ScoringConstants.PACKAGE_DEPTH_PENALTY;
+                            (int) cu.fqName().chars().filter(ch -> ch == '.').count()
+                                    * ScoringConstants.PACKAGE_DEPTH_PENALTY;
 
                     int finalScore;
                     try {
@@ -346,7 +348,9 @@ public class Completions {
 
         int bestShortScore =
                 scoredCandidates.stream().mapToInt(ScoredPF::shortScore).min().orElse(Integer.MAX_VALUE);
-        int shortThreshold = bestShortScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : bestShortScore + ScoringConstants.FILE_SHORT_NAME_TOLERANCE;
+        int shortThreshold = bestShortScore == Integer.MAX_VALUE
+                ? Integer.MAX_VALUE
+                : bestShortScore + ScoringConstants.FILE_SHORT_NAME_TOLERANCE;
 
         // Lower scores are better; subtracting the bonus for preferred extensions ensures they sort first.
         Comparator<ScoredPF> cmp = Comparator.<ScoredPF>comparingInt(

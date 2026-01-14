@@ -50,7 +50,6 @@ public class FuzzyMatcher {
         }
     }
 
-
     /** Camel-hump matching is >O(n), so for larger prefixes we fall back to simpler matching to avoid pauses. */
     private static final int MAX_CAMEL_HUMP_MATCHING_LENGTH = 100;
 
