@@ -163,39 +163,10 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             System.out.println("*** JCEF (JBR): Creating browser for URL: " + url + " ***");
             logger.info("Creating JCEF browser for URL: {}", url);
 
-            // Wait for CEF to be initialized before creating browser with URL
-            // This prevents navigation attempts before CEF is ready
-            CefApp.CefAppState state = cefApp.getState();
-            if (state != CefApp.CefAppState.INITIALIZED) {
-                logger.info("Waiting for CefApp to initialize (current state: {})", state);
-                // Create browser with blank page first, navigate after initialization
-                @SuppressWarnings("deprecation")
-                var createdBrowser = client.createBrowser("about:blank", false, false);
-                browser = createdBrowser;
-
-                // Navigate to actual URL after a delay to allow CEF to initialize
-                String targetUrl = url;
-                new Thread(() -> {
-                    try {
-                        // Wait for CEF to initialize
-                        int maxWait = 5000;
-                        int waited = 0;
-                        while (cefApp.getState() != CefApp.CefAppState.INITIALIZED && waited < maxWait) {
-                            Thread.sleep(100);
-                            waited += 100;
-                        }
-                        logger.info("CefApp initialized, navigating to {}", targetUrl);
-                        browser.loadURL(targetUrl);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-                }, "JCEF-DelayedNav").start();
-            } else {
-                // CEF already initialized, create browser with URL directly
-                @SuppressWarnings("deprecation")
-                var createdBrowser = client.createBrowser(url, false, false);
-                browser = createdBrowser;
-            }
+            // Create browser directly with URL (like working jcef branch)
+            @SuppressWarnings("deprecation")
+            var createdBrowser = client.createBrowser(url, false, false);
+            browser = createdBrowser;
             System.out.println("*** JCEF (JBR): Browser created: " + browser + " ***");
 
             // Get the UI component and add it

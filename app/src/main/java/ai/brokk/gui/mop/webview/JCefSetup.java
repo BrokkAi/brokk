@@ -196,7 +196,7 @@ public class JCefSetup {
             if (Files.exists(frameworkResources)) {
                 // Set CefSettings paths (required for CEF to find resources)
                 settings.resources_dir_path = frameworkResources.toString();
-                settings.locales_dir_path = frameworkResources.resolve("locales").toString();
+                settings.locales_dir_path = frameworkResources.toString();
                 logger.info("Set resources_dir_path = {}", settings.resources_dir_path);
                 logger.info("Set locales_dir_path = {}", settings.locales_dir_path);
 
@@ -207,6 +207,12 @@ public class JCefSetup {
                     settings.browser_subprocess_path = helperExe.toString();
                     logger.info("Set browser_subprocess_path = {}", helperExe);
                 }
+                /*
+                  args.add(String.format("--framework-dir-path=%s/Chromium Embedded Framework.framework", getLibPath()));
+                args.add(String.format("--main-bundle-path=%s/jcef Helper.app", getLibPath()));
+                args.add(String.format("--browser-subprocess-path=%s/jcef Helper.app/Contents/MacOS/jcef Helper", getLibPath()));
+
+                 */
 
                 // Pass framework paths as command-line args (needed for proper CEF initialization)
                 args.add("--framework-dir-path=" + frameworkPath);

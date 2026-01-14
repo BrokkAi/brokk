@@ -19,6 +19,7 @@ java {
         // Use JBR with JCEF for compilation (provides org.cef.* classes)
         // Set to 21 to match JBR 21; change to 25 if using JBR 25
         languageVersion.set(JavaLanguageVersion.of(21))
+        vendor.set(JvmVendorSpec.JETBRAINS)
     }
 }
 
