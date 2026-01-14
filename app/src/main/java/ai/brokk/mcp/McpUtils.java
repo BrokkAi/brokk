@@ -64,7 +64,7 @@ public class McpUtils {
         // only add /mcp when nothing is specified (some servers may not have i.e. /doc)
         String endpointPath = url.getPath();
         if (endpointPath == null || endpointPath.isEmpty()) {
-            endpointPath = "/mcp";
+            endpointPath = "/";
         }
         String query = url.getQuery();
         String endpoint = (query != null && !query.isEmpty()) ? endpointPath + "?" + query : endpointPath;
