@@ -22,8 +22,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public class FuzzyMatcher {
 
-    // Record for representing matched fragments
-    record TextRange(int startOffset, int endOffset) implements Comparable<TextRange> {
+    // Public record for representing matched fragments
+    public record TextRange(int startOffset, int endOffset) implements Comparable<TextRange> {
         public int getLength() {
             return endOffset - startOffset;
         }
