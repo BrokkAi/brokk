@@ -320,7 +320,7 @@ Both approaches:
                     index++;
                 } else {
                     clearInterval(interval);
-                    simulateEvent('chunk', {text: "Ask command complete!", msgType: 'SYSTEM', streaming: true, meta: { isNewMessage: false, isReasoning: false, isTerminal: true }});
+                    simulateEvent('chunk', {text: "Ask command complete!", msgType: 'SYSTEM', streaming: true, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
                 }
             }, 10);
         }, 3000);
@@ -329,10 +329,10 @@ Both approaches:
     function showAskMd() {
         simulateEvent('history-task', {compressed: true, summary: "This is a nice **summary**", messages: [{msgType: 'USER', text: contentUser}, {msgType: 'AI', text: contentAi}]})
         simulateEvent('history-task', {compressed: false, summary: "", messages: [{msgType: 'USER', text: "Implement the changes like described"}, {msgType: 'AI', text: ai}]})
-        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true }})
-        simulateEvent('chunk', {text: "Just a little bit of reasoning...\nNow I am finished!", msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: true, isTerminal: true }})
-        simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true }})
-        simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'SYSTEM', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true }})
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }})
+        simulateEvent('chunk', {text: "Just a little bit of reasoning...\nNow I am finished!", msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: true, isTerminal: false }})
+        simulateEvent('chunk', {text: contentAi, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }})
+        simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'SYSTEM', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }})
     }
 
     function showStaticDocument() {
@@ -590,10 +590,10 @@ Try clicking these: \`String\`, \`List\`, \`HashMap\`
 
 \`\`\`[--- app/src/main/java/io/github/jbellis/brokk/gui/dialogs/analyzer/JavaAnalyzerSettingsPanel.java, +++ app/src/main/java/io/github/jbellis/brokk/gui/dialogs/analyzer/JavaAnalyzerSettingsPanel.java, @@ -31,7 +31,6 @@,  ,      public JavaAnalyzerSettingsPanel(SettingsProjectPanel parent, Language language, Path projectRoot, IConsoleIO io) {,          super(new BorderLayout(), language, projectRoot, io);, -        logger.debug("JavaAnalyzerConfigPanel initialised");,  ,          // Create a panel with GridBagLayout for the actual content,          var contentPanel = new JPanel(new GridBagLayout());]\`\`\``;
 
-        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true }});
-        simulateEvent('chunk', {text: ai, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true }});
-        simulateEvent('chunk', {text: diffContent, msgType: 'SYSTEM', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true }});
-        //simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true }});
+        simulateEvent('chunk', {text: contentUser, msgType: 'USER', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
+        simulateEvent('chunk', {text: ai, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
+        simulateEvent('chunk', {text: diffContent, msgType: 'SYSTEM', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
+        //simulateEvent('chunk', {text: "# Now we are finished!", msgType: 'CUSTOM', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
     }
 
     function streamEdit() {
@@ -972,7 +972,7 @@ Files vs Symbols: \`package.json\` (file) vs \`String\` (symbol) - different hig
             text: content,
             msgType: 'AI',
             streaming: false,
-            meta: { isNewMessage: true, isReasoning: false, isTerminal: true }
+            meta: { isNewMessage: true, isReasoning: false, isTerminal: false }
         });
     }
 
@@ -1062,8 +1062,8 @@ When backend supports multiple ranges:
 `;
 
         window.brokk.clear();
-        simulateEvent('chunk', { text: "Testing partial symbol matching with mock data...", msgType: 'USER', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true } });
-        simulateEvent('chunk', { text: testContent, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true } });
+        simulateEvent('chunk', { text: "Testing partial symbol matching with mock data...", msgType: 'USER', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false } });
+        simulateEvent('chunk', { text: testContent, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false } });
     }
 
 
@@ -1086,7 +1086,7 @@ Symbols get the \`.symbol-exists\` CSS class which adds:
 **Test it:** Try typing some of these symbols in the markdown playground below!`;
 
         window.brokk.clear();
-        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true } });
+        simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false } });
     }
 
     // Update symbol count display
@@ -1326,7 +1326,7 @@ const newFunction = () => {
 `;
 
     window.brokk.clear();
-    simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: true } });
+    simulateEvent('chunk', { text: content, msgType: 'AI', streaming: false, meta: { isNewMessage: true, isReasoning: false, isTerminal: false } });
 }
 
 </script>
