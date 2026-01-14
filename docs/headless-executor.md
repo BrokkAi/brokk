@@ -502,8 +502,53 @@ Once running, the executor exposes the following endpoints:
   - **CODE mode**: Set `"tags": { "mode": "CODE" }` for single-shot code generation
   - **LUTZ mode**: Set `"tags": { "mode": "LUTZ" }` to enable two-phase planning and execution (SearchAgent generates a task list, then ArchitectAgent executes tasks sequentially), honoring autoCommit and autoCompress
   - **REVIEW mode**: Set `"tags": { "mode": "REVIEW" }` to review a GitHub PR (requires github_token, repo_owner, repo_name, pr_number in tags)
-  - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
+  - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_owner`, `repo_name`, and `issue_number` in tags.
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
+
+#### Job-level model overrides (optional)
+
+You can optionally override two model behaviors per job:
+
+- `reasoningLevel` (string, optional): Controls how much explicit reasoning effort the model should use.
+- `temperature` (number, optional): Controls sampling randomness for supported models.
+
+These fields are accepted in the top-level job payload alongside `plannerModel` / `codeModel` / `scanModel`.
+
+##### Validation rules
+
+- `reasoningLevel`:
+  - If provided, must be a string.
+  - Accepted values: `"MINIMAL"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`.
+  - If omitted or null, the executor uses the model/service default reasoning configuration.
+
+- `temperature`:
+  - If provided, must be a JSON number.
+  - Must be between `0.0` and `2.0` (inclusive).
+  - If omitted or null, the executor uses the model/service default temperature.
+
+##### Example: ARCHITECT with reasoningLevel + temperature
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: architect-overrides-001" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Refactor the auth module to improve logging and error messages.",
+  "autoCommit": true,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "reasoningLevel": "HIGH",
+  "temperature": 0.2,
+  "tags": {
+    "mode": "ARCHITECT"
+  }
+}
+JSON
+```
 
 - **`POST /v1/jobs/issue`** - Create an issue resolution job (convenience endpoint)
   - Requires `Idempotency-Key` header
