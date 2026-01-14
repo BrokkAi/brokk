@@ -289,6 +289,8 @@ public final class MOPBridge {
                     } else if (chunk.chunkMeta().isNewMessage()) {
                         // isNewMessage is the authoritative signal from MarkdownOutputPanel
                         // for all semantic boundaries (type changes, reasoning transitions, terminality).
+                        // We trust the upstream logic to set this flag correctly and do not apply
+                        // additional heuristics here.
                         flushCurrentChunk(firstChunk, currentText);
                         firstChunk = chunk;
                     }
