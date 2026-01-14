@@ -15,6 +15,7 @@ import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -415,15 +416,20 @@ public final class DiffService {
             }
 
             var sessionManager = cm.getProject().getSessionManager();
-            Instant earliestCommit = commits.stream()
+            Instant minCommit = commits.stream()
                     .map(CommitInfo::date)
                     .min(Comparator.naturalOrder())
                     .orElse(Instant.now());
-            // Buffer by one day to catch sessions that might have started just before the first commit
-            Instant timeBound = earliestCommit.minus(java.time.temporal.ChronoUnit.DAYS.getDuration());
+            Instant maxCommit = commits.stream()
+                    .map(CommitInfo::date)
+                    .max(Comparator.naturalOrder())
+                    .orElse(Instant.now());
+            Instant minBound = minCommit.minus(ChronoUnit.DAYS.getDuration());
+            Instant maxBound = maxCommit.minus(ChronoUnit.DAYS.getDuration());
 
-            List<ai.brokk.SessionManager.SessionInfo> shortlisted = sessionManager.listSessions().stream()
-                    .filter(s -> s.createdAt().isAfter(timeBound))
+            var shortlisted = sessionManager.listSessions().stream()
+                    .filter(s ->
+                            s.lastModified().isAfter(minBound) && s.createdAt().isBefore(maxBound))
                     .toList();
 
             Set<String> changeCommitIds = commits.stream().map(CommitInfo::id).collect(Collectors.toSet());

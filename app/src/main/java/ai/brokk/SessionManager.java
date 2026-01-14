@@ -60,6 +60,10 @@ public class SessionManager implements AutoCloseable {
         public Instant createdAt() {
             return Instant.ofEpochMilli(created);
         }
+
+        public Instant lastModified() {
+            return Instant.ofEpochMilli(modified);
+        }
     }
 
     private static final Logger logger = LogManager.getLogger(SessionManager.class);
