@@ -371,24 +371,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private record BaselineState(BaselineMode baselineMode, String baselineLabel) {}
 
     private enum ComparisonTarget {
-        CUMULATIVE,
-        SESSION;
+        CUMULATIVE;
     }
 
     private @Nullable String resolvedBaselineBranch = null;
 
     private BaselineState resolveBaselineState() {
         try {
-            ComparisonTarget target = (ComparisonTarget) baselineDropdown.getSelectedItem();
-            if (target == ComparisonTarget.SESSION) {
-                var firstSessionCommit = contextManager.getContextHistory().getFirstGitState();
-                if (firstSessionCommit.isPresent()) {
-                    return new BaselineState(
-                            BaselineMode.SESSION, firstSessionCommit.get().commitHash());
-                }
-                return new BaselineState(BaselineMode.NO_BASELINE, "No session start found");
-            }
-
             String defaultBranch = repo.getDefaultBranch();
             String currentBranch = repo.getCurrentBranch();
 
@@ -478,10 +467,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
             case DEFAULT_LOCAL_ONLY -> {
                 leftRef = "HEAD";
-            }
-            case SESSION -> {
-                leftRef = baselineLabel;
-                commits = List.of();
             }
             default -> throw new AssertionError();
         }
@@ -606,14 +591,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 if (value == ComparisonTarget.CUMULATIVE) {
                     setText("Changes vs " + branchLabel);
-                } else if (value == ComparisonTarget.SESSION) {
-                    setText("Changes this Session");
                 }
                 return this;
             }
         });
         baselineDropdown.addItem(ComparisonTarget.CUMULATIVE);
-        baselineDropdown.addItem(ComparisonTarget.SESSION);
 
         // Restore selection without triggering listeners
         if (currentSelection != null) {
@@ -656,9 +638,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             logger.debug("Unable to determine uncommitted changes state", e);
         }
 
-        boolean isSession = baselineMode == BaselineMode.SESSION;
-
-        commitBtn.setVisible(!isSession && hasUncommittedChanges);
+        commitBtn.setVisible(hasUncommittedChanges);
 
         guidedReviewBtn.setVisible(true);
 
@@ -675,14 +655,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         } else {
             pullBtn.setToolTipText(null);
         }
-        pullBtn.setVisible(!isSession);
+        pullBtn.setVisible(true);
 
         pushBtn.setEnabled(!hasUncommittedChanges);
-        pushBtn.setVisible(!isSession && pushPull != null && pushPull.canPush());
+        pushBtn.setVisible(pushPull != null && pushPull.canPush());
 
-        boolean showPR = !isSession
-                && (baselineMode == BaselineMode.NON_DEFAULT_BRANCH
-                        || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0));
+        boolean showPR = baselineMode == BaselineMode.NON_DEFAULT_BRANCH
+                || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0);
 
         boolean prBtnEnabled = !hasUncommittedChanges;
         String prBtnTooltip = null;
@@ -901,28 +880,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     return;
                 }
 
-                List<UUID> sessions;
-                ComparisonTarget target = (ComparisonTarget) baselineDropdown.getSelectedItem();
-                if (target == ComparisonTarget.SESSION) {
-                    sessions = List.of(contextManager.getCurrentSessionId());
-                } else {
-                    sessions = DiffService.CumulativeChanges.findOverlappingSessions(contextManager, changes.commits());
+                List<UUID> sessions =
+                        DiffService.CumulativeChanges.findOverlappingSessions(contextManager, changes.commits());
 
-                    // Check if all commits are already in the current session
-                    Set<String> currentSessionCommits =
-                            contextManager.getContextHistory().getGitStates().values().stream()
-                                    .map(ContextHistory.GitState::commitHash)
-                                    .collect(Collectors.toSet());
-                    List<String> reviewCommits =
-                            changes.commits().stream().map(CommitInfo::id).toList();
+                // Check if all commits are already in the current session
+                Set<String> currentSessionCommits =
+                        contextManager.getContextHistory().getGitStates().values().stream()
+                                .map(ContextHistory.GitState::commitHash)
+                                .collect(Collectors.toSet());
+                List<String> reviewCommits =
+                        changes.commits().stream().map(CommitInfo::id).toList();
 
-                    if (!currentSessionCommits.containsAll(reviewCommits) && !reviewCommits.isEmpty()) {
-                        // Create a new session for this review
-                        String branchName = repo.getCurrentBranch();
-                        String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
-                        String sessionName = "Review " + branchName + " " + time;
-                        contextManager.createSessionAsync(sessionName).join();
-                    }
+                if (!currentSessionCommits.containsAll(reviewCommits) && !reviewCommits.isEmpty()) {
+                    // Create a new session for this review
+                    String branchName = repo.getCurrentBranch();
+                    String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+                    String sessionName = "Review " + branchName + " " + time;
+                    contextManager.createSessionAsync(sessionName).join();
                 }
 
                 var agent = new ReviewAgent(changes, sessions, contextManager, chrome, fileComparisons);
@@ -1199,7 +1173,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         NON_DEFAULT_BRANCH,
         DEFAULT_WITH_UPSTREAM,
         DEFAULT_LOCAL_ONLY,
-        SESSION,
         NO_BASELINE
     }
 }
