@@ -93,11 +93,32 @@ public class Completions {
         return new ArrayList<>(dedup.values());
     }
 
-    private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
-        var matcher = new FuzzyMatcher(query);
-        boolean hierarchicalQuery = query.indexOf('.') >= 0;
+    /**
+     * A CodeUnit paired with its calculated completion score.
+     * Lower scores are better (more relevant matches).
+     */
+    public record ScoredCodeUnit(CodeUnit codeUnit, int score) {
+        public CodeUnit codeUnit() {
+            return codeUnit;
+        }
 
-        record ScoredCU(CodeUnit cu, int score) {}
+        public int score() {
+            return score;
+        }
+    }
+
+    /**
+     * Scores a list of CodeUnit candidates for symbol completion.
+     * Returns scored results (before deduplication and limiting).
+     * This allows tests and callers to inspect the scoring logic directly.
+     *
+     * @param query the search query
+     * @param candidates the candidate CodeUnits to score
+     * @return list of scored candidates, filtered to remove non-matches (score == MAX_VALUE)
+     */
+    public static List<ScoredCodeUnit> scoreCodeUnits(String query, List<CodeUnit> candidates) {
+        boolean hierarchicalQuery = isHierarchicalQuery(query);
+        var matcher = new FuzzyMatcher(query);
 
         return candidates.stream()
                 .map(cu -> {
@@ -107,16 +128,23 @@ public class Completions {
                     // Tie-breaker: prefer shallower package depths (fewer dots)
                     int depthBonus =
                             (int) cu.fqName().chars().filter(ch -> ch == '.').count() * 10;
-                    return new ScoredCU(
-                            cu,
-                            baseScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : baseScore + typeBonus + depthBonus);
+                    int finalScore =
+                            baseScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : baseScore + typeBonus + depthBonus;
+                    return new ScoredCodeUnit(cu, finalScore);
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
-                .sorted(Comparator.<ScoredCU>comparingInt(ScoredCU::score)
-                        .thenComparingInt(sc -> sc.cu().shortName().length())
-                        .thenComparingInt(sc -> sc.cu().fqName().length())
-                        .thenComparing(sc -> sc.cu().fqName()))
-                .map(ScoredCU::cu)
+                .toList();
+    }
+
+    private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
+        List<ScoredCodeUnit> scored = scoreCodeUnits(query, candidates);
+
+        return scored.stream()
+                .sorted(Comparator.<ScoredCodeUnit>comparingInt(ScoredCodeUnit::score)
+                        .thenComparingInt(sc -> sc.codeUnit().shortName().length())
+                        .thenComparingInt(sc -> sc.codeUnit().fqName().length())
+                        .thenComparing(sc -> sc.codeUnit().fqName()))
+                .map(ScoredCodeUnit::codeUnit)
                 .collect(Collectors.collectingAndThen(
                         Collectors.toMap(CodeUnit::fqName, Function.identity(), (a, b) -> a, LinkedHashMap::new), m -> {
                             var ordered = new ArrayList<>(m.values());

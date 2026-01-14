@@ -1,17 +1,16 @@
 package ai.brokk;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.tools.CodeUnitExtractor;
-import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration test for {@link FuzzyMatcher} using real-world data loaded via {@link CodeUnitExtractor}.
@@ -29,7 +28,6 @@ public class FuzzyMatcherIntegrationTest {
 
         extracted = CodeUnitExtractor.extract(project);
         CODE_UNITS.addAll(extracted.getCodeUnits());
-
 
         if (CODE_UNITS.isEmpty()) {
             fail("Unable to load integration test data");

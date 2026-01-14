@@ -56,7 +56,9 @@ class CodeUnitExtractorTest {
     void testInvalidDirectoryThrowsException() {
         Path nonExistent = tempDir.resolve("non-existent");
 
-        assertThrows(IllegalArgumentException.class, () -> CodeUnitExtractor.extract(nonExistent, tempDir.resolve("output.csv")));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CodeUnitExtractor.extract(nonExistent, tempDir.resolve("output.csv")));
     }
 
     @Test
