@@ -51,10 +51,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
 
                 // Decide if we append or start a new bubble.
                 // MarkdownOutputPanel.append is authoritative for isNewMessage.
-                // We also check msgType as a safety invariant.
-                const needNew = evt.meta.isNewMessage ||
-                    list.length === 0 ||
-                    evt.msgType !== list.at(-1)?.type;
+                const needNew = evt.meta.isNewMessage || list.length === 0;
 
                 let bubble: BubbleState;
                 if (needNew) {
