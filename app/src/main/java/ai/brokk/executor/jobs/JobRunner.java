@@ -1094,30 +1094,29 @@ public final class JobRunner {
         }
     }
 
+    private record AppliedOverrides(
+            Service.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {}
+
+    private AppliedOverrides applyOverrides(JobSpec spec, Service.ModelConfig baseConfig) {
+        Service.ReasoningLevel reasoning =
+                Service.ReasoningLevel.fromString(spec.reasoningLevel(), baseConfig.reasoning());
+
+        var config = reasoning == baseConfig.reasoning()
+                ? baseConfig
+                : new Service.ModelConfig(baseConfig.name(), reasoning, baseConfig.tier());
+
+        @Nullable OpenAiChatRequestParameters.Builder parametersOverride = spec.temperature() == null
+                ? null
+                : OpenAiChatRequestParameters.builder().temperature(spec.temperature());
+
+        return new AppliedOverrides(config, parametersOverride);
+    }
+
     private StreamingChatModel resolveModelOrThrow(JobSpec spec, String name) {
         var service = cm.getService();
 
-        Service.ModelConfig baseConfig = new Service.ModelConfig(name);
-
-        var modelOverrides = spec.reasoningLevel() != null || spec.temperature() != null;
-        if (!modelOverrides) {
-            var model = service.getModel(baseConfig);
-            if (model == null) {
-                throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
-            }
-            return model;
-        }
-
-        Service.ReasoningLevel reasoning =
-                Service.ReasoningLevel.fromString(spec.reasoningLevel(), baseConfig.reasoning());
-        var config = new Service.ModelConfig(name, reasoning, baseConfig.tier());
-
-        OpenAiChatRequestParameters.Builder parametersOverride =
-                spec.temperature() == null
-                        ? null
-                        : OpenAiChatRequestParameters.builder().temperature(spec.temperature());
-
-        var model = service.getModel(config, parametersOverride);
+        var applied = applyOverrides(spec, new Service.ModelConfig(name));
+        var model = service.getModel(applied.config(), applied.parametersOverride());
         if (model == null) {
             throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
         }
@@ -1127,16 +1126,8 @@ public final class JobRunner {
     private StreamingChatModel resolveModelOrThrow(JobSpec spec, Service.ModelConfig baseConfig) {
         var service = cm.getService();
 
-        Service.ReasoningLevel reasoning =
-                Service.ReasoningLevel.fromString(spec.reasoningLevel(), baseConfig.reasoning());
-        var config = new Service.ModelConfig(baseConfig.name(), reasoning, baseConfig.tier());
-
-        OpenAiChatRequestParameters.Builder parametersOverride =
-                spec.temperature() == null
-                        ? null
-                        : OpenAiChatRequestParameters.builder().temperature(spec.temperature());
-
-        var model = service.getModel(config, parametersOverride);
+        var applied = applyOverrides(spec, baseConfig);
+        var model = service.getModel(applied.config(), applied.parametersOverride());
         if (model == null) {
             throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + baseConfig.name());
         }
