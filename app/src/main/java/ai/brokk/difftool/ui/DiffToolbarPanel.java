@@ -80,15 +80,15 @@ public class DiffToolbarPanel extends JToolBar {
     private void buildToolbar() {
         assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
-        // Change navigation buttons
+        // Change navigation buttons (chevrons for fine navigation)
         if (features.contains(ToolbarFeature.CHANGE_NAVIGATION)) {
             btnPrevious = new MaterialButton();
-            btnPrevious.setIcon(Icons.NAVIGATE_BEFORE);
+            btnPrevious.setIcon(Icons.CHEVRON_LEFT);
             btnPrevious.setToolTipText("Previous Change");
             btnPrevious.addActionListener(e -> callbacks.navigateToPreviousChange());
 
             btnNext = new MaterialButton();
-            btnNext.setIcon(Icons.NAVIGATE_NEXT);
+            btnNext.setIcon(Icons.CHEVRON_RIGHT);
             btnNext.setToolTipText("Next Change");
             btnNext.addActionListener(e -> callbacks.navigateToNextChange());
 
@@ -97,7 +97,7 @@ public class DiffToolbarPanel extends JToolBar {
             add(btnNext);
         }
 
-        // File navigation buttons (only if multi-file and feature enabled)
+        // File navigation buttons (larger arrows for coarse navigation)
         if (features.contains(ToolbarFeature.FILE_NAVIGATION) && callbacks.isMultiFile()) {
             btnPreviousFile = new MaterialButton();
             btnPreviousFile.setIcon(Icons.NAVIGATE_BEFORE);

@@ -35,11 +35,12 @@ class UnifiedDiffHighlighterTest {
         }
 
         @Test
-        @DisplayName("Hunk header lines are highlightable")
-        void hunkHeaderLinesAreHighlightable() {
-            assertTrue(UnifiedDiffHighlighter.isHighlightableLine("@@ -1,5 +1,6 @@"));
-            assertTrue(UnifiedDiffHighlighter.isHighlightableLine("@@ -10,20 +15,25 @"));
-            assertTrue(UnifiedDiffHighlighter.isHighlightableLine("@@"));
+        @DisplayName("Hunk header lines are not highlightable via prefix (use LineType instead)")
+        void hunkHeaderLinesNotHighlightableViaPrefix() {
+            // Headers are now detected via LineType from the document, not prefix character
+            assertFalse(UnifiedDiffHighlighter.isHighlightableLine("@@ -1,5 +1,6 @@"));
+            assertFalse(UnifiedDiffHighlighter.isHighlightableLine("@@ -10,20 +15,25 @"));
+            assertFalse(UnifiedDiffHighlighter.isHighlightableLine("@@"));
         }
 
         @Test
@@ -101,16 +102,23 @@ class UnifiedDiffHighlighterTest {
                     "-",
                     "- ",
                     "-line",
-                    "-  indented deletion",
-                    "@@",
-                    "@@ header",
-                    "@@ -1,1 +1,1 @@"
+                    "-  indented deletion"
                 })
         @DisplayName("Valid diff lines are highlightable")
         void validDiffLinesAreHighlightable(String line) {
             assertTrue(
                     UnifiedDiffHighlighter.isHighlightableLine(line),
                     String.format("Valid diff line '%s' should be highlightable", line));
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"@@", "@@ header", "@@ -1,1 +1,1 @@"})
+        @DisplayName("Header lines are not highlightable via prefix (use LineType)")
+        void headerLinesNotHighlightableViaPrefix(String line) {
+            // Headers are now detected via LineType from the document
+            assertFalse(
+                    UnifiedDiffHighlighter.isHighlightableLine(line),
+                    String.format("Header line '%s' should not be highlightable via prefix", line));
         }
 
         @ParameterizedTest
@@ -146,7 +154,8 @@ class UnifiedDiffHighlighterTest {
         void lineWithOnlyPrefixCharacters() {
             assertTrue(UnifiedDiffHighlighter.isHighlightableLine("+"));
             assertTrue(UnifiedDiffHighlighter.isHighlightableLine("-"));
-            assertTrue(UnifiedDiffHighlighter.isHighlightableLine("@@"));
+            // @@ headers are detected via LineType, not prefix
+            assertFalse(UnifiedDiffHighlighter.isHighlightableLine("@@"));
             assertFalse(UnifiedDiffHighlighter.isHighlightableLine(" "));
         }
 
@@ -175,8 +184,8 @@ class UnifiedDiffHighlighterTest {
             // These should all be evaluated based on their first character
             assertTrue(UnifiedDiffHighlighter.isHighlightableLine("+-mixed"));
             assertFalse(UnifiedDiffHighlighter.isHighlightableLine(" +not addition"));
-            // Note: "@@@ three at" starts with "@@" so it's highlightable
-            assertTrue(UnifiedDiffHighlighter.isHighlightableLine("@@@ three at"));
+            // @@ headers are detected via LineType, not prefix
+            assertFalse(UnifiedDiffHighlighter.isHighlightableLine("@@@ three at"));
         }
     }
 }
