@@ -1,21 +1,18 @@
 package ai.brokk;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.tools.CodeUnitExtractor;
-import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-
-import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration test for {@link Completions} that validates symbol ranking
@@ -65,22 +62,39 @@ public class CompletionsIntegrationTest {
     @Test
     void testContextManagerPrefixRanking() {
         String query = "contextman";
-        List<CodeUnit> results = Completions.completeSymbols(query, ANALYZER);
-        FuzzyMatcher matcher = new FuzzyMatcher(query);
+        List<CodeUnit> candidates = ANALYZER.getAllDeclarations();
 
-        System.out.println("Top 10 results for '" + query + "':");
-        for (int i = 0; i < Math.min(10, results.size()); i++) {
-            CodeUnit cu = results.get(i);
-            int baseScore = matcher.score(cu.identifier());
-            // Mirroring internal Completions scoring logic for debug visibility
-            int typeBonus = (cu.kind() == CodeUnitType.CLASS) ? -10000 : 0;
-            int depthBonus = (int) cu.fqName().chars().filter(ch -> ch == '.').count() * 10;
-            int finalScore = baseScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : baseScore + typeBonus + depthBonus;
+        // Use the actual Completions scoring logic (not reproduced)
+        List<Completions.ScoredCodeUnit> scored = Completions.scoreCodeUnits(query, candidates);
 
-            System.out.printf("%2d. [%s] %-40s (Score: %d)%n", i + 1, cu.kind(), cu.fqName(), finalScore);
+        // Build debug output
+        StringBuilder debugOutput = new StringBuilder();
+        debugOutput.append("Top 10 scored results for '").append(query).append("':\n");
+        for (int i = 0; i < Math.min(10, scored.size()); i++) {
+            Completions.ScoredCodeUnit sc = scored.get(i);
+            debugOutput.append(String.format(
+                    "%2d. [%s] %-40s (Score: %d)%n",
+                    i + 1, sc.codeUnit().kind(), sc.codeUnit().fqName(), sc.score()));
         }
 
-        assertWithinTopN(query, "ai.brokk.ContextManager", CodeUnitType.CLASS, 5);
+        assertTrue(!scored.isEmpty(), "Expected at least one scored result for query: " + query + "\n" + debugOutput);
+
+        // Verify ContextManager ranks in top 5
+        int rank = -1;
+        for (int i = 0; i < Math.min(5, scored.size()); i++) {
+            if ("ai.brokk.ContextManager".equals(scored.get(i).codeUnit().fqName())) {
+                rank = i;
+                break;
+            }
+        }
+
+        assertTrue(
+                rank >= 0,
+                "Query '" + query + "' should have ranked ai.brokk.ContextManager within top 5\n" + debugOutput);
+        assertEquals(
+                CodeUnitType.CLASS,
+                scored.get(rank).codeUnit().kind(),
+                "Matched unit should be of type CLASS\n" + debugOutput);
     }
 
     private void assertTopMatch(String query, String expectedFqn, CodeUnitType expectedType) {
@@ -93,10 +107,17 @@ public class CompletionsIntegrationTest {
         // Build debug output
         StringBuilder debugOutput = new StringBuilder();
         debugOutput.append("Results for '").append(query).append("':\n");
-        results.stream().limit(5).forEach(r -> debugOutput.append("  ").append(r.kind()).append(" ").append(r.fqName()).append("\n"));
+        results.stream().limit(5).forEach(r -> debugOutput
+                .append("  ")
+                .append(r.kind())
+                .append(" ")
+                .append(r.fqName())
+                .append("\n"));
 
         assertEquals(
-                expectedFqn, top.fqName(), String.format("Query '%s' should have ranked %s first\n%s", query, expectedFqn, debugOutput));
+                expectedFqn,
+                top.fqName(),
+                String.format("Query '%s' should have ranked %s first\n%s", query, expectedFqn, debugOutput));
         assertEquals(
                 expectedType,
                 top.kind(),
@@ -110,8 +131,18 @@ public class CompletionsIntegrationTest {
 
         // Build debug output
         StringBuilder debugOutput = new StringBuilder();
-        debugOutput.append("Results for '").append(query).append("' (top ").append(n).append("):\n");
-        results.stream().limit(n).forEach(r -> debugOutput.append("  ").append(r.kind()).append(" ").append(r.fqName()).append("\n"));
+        debugOutput
+                .append("Results for '")
+                .append(query)
+                .append("' (top ")
+                .append(n)
+                .append("):\n");
+        results.stream().limit(n).forEach(r -> debugOutput
+                .append("  ")
+                .append(r.kind())
+                .append(" ")
+                .append(r.fqName())
+                .append("\n"));
 
         int limit = Math.min(n, results.size());
         int idx = IntStream.range(0, limit)
@@ -119,12 +150,16 @@ public class CompletionsIntegrationTest {
                 .findFirst()
                 .orElse(-1);
 
-        assertTrue(idx >= 0, String.format("Query '%s' should have ranked %s within top %d\n%s", query, expectedFqn, n, debugOutput));
+        assertTrue(
+                idx >= 0,
+                String.format(
+                        "Query '%s' should have ranked %s within top %d\n%s", query, expectedFqn, n, debugOutput));
 
         assertEquals(
                 expectedType,
                 results.get(idx).kind(),
                 String.format(
-                        "Query '%s' match %s within top %d should be of type %s\n%s", query, expectedFqn, n, expectedType, debugOutput));
+                        "Query '%s' match %s within top %d should be of type %s\n%s",
+                        query, expectedFqn, n, expectedType, debugOutput));
     }
 }
