@@ -2215,6 +2215,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public void close() throws InterruptedException {
             if (!closed.compareAndSet(false, true)) return;
 
+            closeInternal();
+
+            requireNonNull(analyzerWrapper).resume();
+        }
+
+        protected void closeInternal() {
             // Save once now that all group mappings are in place
             project.getSessionManager().saveHistory(contextHistory, currentSessionId);
 
@@ -2235,8 +2241,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 });
                 captureGitState(finalCtx);
             }
-
-            requireNonNull(analyzerWrapper).resume();
         }
     }
 
@@ -2254,7 +2258,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public void publish(Context context) {}
 
         @Override
-        public void close() throws InterruptedException {}
+        public void closeInternal() {}
     }
 
     @Override
