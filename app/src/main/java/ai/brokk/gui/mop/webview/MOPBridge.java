@@ -286,13 +286,9 @@ public final class MOPBridge {
                 if (event instanceof BrokkEvent.Chunk chunk) {
                     if (firstChunk == null) {
                         firstChunk = chunk;
-                    } else if (chunk.chunkMeta().isNewMessage()
-                            || chunk.msgType() != firstChunk.msgType()
-                            || chunk.chunkMeta().isTerminal() != firstChunk.chunkMeta().isTerminal()) {
-                        // Boundary detected: flush the currently buffered chunk.
-                        // isNewMessage is the primary signal from MarkdownOutputPanel.
-                        // We also flush on msgType or isTerminal mismatch to ensure semantic consistency
-                        // (e.g., never merge a terminal chunk into a non-terminal one).
+                    } else if (chunk.chunkMeta().isNewMessage()) {
+                        // isNewMessage is the authoritative signal from MarkdownOutputPanel
+                        // for all semantic boundaries (type changes, reasoning transitions, terminality).
                         flushCurrentChunk(firstChunk, currentText);
                         firstChunk = chunk;
                     }

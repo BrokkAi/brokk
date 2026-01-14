@@ -226,32 +226,38 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             return;
         }
 
-        boolean isNewMessage = meta.isNewMessage();
-        boolean reasoning = meta.isReasoning();
-
-        // If transient message was visible, this chunk should start a new message
+        // 1. Transient message cleanup
         boolean wasTransientVisible = transientMessageVisible;
         if (wasTransientVisible) {
             transientMessageVisible = false;
             webHost.hideTransientMessage();
         }
 
-        var lastMessageIsReasoning = !messages.isEmpty() && Messages.isReasoningMessage(messages.getLast());
+        // 2. Determine if we must start a new message bubble
+        boolean isNew;
+        if (messages.isEmpty() || meta.isNewMessage() || wasTransientVisible) {
+            isNew = true;
+        } else {
+            var last = messages.getLast();
+            boolean lastIsReasoning = Messages.isReasoningMessage(last);
+            boolean lastIsTerminal = Messages.isTerminalMessage(last);
 
-        // Compute effective isNew: force true if transient was visible, or if message state transitions
-        boolean isNew = isNewMessage
-                || wasTransientVisible
-                || messages.isEmpty()
-                || reasoning != lastMessageIsReasoning
-                || (!reasoning && type != messages.getLast().type());
+            // Force a new message if any semantic boundary is crossed:
+            // - Transitions in or out of reasoning
+            // - Transitions in or out of terminal state
+            // - The previous message was already terminal (cannot append to it)
+            // - Change in message type (unless it's reasoning, which is always AI-side)
+            isNew = meta.isReasoning() != lastIsReasoning
+                    || meta.isTerminal() != lastIsTerminal
+                    || lastIsTerminal
+                    || (!meta.isReasoning() && type != last.type());
+        }
 
-        var chunkMeta = new ChunkMeta(isNew, reasoning, meta.isTerminal());
+        var chunkMeta = new ChunkMeta(isNew, meta.isReasoning(), meta.isTerminal());
 
         if (isNew) {
-            // new message
             messages.add(Messages.create(text, type, meta));
         } else {
-            // merge with last message
             var lastIdx = messages.size() - 1;
             var last = messages.get(lastIdx);
             var combined = Messages.getText(last) + text;
