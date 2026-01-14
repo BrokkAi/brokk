@@ -39,24 +39,22 @@ public class CommitDialog extends BaseThemedDialog {
             @Nullable Window owner,
             Chrome chrome,
             IContextManager contextManager,
-            GitWorkflow workflowService,
             List<ProjectFile> filesToCommit,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
-        this(owner, chrome, contextManager, workflowService, filesToCommit, null, onCommitSuccessCallback);
+        this(owner, chrome, contextManager, filesToCommit, null, onCommitSuccessCallback);
     }
 
     public CommitDialog(
             @Nullable Window owner,
             Chrome chrome,
             IContextManager contextManager,
-            GitWorkflow workflowService,
             List<ProjectFile> filesToCommit,
             @Nullable String prefilledMessage,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
         super(owner, "Commit Changes");
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.workflowService = workflowService;
+        this.workflowService = new GitWorkflow(contextManager);
         this.filesToCommit = filesToCommit;
         this.onCommitSuccessCallback = onCommitSuccessCallback;
 

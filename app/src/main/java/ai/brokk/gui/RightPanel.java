@@ -777,6 +777,29 @@ public class RightPanel extends JPanel implements ThemeAware {
      */
     public void loadReviewFromMarkdown(String markdown, ai.brokk.context.Context context) {
         // Focus the Review tab/frame
+        focusReviewTab();
+
+        // Load the review into SessionChangesPanel
+        if (reviewTabComponent instanceof SessionChangesPanel scp) {
+            scp.loadExternalReview(markdown, context);
+        }
+    }
+
+    /**
+     * Starts a review for a specific range of commits.
+     * Selects the Review tab and triggers the review generation in SessionChangesPanel.
+     */
+    public void startCommitRangeReview(String oldestCommitId) {
+        SwingUtilities.invokeLater(() -> {
+            focusReviewTab();
+
+            if (reviewTabComponent instanceof SessionChangesPanel scp) {
+                scp.startCommitRangeReview(oldestCommitId);
+            }
+        });
+    }
+
+    private void focusReviewTab() {
         if (!GlobalUiSettings.isReviewDocked() && reviewFrame != null) {
             // Review is undocked - bring the frame to front
             reviewFrame.toFront();
@@ -787,11 +810,6 @@ public class RightPanel extends JPanel implements ThemeAware {
             if (reviewIdx != -1) {
                 buildReviewTabs.setSelectedIndex(reviewIdx);
             }
-        }
-
-        // Load the review into SessionChangesPanel
-        if (reviewTabComponent instanceof SessionChangesPanel scp) {
-            scp.loadExternalReview(markdown, context);
         }
     }
 

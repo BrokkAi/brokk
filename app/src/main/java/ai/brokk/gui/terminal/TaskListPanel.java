@@ -8,7 +8,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.SwingUtil;
@@ -1055,18 +1054,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         if (choice[0] == 0) {
             // Commit first, then proceed on success
-            var workflow = new GitWorkflow(chrome.getContextManager());
             var commitDialog = new CommitDialog(
-                    chrome.getFrame(), chrome, chrome.getContextManager(), workflow, dirtyFiles, commitResult -> {
-                        try {
-                            chrome.updateCommitPanel();
-                            chrome.updateLogTab();
-                            chrome.selectCurrentBranchInLogTab();
-                        } finally {
-                            // Proceed to run tasks after committing
-                            SwingUtilities.invokeLater(action);
-                        }
-                    });
+                    chrome.getFrame(),
+                    chrome,
+                    chrome.getContextManager(),
+                    dirtyFiles,
+                    commitResult -> SwingUtilities.invokeLater(action));
             commitDialog.setVisible(true);
         } else if (choice[0] == 1) {
             // Continue without committing
