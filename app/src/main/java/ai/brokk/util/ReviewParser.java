@@ -128,6 +128,33 @@ public class ReviewParser {
     private static final Pattern AT_FILE_LINE_PATTERN =
             Pattern.compile("^At\\s+`([^`]+)`\\s+line\\s+(\\d+):\\s*$", Pattern.CASE_INSENSITIVE);
 
+    /**
+     * Injects [Excerpt N] markers before each "At `file` line N:" header.
+     */
+    public String tagExcerpts(String text) {
+        StringBuilder sb = new StringBuilder();
+        List<String> lines = Splitter.on(Pattern.compile("\\R")).splitToList(text);
+        int excerptCount = 0;
+
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            String trimmed = line.trim();
+
+            Matcher atMatcher = AT_FILE_LINE_PATTERN.matcher(trimmed);
+            if (atMatcher.matches()) {
+                // Look ahead for code fence
+                if (i + 1 < lines.size() && lines.get(i + 1).trim().startsWith("```")) {
+                    sb.append("[Excerpt ").append(excerptCount++).append("]\n");
+                }
+            }
+            sb.append(line);
+            if (i < lines.size() - 1) {
+                sb.append("\n");
+            }
+        }
+        return sb.toString();
+    }
+
     public List<Segment> parseToSegments(String text) {
         List<Segment> segments = new ArrayList<>();
         List<String> lines = Splitter.on(Pattern.compile("\\R")).splitToList(text);

@@ -1021,6 +1021,40 @@ class ReviewParserTest {
     }
 
     @Test
+    void testTagExcerpts() {
+        String input =
+                """
+                Some text.
+                At `File.java` line 10:
+                ```
+                code
+                ```
+                More text.
+                At `Other.java` line 20:
+                ```
+                code2
+                ```
+                """;
+        String tagged = ReviewParser.instance.tagExcerpts(input);
+        String expected =
+                """
+                Some text.
+                [Excerpt 0]
+                At `File.java` line 10:
+                ```
+                code
+                ```
+                More text.
+                [Excerpt 1]
+                At `Other.java` line 20:
+                ```
+                code2
+                ```
+                """;
+        assertEquals(expected.trim(), tagged.trim());
+    }
+
+    @Test
     void testMatchExcerptInContent() {
         String content = "line1\nline2\nline3";
 
