@@ -5,6 +5,7 @@ import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.analyzer.JavaAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -14,11 +15,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-import ai.brokk.testutil.TestProject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -138,4 +134,41 @@ public class CodeUnitExtractor {
         Files.write(outputPath, lines);
     }
 
+    /**
+     * Extracts CodeUnits to a temporary CSV file and returns a wrapper that deletes the file on close.
+     */
+    public static ExtractedCodeUnits extract(Path projectRoot) throws IOException {
+        Path tempFile = Files.createTempFile("codeunits-", ".csv");
+        try {
+            extract(projectRoot, tempFile);
+            return new ExtractedCodeUnits(tempFile);
+        } catch (IOException | RuntimeException e) {
+            Files.deleteIfExists(tempFile);
+            throw e;
+        }
+    }
+
+    /**
+     * A wrapper around a temporary CSV file containing extracted CodeUnits.
+     */
+    public static final class ExtractedCodeUnits implements AutoCloseable {
+        private final Path path;
+
+        private ExtractedCodeUnits(Path path) {
+            this.path = path;
+        }
+
+        public Path getPath() {
+            return path;
+        }
+
+        public InputStream getInputStream() throws IOException {
+            return Files.newInputStream(path);
+        }
+
+        @Override
+        public void close() throws IOException {
+            Files.deleteIfExists(path);
+        }
+    }
 }

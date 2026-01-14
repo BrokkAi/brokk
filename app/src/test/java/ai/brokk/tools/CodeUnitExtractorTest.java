@@ -42,11 +42,12 @@ class CodeUnitExtractorTest {
         List<String> lines = Files.readAllLines(csvOutput);
 
         // Expected output is sorted: CLASS, FIELD, FUNCTION, MODULE
+        // Format: kind,fqName,shortName,identifier
         assertEquals(4, lines.size());
-        assertEquals("CLASS,com.example.MyClass", lines.get(0));
-        assertEquals("FIELD,com.example.MyClass.myField", lines.get(1));
-        assertEquals("FUNCTION,com.example.MyClass.myMethod", lines.get(2));
-        assertEquals("MODULE,com.example", lines.get(3));
+        assertEquals("CLASS,com.example.MyClass,MyClass,MyClass", lines.get(0));
+        assertEquals("FIELD,com.example.MyClass.myField,MyClass.myField,myField", lines.get(1));
+        assertEquals("FUNCTION,com.example.MyClass.myMethod,MyClass.myMethod,myMethod", lines.get(2));
+        assertEquals("MODULE,com.example,example,example", lines.get(3));
     }
 
     @Test
