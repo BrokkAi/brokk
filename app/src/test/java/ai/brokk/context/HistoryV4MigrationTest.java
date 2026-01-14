@@ -111,7 +111,7 @@ class HistoryV4MigrationTest {
 
         var history = HistoryIo.readZip(tempZip, mockContextManager);
         // Let fragments materialize
-        history.liveContext().awaitContextsAreComputed(Duration.ofSeconds(10));
+        history.liveContext().awaitContentsAreComputed(Duration.ofSeconds(10));
         assertNotNull(history);
 
         if ("v3-complex-content.zip".equals(zipFileName)) {

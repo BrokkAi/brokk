@@ -285,7 +285,7 @@ public class ContextHistory {
             // Snapshot the context before moving it to redo stack, as it was the live context
             // and its content might not be cached yet.
             try {
-                popped.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+                popped.awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
             } catch (InterruptedException e) {
                 logger.warn("Interrupted while waiting for undo state to complete.");
             }
@@ -443,7 +443,7 @@ public class ContextHistory {
      */
     private void snapshotContext(Context ctx) {
         try {
-            ctx.awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+            ctx.awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
@@ -531,7 +531,7 @@ public class ContextHistory {
     private Set<ProjectFile> applySnapshotToWorkspace(Context snapshot, IConsoleIO io) {
         // Phase 0: wait once up front
         try {
-            snapshot.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            snapshot.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }

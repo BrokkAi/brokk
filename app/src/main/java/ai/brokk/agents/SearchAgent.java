@@ -759,7 +759,7 @@ public class SearchAgent {
 
     protected Set<ProjectFile> getWorkspaceFileSet() {
         try {
-            context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
@@ -775,7 +775,7 @@ public class SearchAgent {
 
     protected List<SearchMetrics.FragmentInfo> getWorkspaceFragments() {
         try {
-            context.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }

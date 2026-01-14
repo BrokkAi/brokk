@@ -724,7 +724,7 @@ public class MergeAgent {
         var conflictFiles = allConflictFilesInWorkspace();
         // Give fragments time to compute if necessary
         try {
-            top.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            top.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }

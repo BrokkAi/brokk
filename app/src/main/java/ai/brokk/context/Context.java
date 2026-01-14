@@ -1102,7 +1102,7 @@ public class Context {
      * not timeout-per-fragment.
      */
     @Blocking
-    public void awaitContextsAreComputed(Duration timeout) throws InterruptedException {
+    public void awaitContentsAreComputed(Duration timeout) throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeout.toMillis();
         for (var fragment : this.allFragments().toList()) {
             if (fragment instanceof ContextFragment.ComputedFragment cf) {
