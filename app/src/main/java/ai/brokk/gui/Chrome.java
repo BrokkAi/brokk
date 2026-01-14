@@ -2504,7 +2504,6 @@ public class Chrome
             logger.debug("Failed to fetch upstream default branch", e);
         }
 
-        updateGitRepo();
         refreshBranchUi(branchName);
     }
 
