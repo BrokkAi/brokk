@@ -281,7 +281,7 @@ public class DiffToolbarPanel extends JToolBar {
 
         // Blame menu
         if (menuShowBlame != null) {
-            menuShowBlame.setEnabled(callbacks.isBlameAvailable());
+            menuShowBlame.setEnabled(callbacks.canShowBlame());
             menuShowBlame.setSelected(callbacks.isShowingBlame());
         }
 

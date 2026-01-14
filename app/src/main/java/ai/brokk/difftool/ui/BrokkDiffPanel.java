@@ -1761,6 +1761,7 @@ public class BrokkDiffPanel extends JPanel
     public void setShowBlame(boolean show) {
         GlobalUiSettings.saveDiffShowBlame(show);
         if (currentDiffPanel != null) {
+            currentDiffPanel.setShowGutterBlame(show);
             updateBlameForPanel(currentDiffPanel, show);
         }
     }
@@ -1861,6 +1862,14 @@ public class BrokkDiffPanel extends JPanel
     @Override
     public boolean isBlameAvailable() {
         return blameService != null;
+    }
+
+    @Override
+    public boolean canShowBlame() {
+        if (blameService == null) {
+            return false;
+        }
+        return currentDiffPanel != null && currentDiffPanel.getTargetPathForBlame() != null;
     }
 
     @Override

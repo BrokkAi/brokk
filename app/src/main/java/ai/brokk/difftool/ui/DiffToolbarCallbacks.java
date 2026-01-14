@@ -80,6 +80,14 @@ interface DiffViewCallbacks {
 
     boolean isBlameAvailable();
 
+    /**
+     * Returns true if blame can be shown for the current panel. This checks both that a git service
+     * is available AND that the current panel has a valid target path for blame.
+     */
+    default boolean canShowBlame() {
+        return isBlameAvailable();
+    }
+
     boolean isShowingBlame();
 
     boolean isShowingAllLines();
