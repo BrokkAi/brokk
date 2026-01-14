@@ -1,7 +1,6 @@
 package ai.brokk.util;
 
 import ai.brokk.exception.GlobalExceptionHandler;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
@@ -11,7 +10,7 @@ public final class ExecutorServiceUtil {
 
     private ExecutorServiceUtil() {}
 
-    public static ExecutorService newFixedThreadExecutor(int parallelism, String threadPrefix) {
+    public static LoggingExecutorService newFixedThreadExecutor(int parallelism, String threadPrefix) {
         assert parallelism >= 1 : "parallelism must be >= 1";
         var factory = new ThreadFactory() {
             private final ThreadFactory delegate = Executors.defaultThreadFactory();
@@ -28,10 +27,11 @@ public final class ExecutorServiceUtil {
                 return t;
             }
         };
-        return Executors.newFixedThreadPool(parallelism, factory);
+        var delegate = Executors.newFixedThreadPool(parallelism, factory);
+        return new LoggingExecutorService(delegate, th -> GlobalExceptionHandler.handle(th, st -> {}));
     }
 
-    public static ExecutorService newVirtualThreadExecutor(String threadPrefix, int maxConcurrentThreads) {
+    public static LoggingExecutorService newVirtualThreadExecutor(String threadPrefix, int maxConcurrentThreads) {
         if (maxConcurrentThreads <= 0) {
             throw new IllegalArgumentException("maxConcurrentThreads must be > 0");
         }
@@ -67,7 +67,8 @@ public final class ExecutorServiceUtil {
                 return t;
             }
         };
-        return Executors.newThreadPerTaskExecutor(factory);
+        var delegate = Executors.newThreadPerTaskExecutor(factory);
+        return new LoggingExecutorService(delegate, th -> GlobalExceptionHandler.handle(th, st -> {}));
     }
 
     public static ThreadFactory createNamedThreadFactory(String prefix) {

@@ -7,6 +7,7 @@ import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
 import ai.brokk.tasks.TaskList;
 import ai.brokk.util.HistoryIo;
+import ai.brokk.util.LoggingExecutorService;
 import ai.brokk.util.SerialByKeyExecutor;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -36,6 +37,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -106,7 +108,9 @@ public class SessionManager implements AutoCloseable {
         this.sessionsDir = sessionsDir;
         // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
         int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
-        this.sessionExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
+        var delegateExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
+        Consumer<Throwable> exceptionHandler = th -> logger.error("Uncaught exception in analyzer executor", th);
+        sessionExecutor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
     }

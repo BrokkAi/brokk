@@ -29,7 +29,6 @@ import java.util.concurrent.CompletionService;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorCompletionService;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -125,7 +124,7 @@ public final class BlitzForge {
 
         // Sort by on-disk size ascending (smallest first)
         var sortedFiles = files.stream()
-                .sorted(Comparator.comparingLong(BlitzForge::fileSize))
+                .sorted(Comparator.comparingLong(file -> BlitzForge.fileSize(file)))
                 .toList();
         // Notify listener of the initial queue ordering
         listener.onQueued(sortedFiles);
@@ -135,7 +134,7 @@ public final class BlitzForge {
         if (config.model() instanceof Service.UnavailableStreamingModel) {
             // Fallback simple fixed pool for tests
             int pool = Math.min(Math.max(1, files.size()), Runtime.getRuntime().availableProcessors());
-            executor = Executors.newFixedThreadPool(pool);
+            executor = ai.brokk.util.ExecutorServiceUtil.newFixedThreadExecutor(pool, "blitzforge-");
         } else {
             executor = AdaptiveExecutor.create(service, config.model(), files.size());
         }

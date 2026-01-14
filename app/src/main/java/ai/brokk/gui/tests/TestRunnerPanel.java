@@ -29,7 +29,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.*;
@@ -73,7 +72,8 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private int maxRuns = 50;
     private final TestRunsStore runsStore;
     private boolean restoringRuns = false;
-    private final ExecutorService sessionExecutor = Executors.newFixedThreadPool(2);
+    private final ExecutorService sessionExecutor =
+            ai.brokk.util.ExecutorServiceUtil.newFixedThreadExecutor(2, "TestRunner-");
     private final SerialByKeyExecutor saveExecutor = new SerialByKeyExecutor(sessionExecutor);
 
     // Limit stored output size to avoid unbounded JSON growth
