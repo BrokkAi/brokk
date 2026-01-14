@@ -122,4 +122,42 @@ public class BrokkEventTest {
         assertFalse(meta.get("isReasoning").asBoolean());
         assertTrue(meta.get("isTerminal").asBoolean());
     }
+
+    @Test
+    public void testChunkSerializationReasoningNonTerminal() throws Exception {
+        var event = new BrokkEvent.Chunk(
+                "thinking...",
+                ChatMessageType.AI,
+                200,
+                true,
+                new ChunkMeta(false, true, false));
+
+        var json = MAPPER.writeValueAsString(event);
+        var node = MAPPER.readTree(json);
+
+        // Top level fields
+        assertEquals("chunk", node.get("type").asText());
+        assertEquals("thinking...", node.get("text").asText());
+        assertEquals("AI", node.get("msgType").asText());
+        assertEquals(200, node.get("epoch").asInt());
+        assertTrue(node.get("streaming").asBoolean());
+
+        // Assert legacy keys are absent
+        assertFalse(node.has("isNew"));
+        assertFalse(node.has("reasoning"));
+        assertFalse(node.has("terminal"));
+
+        // Meta object validation
+        assertTrue(node.has("meta"));
+        var meta = node.get("meta");
+
+        var metaKeys = StreamSupport.stream(
+                        java.util.Spliterators.spliteratorUnknownSize(meta.fieldNames(), 0), false)
+                .collect(java.util.stream.Collectors.toSet());
+        assertEquals(Set.of("isNewMessage", "isReasoning", "isTerminal"), metaKeys);
+
+        assertFalse(meta.get("isNewMessage").asBoolean());
+        assertTrue(meta.get("isReasoning").asBoolean());
+        assertFalse(meta.get("isTerminal").asBoolean());
+    }
 }
