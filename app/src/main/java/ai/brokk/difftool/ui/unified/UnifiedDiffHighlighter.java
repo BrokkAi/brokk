@@ -27,10 +27,7 @@ public final class UnifiedDiffHighlighter {
      * @param isDarkTheme Whether to use dark theme colors
      */
     public static void applyHighlights(
-            RSyntaxTextArea textArea,
-            JMHighlighter highlighter,
-            UnifiedDiffDocument document,
-            boolean isDarkTheme) {
+            RSyntaxTextArea textArea, JMHighlighter highlighter, UnifiedDiffDocument document, boolean isDarkTheme) {
         try {
             var filteredLines = document.getFilteredLines();
             if (filteredLines.isEmpty()) {
@@ -41,11 +38,6 @@ public final class UnifiedDiffHighlighter {
             for (int lineIndex = 0; lineIndex < filteredLines.size(); lineIndex++) {
                 var diffLine = filteredLines.get(lineIndex);
                 String content = diffLine.getContent();
-                int lineLength = content.length();
-                // Add 1 for newline if content doesn't end with newline
-                if (!content.endsWith("\n")) {
-                    lineLength += 0; // No extra for line length calculation
-                }
 
                 int lineStart = currentOffset;
                 int lineEnd = currentOffset + content.length();

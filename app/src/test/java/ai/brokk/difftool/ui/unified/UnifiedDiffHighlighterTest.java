@@ -93,17 +93,7 @@ class UnifiedDiffHighlighterTest {
         }
 
         @ParameterizedTest
-        @ValueSource(
-                strings = {
-                    "+",
-                    "+ ",
-                    "+line",
-                    "+  indented addition",
-                    "-",
-                    "- ",
-                    "-line",
-                    "-  indented deletion"
-                })
+        @ValueSource(strings = {"+", "+ ", "+line", "+  indented addition", "-", "- ", "-line", "-  indented deletion"})
         @DisplayName("Valid diff lines are highlightable")
         void validDiffLinesAreHighlightable(String line) {
             assertTrue(

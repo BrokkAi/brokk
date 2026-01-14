@@ -26,9 +26,7 @@ public class UnifiedDiffGenerator {
      * @return Generated UnifiedDiffDocument
      */
     public static UnifiedDiffDocument generateFromDiffNode(
-            JMDiffNode diffNode,
-            UnifiedDiffDocument.ContextMode contextMode,
-            boolean showHunkSeparators) {
+            JMDiffNode diffNode, UnifiedDiffDocument.ContextMode contextMode, boolean showHunkSeparators) {
 
         try {
             // Get the pre-processed patch from the diff node
@@ -106,7 +104,8 @@ public class UnifiedDiffGenerator {
             if (contextMode == UnifiedDiffDocument.ContextMode.FULL_CONTEXT) {
                 diffLines = generateFullContextDiff(leftLines, rightLines, patch, showHunkSeparators);
             } else {
-                diffLines = generateStandardContextDiff(leftLines, rightLines, patch, leftSource, rightSource, showHunkSeparators);
+                diffLines = generateStandardContextDiff(
+                        leftLines, rightLines, patch, leftSource, rightSource, showHunkSeparators);
             }
 
             return new UnifiedDiffDocument(diffLines, contextMode);

@@ -18,8 +18,10 @@ public class UnifiedDiffNavigator {
     private static final Logger logger = LogManager.getLogger(UnifiedDiffNavigator.class);
 
     private final RSyntaxTextArea textArea;
+
     @Nullable
     private UnifiedDiffDocument unifiedDocument;
+
     private List<Integer> hunkStartLines = List.of(); // Cached hunk positions
     private int currentHunkIndex = 0;
 
