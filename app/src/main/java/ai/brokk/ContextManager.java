@@ -1726,20 +1726,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
-     * Submits a background task that doesn't return a result.
-     *
-     * @param taskDescription a description of the task
-     * @param task the task to execute
-     * @return a {@link Future} representing pending completion of the task
-     */
-    public CompletableFuture<Void> submitBackgroundTask(String taskDescription, Runnable task) {
-        return submitBackgroundTask(taskDescription, () -> {
-            task.run();
-            return null;
-        });
-    }
-
-    /**
      * Ensures build details are loaded or inferred using BuildAgent if necessary. Runs asynchronously in the
      * background.
      */

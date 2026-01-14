@@ -19,6 +19,7 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 public class CommitDialog extends BaseThemedDialog {
@@ -238,8 +239,8 @@ public class CommitDialog extends BaseThemedDialog {
                     onCommitSuccessCallback.accept(result);
                     dispose();
                 });
-            } catch (Exception ex) {
-                logger.error("Error committing files from dialog:", ex);
+            } catch (GitAPIException ex) {
+                logger.warn("Error committing files from dialog:", ex);
                 SwingUtilities.invokeLater(() -> {
                     chrome.toolError("Error committing files: " + ex.getMessage(), "Commit Error");
                     // Re-enable UI for retry or cancel
@@ -248,7 +249,6 @@ public class CommitDialog extends BaseThemedDialog {
                     checkCommitButtonState(); // Re-check commit button state
                 });
             }
-            return null;
         });
     }
 
