@@ -162,11 +162,6 @@ class WatchServiceFactoryTest {
         public void onFilesChanged(AbstractWatchService.EventBatch batch) {
             // No-op for testing
         }
-
-        @Override
-        public void onNoFilesChangedDuringPollInterval() {
-            // No-op for testing
-        }
     }
 
     @Test

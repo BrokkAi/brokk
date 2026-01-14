@@ -714,16 +714,31 @@ public class GitRepo implements Closeable, IGitRepo {
      */
     <T, C extends TransportCommand<C, T>> void applyGitHubAuthentication(C command, @Nullable String remoteUrl)
             throws GitHubAuthenticationException {
+        applyGitHubAuthentication(command, remoteUrl, null);
+    }
+
+    /**
+     * Applies GitHub token authentication using an explicit token instead of the tokenSupplier.
+     * Falls back to the instance's tokenSupplier if the provided token is null or blank.
+     *
+     * @param command The git transport command (push, pull, fetch, clone)
+     * @param remoteUrl The remote URL to check
+     * @param token The explicit token to use, or null to use the default tokenSupplier
+     * @throws GitHubAuthenticationException if GitHub HTTPS URL is detected but no token is available
+     */
+    <T, C extends TransportCommand<C, T>> void applyGitHubAuthentication(
+            C command, @Nullable String remoteUrl, @Nullable String token) throws GitHubAuthenticationException {
         // Only handle GitHub HTTPS URLs - everything else uses JGit defaults
         if (!GitRepoFactory.isGitHubHttpsUrl(remoteUrl)) {
             return;
         }
 
-        // GitHub HTTPS requires token
+        // Use provided token if available, otherwise fall back to tokenSupplier
+        String effectiveToken = (token != null && !token.trim().isEmpty()) ? token : tokenSupplier.get();
+
         logger.debug("Using GitHub token authentication for: {}", remoteUrl);
-        var githubToken = tokenSupplier.get();
-        if (!githubToken.trim().isEmpty()) {
-            command.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", githubToken));
+        if (!effectiveToken.trim().isEmpty()) {
+            command.setCredentialsProvider(new UsernamePasswordCredentialsProvider("token", effectiveToken));
         } else {
             throw new GitHubAuthenticationException("GitHub token required for HTTPS authentication. "
                     + "Configure in Settings -> Global -> GitHub, or use SSH URL instead.");

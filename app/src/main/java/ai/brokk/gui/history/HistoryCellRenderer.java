@@ -1,9 +1,13 @@
-package ai.brokk.gui;
+package ai.brokk.gui.history;
 
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
+import ai.brokk.gui.ActivityTableRenderers;
+import ai.brokk.gui.Chrome;
+import ai.brokk.gui.Constants;
+import ai.brokk.gui.HistoryOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.util.ComputedValue;
 import java.awt.BorderLayout;
@@ -42,12 +46,9 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
     private final ActivityTableRenderers.ActionCellRenderer fallback = new ActivityTableRenderers.ActionCellRenderer();
     private final Font smallFont = new Font(Font.DIALOG, Font.PLAIN, 11);
 
-    private final HistoryOutputPanel historyOutputPanel;
+    private final HistoryTable historyTable;
     private final ContextManager contextManager;
     private final Chrome chrome;
-
-    @SuppressWarnings("unused")
-    private final JTable historyTable;
 
     // Flyweight components reused for all cells
     private final JPanel outerPanel;
@@ -57,17 +58,14 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
     /**
      * Creates a new HistoryCellRenderer.
      *
-     * @param historyOutputPanel owning HistoryOutputPanel (used for tooltip helpers)
+     * @param historyTable   history table
      * @param contextManager     context manager used to obtain diff services
      * @param chrome             chrome instance used for theme lookups
-     * @param historyTable       the history JTable instance
      */
-    public HistoryCellRenderer(
-            HistoryOutputPanel historyOutputPanel, ContextManager contextManager, Chrome chrome, JTable historyTable) {
-        this.historyOutputPanel = historyOutputPanel;
+    public HistoryCellRenderer(HistoryTable historyTable, ContextManager contextManager, Chrome chrome) {
+        this.historyTable = historyTable;
         this.contextManager = contextManager;
         this.chrome = chrome;
-        this.historyTable = historyTable;
 
         this.outerPanel = new JPanel(new BorderLayout());
         outerPanel.setOpaque(true);
@@ -84,7 +82,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         // Extract action text and indent level.
         int indentLevel = 0;
         String actionText;
-        if (value instanceof HistoryOutputPanel.ActionText at) {
+        if (value instanceof ActivityTableRenderers.ActionText at) {
             actionText = at.text().renderNowOr(Context.SUMMARIZING);
             indentLevel = Math.max(0, at.indentLevel());
         } else if (value instanceof ComputedValue<?> cv) {
@@ -128,7 +126,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
                     return;
                 }
                 SwingUtilities.invokeLater(() -> {
-                    historyOutputPanel.adjustRowHeightForContext(ctx);
+                    historyTable.adjustRowHeightForContext(ctx);
                     table.repaint();
                 });
             });
@@ -151,7 +149,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         outerPanel.add(actionComp, BorderLayout.NORTH);
 
         // Ensure tooltip is visible even though we return a composite panel.
-        outerPanel.setToolTipText(historyOutputPanel.buildTooltipWithModel(ctx, actionText));
+        outerPanel.setToolTipText(ActivityTableRenderers.buildTooltipWithModel(ctx, actionText));
 
         List<DiffService.FragmentDiff> diffs = cachedOpt.orElseGet(List::of);
         if (!diffs.isEmpty()) {

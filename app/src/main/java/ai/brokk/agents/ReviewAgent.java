@@ -396,7 +396,13 @@ public class ReviewAgent {
             String reasoning = (currentResult.chatResponse() != null)
                     ? requireNonNullElse(currentResult.chatResponse().reasoningContent(), "")
                     : "";
-            retryFileMessages.add(new AiMessage(textToValidate, reasoning));
+
+            String taggedText =
+                    "[HARNESS NOTE: some code excerpts in this message were invalid or could not be matched. "
+                            + "Your code excerpts have been tagged with [Excerpt N] markers below to help you identify and fix them.]\n\n"
+                            + ReviewParser.instance.tagExcerpts(textToValidate);
+
+            retryFileMessages.add(new AiMessage(taggedText, reasoning));
             retryFileMessages.add(new UserMessage(
                     """
                     The following excerpts referenced unknown file paths.
@@ -406,7 +412,7 @@ public class ReviewAgent {
                     %s
 
                     Use this format:
-                    Excerpt 1:
+                    Excerpt 0:
                     At `path/to/file.java` line 42:
                     ```
                     corrected code
@@ -498,7 +504,12 @@ public class ReviewAgent {
             retryTextMessages.addAll(
                     WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
             retryTextMessages.add(buildAnalysisRequestMessage());
-            retryTextMessages.add(new AiMessage(mergedResponseText));
+            String taggedText =
+                    "[HARNESS NOTE: some code excerpts in this message were invalid or could not be matched. "
+                            + "Your code excerpts have been tagged with [Excerpt N] markers below to help you identify and fix them.]\n\n"
+                            + ReviewParser.instance.tagExcerpts(mergedResponseText);
+
+            retryTextMessages.add(new AiMessage(taggedText));
 
             retryTextMessages.add(new UserMessage(
                     """
