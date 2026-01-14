@@ -9,6 +9,7 @@ import ai.brokk.agents.ReviewAgent;
 import ai.brokk.agents.ReviewGenerationException;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.DiffProjectFileNavigationTarget;
@@ -32,6 +33,8 @@ import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +42,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
@@ -903,6 +907,22 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     sessions = List.of(contextManager.getCurrentSessionId());
                 } else {
                     sessions = DiffService.CumulativeChanges.findOverlappingSessions(contextManager, changes.commits());
+
+                    // Check if all commits are already in the current session
+                    Set<String> currentSessionCommits =
+                            contextManager.getContextHistory().getGitStates().values().stream()
+                                    .map(ContextHistory.GitState::commitHash)
+                                    .collect(Collectors.toSet());
+                    List<String> reviewCommits =
+                            changes.commits().stream().map(CommitInfo::id).toList();
+
+                    if (!currentSessionCommits.containsAll(reviewCommits) && !reviewCommits.isEmpty()) {
+                        // Create a new session for this review
+                        String branchName = repo.getCurrentBranch();
+                        String time = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+                        String sessionName = "Review " + branchName + " " + time;
+                        contextManager.createSessionAsync(sessionName).join();
+                    }
                 }
 
                 var agent = new ReviewAgent(changes, sessions, contextManager, chrome, fileComparisons);
