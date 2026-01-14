@@ -1,15 +1,14 @@
 package ai.brokk;
 
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
-import ai.brokk.project.IProject;
+import ai.brokk.testutil.TestProject;
 import ai.brokk.tools.CodeUnitExtractor;
-import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -19,39 +18,26 @@ import org.junit.jupiter.api.Test;
 public class FuzzyMatcherIntegrationTest {
 
     private static final List<CodeUnit> CODE_UNITS = new ArrayList<>();
+    private static CodeUnitExtractor.ExtractedCodeUnits extracted;
 
     @BeforeAll
     static void loadData() throws Exception {
-        InputStream is = FuzzyMatcherIntegrationTest.class.getResourceAsStream("/codeunits.csv");
         Path absoluteRoot = Path.of("").toAbsolutePath();
+        Path projectRoot = absoluteRoot.resolve("src/main");
+        TestProject project = new TestProject(projectRoot);
 
-        // Minimal project to satisfy loadCodeUnits requirements
-        IProject mockProject = new IProject() {
-            @Override
-            public Path getRoot() {
-                return absoluteRoot;
-            }
+        extracted = CodeUnitExtractor.extract(project);
+        CODE_UNITS.addAll(extracted.getCodeUnits());
 
-            @Override
-            public void close() {}
-        };
-
-        if (is != null) {
-            try (is) {
-                CODE_UNITS.addAll(CodeUnitExtractor.loadCodeUnits(is, mockProject));
-            }
-        }
-
-        // If dataset is still empty (missing resource or empty file), add synthetic data for logic testing
         if (CODE_UNITS.isEmpty()) {
-            CODE_UNITS.add(CodeUnit.cls(
-                    new ai.brokk.analyzer.ProjectFile(absoluteRoot, "FuzzyMatcher.java"), "ai.brokk", "FuzzyMatcher"));
-            CODE_UNITS.add(CodeUnit.cls(
-                    new ai.brokk.analyzer.ProjectFile(absoluteRoot, "ContextManager.java"),
-                    "ai.brokk",
-                    "ContextManager"));
-            CODE_UNITS.add(CodeUnit.fn(
-                    new ai.brokk.analyzer.ProjectFile(absoluteRoot, "Util.java"), "ai.brokk", "calculateScore"));
+            fail("Unable to load integration test data");
+        }
+    }
+
+    @AfterAll
+    static void cleanup() throws Exception {
+        if (extracted != null) {
+            extracted.close();
         }
     }
 

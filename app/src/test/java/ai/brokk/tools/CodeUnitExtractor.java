@@ -137,11 +137,12 @@ public class CodeUnitExtractor {
     /**
      * Extracts CodeUnits to a temporary CSV file and returns a wrapper that deletes the file on close.
      */
-    public static ExtractedCodeUnits extract(Path projectRoot) throws IOException {
+    public static ExtractedCodeUnits extract(IProject project) throws IOException {
+        Path projectRoot = project.getRoot();
         Path tempFile = Files.createTempFile("codeunits-", ".csv");
         try {
             extract(projectRoot, tempFile);
-            return new ExtractedCodeUnits(tempFile);
+            return new ExtractedCodeUnits(tempFile, project);
         } catch (IOException | RuntimeException e) {
             Files.deleteIfExists(tempFile);
             throw e;
@@ -153,9 +154,11 @@ public class CodeUnitExtractor {
      */
     public static final class ExtractedCodeUnits implements AutoCloseable {
         private final Path path;
+        private final IProject project;
 
-        private ExtractedCodeUnits(Path path) {
+        private ExtractedCodeUnits(Path path, IProject project) {
             this.path = path;
+            this.project = project;
         }
 
         public Path getPath() {
@@ -164,6 +167,15 @@ public class CodeUnitExtractor {
 
         public InputStream getInputStream() throws IOException {
             return Files.newInputStream(path);
+        }
+
+        /**
+         * Loads the CodeUnits from this extracted CSV file.
+         */
+        public List<CodeUnit> getCodeUnits() throws IOException {
+            try (InputStream is = getInputStream()) {
+                return loadCodeUnits(is, project);
+            }
         }
 
         @Override

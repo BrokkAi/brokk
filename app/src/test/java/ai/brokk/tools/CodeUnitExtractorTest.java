@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,7 +34,8 @@ class CodeUnitExtractorTest {
             """);
 
         // Run extractor
-        try (CodeUnitExtractor.ExtractedCodeUnits result = CodeUnitExtractor.extract(projectRoot)) {
+        TestProject project = new TestProject(projectRoot);
+        try (CodeUnitExtractor.ExtractedCodeUnits result = CodeUnitExtractor.extract(project)) {
             Path csvOutput = result.getPath();
 
             // Verify CSV exists and contains expected content
@@ -54,7 +56,9 @@ class CodeUnitExtractorTest {
     void testInvalidDirectoryThrowsException() {
         Path nonExistent = tempDir.resolve("non-existent");
 
-        assertThrows(IllegalArgumentException.class, () -> CodeUnitExtractor.extract(nonExistent));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CodeUnitExtractor.extract(nonExistent, tempDir.resolve("output.csv")));
     }
 
     @Test

@@ -1,19 +1,16 @@
 package ai.brokk;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.tools.CodeUnitExtractor;
-import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.IntStream;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -24,26 +21,29 @@ import org.junit.jupiter.api.Test;
 public class CompletionsIntegrationTest {
 
     private static final TestAnalyzer ANALYZER = new TestAnalyzer();
+    private static CodeUnitExtractor.ExtractedCodeUnits extracted;
 
     @BeforeAll
     static void setup() throws Exception {
         Path root = Path.of("").toAbsolutePath();
-        TestProject project = new TestProject(root);
+        Path projectRoot = root.resolve("src/main");
+        TestProject project = new TestProject(projectRoot);
 
-        try (InputStream is = CompletionsIntegrationTest.class.getResourceAsStream("/codeunits.csv")) {
-            Objects.requireNonNull(is, "Resource /codeunits.csv not found. Ensure CodeUnitExtractor has been run.");
-            List<CodeUnit> units = CodeUnitExtractor.loadCodeUnits(is, project);
-            for (CodeUnit unit : units) {
-                ANALYZER.addDeclaration(unit);
-            }
+        extracted = CodeUnitExtractor.extract(project);
+        List<CodeUnit> units = extracted.getCodeUnits();
+        for (CodeUnit unit : units) {
+            ANALYZER.addDeclaration(unit);
         }
 
-        // Add fallback synthetic data if CSV is empty to ensure tests can run logic checks
         if (ANALYZER.getAllDeclarations().isEmpty()) {
-            ANALYZER.addDeclaration(
-                    CodeUnit.cls(new ProjectFile(root, "src/ContextManager.java"), "ai.brokk", "ContextManager"));
-            ANALYZER.addDeclaration(CodeUnit.field(
-                    new ProjectFile(root, "test/ContextCompressionTest.java"), "ai.brokk.test", "contextManager"));
+            fail("Unable to load integration test data");
+        }
+    }
+
+    @AfterAll
+    static void cleanup() throws Exception {
+        if (extracted != null) {
+            extracted.close();
         }
     }
 
@@ -104,9 +104,20 @@ public class CompletionsIntegrationTest {
 
         assertTrue(!results.isEmpty(), "Expected at least one result for query: " + query);
 
-        // Debug output for troubleshooting ranking
-        System.out.println("Results for '" + query + "' (top " + n + "):");
-        results.stream().limit(n).forEach(r -> System.out.println("  " + r.kind() + " " + r.fqName()));
+        // Build debug output
+        StringBuilder debugOutput = new StringBuilder();
+        debugOutput
+                .append("Results for '")
+                .append(query)
+                .append("' (top ")
+                .append(n)
+                .append("):\n");
+        results.stream().limit(n).forEach(r -> debugOutput
+                .append("  ")
+                .append(r.kind())
+                .append(" ")
+                .append(r.fqName())
+                .append("\n"));
 
         int limit = Math.min(n, results.size());
         int idx = IntStream.range(0, limit)
@@ -114,12 +125,16 @@ public class CompletionsIntegrationTest {
                 .findFirst()
                 .orElse(-1);
 
-        assertTrue(idx >= 0, String.format("Query '%s' should have ranked %s within top %d", query, expectedFqn, n));
+        assertTrue(
+                idx >= 0,
+                String.format(
+                        "Query '%s' should have ranked %s within top %d\n%s", query, expectedFqn, n, debugOutput));
 
         assertEquals(
                 expectedType,
                 results.get(idx).kind(),
                 String.format(
-                        "Query '%s' match %s within top %d should be of type %s", query, expectedFqn, n, expectedType));
+                        "Query '%s' match %s within top %d should be of type %s\n%s",
+                        query, expectedFqn, n, expectedType, debugOutput));
     }
 }
