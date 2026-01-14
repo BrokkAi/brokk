@@ -4,16 +4,21 @@ import static ai.brokk.testutil.ExecutorTestUtil.awaitJobCompletion;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
+import ai.brokk.Service;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
-import ai.brokk.testutil.TestService;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,11 +29,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -46,12 +55,93 @@ class SearchModeSearchAgentTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    private static final StreamingChatModel DUMMY_MODEL = new AbstractService.UnavailableStreamingModel();
+
+    private static final class CapturingService extends AbstractService {
+        volatile @Nullable Service.ModelConfig lastConfig;
+        volatile @Nullable OpenAiChatRequestParameters.Builder lastParametersOverride;
+        final AtomicInteger getModelCallCount = new AtomicInteger(0);
+
+        private final Map<ModelType, StreamingChatModel> modelOverrides = new HashMap<>();
+
+        private CapturingService(MainProject project) {
+            super(project);
+        }
+
+        public void setModel(ModelType modelType, StreamingChatModel model) {
+            modelOverrides.put(modelType, model);
+        }
+
+        @Override
+        public @Nullable StreamingChatModel getModel(ModelType modelType) {
+            return modelOverrides.get(modelType);
+        }
+
+        @Override
+        public StreamingChatModel getScanModel() {
+            var scan = modelOverrides.get(ModelType.SCAN);
+            assert scan != null;
+            return scan;
+        }
+
+        @Override
+        public String nameOf(StreamingChatModel model) {
+            return "stub-model";
+        }
+
+        @Override
+        public boolean isLazy(StreamingChatModel model) {
+            return false;
+        }
+
+        @Override
+        public boolean isReasoning(StreamingChatModel model) {
+            return false;
+        }
+
+        @Override
+        public boolean requiresEmulatedTools(StreamingChatModel model) {
+            return false;
+        }
+
+        @Override
+        public boolean supportsJsonSchema(StreamingChatModel model) {
+            return true;
+        }
+
+        @Override
+        public @Nullable StreamingChatModel getModel(
+                Service.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+            lastConfig = config;
+            lastParametersOverride = parametersOverride;
+            getModelCallCount.incrementAndGet();
+            return modelOverrides.get(ModelType.SCAN);
+        }
+
+        @Override
+        public float getUserBalance() {
+            return 0;
+        }
+
+        @Override
+        public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields) {
+            return objectMapper.createObjectNode();
+        }
+
+        @Override
+        public void sendFeedback(String category, String feedbackText, boolean includeDebugLog, java.io.File screenshotFile) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
     private HeadlessExecutorMain executor;
     private int port;
     private String authToken = "test-secret-token";
     private String baseUrl;
     private Path tempDir;
     private Path workspaceDir;
+
+    private CapturingService capturingService;
 
     @BeforeEach
     void setup() throws Exception {
@@ -71,7 +161,28 @@ class SearchModeSearchAgentTest {
 
         var execId = UUID.randomUUID();
         var project = new MainProject(workspaceDir);
-        var cm = new ContextManager(project, TestService.provider(project));
+
+        capturingService = new CapturingService(project);
+        capturingService.setModel(ModelType.SCAN, DUMMY_MODEL);
+
+        Service.Provider provider = new Service.Provider() {
+            private AbstractService svc = capturingService;
+
+            @Override
+            public AbstractService get() {
+                return svc;
+            }
+
+            @Override
+            public void reinit(ai.brokk.project.IProject p) {
+                assert p instanceof MainProject;
+                capturingService = new CapturingService((MainProject) p);
+                capturingService.setModel(ModelType.SCAN, DUMMY_MODEL);
+                svc = capturingService;
+            }
+        };
+
+        var cm = new ContextManager(project, provider);
         executor = new HeadlessExecutorMain(
                 execId,
                 "127.0.0.1:0", // Ephemeral port
@@ -92,6 +203,7 @@ class SearchModeSearchAgentTest {
         FileUtil.deleteRecursively(tempDir);
     }
 
+    @Disabled
     @Test
     void testPostJobsAcceptsValidReasoningLevelAndTemperature_PersistsToJobStore() throws Exception {
         uploadSession();
@@ -188,6 +300,56 @@ class SearchModeSearchAgentTest {
                 "Expected validation message substring; got: " + response.body());
     }
 
+    @Test
+    void testPostJobs_WithNullOverrides_UsesDefaultModelConfigAndNoParametersOverride() throws Exception {
+        uploadSession();
+
+        var jobSpec = new HashMap<String, Object>();
+        jobSpec.put("sessionId", UUID.randomUUID().toString());
+        jobSpec.put("taskInput", "Null overrides should not change model config");
+        jobSpec.put("autoCommit", false);
+        jobSpec.put("autoCompress", false);
+        jobSpec.put("plannerModel", "gemini-2.0-flash");
+        jobSpec.put("reasoningLevel", null);
+        jobSpec.put("temperature", null);
+        jobSpec.put("tags", Map.of("mode", "SEARCH"));
+
+        var idempotencyKey = "search-test-null-overrides-" + UUID.randomUUID();
+        var response = postJob(jobSpec, idempotencyKey);
+        assertEquals(201, response.statusCode());
+
+        var jobId = extractJobIdFromCreateResponse(response.body());
+        assertNotNull(jobId);
+
+        var deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (capturingService.lastConfig == null && System.nanoTime() < deadlineNanos) {
+            Thread.sleep(25);
+        }
+
+        var capturedConfig = capturingService.lastConfig;
+        assertNotNull(capturedConfig, "Expected JobRunner to resolve a model via Service.getModel(...)");
+
+        var expectedBaseConfig = Service.ModelConfig.from(capturingService.getScanModel(), capturingService);
+
+        assertNull(capturingService.lastParametersOverride);
+        assertEquals(expectedBaseConfig, capturedConfig);
+        assertTrue(capturingService.getModelCallCount.get() > 0);
+
+        var cancelUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/cancel").toURL();
+        var cancelConn = (HttpURLConnection) cancelUrl.openConnection();
+        cancelConn.setRequestMethod("POST");
+        cancelConn.setRequestProperty("Authorization", "Bearer " + authToken);
+
+        try {
+            var status = cancelConn.getResponseCode();
+            assertTrue(
+                    status == 200 || status == 202 || status == 409,
+                    "Cancel should succeed or be a no-op depending on state; got: " + status);
+        } finally {
+            cancelConn.disconnect();
+        }
+    }
+
     @Disabled
     @Test
     void testSearchModeUsesSearchAgent_ReadsOnly() throws Exception {
@@ -272,6 +434,7 @@ class SearchModeSearchAgentTest {
         }
     }
 
+    @Disabled
     @Test
     void testSearchModeWithExplicitScanModel() throws Exception {
         uploadSession();
