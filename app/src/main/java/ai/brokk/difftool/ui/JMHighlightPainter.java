@@ -325,4 +325,53 @@ public class JMHighlightPainter extends DefaultHighlighter.DefaultHighlightPaint
             super(color, true); // paintFullLine = true
         }
     }
+
+    /**
+     * Painter that draws a wavy horizontal line across the full width (IntelliJ-style separator).
+     * Used for diff hunk headers to provide a subtle visual separator between sections.
+     */
+    public static class JMHighlightWavyLinePainter extends JMHighlightPainter {
+        private static final int WAVE_AMPLITUDE = 3;
+        private static final int WAVE_PERIOD = 6;
+
+        public JMHighlightWavyLinePainter(Color color) {
+            super(color, false);
+        }
+
+        @Override
+        public void paint(Graphics g, int p0, int p1, Shape shape, JTextComponent comp) {
+            Rectangle bounds = shape.getBounds();
+            try {
+                Rectangle r1 = SwingUtil.modelToView(comp, p0);
+                if (r1 == null) return;
+
+                Graphics2D g2d = (Graphics2D) g.create();
+                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2d.setColor(this.color);
+                g2d.setStroke(new BasicStroke(1.2f));
+
+                // Draw wavy line in the middle of the line height
+                int y = r1.y + r1.height / 2;
+                int width = bounds.x + bounds.width;
+
+                // Draw smooth wavy pattern using quadratic curves
+                var path = new java.awt.geom.GeneralPath();
+                path.moveTo(0, y);
+
+                boolean up = true;
+                for (int x = 0; x < width; x += WAVE_PERIOD) {
+                    int nextX = Math.min(x + WAVE_PERIOD, width);
+                    int controlY = up ? y - WAVE_AMPLITUDE : y + WAVE_AMPLITUDE;
+                    int midX = x + WAVE_PERIOD / 2;
+                    path.quadTo(midX, controlY, nextX, y);
+                    up = !up;
+                }
+
+                g2d.draw(path);
+                g2d.dispose();
+            } catch (BadLocationException ex) {
+                logger.warn("Error painting wavy line: {}", ex.getMessage(), ex);
+            }
+        }
+    }
 }
