@@ -63,6 +63,8 @@ with try/catch is unnecessary and futile; don't do that.
    Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
    this.executor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
    ```
+   The lambda (`String st -> {}`) is for notifying the user of problems, if you have an appropriate API avaiable then
+   you should wire that up as well.
    There are convenience methods for newVirtualThreadExecutor and newFixedThreadExecutor in ai.brokk.concurrent.ExecutorsUtil
    that you should use unless you need to roll a custom ThreadFactory.
 2. Use LoggingFuture.supplyAsync instead of CompletableFuture.supplyAsync; the API is the same.
