@@ -49,11 +49,9 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 const chunkText = evt.text ?? '';
                 const isTerminalChunk = !!evt.meta.isTerminal;
 
-                // Decide if we append or start a new bubble
-                const needNew = evt.meta.isNewMessage ||
-                    list.length === 0 ||
-                    evt.msgType !== lastBubble?.type ||
-                    evt.meta.isReasoning !== !!lastBubble?.reasoningState;
+                // Decide if we append or start a new bubble. 
+                // MarkdownOutputPanel.append is authoritative for isNewMessage.
+                const needNew = evt.meta.isNewMessage || list.length === 0;
 
                 let bubble: BubbleState;
                 if (needNew) {

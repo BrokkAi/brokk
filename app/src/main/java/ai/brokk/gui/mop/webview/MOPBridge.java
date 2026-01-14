@@ -286,9 +286,7 @@ public final class MOPBridge {
                 if (event instanceof BrokkEvent.Chunk chunk) {
                     if (firstChunk == null) {
                         firstChunk = chunk;
-                    } else if (chunk.chunkMeta().isNewMessage()
-                            || chunk.msgType() != firstChunk.msgType()
-                            || !chunk.chunkMeta().equals(firstChunk.chunkMeta())) {
+                    } else if (chunk.chunkMeta().isNewMessage() || chunk.msgType() != firstChunk.msgType()) {
                         // A new bubble is starting, so send the previously buffered one
                         flushCurrentChunk(firstChunk, currentText);
                         firstChunk = chunk;

@@ -236,16 +236,18 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             webHost.hideTransientMessage();
         }
 
-        // Compute effective isNew: force true if transient was visible
-        boolean isNew = isNewMessage || wasTransientVisible;
+        var lastMessageIsReasoning = !messages.isEmpty() && Messages.isReasoningMessage(messages.getLast());
+
+        // Compute effective isNew: force true if transient was visible, or if message state transitions
+        boolean isNew = isNewMessage
+                || wasTransientVisible
+                || messages.isEmpty()
+                || reasoning != lastMessageIsReasoning
+                || (!reasoning && type != messages.getLast().type());
 
         var chunkMeta = new ChunkMeta(isNew, reasoning, meta.isTerminal());
 
-        var lastMessageIsReasoning = !messages.isEmpty() && Messages.isReasoningMessage(messages.getLast());
-        if (isNew
-                || messages.isEmpty()
-                || reasoning != lastMessageIsReasoning
-                || (!reasoning && type != messages.getLast().type())) {
+        if (isNew) {
             // new message
             messages.add(Messages.create(text, type, meta));
         } else {
