@@ -7,10 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ai.brokk.ContextManager;
+import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
 import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -49,11 +51,12 @@ class SearchModeSearchAgentTest {
     private String authToken = "test-secret-token";
     private String baseUrl;
     private Path tempDir;
+    private Path workspaceDir;
 
     @BeforeEach
     void setup() throws Exception {
         tempDir = Files.createTempDirectory("search-mode-test-");
-        var workspaceDir = tempDir.resolve("workspace");
+        workspaceDir = tempDir.resolve("workspace");
         var sessionsDir = tempDir.resolve("sessions");
         Files.createDirectories(workspaceDir);
         Files.createDirectories(sessionsDir);
@@ -87,6 +90,102 @@ class SearchModeSearchAgentTest {
             executor.stop(2);
         }
         FileUtil.deleteRecursively(tempDir);
+    }
+
+    @Test
+    void testPostJobsAcceptsValidReasoningLevelAndTemperature_PersistsToJobStore() throws Exception {
+        uploadSession();
+
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "Validate reasoningLevel and temperature",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash",
+                "reasoningLevel",
+                "medium",
+                "temperature",
+                0.5,
+                "tags",
+                Map.of("mode", "SEARCH"));
+
+        var idempotencyKey = "search-test-valid-overrides-" + UUID.randomUUID();
+        var response = postJob(jobSpec, idempotencyKey);
+        assertEquals(201, response.statusCode());
+
+        var jobId = extractJobIdFromCreateResponse(response.body());
+        assertNotNull(jobId);
+        assertFalse(jobId.isBlank());
+
+        var store = new JobStore(workspaceDir.resolve(".brokk").resolve("jobs"));
+        var persisted = store.loadSpec(jobId);
+        assertNotNull(persisted);
+
+        assertEquals("MEDIUM", persisted.reasoningLevel());
+        assertEquals(0.5, persisted.temperature());
+    }
+
+    @Test
+    void testPostJobsRejectsUnknownReasoningLevel() throws Exception {
+        uploadSession();
+
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "Validate unknown reasoningLevel",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash",
+                "reasoningLevel",
+                "BANANAS",
+                "tags",
+                Map.of("mode", "SEARCH"));
+
+        var idempotencyKey = "search-test-bad-reasoning-" + UUID.randomUUID();
+        var response = postJob(jobSpec, idempotencyKey);
+
+        assertEquals(400, response.statusCode());
+        assertTrue(
+                response.body().contains("reasoningLevel must be one of"),
+                "Expected validation message substring; got: " + response.body());
+    }
+
+    @Test
+    void testPostJobsRejectsOutOfRangeTemperature() throws Exception {
+        uploadSession();
+
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "Validate out of range temperature",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash",
+                "temperature",
+                2.5,
+                "tags",
+                Map.of("mode", "SEARCH"));
+
+        var idempotencyKey = "search-test-bad-temperature-" + UUID.randomUUID();
+        var response = postJob(jobSpec, idempotencyKey);
+
+        assertEquals(400, response.statusCode());
+        assertTrue(
+                response.body().contains("temperature must be between 0.0 and 2.0"),
+                "Expected validation message substring; got: " + response.body());
     }
 
     @Disabled
@@ -301,6 +400,8 @@ class SearchModeSearchAgentTest {
     // Helpers
     // ============================================================================
 
+    private record HttpResponse(int statusCode, String body) {}
+
     private byte[] createEmptyZip() throws IOException {
         var out = new ByteArrayOutputStream();
         try (var zos = new ZipOutputStream(out)) {
@@ -334,7 +435,7 @@ class SearchModeSearchAgentTest {
         conn.disconnect();
     }
 
-    private String createJobWithSpec(Map<String, Object> jobSpec, String idempotencyKey) throws Exception {
+    private HttpResponse postJob(Map<String, Object> jobSpec, String idempotencyKey) throws Exception {
         var url = URI.create(baseUrl + "/v1/jobs").toURL();
         var conn = (HttpURLConnection) url.openConnection();
         conn.setRequestMethod("POST");
@@ -348,15 +449,32 @@ class SearchModeSearchAgentTest {
             os.write(json.getBytes(StandardCharsets.UTF_8));
         }
 
-        assertEquals(201, conn.getResponseCode());
-        try (InputStream is = conn.getInputStream()) {
-            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            var start = response.indexOf("\"jobId\":\"") + 9;
-            var end = response.indexOf("\"", start);
-            return response.substring(start, end);
-        } finally {
-            conn.disconnect();
+        var status = conn.getResponseCode();
+        var bodyStream = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
+        var body = "";
+        if (bodyStream != null) {
+            try (InputStream is = bodyStream) {
+                body = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+            }
         }
+
+        conn.disconnect();
+        return new HttpResponse(status, body);
+    }
+
+    private String extractJobIdFromCreateResponse(String responseBody) throws Exception {
+        JsonNode node = OBJECT_MAPPER.readTree(responseBody);
+        JsonNode jobIdNode = node.get("jobId");
+        if (jobIdNode == null || !jobIdNode.isTextual()) {
+            throw new IllegalStateException("Response did not contain textual jobId: " + responseBody);
+        }
+        return jobIdNode.asText();
+    }
+
+    private String createJobWithSpec(Map<String, Object> jobSpec, String idempotencyKey) throws Exception {
+        var response = postJob(jobSpec, idempotencyKey);
+        assertEquals(201, response.statusCode());
+        return extractJobIdFromCreateResponse(response.body());
     }
 
     private String toJson(Object obj) throws Exception {
