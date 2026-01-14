@@ -113,13 +113,25 @@ public class Completions {
         return candidates.stream()
                 .map(cu -> {
                     int baseScore = hierarchicalQuery ? matcher.score(cu.fqName()) : matcher.score(cu.identifier());
+                    if (baseScore == Integer.MAX_VALUE) {
+                        return new ScoredCodeUnit(cu, Integer.MAX_VALUE);
+                    }
+
                     int typeBonus =
                             (cu.kind() == ai.brokk.analyzer.CodeUnitType.CLASS) ? -ScoringConstants.CLASS_TYPE_BONUS : 0;
-                    // Tie-breaker: prefer shallower package depths (fewer dots)
-                    int depthBonus =
+                    // Tie-breaker: prefer shallower package depths (fewer dots).
+                    // This is a penalty, so it increases the score.
+                    int depthPenalty =
                             (int) cu.fqName().chars().filter(ch -> ch == '.').count() * ScoringConstants.PACKAGE_DEPTH_PENALTY;
-                    int finalScore =
-                            baseScore == Integer.MAX_VALUE ? Integer.MAX_VALUE : baseScore + typeBonus + depthBonus;
+
+                    int finalScore;
+                    try {
+                        finalScore = Math.addExact(baseScore, Math.addExact(typeBonus, depthPenalty));
+                    } catch (ArithmeticException e) {
+                        // In case of overflow, saturate to MIN_VALUE (best possible score)
+                        // as this only happens with extremely good matches and large bonuses.
+                        finalScore = Integer.MIN_VALUE;
+                    }
                     return new ScoredCodeUnit(cu, finalScore);
                 })
                 .filter(sc -> sc.score() != Integer.MAX_VALUE)
@@ -274,7 +286,13 @@ public class Completions {
     }
 
     private static int calculateCompositeScore(int shortScore, int longScore, boolean preferred) {
-        return Math.min(shortScore, longScore) + (preferred ? -ScoringConstants.PREFERRED_EXTENSION_BONUS : 0);
+        int base = Math.min(shortScore, longScore);
+        int bonus = preferred ? -ScoringConstants.PREFERRED_EXTENSION_BONUS : 0;
+        try {
+            return Math.addExact(base, bonus);
+        } catch (ArithmeticException e) {
+            return Integer.MIN_VALUE;
+        }
     }
 
     /**
