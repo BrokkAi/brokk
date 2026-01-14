@@ -146,7 +146,7 @@ public class Completions {
         // we assume that we won't see duplicates as the source for "candidates" has been deduplicated by the analyzer
         return scored.stream()
                 .sorted(Comparator.comparingInt(ScoredCodeUnit::score)
-                        // Tie-breaker 1: prefer shorter FQNs (shallower package/nesting depth)
+                        // Tie-breaker 1: prefer shorter FQNs (top-level classes vs inner classes/deep packages)
                         .thenComparingInt(sc -> sc.codeUnit().fqName().length())
                         // Tie-breaker 2: prefer shorter simple names
                         .thenComparingInt(sc -> sc.codeUnit().shortName().length())

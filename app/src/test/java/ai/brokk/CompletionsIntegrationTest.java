@@ -2,14 +2,14 @@ package ai.brokk;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import ai.brokk.Completions.ScoredCodeUnit;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
 import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.tools.CodeUnitExtractor;
-
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterAll;
@@ -65,25 +65,33 @@ public class CompletionsIntegrationTest {
         String query = "contextman";
         List<CodeUnit> candidates = ANALYZER.getAllDeclarations();
 
-        // Use the actual Completions scoring logic (not reproduced)
-        List<Completions.ScoredCodeUnit> scored = Completions.scoreCodeUnits(query, candidates);
+        // Use the actual Completions scoring logic
+        List<ScoredCodeUnit> scored = Completions.scoreCodeUnits(query, candidates);
+
+        // Sort by score (ascending) using the same tie-breakers as the production code
+        var top = scored.stream()
+                .sorted(Comparator.comparingInt(ScoredCodeUnit::score)
+                        .thenComparingInt(sc -> sc.codeUnit().fqName().length())
+                        .thenComparingInt(sc -> sc.codeUnit().shortName().length())
+                        .thenComparing(sc -> sc.codeUnit().fqName()))
+                .toList();
 
         // Build debug output
         StringBuilder debugOutput = new StringBuilder();
         debugOutput.append("Top 10 scored results for '").append(query).append("':\n");
-        for (int i = 0; i < Math.min(10, scored.size()); i++) {
-            Completions.ScoredCodeUnit sc = scored.get(i);
+        for (int i = 0; i < Math.min(10, top.size()); i++) {
+            ScoredCodeUnit sc = top.get(i);
             debugOutput.append(String.format(
                     "%2d. [%s] %-40s (Score: %d)%n",
                     i + 1, sc.codeUnit().kind(), sc.codeUnit().fqName(), sc.score()));
         }
 
-        assertTrue(!scored.isEmpty(), "Expected at least one scored result for query: " + query + "\n" + debugOutput);
+        assertFalse(top.isEmpty(), "Expected at least one scored result for query: " + query + "\n" + debugOutput);
 
         // Verify ContextManager ranks in top 5
         int rank = -1;
-        for (int i = 0; i < Math.min(5, scored.size()); i++) {
-            if ("ai.brokk.ContextManager".equals(scored.get(i).codeUnit().fqName())) {
+        for (int i = 0; i < Math.min(5, top.size()); i++) {
+            if ("ai.brokk.ContextManager".equals(top.get(i).codeUnit().fqName())) {
                 rank = i;
                 break;
             }
@@ -94,7 +102,7 @@ public class CompletionsIntegrationTest {
                 "Query '" + query + "' should have ranked ai.brokk.ContextManager within top 5\n" + debugOutput);
         assertEquals(
                 CodeUnitType.CLASS,
-                scored.get(rank).codeUnit().kind(),
+                top.get(rank).codeUnit().kind(),
                 "Matched unit should be of type CLASS\n" + debugOutput);
     }
 
