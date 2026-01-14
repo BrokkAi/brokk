@@ -279,13 +279,7 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
         editor.revalidate();
         editor.repaint();
 
-        var baseFont = editor.getFont();
-        if (baseFont != null) {
-            gutter.setFont(baseFont);
-            gutter.setBlameFont(baseFont);
-        }
-        gutter.revalidate();
-        gutter.repaint();
+        applyDerivedFontToGutter(gutter, size);
     }
 
     /**
