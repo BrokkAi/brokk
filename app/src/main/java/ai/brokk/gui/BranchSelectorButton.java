@@ -17,6 +17,8 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.List;
 import javax.swing.*;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -223,17 +225,17 @@ public class BranchSelectorButton extends SplitButton {
                     });
 
                     // Auto-focus search field when menu becomes visible
-                    menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+                    menu.addPopupMenuListener(new PopupMenuListener() {
                         @Override
-                        public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+                        public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                             SwingUtilities.invokeLater(panel::focusSearchField);
                         }
 
                         @Override
-                        public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
+                        public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
 
                         @Override
-                        public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
+                        public void popupMenuCanceled(PopupMenuEvent e) {}
                     });
 
                     list = panel.getList();

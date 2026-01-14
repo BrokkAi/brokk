@@ -1,6 +1,7 @@
 package ai.brokk.executor.http;
 
 import ai.brokk.executor.jobs.ErrorPayload;
+import ai.brokk.util.ExecutorsUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -39,7 +40,7 @@ public final class SimpleHttpServer {
         this.authToken = authToken;
         this.httpServer = HttpServer.create(new InetSocketAddress(host, port), 0);
 
-        var executor = ESU.newFixedThreadExecutor(threadCount, "SimpleHttpServer-Worker-");
+        var executor = ExecutorsUtil.newFixedThreadExecutor(threadCount, "SimpleHttpServer-Worker-");
         this.httpServer.setExecutor(executor);
 
         logger.info("SimpleHttpServer created: {}:{} with {} worker threads", host, port, threadCount);

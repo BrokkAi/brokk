@@ -30,6 +30,7 @@ import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
 import javafx.scene.web.WebView;
 import javax.swing.*;
+import netscape.javascript.JSObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -308,7 +309,7 @@ public final class MOPWebViewHost extends JPanel {
 
     @SuppressWarnings({"removal"})
     private static void exposeJavaBridge(WebView view, MOPBridge bridge) {
-        var window = (netscape.javascript.JSObject) view.getEngine().executeScript("window");
+        var window = (JSObject) view.getEngine().executeScript("window");
         window.setMember("javaBridge", bridge);
     }
 

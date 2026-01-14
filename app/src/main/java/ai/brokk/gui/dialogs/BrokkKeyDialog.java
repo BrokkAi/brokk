@@ -6,11 +6,12 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.components.BrowserLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.MainProject;
+import ai.brokk.util.LoggingFuture;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import javax.net.ssl.SSLHandshakeException;
@@ -118,7 +119,7 @@ public class BrokkKeyDialog extends BaseThemedDialog {
         inputMap.put(esc, "brokk.cancel");
         actionMap.put("brokk.cancel", new AbstractAction() {
             @Override
-            public void actionPerformed(java.awt.event.ActionEvent e) {
+            public void actionPerformed(ActionEvent e) {
                 cancel();
             }
         });
@@ -138,7 +139,7 @@ public class BrokkKeyDialog extends BaseThemedDialog {
             statusLabel.setText("Validating...");
         }
 
-        CompletableFuture.supplyAsync(() -> {
+        LoggingFuture.supplyAsync(() -> {
                     try {
                         Service.validateKey(key);
                         return null;

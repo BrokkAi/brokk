@@ -4,11 +4,11 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.prompts.ArchitectPrompts;
+import ai.brokk.util.LoggingFuture;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import javax.swing.JOptionPane;
@@ -111,7 +111,7 @@ public final class ContextSizeGuard {
      * @param onDecision Called with the decision result
      */
     public static void checkAndConfirm(Collection<ProjectFile> files, Chrome chrome, Consumer<Decision> onDecision) {
-        CompletableFuture.supplyAsync(() -> estimateTokens(files))
+        LoggingFuture.supplyAsync(() -> estimateTokens(files))
                 .thenAccept(estimate -> {
                     var contextManager = chrome.getContextManager();
                     var service = contextManager.getService();

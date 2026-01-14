@@ -60,7 +60,7 @@ public class SerialByKeyExecutor {
                 activeFutures.compute(key, (String k, @Nullable CompletableFuture<?> previous) -> {
                     var resultFuture = new CompletableFuture<T>();
 
-                    Runnable scheduleTask = () -> CompletableFuture.supplyAsync(supplier, executor)
+                    Runnable scheduleTask = () -> LoggingFuture.supplyAsync(supplier, executor)
                             .whenCompleteAsync(
                                     (T res, @Nullable Throwable err) -> {
                                         // guarantee cleanup precedes observable completion

@@ -23,6 +23,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.Environment;
+import ai.brokk.util.LoggingFuture;
 import ai.brokk.util.Messages;
 import com.google.common.base.Splitter;
 import java.awt.*;
@@ -279,7 +280,7 @@ public class Brokk {
      * Blocks the calling thread until validation completes.
      */
     private static ValidationOutcome blockingValidateKey(String key) {
-        var future = CompletableFuture.supplyAsync(() -> {
+        var future = LoggingFuture.supplyAsync(() -> {
             try {
                 Service.validateKey(key);
                 return ValidationOutcome.VALID;
@@ -1016,7 +1017,7 @@ public class Brokk {
         MainProject parent = builder.parent;
 
         // Run all blocking initialization off the calling thread (which may be EDT)
-        return CompletableFuture.supplyAsync(() -> {
+        return LoggingFuture.supplyAsync(() -> {
             try {
                 MainProject.updateRecentProject(projectPath);
                 var project = AbstractProject.createProject(projectPath, parent);

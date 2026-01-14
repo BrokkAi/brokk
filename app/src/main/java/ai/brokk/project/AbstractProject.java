@@ -10,6 +10,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.git.LocalFileRepo;
 import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.EnvironmentJava;
+import ai.brokk.util.LoggingFuture;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.awt.Rectangle;
@@ -159,7 +160,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public CompletableFuture<Void> updateLiveDependencies(
             Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
-        return CompletableFuture.supplyAsync(() -> {
+        return LoggingFuture.supplyAsync(() -> {
             // If analyzer provided, pause watcher and compute prev files
             Set<ProjectFile> prevFiles = null;
             if (analyzerWrapper != null) {

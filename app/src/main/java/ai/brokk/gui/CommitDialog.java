@@ -13,6 +13,7 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -192,7 +193,7 @@ public class CommitDialog extends BaseThemedDialog {
                         commitMessageArea.setCaretPosition(0);
                         checkCommitButtonState();
                     });
-                } catch (InterruptedException | java.util.concurrent.ExecutionException ignored) {
+                } catch (InterruptedException | ExecutionException ignored) {
                     // ExceptionAwareSwingWorker.done() already handled logging/notifications
                     // Ensure text area is usable so user can type manually
                     SwingUtilities.invokeLater(() -> {

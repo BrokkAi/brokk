@@ -11,12 +11,21 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
+import ai.brokk.difftool.node.JMDiffNode;
+import ai.brokk.difftool.ui.AbstractDiffPanel;
+import ai.brokk.difftool.ui.BrokkDiffPanel;
+import ai.brokk.difftool.ui.BufferDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.difftool.ui.DiffDisplayCore;
 import ai.brokk.difftool.ui.DiffProjectFileNavigationTarget;
 import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.difftool.ui.FileTreePanel;
+import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
+import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoData;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialProgressButton;
@@ -26,6 +35,7 @@ import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.util.LoggingFuture;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -51,6 +61,7 @@ import javax.swing.border.LineBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -88,9 +99,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private String reviewBaselineRef = null;
 
-    private final ai.brokk.difftool.ui.DiffDisplayCore diffCore;
+    private final DiffDisplayCore diffCore;
 
-    private final ai.brokk.difftool.ui.FileTreePanel fileTreePanel;
+    private final FileTreePanel fileTreePanel;
 
     private final CodeReviewPanel codeReviewPanel;
 
@@ -169,8 +180,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.diffContainer.setOpaque(false);
 
         this.codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
-        this.fileTreePanel = new ai.brokk.difftool.ui.FileTreePanel(
-                List.of(), contextManager.getProject().getRoot());
+        this.fileTreePanel =
+                new FileTreePanel(List.of(), contextManager.getProject().getRoot());
 
         this.leftSplitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getListPanel(), fileTreePanel);
         this.leftSplitPane.setResizeWeight(0.5);
@@ -215,8 +226,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.deferredUpdateHelper = new DeferredUpdateHelper(this, this::performRefresh);
 
-        var dummyPanel = new ai.brokk.difftool.ui.BrokkDiffPanel(
-                new ai.brokk.difftool.ui.BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
+        var dummyPanel =
+                new BrokkDiffPanel(new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
         this.diffCore = createDiffCore(dummyPanel);
 
         // One-time listener installations
@@ -261,14 +272,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
     }
 
-    private ai.brokk.difftool.ui.DiffDisplayCore createDiffCore(ai.brokk.difftool.ui.BrokkDiffPanel dummyPanel) {
-        return new ai.brokk.difftool.ui.DiffDisplayCore(
-                dummyPanel, contextManager, chrome.getTheme(), fileComparisons, false, 0) {
+    private DiffDisplayCore createDiffCore(BrokkDiffPanel dummyPanel) {
+        return new DiffDisplayCore(dummyPanel, contextManager, chrome.getTheme(), fileComparisons, false, 0) {
             @Override
-            protected ai.brokk.difftool.ui.AbstractDiffPanel createPanel(
-                    int index, ai.brokk.difftool.node.JMDiffNode diffNode) {
-                var panel = new ai.brokk.difftool.ui.unified.UnifiedDiffPanel(dummyPanel, chrome.getTheme(), diffNode);
-                panel.setContextMode(ai.brokk.difftool.ui.unified.UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
+            protected AbstractDiffPanel createPanel(int index, JMDiffNode diffNode) {
+                var panel = new UnifiedDiffPanel(dummyPanel, chrome.getTheme(), diffNode);
+                panel.setContextMode(UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
                 panel.applyTheme(chrome.getTheme());
                 return panel;
             }
@@ -281,22 +290,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             @Override
             protected void displayPanel(
-                    int index,
-                    ai.brokk.difftool.ui.AbstractDiffPanel panel,
-                    int targetLine,
-                    ReviewParser.DiffSide targetSide) {
+                    int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
                 diffContainer.removeAll();
                 diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
 
                 if (targetLine > 0) {
                     panel.resetAutoScrollFlag();
                     panel.diff(false);
-                    if (panel instanceof ai.brokk.difftool.ui.BufferDiffPanel bp) {
+                    if (panel instanceof BufferDiffPanel bp) {
                         var side = (targetSide == ReviewParser.DiffSide.OLD)
-                                ? ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.LEFT
-                                : ai.brokk.difftool.ui.BufferDiffPanel.PanelSide.RIGHT;
+                                ? BufferDiffPanel.PanelSide.LEFT
+                                : BufferDiffPanel.PanelSide.RIGHT;
                         bp.scrollToLine(targetLine, side);
-                    } else if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                    } else if (panel instanceof UnifiedDiffPanel up) {
                         up.clearExcerptHighlight();
                         up.scrollToLine(targetLine, targetSide);
                         if (activeExcerpt != null) {
@@ -306,7 +312,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         }
                     }
                 } else {
-                    if (panel instanceof ai.brokk.difftool.ui.unified.UnifiedDiffPanel up) {
+                    if (panel instanceof UnifiedDiffPanel up) {
                         up.clearExcerptHighlight();
                     }
                     panel.resetToFirstDifference();
@@ -329,7 +335,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
 
         // Kick off async computation
-        CompletableFuture.supplyAsync(() -> {
+        LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState();
                     int modifiedCount;
                     try {
@@ -535,7 +541,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public void updateContent(
             DiffService.CumulativeChanges res,
-            List<Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff>> prepared,
+            List<Map.Entry<String, GitRepoData.FileDiff>> prepared,
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
@@ -566,7 +572,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff> entry) {
+    private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, GitRepoData.FileDiff> entry) {
         ProjectFile pf = null;
         try {
             pf = contextManager.toFile(entry.getKey());
@@ -606,7 +612,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private void refreshUI(
             DiffService.CumulativeChanges res,
-            List<Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff>> prepared,
+            List<Map.Entry<String, GitRepoData.FileDiff>> prepared,
             @Nullable BaselineMode baselineMode) {
 
         updateDropdownLabels();
@@ -863,7 +869,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     private void ensureReviewSession(DiffService.CumulativeChanges changes) throws GitAPIException {
         // Check if all commits are already in the current session
         Set<String> currentSessionCommits = contextManager.getContextHistory().getGitStates().values().stream()
@@ -1027,7 +1033,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         // Parse and display
-        CompletableFuture.supplyAsync(() -> {
+        LoggingFuture.supplyAsync(() -> {
                     var rawReview = ReviewParser.RawReview.fromJson(json);
                     var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(contextManager, clipboardData);
                     return ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
@@ -1180,7 +1186,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         guidedReviewBtn.setProgress(0);
 
         // Compute changes and run review independently of requestUpdate
-        CompletableFuture.supplyAsync(() -> {
+        LoggingFuture.supplyAsync(() -> {
                     try {
                         var changes = computeCumulativeChanges(oldestCommitId, BaselineMode.COMMIT_RANGE);
                         var prepared = DiffService.preparePerFileSummaries(changes);

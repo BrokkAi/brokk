@@ -11,7 +11,9 @@ import ai.brokk.gui.theme.ThemeAware;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -197,7 +199,7 @@ public class PreviewTabbedPane extends JPanel implements ThemeAware {
             closeOthersItem.addActionListener(e -> {
                 // Iterate backwards to avoid index shifting issues,
                 // but keep track of components as they might be removed during iteration.
-                java.util.List<TabEntry> toClose = new java.util.ArrayList<>();
+                List<TabEntry> toClose = new ArrayList<>();
                 for (int i = 0; i < listModel.size(); i++) {
                     TabEntry current = listModel.get(i);
                     if (!entry.equals(current)) {

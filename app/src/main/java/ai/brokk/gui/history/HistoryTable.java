@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import org.jetbrains.annotations.Nullable;
@@ -176,9 +177,8 @@ public class HistoryTable extends JPanel {
         latestDescriptors = descriptors;
 
         var resetEdges = history.getResetEdges();
-        var resetTargetIds = resetEdges.stream()
-                .map(ContextHistory.ResetEdge::targetId)
-                .collect(java.util.stream.Collectors.toSet());
+        var resetTargetIds =
+                resetEdges.stream().map(ContextHistory.ResetEdge::targetId).collect(Collectors.toSet());
 
         int rowToSelect = -1;
         int currentRow = 0;

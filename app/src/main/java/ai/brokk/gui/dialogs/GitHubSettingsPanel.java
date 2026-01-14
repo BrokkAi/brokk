@@ -12,6 +12,7 @@ import ai.brokk.gui.components.GitHubAppInstallLabel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
+import ai.brokk.util.LoggingFuture;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.util.concurrent.CompletableFuture;
@@ -240,7 +241,7 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
                     gitHubStatusLabel.setForeground(new Color(0, 128, 0)); // Green for completed step
                     gitHubStatusLabel.setFont(gitHubStatusLabel.getFont().deriveFont(Font.ITALIC));
                     // Fetch username in background to avoid blocking EDT on rate limit
-                    CompletableFuture.supplyAsync(GitHubAuth::getAuthenticatedUsername)
+                    LoggingFuture.supplyAsync(GitHubAuth::getAuthenticatedUsername)
                             .thenAccept(username -> {
                                 SwingUtil.runOnEdt(() -> {
                                     // Check still connected (token present) to avoid race with disconnect
@@ -274,7 +275,7 @@ public class GitHubSettingsPanel extends JPanel implements SettingsChangeListene
             // Check app installation in background to avoid blocking EDT
             // Use a stricter check: installed for the current user's personal account.
             if (connected) {
-                CompletableFuture.supplyAsync(GitHubAuth::isBrokkAppInstalledForCurrentUser)
+                LoggingFuture.supplyAsync(GitHubAuth::isBrokkAppInstalledForCurrentUser)
                         .thenAccept(appInstalledForUser -> {
                             SwingUtil.runOnEdt(() -> {
                                 if (gitHubInstallAppLabel != null && gitHubAppInstalledLabel != null) {

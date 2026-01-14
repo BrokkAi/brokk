@@ -1,6 +1,7 @@
 package ai.brokk.github;
 
 import ai.brokk.util.Json;
+import ai.brokk.util.LoggingFuture;
 import java.awt.Desktop;
 import java.io.IOException;
 import java.net.URI;
@@ -246,7 +247,7 @@ public class GitHubDeviceFlowService {
     public CompletableFuture<String> authenticateWithDeviceFlow(boolean openBrowser) {
         logger.info("Starting GitHub device flow authentication");
 
-        return CompletableFuture.supplyAsync(
+        return LoggingFuture.supplyAsync(
                 () -> {
                     try {
                         var deviceCodeResponse = requestDeviceCode();

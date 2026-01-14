@@ -1030,7 +1030,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var pasteInfoFuture = new DescribePasteWorker(this, text);
         pasteInfoFuture.execute();
 
-        var descriptionFuture = CompletableFuture.supplyAsync(
+        var descriptionFuture = LoggingFuture.supplyAsync(
                 () -> {
                     try {
                         return pasteInfoFuture.get().description();
@@ -1040,7 +1040,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
                 },
                 contextActionExecutor);
-        var syntaxStyleFuture = CompletableFuture.supplyAsync(
+        var syntaxStyleFuture = LoggingFuture.supplyAsync(
                 () -> {
                     try {
                         return pasteInfoFuture.get().syntaxStyle();
@@ -2279,7 +2279,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A CompletableFuture that resolves to the ContextHistory for the specified session
      */
     public CompletableFuture<ContextHistory> loadSessionHistoryAsync(UUID sessionId) {
-        return CompletableFuture.supplyAsync(
+        return LoggingFuture.supplyAsync(
                 () -> project.getSessionManager().loadHistory(sessionId, this), backgroundTasks);
     }
 

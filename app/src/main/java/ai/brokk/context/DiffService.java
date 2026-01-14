@@ -11,6 +11,7 @@ import ai.brokk.git.GitWorkflow;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.project.IProject;
 import ai.brokk.util.ContentDiffUtils;
+import ai.brokk.util.LoggingFuture;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
@@ -92,7 +93,7 @@ public final class DiffService {
             var revision = history.getGitState(k.prev().id())
                     .map(ContextHistory.GitState::commitHash)
                     .orElse("HEAD");
-            return CompletableFuture.supplyAsync(
+            return LoggingFuture.supplyAsync(
                     () -> computeDiff(k.curr(), castNonNull(k.prev()), revision), cm.getBackgroundTasks());
         });
     }

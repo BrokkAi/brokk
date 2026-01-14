@@ -1,17 +1,31 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
+import ai.brokk.SessionManager;
+import ai.brokk.context.Context;
+import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.PreviewTabbedPane;
+import ai.brokk.gui.components.SplitButton;
+import ai.brokk.gui.dialogs.DetachableTabFrame;
 import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.BadgedIcon;
+import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import java.awt.*;
 import java.awt.event.AWTEventListener;
+import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Comparator;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,8 +43,8 @@ public class RightPanel extends JPanel implements ThemeAware {
     private final TerminalPanel terminalPanel;
 
     private final JPanel sessionHeaderPanel;
-    private final ai.brokk.gui.components.SplitButton sessionNameLabel;
-    private final ai.brokk.gui.components.MaterialButton newSessionButton;
+    private final SplitButton sessionNameLabel;
+    private final MaterialButton newSessionButton;
 
     private final JSplitPane buildSplitPane;
     private final JTabbedPane buildReviewTabs;
@@ -43,12 +57,12 @@ public class RightPanel extends JPanel implements ThemeAware {
     private @Nullable JSplitPane verticalActivityCombinedPanel = null;
     private @Nullable JSplitPane verticalLayoutLeftSplit = null;
 
-    private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame reviewFrame = null;
-    private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame terminalFrame = null;
+    private @Nullable DetachableTabFrame reviewFrame = null;
+    private @Nullable DetachableTabFrame terminalFrame = null;
 
     // Review tab infrastructure
     private final JComponent reviewTabComponent;
-    private @Nullable ai.brokk.gui.util.BadgedIcon buildTabBadgedIcon;
+    private @Nullable BadgedIcon buildTabBadgedIcon;
 
     private int getReviewTabIndex() {
         return buildReviewTabs.indexOfComponent(reviewTabComponent);
@@ -90,16 +104,16 @@ public class RightPanel extends JPanel implements ThemeAware {
         historyOutputPanel = new HistoryOutputPanel(chrome, contextManager);
 
         // Session header components
-        newSessionButton = new ai.brokk.gui.components.MaterialButton();
+        newSessionButton = new MaterialButton();
         newSessionButton.setToolTipText("Create a new session");
         newSessionButton.addActionListener(e -> {
             contextManager
                     .createSessionAsync(ContextManager.DEFAULT_SESSION_NAME)
                     .thenRun(() -> contextManager.getProject().getMainProject().sessionsListChanged());
         });
-        SwingUtilities.invokeLater(() -> newSessionButton.setIcon(ai.brokk.gui.util.Icons.ADD));
+        SwingUtilities.invokeLater(() -> newSessionButton.setIcon(Icons.ADD));
 
-        sessionNameLabel = new ai.brokk.gui.components.SplitButton("");
+        sessionNameLabel = new SplitButton("");
         sessionNameLabel.setUnifiedHover(true);
         sessionNameLabel.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
         sessionNameLabel.setMenuSupplier(() -> createSessionMenu());
@@ -207,19 +221,19 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     private JPopupMenu createSessionMenu() {
         var popup = new JPopupMenu();
-        var model = new DefaultListModel<ai.brokk.SessionManager.SessionInfo>();
+        var model = new DefaultListModel<SessionManager.SessionInfo>();
         var sessions = contextManager.getProject().getSessionManager().listSessions();
-        sessions.sort(java.util.Comparator.comparingLong(ai.brokk.SessionManager.SessionInfo::modified)
-                .reversed());
+        sessions.sort(
+                Comparator.comparingLong(SessionManager.SessionInfo::modified).reversed());
         for (var s : sessions) model.addElement(s);
 
         // Pre-populate counts map with placeholder; load actual counts async
-        var taskCounts = new java.util.concurrent.ConcurrentHashMap<UUID, Integer>();
+        var taskCounts = new ConcurrentHashMap<UUID, Integer>();
         for (var s : sessions) {
             taskCounts.put(s.id(), -1); // -1 means "loading"
         }
 
-        var list = new JList<ai.brokk.SessionManager.SessionInfo>(model);
+        var list = new JList<SessionManager.SessionInfo>(model);
         list.setVisibleRowCount(Math.min(8, Math.max(3, model.getSize())));
         list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 
@@ -251,9 +265,9 @@ public class RightPanel extends JPanel implements ThemeAware {
             }
         }
 
-        var listener = new java.awt.event.MouseAdapter() {
+        var listener = new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 var sel = list.getSelectedValue();
                 if (sel != null && !sel.id().equals(contextManager.getCurrentSessionId())) {
                     contextManager
@@ -273,7 +287,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         var scroll = new JScrollPane(list);
         scroll.setBorder(BorderFactory.createEmptyBorder());
-        scroll.setPreferredSize(new java.awt.Dimension(360, 200));
+        scroll.setPreferredSize(new Dimension(360, 200));
         popup.add(scroll);
         chrome.getThemeManager().registerPopupMenu(popup);
         return popup;
@@ -282,7 +296,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     public void updateSessionComboBox() {
         SwingUtilities.invokeLater(() -> {
             var sessions = contextManager.getProject().getSessionManager().listSessions();
-            sessions.sort(java.util.Comparator.comparingLong(ai.brokk.SessionManager.SessionInfo::modified)
+            sessions.sort(Comparator.comparingLong(SessionManager.SessionInfo::modified)
                     .reversed());
 
             var currentSessionId = contextManager.getCurrentSessionId();
@@ -303,14 +317,13 @@ public class RightPanel extends JPanel implements ThemeAware {
         });
     }
 
-    private static class SessionInfoRenderer extends JPanel
-            implements ListCellRenderer<ai.brokk.SessionManager.SessionInfo> {
+    private static class SessionInfoRenderer extends JPanel implements ListCellRenderer<SessionManager.SessionInfo> {
         private final JLabel nameLabel = new JLabel();
         private final JLabel timeLabel = new JLabel();
         private final JLabel countLabel = new JLabel();
-        private final java.util.Map<UUID, Integer> taskCounts;
+        private final Map<UUID, Integer> taskCounts;
 
-        SessionInfoRenderer(java.util.Map<UUID, Integer> taskCounts) {
+        SessionInfoRenderer(Map<UUID, Integer> taskCounts) {
             this.taskCounts = taskCounts;
             setLayout(new BorderLayout(0, 2));
             setOpaque(true);
@@ -333,8 +346,8 @@ public class RightPanel extends JPanel implements ThemeAware {
 
         @Override
         public Component getListCellRendererComponent(
-                JList<? extends ai.brokk.SessionManager.SessionInfo> list,
-                ai.brokk.SessionManager.SessionInfo value,
+                JList<? extends SessionManager.SessionInfo> list,
+                SessionManager.SessionInfo value,
                 int index,
                 boolean isSelected,
                 boolean cellHasFocus) {
@@ -349,9 +362,8 @@ public class RightPanel extends JPanel implements ThemeAware {
 
             // Populate from in-memory data only - no blocking calls
             nameLabel.setText(value.name());
-            var instant = java.time.Instant.ofEpochMilli(value.modified());
-            timeLabel.setText(ai.brokk.gui.util.GitDiffUiUtil.formatRelativeDate(
-                    instant, java.time.LocalDate.now(java.time.ZoneId.systemDefault())));
+            var instant = Instant.ofEpochMilli(value.modified());
+            timeLabel.setText(GitDiffUiUtil.formatRelativeDate(instant, LocalDate.now(ZoneId.systemDefault())));
 
             // Read pre-computed count; -1 means still loading
             int cnt = taskCounts.getOrDefault(value.id(), -1);
@@ -426,18 +438,18 @@ public class RightPanel extends JPanel implements ThemeAware {
             }
         });
 
-        buildReviewTabs.addMouseListener(new java.awt.event.MouseAdapter() {
+        buildReviewTabs.addMouseListener(new MouseAdapter() {
             @Override
-            public void mousePressed(java.awt.event.MouseEvent e) {
+            public void mousePressed(MouseEvent e) {
                 handleTabPopup(e);
             }
 
             @Override
-            public void mouseReleased(java.awt.event.MouseEvent e) {
+            public void mouseReleased(MouseEvent e) {
                 handleTabPopup(e);
             }
 
-            private void handleTabPopup(java.awt.event.MouseEvent e) {
+            private void handleTabPopup(MouseEvent e) {
                 if (!e.isPopupTrigger()) return;
                 int tabIndex = buildReviewTabs.indexAtLocation(e.getX(), e.getY());
                 if (tabIndex == -1) return;
@@ -488,7 +500,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        reviewFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Review", reviewTabComponent, this::redockReview);
+        reviewFrame = new DetachableTabFrame("Review", reviewTabComponent, this::redockReview);
         reviewFrame.setVisible(true);
     }
 
@@ -547,7 +559,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        terminalFrame = new ai.brokk.gui.dialogs.DetachableTabFrame("Terminal", terminalPanel, this::redockTerminal);
+        terminalFrame = new DetachableTabFrame("Terminal", terminalPanel, this::redockTerminal);
         terminalFrame.setVisible(true);
     }
 
@@ -775,7 +787,7 @@ public class RightPanel extends JPanel implements ThemeAware {
      * @param markdown The markdown text containing the review
      * @param context The context associated with this review
      */
-    public void loadReviewFromMarkdown(String markdown, ai.brokk.context.Context context) {
+    public void loadReviewFromMarkdown(String markdown, Context context) {
         // Focus the Review tab/frame
         focusReviewTab();
 
@@ -827,7 +839,7 @@ public class RightPanel extends JPanel implements ThemeAware {
                 buildTabBadgedIcon = null;
             } else {
                 if (buildTabBadgedIcon == null) {
-                    buildTabBadgedIcon = new ai.brokk.gui.util.BadgedIcon(Icons.HANDYMAN, chrome.getTheme());
+                    buildTabBadgedIcon = new BadgedIcon(Icons.HANDYMAN, chrome.getTheme());
                 }
                 buildTabBadgedIcon.setCount(count, buildReviewTabs);
                 buildReviewTabs.setIconAt(idx, buildTabBadgedIcon);

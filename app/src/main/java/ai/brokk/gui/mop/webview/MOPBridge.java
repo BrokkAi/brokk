@@ -3,6 +3,7 @@ package ai.brokk.gui.mop.webview;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.TaskEntry;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.menu.ContextMenuBuilder;
@@ -431,7 +432,7 @@ public final class MOPBridge {
             return;
         }
 
-        // Use Chrome's background task system instead of raw CompletableFuture.supplyAsync()
+        // Use Chrome's background task system instead of raw ai.brokk.util.LoggingFuture.supplyAsync()
         contextManager.submitBackgroundTask("Symbol lookup for " + symbolNames.size() + " symbols", () -> {
             // Assert background task is not running on EDT
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
@@ -745,7 +746,7 @@ public final class MOPBridge {
                 for (String langName : languageNames) {
                     try {
                         // Convert language name to Language object
-                        var language = ai.brokk.analyzer.Languages.valueOf(langName);
+                        var language = Languages.valueOf(langName);
 
                         // Get analyzable files for this language
                         var analyzableFiles = project.getAnalyzableFiles(language);

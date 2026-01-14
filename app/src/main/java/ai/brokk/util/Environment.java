@@ -264,9 +264,9 @@ public class Environment {
         }
 
         CompletableFuture<String> stdoutFuture =
-                CompletableFuture.supplyAsync(() -> readStream(process.getInputStream(), outputConsumer));
+                LoggingFuture.supplyAsync(() -> readStream(process.getInputStream(), outputConsumer));
         CompletableFuture<String> stderrFuture =
-                CompletableFuture.supplyAsync(() -> readStream(process.getErrorStream(), outputConsumer));
+                LoggingFuture.supplyAsync(() -> readStream(process.getErrorStream(), outputConsumer));
 
         String combinedOutput;
         try {

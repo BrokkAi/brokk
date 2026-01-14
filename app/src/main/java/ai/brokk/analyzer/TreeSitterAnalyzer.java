@@ -3,6 +3,7 @@ package ai.brokk.analyzer;
 import ai.brokk.project.IProject;
 import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorsUtil;
+import ai.brokk.util.LoggingFuture;
 import ai.brokk.util.TextCanonicalizer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.base.Splitter;
@@ -520,12 +521,12 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
         // Executors: virtual threads for I/O/parsing, single-thread for ingestion
         try (var ioExecutor = ExecutorsUtil.newVirtualThreadExecutor("ts-io-", IO_VT_CAP);
-             var parseExecutor = ExecutorsUtil.newFixedThreadExecutor(
+                var parseExecutor = ExecutorsUtil.newFixedThreadExecutor(
                         Runtime.getRuntime().availableProcessors(), "ts-parse-");
-             var ingestExecutor = ExecutorsUtil.newFixedThreadExecutor(
+                var ingestExecutor = ExecutorsUtil.newFixedThreadExecutor(
                         Runtime.getRuntime().availableProcessors(), "ts-ingest-")) {
             for (var pf : filesToProcess) {
-                CompletableFuture<Void> future = CompletableFuture.supplyAsync(
+                CompletableFuture<Void> future = LoggingFuture.supplyAsync(
                                 () -> {
                                     totalFilesAttempted.incrementAndGet();
                                     return readFileBytes(pf, timing);

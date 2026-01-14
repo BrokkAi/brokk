@@ -2,6 +2,7 @@ package ai.brokk.gui.components;
 
 import ai.brokk.FuzzyMatcher;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.util.LoggingFuture;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.awt.*;
@@ -231,7 +232,7 @@ public class FuzzySearchListPanel<T> {
         }
 
         // Non-empty query: spawn background task
-        CompletableFuture<Void> future = CompletableFuture.supplyAsync(() -> performBackgroundSearch(
+        CompletableFuture<Void> future = LoggingFuture.supplyAsync(() -> performBackgroundSearch(
                         generation, searchGeneration, query, itemsSnapshot, highlightBg, highlightFg))
                 .thenAcceptAsync(this::applyResults, SwingUtilities::invokeLater);
 

@@ -12,7 +12,7 @@ public class ServiceWrapper implements Service.Provider {
 
     @Override
     public void reinit(IProject project) {
-        future = CompletableFuture.supplyAsync(() -> new Service(project));
+        future = LoggingFuture.supplyAsync(() -> new Service(project));
     }
 
     @Override

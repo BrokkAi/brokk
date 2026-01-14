@@ -1,5 +1,6 @@
 package ai.brokk.difftool.ui;
 
+import ai.brokk.util.LoggingFuture;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
@@ -117,7 +118,7 @@ public final class BlameService {
     }
 
     private CompletableFuture<Map<Integer, BlameInfo>> startBlameTask(Path filePath) {
-        return CompletableFuture.supplyAsync(() -> {
+        return LoggingFuture.supplyAsync(() -> {
             String cacheKey = filePath.toAbsolutePath().toString();
             try {
                 // Convert to repository-relative path for JGit
@@ -176,7 +177,7 @@ public final class BlameService {
     }
 
     private CompletableFuture<Map<Integer, BlameInfo>> startBlameTaskForRevision(Path filePath, String revision) {
-        return CompletableFuture.supplyAsync(() -> {
+        return LoggingFuture.supplyAsync(() -> {
             String cacheKey = filePath.toAbsolutePath().toString() + "@@" + revision;
             try {
                 // Convert to repository-relative path for JGit

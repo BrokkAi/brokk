@@ -1926,10 +1926,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         } finally {
             // Clean up
             try (var stream = Files.walk(remoteRoot)) {
-                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
             }
             try (var stream = Files.walk(localRoot)) {
-                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
             }
         }
     }
