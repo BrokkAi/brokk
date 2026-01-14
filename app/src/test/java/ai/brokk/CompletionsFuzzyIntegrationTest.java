@@ -22,16 +22,7 @@ import org.junit.jupiter.api.Test;
  */
 public class CompletionsFuzzyIntegrationTest {
 
-    private record CodeUnitRecord(CodeUnitType type, String fqName) {
-        String identifier() {
-            int lastDot = fqName.lastIndexOf('.');
-            return lastDot == -1 ? fqName : fqName.substring(lastDot + 1);
-        }
-
-        String shortName() {
-            return identifier();
-        }
-
+    private record CodeUnitRecord(CodeUnitType type, String fqName, String shortName, String identifier) {
         @Override
         public String toString() {
             return "[%s] %s".formatted(type, fqName);
@@ -48,10 +39,15 @@ public class CompletionsFuzzyIntegrationTest {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     if (line.isBlank()) continue;
-                    String[] parts = line.split(",", 2);
-                    if (parts.length == 2) {
+                    String[] parts = line.split(",", -1);
+                    if (parts.length >= 4) {
                         try {
-                            CODE_UNITS.add(new CodeUnitRecord(CodeUnitType.valueOf(parts[0]), parts[1]));
+                            CODE_UNITS.add(new CodeUnitRecord(
+                                    CodeUnitType.valueOf(parts[0]),
+                                    parts[1],
+                                    parts[2],
+                                    parts[3]
+                            ));
                         } catch (IllegalArgumentException ignored) {
                             // Skip lines with unknown types
                         }
@@ -62,6 +58,9 @@ public class CompletionsFuzzyIntegrationTest {
     }
 
     private List<CodeUnitRecord> getMatches(String pattern) {
+        if (CODE_UNITS.isEmpty()) {
+            throw new IllegalStateException("CODE_UNITS list is empty. Ensure CodeUnitExtractor has been run and codeunits.csv is in test resources.");
+        }
         FuzzyMatcher matcher = new FuzzyMatcher(pattern);
         boolean hierarchicalQuery = pattern.indexOf('.') >= 0;
         return CODE_UNITS.stream()
@@ -83,7 +82,7 @@ public class CompletionsFuzzyIntegrationTest {
         String pattern = "contextmanager";
         List<CodeUnitRecord> matches = getMatches(pattern);
 
-        assertTrue(matches.size() >= 2, "Expected at least two matches for " + pattern);
+        assertTrue(matches.size() >= 2, "Expected at least two matches for " + pattern + ". Found: " + matches.size() + ". Check if codeunits.csv is populated.");
 
         FuzzyMatcher matcher = new FuzzyMatcher(pattern);
         System.out.println("Top 10 matches for '" + pattern + "':");
