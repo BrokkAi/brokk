@@ -597,7 +597,7 @@ public final class JobRunner {
                                             }
 
                                             try {
-                                                gitRepo.remote().fetchPrRef(prNumber, remoteName);
+                                                gitRepo.remote().fetchPrRef(prNumber, remoteName, githubToken);
                                             } catch (GitAPIException e) {
                                                 logger.warn(
                                                         "Failed to fetch PR ref for PR #{} from remote '{}': {}",
@@ -606,12 +606,12 @@ public final class JobRunner {
                                                         e.getMessage());
                                                 throw new IllegalStateException(
                                                         "Failed to fetch PR ref for PR #" + prNumber + " from remote '"
-                                                                + remoteName + "'",
+                                                                + remoteName + "': " + e.getMessage(),
                                                         e);
                                             }
 
                                             try {
-                                                gitRepo.remote().fetchBranch(remoteName, baseBranch);
+                                                gitRepo.remote().fetchBranch(remoteName, baseBranch, githubToken);
                                             } catch (GitAPIException e) {
                                                 logger.warn(
                                                         "Failed to fetch base branch '{}' for PR #{} from remote '{}': {}",
@@ -621,7 +621,8 @@ public final class JobRunner {
                                                         e.getMessage());
                                                 throw new IllegalStateException(
                                                         "Failed to fetch base branch '" + baseBranch + "' for PR #"
-                                                                + prNumber + " from remote '" + remoteName + "'",
+                                                                + prNumber + " from remote '" + remoteName + "': "
+                                                                + e.getMessage(),
                                                         e);
                                             }
 
