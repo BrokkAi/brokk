@@ -32,30 +32,29 @@ class CodeUnitExtractorTest {
             }
             """);
 
-        Path csvOutput = tempDir.resolve("output.csv");
-
         // Run extractor
-        CodeUnitExtractor.extract(projectRoot, csvOutput);
+        try (CodeUnitExtractor.ExtractedCodeUnits result = CodeUnitExtractor.extract(projectRoot)) {
+            Path csvOutput = result.getPath();
 
-        // Verify CSV exists and contains expected content
-        assertTrue(Files.exists(csvOutput), "CSV output file should exist");
-        List<String> lines = Files.readAllLines(csvOutput);
+            // Verify CSV exists and contains expected content
+            assertTrue(Files.exists(csvOutput), "CSV output file should exist");
+            List<String> lines = Files.readAllLines(csvOutput);
 
-        // Expected output is sorted: CLASS, FIELD, FUNCTION, MODULE
-        // Format: kind,fqName,shortName,identifier
-        assertEquals(4, lines.size());
-        assertEquals("CLASS,com.example.MyClass,MyClass,MyClass", lines.get(0));
-        assertEquals("FIELD,com.example.MyClass.myField,MyClass.myField,myField", lines.get(1));
-        assertEquals("FUNCTION,com.example.MyClass.myMethod,MyClass.myMethod,myMethod", lines.get(2));
-        assertEquals("MODULE,com.example,example,example", lines.get(3));
+            // Expected output is sorted: CLASS, FIELD, FUNCTION, MODULE
+            // Format: kind,fqName,shortName,identifier
+            assertEquals(4, lines.size());
+            assertEquals("CLASS,com.example.MyClass,MyClass,MyClass", lines.get(0));
+            assertEquals("FIELD,com.example.MyClass.myField,MyClass.myField,myField", lines.get(1));
+            assertEquals("FUNCTION,com.example.MyClass.myMethod,MyClass.myMethod,myMethod", lines.get(2));
+            assertEquals("MODULE,com.example,example,example", lines.get(3));
+        }
     }
 
     @Test
     void testInvalidDirectoryThrowsException() {
         Path nonExistent = tempDir.resolve("non-existent");
-        Path csvOutput = tempDir.resolve("output.csv");
 
-        assertThrows(IllegalArgumentException.class, () -> CodeUnitExtractor.extract(nonExistent, csvOutput));
+        assertThrows(IllegalArgumentException.class, () -> CodeUnitExtractor.extract(nonExistent));
     }
 
     @Test
