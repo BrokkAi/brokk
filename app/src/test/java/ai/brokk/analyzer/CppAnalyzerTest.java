@@ -1,5 +1,6 @@
 package ai.brokk.analyzer;
 
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeContains;
 import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
 import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
 import static org.junit.jupiter.api.Assertions.*;
@@ -9,8 +10,10 @@ import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 import org.junit.jupiter.api.AfterAll;
@@ -218,9 +221,7 @@ public class CppAnalyzerTest {
             if (functionName.contains("getArea")
                     || functionName.contains("print")
                     || functionName.contains("global_func")) {
-                assertTrue(
-                        skeleton.contains("{...}"),
-                        "Function " + functionName + " should contain body placeholder {...}, but got: " + skeleton);
+                assertCodeContains(skeleton, "{...}");
             }
         }
     }
@@ -241,8 +242,7 @@ public class CppAnalyzerTest {
         assertTrue(outerClass.isPresent(), "Should detect Outer class");
 
         var outerSkeleton = outerClass.get().getValue();
-        assertTrue(
-                outerSkeleton.contains("class Inner"), "Should detect nested Inner class within Outer class skeleton");
+        assertCodeContains(outerSkeleton, "class Inner");
 
         var mainFunction = skeletons.keySet().stream()
                 .filter(cu -> cu.fqName().contains("main"))
@@ -316,12 +316,8 @@ public class CppAnalyzerTest {
 
         var pointSkeleton = pointStruct.get().getValue();
 
-        assertTrue(
-                pointSkeleton.contains("int x") || pointSkeleton.contains("x"),
-                "Point struct skeleton should contain field 'x'");
-        assertTrue(
-                pointSkeleton.contains("int y") || pointSkeleton.contains("y"),
-                "Point struct skeleton should contain field 'y'");
+        assertCodeContains(pointSkeleton, "x");
+        assertCodeContains(pointSkeleton, "y");
     }
 
     @Test
@@ -461,9 +457,7 @@ public class CppAnalyzerTest {
         assertTrue(graphicsNamespace.isPresent(), "Should find graphics namespace");
         String graphicsSkeleton = graphicsNamespace.get().getValue();
 
-        assertTrue(
-                graphicsSkeleton.contains("Color") || graphicsSkeleton.contains("Renderer"),
-                "Graphics namespace should contain some declarations");
+        assertCodeContains(graphicsSkeleton, "Color");
     }
 
     @Test
@@ -539,10 +533,8 @@ public class CppAnalyzerTest {
 
         // Verify each has unique signature
         var skeletons = analyzer.getSkeletons(duplicatesFile);
-        var signatures = overloads.stream()
-                .map(skeletons::get)
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toList());
+        var signatures =
+                overloads.stream().map(skeletons::get).filter(Objects::nonNull).collect(Collectors.toList());
 
         logger.debug("Found {} skeleton signatures for overloads", signatures.size());
         signatures.forEach(sig -> logger.debug("  Signature: {}", sig));
@@ -550,7 +542,7 @@ public class CppAnalyzerTest {
         assertEquals(3, signatures.size(), "Each overload should have a skeleton");
 
         // Convert to set to check uniqueness
-        var uniqueSignatures = new java.util.HashSet<>(signatures);
+        var uniqueSignatures = new HashSet<>(signatures);
         assertEquals(3, uniqueSignatures.size(), "Each overload should have a unique signature");
 
         // Verify specific parameter patterns exist
@@ -765,10 +757,10 @@ public class CppAnalyzerTest {
         // Ensure parameter type snippets are present in signatures (normalized)
         var signatures = overloads.stream().map(CodeUnit::signature).collect(Collectors.toSet());
         boolean hasMap = signatures.stream()
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .anyMatch(sig -> sig.contains("map") || sig.contains("std::map"));
         boolean hasVectorPair = signatures.stream()
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .anyMatch(sig -> sig.contains("pair") || sig.contains("std::pair"));
         assertTrue(hasMap, "Should include std::map parameter in at least one signature");
         assertTrue(hasVectorPair, "Should include std::pair parameter in at least one signature");
@@ -946,7 +938,7 @@ public class CppAnalyzerTest {
         // Ensure at least one member operator signature contains 'const' qualifier
         boolean memberHasConst = memberCallOps.stream()
                 .map(CodeUnit::signature)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .anyMatch(sig -> sig.contains("const"));
         assertTrue(memberHasConst, "Member operator() signature should include 'const' qualifier");
 
@@ -963,7 +955,7 @@ public class CppAnalyzerTest {
 
         boolean eqHasIntParams = nonMemberEq.stream()
                 .map(CodeUnit::signature)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .anyMatch(sig -> sig.contains("int"));
         assertTrue(eqHasIntParams, "operator== signature should include int parameters");
     }
@@ -1075,8 +1067,7 @@ public class CppAnalyzerTest {
 
         String sig = fooEntry.get().getValue();
         // The signature should either include a body placeholder or actual body text; prefer placeholder check
-        assertTrue(
-                sig.contains("{...}") || sig.contains("{"), "Expected function skeleton to indicate a body for foo()");
+        assertCodeContains(sig, "{");
     }
 
     @Test
@@ -1103,7 +1094,7 @@ public class CppAnalyzerTest {
         // Deduplicate by signature to avoid double-captures of the same definition
         var uniqueOutOfLineSigs = outOfLineFuncs.stream()
                 .map(CodeUnit::signature)
-                .filter(java.util.Objects::nonNull)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
         assertEquals(
@@ -1123,9 +1114,7 @@ public class CppAnalyzerTest {
 
         assertTrue(funcSkeletonEntry.isPresent(), "Should have skeleton for out-of-line definition");
         String skeleton = funcSkeletonEntry.get().getValue();
-        assertTrue(
-                skeleton.contains("{...}"),
-                "Out-of-line definition should contain '{...}' body placeholder. Skeleton: " + skeleton);
+        assertCodeContains(skeleton, "{...}");
 
         // Sanity: ensure in-class declaration is still present in the class skeleton and does not have body placeholder
         var classSkeleton = skeletons.entrySet().stream()
@@ -1285,9 +1274,7 @@ public class CppAnalyzerTest {
         logger.debug("DeclVsDef class skeleton:\n{}", classSkeletonContent);
 
         // Verify declaration_only appears without body placeholder in class skeleton
-        assertTrue(
-                classSkeletonContent.contains("void declaration_only()"),
-                "Class skeleton should contain declaration_only method declaration");
+        assertCodeContains(classSkeletonContent, "void declaration_only()");
 
         // Extract just the declaration_only line from the class skeleton
         var declarationOnlyLine = classSkeletonContent
@@ -1314,9 +1301,7 @@ public class CppAnalyzerTest {
 
         logger.debug("inline_definition line in class: '{}'", inlineDefinitionLine);
 
-        assertTrue(
-                inlineDefinitionLine.contains("{...}") || inlineDefinitionLine.contains("{"),
-                "Inline definition should contain body placeholder. Line: " + inlineDefinitionLine);
+        assertCodeContains(inlineDefinitionLine, "{");
 
         // Find out-of-line definition of declaration_only (should have body placeholder)
         var outOfLineDefinition = skeletons.entrySet().stream()
@@ -1331,9 +1316,7 @@ public class CppAnalyzerTest {
         logger.debug("declaration_only (out-of-line definition) skeleton: {}", outOfLineSkeleton);
 
         // Out-of-line definition should have body placeholder
-        assertTrue(
-                outOfLineSkeleton.contains("{...}"),
-                "Out-of-line definition should contain '{...}' body placeholder. Skeleton: " + outOfLineSkeleton);
+        assertCodeContains(outOfLineSkeleton, "{...}");
     }
 
     @Test
@@ -1466,9 +1449,7 @@ public class CppAnalyzerTest {
         var skeletons = analyzer.getSkeletons(file);
         String defSkeleton = skeletons.get(outOfLine);
         assertNotNull(defSkeleton, "Skeleton for out-of-line definition should exist");
-        assertTrue(
-                defSkeleton.contains("{...}"),
-                "Out-of-line definition skeleton should contain '{...}' body placeholder. Skeleton: " + defSkeleton);
+        assertCodeContains(defSkeleton, "{...}");
     }
 
     @Test
@@ -1538,9 +1519,7 @@ public class CppAnalyzerTest {
             var sourceSkeletons = analyzer.getSkeletons(sourceFile);
             String srcSkel = sourceSkeletons.get(sourceDef);
             assertNotNull(srcSkel, "Source skeleton for definition should exist");
-            assertTrue(
-                    srcSkel.contains("{...}"),
-                    "Source definition skeleton should contain '{...}' placeholder. Skeleton: " + srcSkel);
+            assertCodeContains(srcSkel, "{...}");
         } else {
             // No header prototype (hasBody==false) found: header may contain definition or merges occurred
             var allDecls = getAllDeclarations();
@@ -1568,9 +1547,7 @@ public class CppAnalyzerTest {
             var sourceSkeletons = analyzer.getSkeletons(sourceFile);
             String srcSkel = sourceSkeletons.get(sourceDef);
             assertNotNull(srcSkel, "Source skeleton for definition should exist");
-            assertTrue(
-                    srcSkel.contains("{...}"),
-                    "Source definition skeleton should contain '{...}' placeholder. Skeleton: " + srcSkel);
+            assertCodeContains(srcSkel, "{...}");
 
             // Additionally, ensure the header skeletons prefer a single function entry for 'foo'
             var headerSkeletons = analyzer.getSkeletons(headerFile);

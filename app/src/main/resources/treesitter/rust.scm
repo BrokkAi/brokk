@@ -24,6 +24,12 @@
   ; body: (declaration_list) ; contains function_signature_item for methods
 ) @class.definition
 
+;; Module definitions
+(mod_item
+  (visibility_modifier)? @keyword.modifier
+  name: (identifier) @module.name
+) @module.definition
+
 ;; Impl blocks
 (impl_item
   ; For `impl MyType` or `impl Trait for MyType`
@@ -118,3 +124,13 @@
     ) @field.definition
   )
 )
+
+;; Test markers - capture attribute_item nodes directly for validation in Java
+(attribute_item
+  (attribute
+    (identifier))) @test_marker
+
+(attribute_item
+  (attribute
+    (identifier)
+    (token_tree (identifier)))) @test_marker

@@ -24,6 +24,18 @@
   name: (name) @function.name
 ) @function.definition
 
+; Test markers (non-definition captures)
+; Filtering (e.g., regex matching for "test" prefix or "@test" tag) 
+; is performed in PhpAnalyzer.containsTestMarkers().
+(function_definition
+  name: (name) @test_marker)
+
+(method_declaration
+  name: (name) @test_marker)
+
+; Comments / Docblocks (potential test markers)
+(comment) @test_marker
+
 
 ; Class property / field
 ; @field.definition is the property_declaration node.

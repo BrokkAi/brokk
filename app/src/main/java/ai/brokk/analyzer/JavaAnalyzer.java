@@ -15,6 +15,7 @@ import org.treesitter.TSNode;
 import org.treesitter.TSQueryCapture;
 import org.treesitter.TSQueryCursor;
 import org.treesitter.TSQueryMatch;
+import org.treesitter.TSTree;
 import org.treesitter.TreeSitterJava;
 
 public class JavaAnalyzer extends TreeSitterAnalyzer {
@@ -262,6 +263,36 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     @Override
     protected String getLanguageSpecificCloser(CodeUnit cu) {
         return "}";
+    }
+
+    private static final Set<String> TEST_ANNOTATIONS = Set.of("Test", "ParameterizedTest", "RepeatedTest");
+
+    @Override
+    protected boolean containsTestMarkers(TSTree tree, SourceContent sourceContent) {
+        var query = getThreadLocalQuery();
+        var cursor = new TSQueryCursor();
+        cursor.exec(query, tree.getRootNode());
+
+        TSQueryMatch match = new TSQueryMatch();
+        while (cursor.nextMatch(match)) {
+            for (TSQueryCapture capture : match.getCaptures()) {
+                String captureName = query.getCaptureNameForId(capture.getIndex());
+                if (TEST_MARKER.equals(captureName)) {
+                    TSNode node = capture.getNode();
+                    String rawName = sourceContent.substringFromBytes(node.getStartByte(), node.getEndByte());
+                    String simpleName = rawName.strip();
+                    int lastDot = simpleName.lastIndexOf('.');
+                    if (lastDot >= 0) {
+                        simpleName = simpleName.substring(lastDot + 1);
+                    }
+
+                    if (TEST_ANNOTATIONS.contains(simpleName)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     @Override

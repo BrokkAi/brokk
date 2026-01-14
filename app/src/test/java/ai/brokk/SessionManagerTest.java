@@ -14,7 +14,9 @@ import ai.brokk.testutil.NoOpConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.util.Messages;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
+import dev.langchain4j.data.message.UserMessage;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
@@ -45,8 +47,6 @@ public class SessionManagerTest {
     @BeforeEach
     void setup() throws IOException {
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO());
-        // Reset fragment ID counter for test isolation
-        ContextFragments.setMinimumId(1);
 
         // Clean .brokk/sessions directory for session tests
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
@@ -450,9 +450,7 @@ public class SessionManagerTest {
         // Create history with exactly 3 AI responses
         var history = new ContextHistory(new Context(mockContextManager));
         for (int i = 0; i < 3; i++) {
-            var msgs = List.<ChatMessage>of(
-                    dev.langchain4j.data.message.UserMessage.from("Query " + i),
-                    dev.langchain4j.data.message.AiMessage.from("Response " + i));
+            var msgs = List.<ChatMessage>of(UserMessage.from("Query " + i), AiMessage.from("Response " + i));
             var tf = new ContextFragments.TaskFragment(mockContextManager, msgs, "Task " + i);
             Context context = new Context(mockContextManager);
             CompletableFuture.completedFuture("action" + i);

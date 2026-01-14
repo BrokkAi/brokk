@@ -166,6 +166,8 @@ public class ThemeColors {
             case CHAT_BACKGROUND -> new Color(37, 37, 37);
             case CHAT_TEXT -> new Color(212, 212, 212);
             case CI_EXCLUDED_FOREGROUND -> Color.GRAY;
+            case ACCENT_GRADIENT_START -> new Color(0x1e, 0x88, 0xe5); // Blue
+            case ACCENT_GRADIENT_END -> new Color(0x15, 0x65, 0xc0); // Darker blue
             default -> {
                 logger.warn("No fallback color defined for key: {}", key);
                 yield Color.MAGENTA; // Bright error color for unexpected keys

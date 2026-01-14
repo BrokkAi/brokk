@@ -124,6 +124,12 @@
 
 
 
+; Test markers for semantic test detection
+(function_definition
+  name: (identifier) @test_marker)
+
+(decorator) @test_marker
+
 ; Method definition (function_definition directly inside a class's body block)
 ; This also captures static methods if they are structured as function_definition within class body.
 (class_definition

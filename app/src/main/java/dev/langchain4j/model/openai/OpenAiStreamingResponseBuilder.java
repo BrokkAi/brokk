@@ -7,6 +7,7 @@ import static dev.langchain4j.model.openai.internal.OpenAiUtils.tokenUsageFrom;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
 
+import ai.brokk.AbstractService.ProcessingTier;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -143,7 +144,7 @@ public class OpenAiStreamingResponseBuilder {
                 .tokenUsage(tokenUsage.get())
                 .finishReason(finishReason.get())
                 .created(created.get())
-                .serviceTier(serviceTier.get())
+                .serviceTier(ProcessingTier.fromString(serviceTier.get()))
                 .systemFingerprint(systemFingerprint.get())
                 .build();
 

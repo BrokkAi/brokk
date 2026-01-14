@@ -26,6 +26,7 @@ import java.util.stream.Collectors;
 import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public interface IProject extends AutoCloseable {
@@ -60,6 +61,7 @@ public interface IProject extends AutoCloseable {
     }
 
     /** All files in the project, including decompiled dependencies that are not in the git repo. */
+    @Blocking
     default Set<ProjectFile> getAllFiles() {
         return Set.of();
     }
@@ -72,6 +74,7 @@ public interface IProject extends AutoCloseable {
      * This intentionally ignores configuration files like AGENTS.md, .brokk/**,
      * .gitignore, etc. since those don't have analyzable extensions.
      */
+    @Blocking
     default boolean isEmptyProject() {
         return false;
     }
@@ -150,6 +153,14 @@ public interface IProject extends AutoCloseable {
     }
 
     default void saveBuildDetails(BuildAgent.BuildDetails details) {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setBuildDetails(BuildAgent.BuildDetails details) {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setRepo(IGitRepo repo) {
         throw new UnsupportedOperationException();
     }
 
@@ -328,7 +339,17 @@ public interface IProject extends AutoCloseable {
     default void setAnalyzerLanguages(Set<Language> languages) {}
 
     // Primary build language configuration
+    @Blocking
     default Language getBuildLanguage() {
+        throw new UnsupportedOperationException();
+    }
+
+    /**
+     * EDT-safe accessor for build language. Returns the configured language if available,
+     * or Languages.NONE as a safe fallback if the cache is not yet populated.
+     * Use this method on the EDT instead of getBuildLanguage().
+     */
+    default Language computedBuildLanguage() {
         throw new UnsupportedOperationException();
     }
 

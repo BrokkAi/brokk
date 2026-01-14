@@ -15,6 +15,7 @@ public final class RustTreeSitterNodeTypes {
     public static final String TRAIT_ITEM = "trait_item";
     public static final String STRUCT_ITEM = "struct_item";
     public static final String ENUM_ITEM = "enum_item";
+    public static final String MOD_ITEM = "mod_item";
 
     // Function-like declarations
     public static final String FUNCTION_ITEM = "function_item";
@@ -31,10 +32,14 @@ public final class RustTreeSitterNodeTypes {
     public static final String SCOPED_TYPE_IDENTIFIER = "scoped_type_identifier";
 
     // Other declarations
+    public static final String ATTRIBUTE = "attribute";
     public static final String ATTRIBUTE_ITEM = "attribute_item";
     public static final String VISIBILITY_MODIFIER = "visibility_modifier";
 
     public static final String IMPORT_DECLARATION = "use_declaration";
+
+    // ===== QUERY CAPTURE NAMES =====
+    public static final String TEST_MARKER = "test_marker";
 
     private RustTreeSitterNodeTypes() {}
 }

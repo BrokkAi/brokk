@@ -4,6 +4,7 @@ import static ai.brokk.analyzer.typescript.TypeScriptTreeSitterNodeTypes.*;
 
 import ai.brokk.project.IProject;
 import com.google.common.base.Splitter;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -277,7 +278,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
 
     private Optional<String> extractNamespacePath(TSNode definitionNode, SourceContent sourceContent) {
         // Optimized: use ArrayDeque for O(1) prepend instead of ArrayList's O(n) addAll(0, ...)
-        var namespaces = new java.util.ArrayDeque<String>();
+        var namespaces = new ArrayDeque<String>();
         TSNode current = definitionNode.getParent();
         boolean insideClass = false;
 
@@ -299,7 +300,7 @@ public final class TypescriptAnalyzer extends TreeSitterAnalyzer {
                     // Manual dot-splitting instead of Splitter (faster, less overhead)
                     // Handles dotted namespace names: "A.B.C" -> ["A", "B", "C"]
                     // Parse dot-separated parts in order, then prepend entire list to deque
-                    var parts = new java.util.ArrayList<String>();
+                    var parts = new ArrayList<String>();
                     int start = 0;
                     int dotIndex;
                     while ((dotIndex = name.indexOf('.', start)) >= 0) {

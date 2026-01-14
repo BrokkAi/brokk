@@ -21,6 +21,7 @@ import java.util.zip.GZIPOutputStream;
 import okhttp3.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -96,6 +97,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
     /**
      * Fetches the user's balance for the given Brokk API key.
      */
+    @Blocking
     public static float getUserBalance(String key) throws IOException {
         parseKey(key); // Throws IllegalArgumentException if key is malformed
 
@@ -177,6 +179,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
         }
     }
 
+    @Blocking
     public static void validateKey(String key) throws IOException {
         parseKey(key);
         getUserBalance(key);
@@ -299,7 +302,21 @@ public class Service extends AbstractService implements ExceptionReporter.Report
                                                     e);
                                 }
                             } else if (value.isObject()) {
-                                modelInfo.put(key, value.toString());
+                                if ("pricing_tiers".equals(key)) {
+                                    try {
+                                        var pricingTiers = objectMapper.convertValue(value, PricingTiers.class);
+                                        modelInfo.put(key, pricingTiers);
+                                    } catch (IllegalArgumentException e) {
+                                        LogManager.getLogger(Service.class)
+                                                .warn(
+                                                        "Could not parse pricing_tiers for model {}: {}",
+                                                        modelName,
+                                                        value.toString(),
+                                                        e);
+                                    }
+                                } else {
+                                    modelInfo.put(key, value.toString());
+                                }
                             }
                         }
                     }
@@ -519,7 +536,7 @@ public class Service extends AbstractService implements ExceptionReporter.Report
 
             logger.debug("Sending STT request to {}", endpoint);
 
-            try (okhttp3.Response response = httpClient.newCall(request).execute()) {
+            try (Response response = httpClient.newCall(request).execute()) {
                 String bodyStr = response.body() != null ? response.body().string() : "";
                 logger.debug("Received STT response, status = {}", response.code());
 

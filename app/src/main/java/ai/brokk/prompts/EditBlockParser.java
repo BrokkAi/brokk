@@ -5,6 +5,7 @@ import static ai.brokk.prompts.EditBlockUtils.*;
 import ai.brokk.EditBlock;
 import ai.brokk.analyzer.ProjectFile;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.jetbrains.annotations.Nullable;
 
@@ -69,8 +70,8 @@ public class EditBlockParser {
     }
 
     // Detect forbidden BRK markers in REPLACE blocks.
-    private static final java.util.regex.Pattern BRK_MARKER_IN_REPLACE_PATTERN =
-            java.util.regex.Pattern.compile("(?m)^BRK_(CLASS|FUNCTION|ENTIRE_FILE|CONFLICT)");
+    private static final Pattern BRK_MARKER_IN_REPLACE_PATTERN =
+            Pattern.compile("(?m)^BRK_(CLASS|FUNCTION|ENTIRE_FILE|CONFLICT)");
 
     private static boolean containsBrkMarkerInReplace(String text) {
         return BRK_MARKER_IN_REPLACE_PATTERN.matcher(text).find();

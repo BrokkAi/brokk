@@ -38,6 +38,10 @@ import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.UiTools;
 import ai.brokk.util.*;
 import ai.brokk.util.UserActionManager.ThrowingRunnable;
+import ai.brokk.watchservice.AbstractWatchService;
+import ai.brokk.watchservice.FileWatcherHelper;
+import ai.brokk.watchservice.NoopWatchService;
+import ai.brokk.watchservice.WatchServiceFactory;
 import dev.langchain4j.data.message.*;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.awt.Image;
@@ -59,6 +63,7 @@ import java.util.stream.IntStream;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
@@ -76,7 +81,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     private IConsoleIO io; // for UI feedback - Initialized in createGui
 
-    @SuppressWarnings("NullAway.Init")
+    @Nullable
     private IAnalyzerWrapper analyzerWrapper; // also initialized in createGui/createHeadless
 
     // Run main user-driven tasks in background (Code/Ask/Search/Run)
@@ -101,8 +106,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private static final long TASKLIST_MIGRATION_CUTOFF_MS =
             Instant.parse("2025-11-30T00:00:00Z").toEpochMilli();
 
-    public static boolean isTestFile(ProjectFile file) {
+    /**
+     * Identifies if a file contains tests. Uses the analyzer's semantic knowledge if available,
+     * otherwise falls back to filename-based heuristics.
+     */
+    public static boolean isTestFile(ProjectFile file, @Nullable IAnalyzer analyzer) {
+        // 1. If analyzer knows, trust it
+        if (analyzer != null && !analyzer.isEmpty()) {
+            if (analyzer.containsTests(file)) {
+                return true;
+            }
+            // Analyzer exists but says no tests — could still fall through
+            // to heuristics for languages where analyzer doesn't implement this
+        }
 
+        // 2. Filename/path heuristics as fallback
         return TEST_FILE_PATTERN.matcher(file.toString()).matches();
     }
 
@@ -150,8 +168,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private ContextHistory contextHistory;
     private final List<ContextListener> contextListeners = new CopyOnWriteArrayList<>();
     private final List<AnalyzerCallback> analyzerCallbacks = new CopyOnWriteArrayList<>();
-    private final List<TrackedFileChangeListener> trackedFileSystemEventListeners = new CopyOnWriteArrayList<>();
-    private final List<FileChangeListener> fileChangeListeners = new CopyOnWriteArrayList<>();
     // Listeners that want to be notified when the Service (models/stt) is reinitialized.
     private final List<Runnable> serviceReloadListeners = new CopyOnWriteArrayList<>();
     private final LowMemoryWatcherManager lowMemoryWatcherManager;
@@ -175,6 +191,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Publicly exposed flag for the exact TaskScope window
     private final AtomicBoolean taskScopeInProgress = new AtomicBoolean(false);
+
+    @SuppressWarnings("NullAway.Init")
+    private AbstractWatchService watchService;
 
     @Override
     public ExecutorService getBackgroundTasks() {
@@ -214,20 +233,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         serviceReloadListeners.remove(listener);
     }
 
-    public void addTrackedFileChangeListener(TrackedFileChangeListener listener) {
-        trackedFileSystemEventListeners.add(listener);
+    public void addFileChangeListener(AbstractWatchService.Listener listener) {
+        watchService.addListener(listener);
     }
 
-    public void addFileChangeListener(FileChangeListener listener) {
-        fileChangeListeners.add(listener);
-    }
-
-    public void removeTrackedFileChangeListener(TrackedFileChangeListener listener) {
-        trackedFileSystemEventListeners.remove(listener);
-    }
-
-    public void removeFileChangeListener(FileChangeListener listener) {
-        fileChangeListeners.remove(listener);
+    public void removeFileChangeListener(AbstractWatchService.Listener listener) {
+        watchService.removeListener(listener);
     }
 
     public ContextManager(IProject project) {
@@ -352,9 +363,23 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public CompletableFuture<Void> createGui() {
         assert SwingUtilities.isEventDispatchThread();
 
-        // Ensure style guide is initialized BEFORE creating Chrome
-        // (Chrome's constructor calls scheduleGitConfigurationAfterInit which needs the future)
-        styleGuideFuture = ensureStyleGuide();
+        // Ensure guides are loaded/generated off EDT
+        // (Chrome's constructor calls scheduleGitConfigurationAfterInit which needs the styleGuideFuture)
+        styleGuideFuture = ensureGuidesAsync();
+
+        Path globalGitignorePath = null;
+        if (project instanceof AbstractProject abstractProject) {
+            globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
+        }
+
+        // Use project.getRoot() for gitRepoRoot so worktrees resolve their external git metadata
+        this.watchService = WatchServiceFactory.create(
+                project.getRoot(),
+                project.hasGit() ? project.getRoot() : null,
+                globalGitignorePath,
+                List.of() // Start with empty listeners
+                );
+        watchService.start(CompletableFuture.completedFuture(null));
 
         this.io = new Chrome(this);
         this.toolRegistry.register(new UiTools((Chrome) this.io));
@@ -372,28 +397,11 @@ public class ContextManager implements IContextManager, AutoCloseable {
                                 + "Files that should be ignored may appear in the project.%n%n"
                                 + "To fix this, open the project from within the git repository root.",
                         projectRoot, workTreeRoot);
-                this.io.systemNotify(
-                        message, "Gitignore Configuration Warning", javax.swing.JOptionPane.WARNING_MESSAGE);
+                this.io.systemNotify(message, "Gitignore Configuration Warning", JOptionPane.WARNING_MESSAGE);
             }
         }
 
         var analyzerListener = createAnalyzerListener();
-
-        Path globalGitignorePath = null;
-        if (project instanceof AbstractProject abstractProject) {
-            globalGitignorePath = abstractProject.getGlobalGitignorePath().orElse(null);
-        }
-        // Create watch service using factory (selects best implementation for platform)
-        // Use project.getRoot() for gitRepoRoot so worktrees resolve their external git metadata
-        var watchService = WatchServiceFactory.create(
-                project.getRoot(),
-                project.hasGit() ? project.getRoot() : null,
-                globalGitignorePath,
-                List.of() // Start with empty listeners
-                );
-
-        watchService.start(CompletableFuture.completedFuture(null));
-
         // Create AnalyzerWrapper with injected watch service
         this.analyzerWrapper = new AnalyzerWrapper(project, analyzerListener, watchService);
 
@@ -405,9 +413,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var contextTask =
                 submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
 
-        // Ensure review guide and build details are loaded/generated asynchronously
-        // (style guide was initialized earlier, before Chrome creation)
-        ensureReviewGuide();
+        // Ensure build details are loaded/generated asynchronously
+        // (style and review guides are handled by ensureGuidesAsync() called earlier)
         ensureBuildDetailsAsync();
         cleanupOldHistoryAsync();
 
@@ -429,40 +436,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                             AnalyzerWrapper.ANALYZER_BUSY_TITLE,
                             JOptionPane.INFORMATION_MESSAGE);
                 }
-            }
-
-            @Override
-            public void afterFirstBuild(String msg) {
-                if (io instanceof Chrome chrome) {
-                    chrome.notifyActionComplete("Analyzer build completed");
-                }
-                if (msg.isEmpty()) {
-                    io.systemNotify(
-                            "Code Intelligence is empty. Probably this means your language is not yet supported. File-based tools will continue to work.",
-                            "Code Intelligence Warning",
-                            JOptionPane.WARNING_MESSAGE);
-                } else {
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, msg);
-                }
-            }
-
-            @Override
-            public void onRepoChange() {
-                // NOTE: This callback is no longer used in GUI mode.
-                // ContextManager.fileWatchListener now handles git changes directly via handleGitMetadataChange().
-                // This method is kept for backward compatibility only.
-                logger.debug("AnalyzerListener.onRepoChange fired (backward compatibility path)");
-                handleGitMetadataChange();
-            }
-
-            @Override
-            public void onTrackedFileChange() {
-                // NOTE: This callback is no longer used in GUI mode.
-                // ContextManager.fileWatchListener now handles tracked file changes directly via
-                // handleTrackedFileChange().
-                // This method is kept for backward compatibility only.
-                logger.debug("AnalyzerListener.onTrackedFileChange fired (backward compatibility path)");
-                handleTrackedFileChange(project.getAllFiles());
             }
 
             @Override
@@ -498,7 +471,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     // Update context w/ new analyzer
                     // ignore "load external changes" done by the build agent itself
                     // the build agent pauses the analyzer, which is our indicator
-                    if (!analyzerWrapper.isPause()) {
+                    if (!requireNonNull(analyzerWrapper).isPause()) {
                         processExternalFileChangesIfNeeded();
                         io.updateWorkspace();
                     }
@@ -537,47 +510,37 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /**
      * Creates a file watch listener that receives raw file system events directly from IWatchService.
      * This listener handles git metadata changes, tracked file changes, and preview window refreshes.
-     * <p>
-     * This replaces the temporary uiListener created in AnalyzerWrapper (Phase 2), moving file watching
-     * responsibility to ContextManager where it belongs.
      */
-    IWatchService.Listener createFileWatchListener() {
+    AbstractWatchService.Listener createFileWatchListener() {
         Path gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         FileWatcherHelper helper = new FileWatcherHelper(gitRepoRoot);
 
-        return new IWatchService.Listener() {
-            @Override
-            public void onFilesChanged(IWatchService.EventBatch batch) {
-                logger.trace("ContextManager file watch listener received events batch: {}", batch);
+        return batch -> {
+            logger.trace("ContextManager file watch listener received events batch: {}", batch);
 
-                // Classify the changes using helper
-                var trackedFiles = project.getRepo().getTrackedFiles();
-                var classification = helper.classifyChanges(batch, trackedFiles);
-
-                // 1) Handle git metadata changes
-                if (classification.gitMetadataChanged) {
-                    logger.debug("Git metadata changes detected by ContextManager");
-                    handleGitMetadataChange();
-                }
-
-                // 2) Handle tracked file changes
-                if (classification.trackedFilesChanged) {
-                    logger.debug(
-                            "Tracked file changes detected by ContextManager ({} files)",
-                            classification.changedTrackedFiles.size());
-                    handleTrackedFileChange(classification.changedTrackedFiles);
-                }
-
-                // 3) Handle all file changes for file change listeners
-                if (!batch.files.isEmpty()) {
-                    logger.trace("File changes detected by ContextManager ({} files)", batch.files.size());
-                    handleFileChange(batch.files);
-                }
+            // Handle untracked gitignore file changes by invalidating project cache
+            // (must happen before classification so trackedFiles reflects new gitignore rules)
+            if (batch.isUntrackedGitignoreChanged()) {
+                logger.debug("Untracked gitignore files changed, invalidating project file cache");
+                project.invalidateAllFiles();
             }
 
-            @Override
-            public void onNoFilesChangedDuringPollInterval() {
-                // No action needed for "no changes"
+            // Classify the changes using helper
+            var trackedFiles = project.getRepo().getTrackedFiles();
+            var classification = helper.classifyChanges(batch, trackedFiles);
+
+            // 1) Handle git metadata changes
+            if (classification.gitMetadataChanged) {
+                logger.debug("Git metadata changes detected by ContextManager");
+                handleGitMetadataChange();
+            }
+
+            // 2) Handle tracked file changes
+            if (classification.trackedFilesChanged) {
+                logger.debug(
+                        "Tracked file changes detected by ContextManager ({} files)",
+                        classification.changedTrackedFiles.size());
+                handleTrackedFileChange(classification.changedTrackedFiles);
             }
         };
     }
@@ -620,15 +583,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 .collect(Collectors.toSet());
     }
 
-    void handleFileChange(Set<ProjectFile> changedFiles) {
-        submitBackgroundTask("Handle file changes", () -> {
-            // Notify file change listeners
-            for (var listener : fileChangeListeners) {
-                listener.onFilesChanged(changedFiles);
-            }
-        });
-    }
-
     /**
      * Handles tracked file changes (modifications to files tracked by git).
      * This refreshes UI components that display file contents.
@@ -663,11 +617,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // analyzer refresh will call this too, but it will be delayed
                 io.updateWorkspace();
                 logger.debug("Workspace updated due to context file changes");
-            }
-
-            // Notify ProjectTree to refresh
-            for (var fsListener : trackedFileSystemEventListeners) {
-                fsListener.onTrackedFilesChanged();
             }
         });
 
@@ -744,18 +693,18 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public IAnalyzerWrapper getAnalyzerWrapper() {
-        return analyzerWrapper;
+        return requireNonNull(analyzerWrapper);
     }
 
     @Override
     public IAnalyzer getAnalyzer() throws InterruptedException {
-        return analyzerWrapper.get();
+        return requireNonNull(analyzerWrapper).get();
     }
 
     @Override
     public IAnalyzer getAnalyzerUninterrupted() {
         try {
-            return analyzerWrapper.get();
+            return requireNonNull(analyzerWrapper).get();
         } catch (InterruptedException e) {
             throw new CancellationException(e.getMessage());
         }
@@ -939,7 +888,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Override
     public void requestRebuild() {
         project.getRepo().invalidateCaches();
-        analyzerWrapper.requestRebuild();
+        requireNonNull(analyzerWrapper).requestRebuild();
     }
 
     /** undo last context change */
@@ -962,7 +911,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getSessionManager()
                         .saveHistory(contextHistory, currentSessionId); // Save history of frozen contexts
                 if (!result.changedFiles().isEmpty()) {
-                    analyzerWrapper.updateFiles(result.changedFiles());
+                    requireNonNull(analyzerWrapper).updateFiles(result.changedFiles());
                 }
                 return true;
             }
@@ -981,7 +930,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 String message = "Undid " + result.steps() + " step" + (result.steps() > 1 ? "s" : "") + "!";
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 if (!result.changedFiles().isEmpty()) {
-                    analyzerWrapper.updateFiles(result.changedFiles());
+                    requireNonNull(analyzerWrapper).updateFiles(result.changedFiles());
                 }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Context not found or already at that point");
@@ -999,7 +948,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Redo!");
                 if (!redoResult.changedFiles().isEmpty()) {
-                    analyzerWrapper.updateFiles(redoResult.changedFiles());
+                    requireNonNull(analyzerWrapper).updateFiles(redoResult.changedFiles());
                 }
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "no redo state available");
@@ -1350,7 +1299,9 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         // Close watchers before shutting down executors that may be used by them
-        analyzerWrapper.close();
+        if (analyzerWrapper != null) {
+            analyzerWrapper.close();
+        }
         lowMemoryWatcherManager.close();
 
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
@@ -1374,7 +1325,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Returns current analyzer readiness without blocking. */
     public boolean isAnalyzerReady() {
-        return analyzerWrapper.getNonBlocking() != null;
+        return requireNonNull(analyzerWrapper).getNonBlocking() != null;
     }
 
     /** Returns the current session's domain-model task list. Always non-null. */
@@ -1410,7 +1361,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 // Timeout, interruption, or execution error: fallback to original text as title
                 title = text;
             }
-            items.add(new TaskList.TaskItem(title, text, false));
+            items.add(new TaskList.TaskItem(UUID.randomUUID().toString(), title, text, false));
         }
 
         return items;
@@ -1434,8 +1385,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * Replace the current session's task list and persist it via SessionManager. This is the single entry-point UI code
      * should call after modifying the task list.
      */
-    public Context setTaskList(TaskList.TaskListData data) {
-        return pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+    public void setTaskListAsync(TaskList.TaskListData data) {
+        submitContextTask(() -> {
+            pushContext(currentLiveCtx -> currentLiveCtx.withTaskList(data));
+        });
     }
 
     public Context deriveContextWithTaskList(Context context, TaskList.TaskListData data) {
@@ -1449,6 +1402,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         // Notify listeners and UI on the EDT
         SwingUtilities.invokeLater(() -> {
             notifyContextListeners(liveContext());
+
             io.updateContextHistoryTable(liveContext());
             if (io instanceof Chrome) {
                 io.enableActionButtons();
@@ -1542,25 +1496,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
     private Context markTaskDone(Context context, TaskList.TaskItem task) {
         var tasks = context.getTaskListDataOrEmpty().tasks();
 
-        // Find index: prefer exact match, fall back to first incomplete task with matching text
-        int idx = tasks.indexOf(task);
+        // Find index: prefer exact match by ID, fall back to first incomplete task with matching text
+        int idx = IntStream.range(0, tasks.size())
+                .filter(i -> Objects.equals(tasks.get(i).id(), task.id()))
+                .findFirst()
+                .orElse(-1);
+
         if (idx < 0) {
             idx = IntStream.range(0, tasks.size())
                     .filter(i -> !tasks.get(i).done() && tasks.get(i).text().equals(task.text()))
                     .findFirst()
                     .orElse(-1);
         }
+
         if (idx < 0) {
             logger.error("Task not found !? {}", task.toString());
             return context;
         }
 
         var updated = new ArrayList<>(tasks);
-        updated.set(idx, new TaskList.TaskItem(task.title(), task.text(), true));
+        var original = tasks.get(idx);
+        updated.set(idx, new TaskList.TaskItem(original.id(), original.title(), original.text(), true));
         return deriveContextWithTaskList(context, new TaskList.TaskListData(List.copyOf(updated)));
     }
 
-    private void captureGitState(Context frozenContext) {
+    private void captureGitState(Context ctx) {
         if (!project.hasGit()) {
             return;
         }
@@ -1572,8 +1532,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
             var gitState = new ContextHistory.GitState(commitHash, diff.isEmpty() ? null : diff);
             logger.trace("Current git HEAD is {}", ((GitRepo) repo).shortHash(commitHash));
-            contextHistory.addGitState(frozenContext.id(), gitState);
-        } catch (Exception e) {
+            contextHistory.addGitState(ctx.id(), gitState);
+        } catch (GitAPIException e) {
             logger.error("Failed to capture git state", e);
         }
     }
@@ -1667,8 +1627,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
             logger.warn("notifyContextListeners called with null context");
             return;
         }
+        var taskList = ctx.getTaskListDataOrEmpty();
         for (var listener : contextListeners) {
             listener.contextChanged(ctx);
+            listener.onTaskListChanged(taskList);
         }
     }
 
@@ -1676,9 +1638,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public CompletableFuture<String> summarizeTaskForConversation(String input) {
+        return summarize(input, SummarizerPrompts.WORD_BUDGET_5);
+    }
+
+    public CompletableFuture<String> summarize(String input, int words) {
         var future = new CompletableFuture<String>();
 
-        var worker = new SummarizeWorker(this, input, SummarizerPrompts.WORD_BUDGET_5) {
+        var worker = new SummarizeWorker(this, input, words) {
             @Override
             protected void done() {
                 try {
@@ -1873,13 +1839,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     public <T> T withFileChangeNotificationsPaused(Callable<T> callable) {
-        analyzerWrapper.pause();
+        requireNonNull(analyzerWrapper).pause();
         try {
             return callable.call();
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
-            analyzerWrapper.resume();
+            requireNonNull(analyzerWrapper).resume();
         }
     }
 
@@ -1898,135 +1864,147 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     // Removed BuildCommand record
 
-    /** Ensure style guide exists, generating if needed. */
-    public CompletableFuture<String> ensureStyleGuide() {
-        String existingStyleGuide = project.getStyleGuide();
+    /**
+     * Ensure both style and review guides exist, reading from disk off EDT.
+     * Style guide is generated via LLM if missing; review guide uses a default template.
+     * Returns a CompletableFuture for the style guide content.
+     */
+    public CompletableFuture<String> ensureGuidesAsync() {
+        return submitBackgroundTask("Loading project guides", () -> {
+            // Handle review guide off EDT
+            ensureReviewGuide();
 
-        if (!existingStyleGuide.isEmpty()) {
-            logger.info("Style guide already exists; skipping generation");
-            return CompletableFuture.completedFuture(existingStyleGuide);
-        }
+            // Handle style guide off EDT
+            String existingStyleGuide = project.getStyleGuide();
+            if (!existingStyleGuide.isEmpty()) {
+                logger.info("Style guide already exists; skipping generation");
+                return existingStyleGuide;
+            }
 
-        if (!project.hasGit()) {
-            logger.info("No Git repository found, skipping style guide generation.");
-            styleGenerationSkipped = true;
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
-            return CompletableFuture.completedFuture("");
-        }
-
-        return submitBackgroundTask("Generating style guide", () -> {
-            try {
-                io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
-                // Use a reasonable limit for style guide generation context
-                var topClasses = GitDistance.getMostImportantFiles((GitRepo) project.getRepo(), 10);
-
-                if (topClasses.isEmpty()) {
-                    io.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "No classes found via PageRank for style guide generation.");
-                    String fallbackContent =
-                            "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n";
-                    project.saveStyleGuide(fallbackContent);
-                    return fallbackContent;
-                }
-
-                var codeForLLM = new StringBuilder();
-                var tokens = 0;
-                int MAX_STYLE_TOKENS = 30000; // Limit context size for style guide
-                for (var file : topClasses) {
-                    if (file.isBinary()) {
-                        continue;
-                    }
-                    String chunk; // Declare chunk once outside the try-catch
-                    var contentOpt = file.read();
-                    // Use project root for relative path display if possible
-                    var relativePath =
-                            project.getRoot().relativize(file.absPath()).toString();
-                    if (contentOpt.isEmpty()) {
-                        logger.warn("Skipping unreadable file {} for style guide", relativePath);
-                        continue;
-                    }
-                    chunk = "<file path=\"%s\">\n%s\n</file>\n".formatted(relativePath, contentOpt.get());
-                    // Calculate tokens and check limits
-                    var chunkTokens = Messages.getApproximateTokens(chunk);
-                    if (tokens > 0 && tokens + chunkTokens > MAX_STYLE_TOKENS) { // Check if adding exceeds limit
-                        logger.debug(
-                                "Style guide context limit ({}) reached after {} tokens.", MAX_STYLE_TOKENS, tokens);
-                        break; // Exit the loop if limit reached
-                    }
-                    if (chunkTokens > MAX_STYLE_TOKENS) { // Skip single large files
-                        logger.debug(
-                                "Skipping large file {} ({} tokens) for style guide context.",
-                                relativePath,
-                                chunkTokens);
-                        continue; // Skip to next file
-                    }
-                    // Append chunk if within limits
-                    codeForLLM.append(chunk);
-                    tokens += chunkTokens;
-                    logger.trace(
-                            "Added {} ({} tokens, total {}) to style guide context", relativePath, chunkTokens, tokens);
-                }
-
-                if (codeForLLM.isEmpty()) {
-                    io.showNotification(
-                            IConsoleIO.NotificationRole.INFO, "No relevant code found for style guide generation");
-                    String fallbackContent = "# Style Guide\n\n(No relevant code found for generation)\n";
-                    project.saveStyleGuide(fallbackContent);
-                    return fallbackContent;
-                }
-
-                var messages = List.of(
-                        new SystemMessage(
-                                "You are an expert software engineer. Your task is to extract a concise coding style guide from the provided code examples."),
-                        new UserMessage(
-                                """
-                                        Based on these code examples, create a concise, clear coding style guide in Markdown format
-                                        that captures the conventions used in this codebase, particularly the ones that leverage new or uncommon features.
-                                        DO NOT repeat what are simply common best practices.
-
-                                        %s
-                                        """
-                                        .formatted(codeForLLM)));
-
-                var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide")
-                        .sendRequest(messages);
-                if (result.error() != null) {
-                    String message =
-                            "Failed to generate style guide: " + result.error().getMessage();
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, message);
-                    String fallbackContent = "# Style Guide\n\n(Generation failed)\n";
-                    project.saveStyleGuide(fallbackContent);
-                    return fallbackContent;
-                }
-                var styleGuide = result.text();
-                if (styleGuide.isBlank()) {
-                    io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM returned empty style guide.");
-                    String fallbackContent = "# Style Guide\n\n(LLM returned empty result)\n";
-                    project.saveStyleGuide(fallbackContent);
-                    return fallbackContent;
-                }
-                project.saveStyleGuide(styleGuide);
-                styleGenerationSkipped = false; // Reset flag after successful generation
-
-                String savedFileName;
-                Path agentsPath = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
-                if (Files.exists(agentsPath)) {
-                    savedFileName = "AGENTS.md";
-                } else {
-                    savedFileName = ".brokk/style.md";
-                }
+            if (!project.hasGit()) {
+                logger.info("No Git repository found, skipping style guide generation.");
+                styleGenerationSkipped = true;
                 io.showNotification(
-                        IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
-                return styleGuide;
-            } catch (Exception e) {
-                logger.error("Error generating style guide", e);
-                String fallbackContent = "# Style Guide\n\n(Error during generation)\n";
+                        IConsoleIO.NotificationRole.INFO, "No Git repository found, skipping style guide generation.");
+                return "";
+            }
+
+            // Generate style guide via LLM
+            return generateStyleGuide();
+        });
+    }
+
+    /** Generate style guide via LLM. Must be called off EDT. */
+    private String generateStyleGuide() {
+        try {
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Generating project style guide...");
+            // Use a reasonable limit for style guide generation context
+            if (!(project.getRepo() instanceof GitRepo gitRepo)) {
+                logger.warn(
+                        "Expected GitRepo but found {}",
+                        project.getRepo().getClass().getName());
+                return "";
+            }
+            var topClasses = GitDistance.getMostImportantFiles(gitRepo, 10);
+
+            if (topClasses.isEmpty()) {
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "No classes found via PageRank for style guide generation.");
+                String fallbackContent =
+                        "# Style Guide\n\n(Could not be generated automatically - no relevant classes found)\n";
                 project.saveStyleGuide(fallbackContent);
                 return fallbackContent;
             }
-        });
+
+            var codeForLLM = new StringBuilder();
+            var tokens = 0;
+            int MAX_STYLE_TOKENS = 30000; // Limit context size for style guide
+            for (var file : topClasses) {
+                if (file.isBinary()) {
+                    continue;
+                }
+                var contentOpt = file.read();
+                // Use project root for relative path display if possible
+                var relativePath = project.getRoot().relativize(file.absPath()).toString();
+                if (contentOpt.isEmpty()) {
+                    logger.warn("Skipping unreadable file {} for style guide", relativePath);
+                    continue;
+                }
+                var chunk = "<file path=\"%s\">\n%s\n</file>\n".formatted(relativePath, contentOpt.get());
+                // Calculate tokens and check limits
+                var chunkTokens = Messages.getApproximateTokens(chunk);
+                if (tokens > 0 && tokens + chunkTokens > MAX_STYLE_TOKENS) {
+                    logger.debug("Style guide context limit ({}) reached after {} tokens.", MAX_STYLE_TOKENS, tokens);
+                    break;
+                }
+                if (chunkTokens > MAX_STYLE_TOKENS) {
+                    logger.debug(
+                            "Skipping large file {} ({} tokens) for style guide context.", relativePath, chunkTokens);
+                    continue;
+                }
+                codeForLLM.append(chunk);
+                tokens += chunkTokens;
+                logger.trace(
+                        "Added {} ({} tokens, total {}) to style guide context", relativePath, chunkTokens, tokens);
+            }
+
+            if (codeForLLM.isEmpty()) {
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO, "No relevant code found for style guide generation");
+                String fallbackContent = "# Style Guide\n\n(No relevant code found for generation)\n";
+                project.saveStyleGuide(fallbackContent);
+                return fallbackContent;
+            }
+
+            var messages = List.of(
+                    new SystemMessage(
+                            "You are an expert software engineer. Your task is to extract a concise coding style guide from the provided code examples."),
+                    new UserMessage(
+                            """
+                            Based on these code examples, create a concise, clear coding style guide in Markdown format
+                            that captures the conventions used in this codebase, particularly the ones that leverage new or uncommon features.
+                            DO NOT repeat what are simply common best practices.
+
+                            %s
+                            """
+                                    .formatted(codeForLLM)));
+
+            var result = getLlm(serviceProvider.get().getScanModel(), "Generate style guide")
+                    .sendRequest(messages);
+            if (result.error() != null) {
+                String message =
+                        "Failed to generate style guide: " + result.error().getMessage();
+                io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+                String fallbackContent = "# Style Guide\n\n(Generation failed)\n";
+                project.saveStyleGuide(fallbackContent);
+                return fallbackContent;
+            }
+            var styleGuide = result.text();
+            if (styleGuide.isBlank()) {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "LLM returned empty style guide.");
+                String fallbackContent = "# Style Guide\n\n(LLM returned empty result)\n";
+                project.saveStyleGuide(fallbackContent);
+                return fallbackContent;
+            }
+            project.saveStyleGuide(styleGuide);
+            styleGenerationSkipped = false;
+
+            String savedFileName;
+            Path agentsPath = project.getMasterRootPathForConfig().resolve(AbstractProject.STYLE_GUIDE_FILE);
+            if (Files.exists(agentsPath)) {
+                savedFileName = "AGENTS.md";
+            } else {
+                savedFileName = ".brokk/style.md";
+            }
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO, "Style guide generated and saved to " + savedFileName);
+            return styleGuide;
+        } catch (Exception e) {
+            logger.error("Error generating style guide", e);
+            String fallbackContent = "# Style Guide\n\n(Error during generation)\n";
+            project.saveStyleGuide(fallbackContent);
+            return fallbackContent;
+        }
     }
 
     /**
@@ -2045,14 +2023,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return styleGenerationSkipped;
     }
 
-    /** Ensure review guide exists, generating if needed */
+    /** Ensure review guide exists, creating default if needed. Safe to call from any thread. */
     private void ensureReviewGuide() {
         if (!project.getReviewGuide().isEmpty()) {
             return;
         }
-
         project.saveReviewGuide(MainProject.DEFAULT_REVIEW_GUIDE);
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Review guide created at .brokk/review.md");
+    }
+
+    /**
+     * Force regenerate style guide via LLM. Used after Git is configured.
+     * Returns a CompletableFuture for the regenerated style guide content.
+     */
+    public CompletableFuture<String> regenerateStyleGuideAsync() {
+        return submitBackgroundTask("Regenerating style guide", () -> {
+            if (!project.hasGit()) {
+                logger.info("No Git repository found, skipping style guide regeneration.");
+                styleGenerationSkipped = true;
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "No Git repository found, skipping style guide regeneration.");
+                return "";
+            }
+            return generateStyleGuide();
+        });
     }
 
     // Reduced retry count for compression - it's non-critical and shouldn't block session navigation
@@ -2105,12 +2100,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return entry.withSummary(summary);
     }
 
-    /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
-    public TaskScope beginTaskUngrouped(String input) {
-        return beginTask(input, false, null);
-    }
-
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
+    @Override
     public TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
         // prepare MOP
         var history = liveContext().getTaskHistory();
@@ -2143,7 +2134,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * This means it is the agent's responsibility to propagate any sub-agents' Contexts
      * without losing important history.
      */
-    public final class TaskScope implements AutoCloseable {
+    public class TaskScope implements AutoCloseable {
         private final boolean groupAndCompress;
         private final AtomicBoolean closed = new AtomicBoolean(false);
         private final UUID groupId = UUID.randomUUID();
@@ -2155,7 +2146,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
 
-            analyzerWrapper.pause();
+            requireNonNull(analyzerWrapper).pause();
         }
 
         /**
@@ -2224,6 +2215,12 @@ public class ContextManager implements IContextManager, AutoCloseable {
         public void close() throws InterruptedException {
             if (!closed.compareAndSet(false, true)) return;
 
+            closeInternal();
+
+            requireNonNull(analyzerWrapper).resume();
+        }
+
+        protected void closeInternal() {
             // Save once now that all group mappings are in place
             project.getSessionManager().saveHistory(contextHistory, currentSessionId);
 
@@ -2234,7 +2231,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
 
             if (groupAndCompress) {
-                contextHistory.replaceTop(ctx -> {
+                var finalCtx = contextHistory.replaceTop(ctx -> {
                     try {
                         return compressHistory(ctx);
                     } catch (InterruptedException e) {
@@ -2242,10 +2239,31 @@ public class ContextManager implements IContextManager, AutoCloseable {
                         return ctx;
                     }
                 });
+                captureGitState(finalCtx);
             }
-
-            analyzerWrapper.resume();
         }
+    }
+
+    public class AnonymousScope extends TaskScope {
+        private AnonymousScope() {
+            super(false, "");
+        }
+
+        @Override
+        public Context append(TaskResult result) throws InterruptedException {
+            return result.context();
+        }
+
+        @Override
+        public void publish(Context context) {}
+
+        @Override
+        public void closeInternal() {}
+    }
+
+    @Override
+    public AnonymousScope anonymousScope() {
+        return new AnonymousScope();
     }
 
     public List<Context> getContextHistoryList() {
@@ -2609,6 +2627,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      */
     public void createHeadless(BuildDetails buildDetails) {
         this.io = new HeadlessConsole();
+        this.watchService = new NoopWatchService();
         this.userActions.setIo(this.io);
 
         initializeCurrentSessionAndHistory(true);
@@ -2624,7 +2643,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // no AnalyzerListener, instead we will block for it to be ready
         // Headless mode doesn't need file watching, so pass null for both analyzerListener and watchService
-        this.analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new IWatchService() {});
+        this.analyzerWrapper = new AnalyzerWrapper(project, new NullAnalyzerListener(), new NoopWatchService());
         try {
             analyzerWrapper.get();
         } catch (InterruptedException e) {

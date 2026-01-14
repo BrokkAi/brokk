@@ -6,6 +6,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.ToolRegistry;
+import ai.brokk.util.Exceptions;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
@@ -42,15 +43,11 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import dev.langchain4j.model.openai.OpenAiTokenUsage;
-import dev.langchain4j.model.openai.internal.Json;
 import dev.langchain4j.model.openai.internal.OpenAiUtils;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.shared.StreamOptions;
 import dev.langchain4j.model.output.FinishReason;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -140,7 +137,9 @@ public class Llm {
     }
 
     private IConsoleIO io;
-    private final Path taskHistoryDir; // Directory for this specific LLM task's history files
+    private final Path historyBaseDir;
+    private final String baseTaskDirName;
+    private @Nullable Path taskHistoryDir; // Directory for this specific LLM task's history files (created lazily)
     final IContextManager contextManager;
     private static final int DEFAULT_MAX_ATTEMPTS = 8;
     private final int MAX_ATTEMPTS;
@@ -173,32 +172,13 @@ public class Llm {
         this.echo = echo;
         this.MAX_ATTEMPTS = determineMaxAttempts();
         logger.trace("MAX_ATTEMPTS configured to {}", this.MAX_ATTEMPTS);
-        var historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
+        this.historyBaseDir = getHistoryBaseDir(contextManager.getProject().getRoot());
 
-        // Create task directory name for this specific LLM interaction
+        // Store task directory name components for lazy creation
         var timestamp =
                 LocalDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
         var taskDesc = LogDescription.getShortDescription(taskDescription);
-
-        // Create the specific directory for this task with uniqueness check
-        var baseTaskDirName = String.format("%s %s", timestamp, taskDesc);
-        synchronized (Llm.class) {
-            int suffix = 1;
-            var mutableDirName = historyBaseDir.resolve(baseTaskDirName);
-            while (Files.exists(mutableDirName)) {
-                var newDirName = baseTaskDirName + "-" + suffix;
-                mutableDirName = historyBaseDir.resolve(newDirName);
-                suffix++;
-            }
-
-            this.taskHistoryDir = mutableDirName;
-            try {
-                Files.createDirectories(this.taskHistoryDir);
-            } catch (IOException e) {
-                logger.error("Failed to create task history directory {}", this.taskHistoryDir, e);
-                // taskHistoryDir might be null or unusable, logRequest checks for null
-            }
-        }
+        this.baseTaskDirName = String.format("%s %s", timestamp, taskDesc);
     }
 
     /**
@@ -245,14 +225,39 @@ public class Llm {
     }
 
     /**
+     * Lazily creates and returns the task history directory. Thread-safe.
+     */
+    private synchronized Path getOrCreateTaskHistoryDir() {
+        if (taskHistoryDir == null) {
+            synchronized (Llm.class) {
+                int suffix = 1;
+                var mutableDirName = historyBaseDir.resolve(baseTaskDirName);
+                while (Files.exists(mutableDirName)) {
+                    var newDirName = baseTaskDirName + "-" + suffix;
+                    mutableDirName = historyBaseDir.resolve(newDirName);
+                    suffix++;
+                }
+                taskHistoryDir = mutableDirName;
+                try {
+                    Files.createDirectories(taskHistoryDir);
+                } catch (IOException e) {
+                    logger.error("Failed to create task history directory {}", taskHistoryDir, e);
+                }
+            }
+        }
+        return taskHistoryDir;
+    }
+
+    /**
      * Write the request JSON before sending to the model, to a file named "<base>-request.json".
      * Returns the assigned sequence number so that the corresponding response can use the same number.
      */
     private synchronized int logRequest(ChatRequest request) {
         int assignedSequence = requestSequence++;
         try {
+            var dir = getOrCreateTaskHistoryDir();
             var filename = "%s %03d-request.json".formatted(logFileTimestamp(), assignedSequence);
-            var requestPath = taskHistoryDir.resolve(filename);
+            var requestPath = dir.resolve(filename);
             var requestOptions = new StandardOpenOption[] {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };
@@ -284,8 +289,15 @@ public class Llm {
                     .stream(true)
                     .streamOptions(StreamOptions.builder().includeUsage(true).build())
                     .build();
-            return Json.toJson(
-                    ChatCompletionRequest.builder().from(openAiRequest).build());
+            try {
+                return objectMapper
+                        .writerWithDefaultPrettyPrinter()
+                        .writeValueAsString(ChatCompletionRequest.builder()
+                                .from(openAiRequest)
+                                .build());
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
         }
         try {
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(request);
@@ -1457,6 +1469,7 @@ public class Llm {
     private synchronized void logResult(
             StreamingChatModel model, ChatRequest request, @Nullable StreamingResult result, int logSequence) {
         try {
+            var dir = getOrCreateTaskHistoryDir();
             var formattedRequest = "# Request to %s:\n\n%s\n"
                     .formatted(contextManager.getService().nameOf(model), TaskEntry.formatMessages(request.messages()));
             var formattedTools = request.toolSpecifications() == null
@@ -1472,13 +1485,13 @@ public class Llm {
             String fileTimestamp = logFileTimestamp();
             String shortDesc =
                     result == null ? "Cancelled" : LogDescription.getShortDescription(result.getDescription());
-            var filePath =
-                    taskHistoryDir.resolve(String.format("%s %03d-%s.log", fileTimestamp, logSequence, shortDesc));
+            var filePath = dir.resolve(String.format("%s %03d-%s.log", fileTimestamp, logSequence, shortDesc));
             var options = new StandardOpenOption[] {
                 StandardOpenOption.CREATE, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE
             };
             logger.trace("Writing history to file {}", filePath);
-            Files.writeString(filePath, formattedRequest + formattedTools + formattedResponse, options);
+            Files.writeString(
+                    filePath, formattedRequest + "\n\n" + formattedTools + "\n\n" + formattedResponse, options);
         } catch (IOException e) {
             logger.error("Failed to write LLM response history file", e);
         }
@@ -1503,7 +1516,8 @@ public class Llm {
                     logger.debug("Cost notifications disabled by user settings");
                     return;
                 }
-                var pricing = service.getModelPricing(modelName);
+                var tier = Service.getProcessingTier(model);
+                var pricing = service.getModelPricing(modelName, tier);
 
                 int input = usage.inputTokens();
                 int cached = usage.cachedInputTokens();
@@ -1707,18 +1721,43 @@ public class Llm {
                        [Error: %s]
                        %s
                        """
-                        .formatted(formatThrowable(error), contentToShow);
+                        .formatted(Exceptions.formatThrowable(error), contentToShow);
             }
-            // If no error, originalResponse is guaranteed to be non-null by the record's invariant.
-            return castNonNull(originalResponse()).toString();
-        }
 
-        private String formatThrowable(Throwable th) {
-            var baos = new ByteArrayOutputStream();
-            try (var ps = new PrintStream(baos)) {
-                th.printStackTrace(ps);
+            AiMessage ai = aiMessage();
+            String toolRequestsJson = "[]";
+            String metadataJson = "{}";
+
+            try {
+                toolRequestsJson =
+                        objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(ai.toolExecutionRequests());
+                if (originalResponse() != null) {
+                    metadataJson = objectMapper
+                            .writerWithDefaultPrettyPrinter()
+                            .writeValueAsString(originalResponse().metadata());
+                }
+            } catch (JsonProcessingException e) {
+                logger.error("Failed to serialize components for formatted()", e);
             }
-            return baos.toString(StandardCharsets.UTF_8);
+
+            return """
+                ## text
+                %s
+
+                ## reasoningContent
+                %s
+
+                ## toolExecutionRequests
+                %s
+
+                ## metadata
+                %s
+                """
+                    .formatted(
+                            ai.text() == null ? "" : ai.text(),
+                            ai.reasoningContent() == null ? "" : ai.reasoningContent(),
+                            toolRequestsJson,
+                            metadataJson);
         }
 
         /**

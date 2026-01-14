@@ -22,6 +22,7 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -29,6 +30,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -61,8 +63,6 @@ public class ContextSerializationTest {
                 Map.of("com.example.MyClass.myMethod", List.of(codeFragmentTargetMthd)),
                 project);
         mockContextManager = new TestContextManager(tempDir, new NoOpConsoleIO(), testAnalyzer);
-        // Reset fragment ID counter for test isolation
-        ContextFragments.setMinimumId(1);
 
         // Clean .brokk/sessions directory for session tests
         Path sessionsDir = tempDir.resolve(".brokk").resolve("sessions");
@@ -408,74 +408,59 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testFragmentIdContinuityAfterLoad() throws IOException {
+    void testFragmentIdPersistenceAndUniquenessAfterLoad() throws IOException {
         var projectFile = new ProjectFile(tempDir, "dummy.txt");
         Files.createDirectories(projectFile.absPath().getParent()); // Ensure parent directory exists
         Files.writeString(projectFile.absPath(), "content");
 
-        // ID of ctxFragment will be "1" (String)
+        // Create fragments
         var ctxFragment = new ContextFragments.ProjectPathFragment(projectFile, mockContextManager);
-        // ID of strFragment will be a hash string
         var strFragment = new ContextFragments.StringFragment(
                 mockContextManager, "text", "desc", SyntaxConstants.SYNTAX_STYLE_NONE);
+
+        String originalCtxId = ctxFragment.id();
+        String originalStrId = strFragment.id();
 
         var context = new Context(mockContextManager)
                 .addFragments(List.of(ctxFragment))
                 .addFragments(strFragment);
         var history = new ContextHistory(context);
 
-        Path zipFile = tempDir.resolve("id_continuity_history.zip");
+        Path zipFile = tempDir.resolve("id_persistence_uniqueness.zip");
         HistoryIo.writeZip(history, zipFile);
 
-        // Save the next available numeric ID *before* loading, then load.
-        // Loading process (fragment constructors) will update ContextFragment.nextId.
-        // For this test, we want to see what the next available numeric ID *was* before any new fragment creations
-        // post-load.
-        // ContextFragment.getCurrentMaxId() gives the *next* ID to be used.
-        // After loading, ContextFragment.getCurrentMaxId() should be correctly set based on the max numeric ID found.
+        // Load history
         ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
+        Context loadedContext = loadedHistory.getHistory().get(0);
 
-        int maxNumericIdInLoadedHistory = 0;
-        for (Context loadedCtx : loadedHistory.getHistory()) {
-            for (ContextFragment frag : loadedCtx.allFragments().toList()) {
-                try {
-                    // Only consider numeric IDs from dynamic fragments
-                    int numericId = Integer.parseInt(frag.id());
-                    if (numericId > maxNumericIdInLoadedHistory) {
-                        maxNumericIdInLoadedHistory = numericId;
-                    }
-                } catch (NumberFormatException e) {
-                    // Non-numeric ID (hash), ignore for max numeric ID calculation
-                }
-            }
-        }
+        // Verify Persistence
+        var loadedCtxFragment = loadedContext
+                .allFragments()
+                .filter(f -> f instanceof ContextFragments.ProjectPathFragment)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Loaded ProjectPathFragment not found"));
 
-        // The nextId counter should be at least maxNumericIdInLoadedHistory + 1.
-        // If no numeric IDs were found (e.g. all fragments were content-hashed or history was empty),
-        // then getCurrentMaxId() would be whatever it was set to initially (e.g. 1, or higher if other tests ran before
-        // without reset)
-        // or what it became after loading any initial numeric IDs from other fragments.
-        int nextAvailableNumericId = ContextFragment.getCurrentMaxId();
-        if (maxNumericIdInLoadedHistory > 0) {
-            assertTrue(
-                    nextAvailableNumericId > maxNumericIdInLoadedHistory,
-                    "ContextFragment.nextId (numeric counter) should be greater than the max numeric ID found in loaded fragments.");
-        } else {
-            // If no numeric IDs, nextAvailableNumericId should be at least 1 (or whatever it was reset to)
-            assertTrue(nextAvailableNumericId >= 1, "ContextFragment.nextId should be at least 1.");
-        }
+        var loadedStrFragment = loadedContext
+                .allFragments()
+                .filter(f -> f instanceof ContextFragments.StringFragment)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Loaded StringFragment not found"));
 
-        // Create a new *dynamic* fragment; it should get a string representation of `nextAvailableNumericId`
+        assertEquals(originalCtxId, loadedCtxFragment.id(), "ProjectPathFragment ID should be preserved exactly.");
+        assertEquals(originalStrId, loadedStrFragment.id(), "StringFragment ID should be preserved exactly.");
+
+        // Verify Uniqueness for new fragment
         var newDynamicFragment = new ContextFragments.ProjectPathFragment(
                 new ProjectFile(tempDir, "new_dynamic.txt"), mockContextManager);
-        assertEquals(
-                String.valueOf(nextAvailableNumericId),
+
+        assertNotEquals(
+                originalCtxId,
                 newDynamicFragment.id(),
-                "New dynamic fragment should get the expected next numeric ID as a string.");
-        assertEquals(
-                nextAvailableNumericId + 1,
-                ContextFragment.getCurrentMaxId(),
-                "ContextFragment.nextId (numeric counter) should increment after new dynamic fragment creation.");
+                "New dynamic fragment ID should not collide with loaded dynamic fragment ID.");
+        assertNotEquals(
+                originalStrId,
+                newDynamicFragment.id(),
+                "New dynamic fragment ID should not collide with loaded static fragment ID.");
     }
 
     @Test
@@ -524,7 +509,7 @@ public class ContextSerializationTest {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if ("contexts.jsonl".equals(entry.getName())) {
-                    return new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    return new String(zis.readAllBytes(), StandardCharsets.UTF_8);
                 }
             }
         }
@@ -1582,7 +1567,7 @@ public class ContextSerializationTest {
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
                 if ("contexts.jsonl".equals(entry.getName())) {
-                    String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    String content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
                     String firstLine = content.lines()
                             .filter(s -> !s.isBlank())
                             .findFirst()
@@ -1593,7 +1578,7 @@ public class ContextSerializationTest {
                     Map<String, Object> obj = mapper.readValue(firstLine, Map.class);
                     @SuppressWarnings("unchecked")
                     List<String> readonly = (List<String>) obj.getOrDefault("readonly", List.of());
-                    return new java.util.HashSet<>(readonly);
+                    return new HashSet<>(readonly);
                 }
             }
         }
@@ -1655,21 +1640,20 @@ public class ContextSerializationTest {
 
     // Helper: rewrite contexts.jsonl in a zip file using a single-line transform
     @SuppressWarnings("unchecked")
-    private void rewriteContextsInZip(Path source, Path target, java.util.function.Function<String, String> transform)
-            throws IOException {
+    private void rewriteContextsInZip(Path source, Path target, Function<String, String> transform) throws IOException {
         Map<String, byte[]> entries = new LinkedHashMap<>();
         try (var zis = new ZipInputStream(Files.newInputStream(source))) {
             ZipEntry e;
             while ((e = zis.getNextEntry()) != null) {
                 if (e.getName().equals("contexts.jsonl")) {
-                    String content = new String(zis.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                    String content = new String(zis.readAllBytes(), StandardCharsets.UTF_8);
                     List<String> lines = content.lines().toList();
                     List<String> transformed = lines.stream()
                             .filter(s -> !s.isBlank())
                             .map(transform)
                             .toList();
                     String newContent = String.join("\n", transformed) + "\n";
-                    entries.put(e.getName(), newContent.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    entries.put(e.getName(), newContent.getBytes(StandardCharsets.UTF_8));
                 } else {
                     @SuppressWarnings("null")
                     byte[] bytes = zis.readAllBytes();
@@ -2024,113 +2008,6 @@ public class ContextSerializationTest {
     }
 
     @Test
-    void testStringFragmentExtractsFilesFromPathList() throws Exception {
-        var file1 = new ProjectFile(tempDir, "src/PathListFile1.java");
-        var file2 = new ProjectFile(tempDir, "src/PathListFile2.java");
-        Files.createDirectories(file1.absPath().getParent());
-        Files.writeString(file1.absPath(), "class PathListFile1 {}");
-        Files.writeString(file2.absPath(), "class PathListFile2 {}");
-
-        String pathList = file1 + "\n" + file2 + "\n";
-
-        var fragment = new ContextFragments.StringFragment(
-                mockContextManager, pathList, "File list", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-        assertEquals(Set.of(file1, file2), fragment.files().join());
-    }
-
-    @Test
-    void testPathListExtractionSkipsNonExistentFiles() throws Exception {
-        var existingFile = new ProjectFile(tempDir, "src/ExistingFile.java");
-        Files.createDirectories(existingFile.absPath().getParent());
-        Files.writeString(existingFile.absPath(), "class ExistingFile {}");
-
-        String pathList = existingFile + "\nsrc/NonExistentFile.java\n";
-
-        var fragment = new ContextFragments.StringFragment(
-                mockContextManager, pathList, "Mixed file list", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-        assertEquals(Set.of(existingFile), fragment.files().join());
-    }
-
-    @Test
-    void testMixedPastedListCollectsOnlyValidPathsForStringAndPasteFragments() throws Exception {
-        var file1 = new ProjectFile(tempDir, "src/MixedValid1.java");
-        var file2 = new ProjectFile(tempDir, "src/MixedValid2.java");
-        Files.createDirectories(file1.absPath().getParent());
-        Files.writeString(file1.absPath(), "class MixedValid1 {}");
-        Files.writeString(file2.absPath(), "class MixedValid2 {}");
-
-        String mixed = "# comment\n" + file1 + "\nnot/a/real/file.txt\n    " + file2 + "\ngarbage line\n";
-
-        var stringFragment = new ContextFragments.StringFragment(
-                mockContextManager, mixed, "Mixed content", SyntaxConstants.SYNTAX_STYLE_NONE);
-        assertEquals(Set.of(file1, file2), stringFragment.files().join());
-
-        var pasteFragment = new ContextFragments.PasteTextFragment(
-                mockContextManager,
-                mixed,
-                CompletableFuture.completedFuture("Mixed content"),
-                CompletableFuture.completedFuture(SyntaxConstants.SYNTAX_STYLE_NONE));
-        assertEquals(Set.of(file1, file2), pasteFragment.files().join());
-    }
-
-    @Test
-    void testDiffTakesPrecedenceOverPathList() throws Exception {
-        var projectFile = new ProjectFile(tempDir, "src/DiffPrecedence.java");
-        Files.createDirectories(projectFile.absPath().getParent());
-        Files.writeString(projectFile.absPath(), "class DiffPrecedence {}");
-
-        String diffText =
-                """
-                diff --git a/src/DiffPrecedence.java b/src/DiffPrecedence.java
-                --- a/src/DiffPrecedence.java
-                +++ b/src/DiffPrecedence.java
-                @@ -1 +1 @@
-                -class DiffPrecedence {}
-                +class DiffPrecedence { }
-                """;
-
-        var fragment = new ContextFragments.StringFragment(
-                mockContextManager, diffText, "Diff content", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-        assertEquals(Set.of(projectFile), fragment.files().join());
-    }
-
-    @Test
-    void testPathsMayOccurAnywhere() throws Exception {
-        var file = new ProjectFile(tempDir, "src/TestFile.java");
-        Files.createDirectories(file.absPath().getParent());
-        Files.writeString(file.absPath(), "class TestFile {}");
-
-        String mixedFormats = file + ":10: error: cannot find symbol\n"
-                + file + ":25:    public void method() {\n"
-                + "    at com.example.Test(" + file + ":42)\n"
-                + "https://example.com/docs/api.html\n";
-
-        var fragment = new ContextFragments.StringFragment(
-                mockContextManager, mixedFormats, "Mixed formats", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-        assertFalse(fragment.files().join().isEmpty());
-    }
-
-    @Test
-    void testPathsWithSpacesAreExtracted() throws Exception {
-        var fileWithSpace = new ProjectFile(tempDir, "src/My Class.java");
-        var normalFile = new ProjectFile(tempDir, "src/NormalFile.java");
-        Files.createDirectories(fileWithSpace.absPath().getParent());
-        Files.writeString(fileWithSpace.absPath(), "class MyClass {}");
-        Files.writeString(normalFile.absPath(), "class NormalFile {}");
-
-        String pathList = fileWithSpace + "\n" + normalFile + "\n";
-
-        var fragment = new ContextFragments.StringFragment(
-                mockContextManager, pathList, "Path list with spaces", SyntaxConstants.SYNTAX_STYLE_NONE);
-
-        assertEquals(Set.of(fileWithSpace, normalFile), fragment.files().join());
-    }
-
-    @Test
     void testPasteTextFragmentSerializationPreservesFiles() throws Exception {
         var file1 = new ProjectFile(tempDir, "src/SerializedFile1.java");
         var file2 = new ProjectFile(tempDir, "src/SerializedFile2.java");
@@ -2164,25 +2041,6 @@ public class ContextSerializationTest {
                 .orElseThrow();
 
         assertEquals(Set.of(file1, file2), loadedFragment.files().join());
-    }
-
-    @Test
-    void testPasteTextFragmentExtractsFilesOnFutureTimeout() throws Exception {
-        var file = new ProjectFile(tempDir, "src/TimeoutTest.java");
-        Files.createDirectories(file.absPath().getParent());
-        Files.writeString(file.absPath(), "class TimeoutTest {}");
-
-        var failingDescFuture = new CompletableFuture<String>();
-        failingDescFuture.completeExceptionally(new RuntimeException("Simulated LLM timeout"));
-
-        var failingSyntaxFuture = new CompletableFuture<String>();
-        failingSyntaxFuture.completeExceptionally(new RuntimeException("Simulated LLM failure"));
-
-        var fragment = new ContextFragments.PasteTextFragment(
-                mockContextManager, file.toString(), failingDescFuture, failingSyntaxFuture);
-
-        assertEquals(Set.of(file), fragment.files().join());
-        assertEquals("Paste of text content", fragment.description().join());
     }
 
     @Test

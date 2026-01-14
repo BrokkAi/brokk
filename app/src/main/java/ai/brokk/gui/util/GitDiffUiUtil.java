@@ -7,6 +7,7 @@ import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.git.IGitRepo;
@@ -235,7 +236,7 @@ public interface GitDiffUiUtil {
             ICommitInfo oldestCommitInSelection) {
         contextManager.submitContextTask(() -> {
             try {
-                var repo = contextManager.getProject().getRepo();
+                var repo = (GitRepo) contextManager.getProject().getRepo();
                 var newestCommitId = newestCommitInSelection.id();
                 var oldestCommitId = oldestCommitInSelection.id();
 
@@ -249,18 +250,18 @@ public interface GitDiffUiUtil {
 
                 List<ProjectFile> changedFiles;
                 if (newestCommitId.equals(oldestCommitId)) { // Single commit selected
-                    changedFiles = newestCommitInSelection.changedFiles();
+                    changedFiles = CommitInfo.changedFiles(repo, newestCommitId);
                 } else {
                     // Files changed between oldest selected commit's parent and newest selected commit
-                    changedFiles = repo.listFilesChangedBetweenCommits(newestCommitId, oldestCommitId + "^").stream()
+                    changedFiles = repo.listFilesChangedBetweenCommits(oldestCommitId + "^", newestCommitId).stream()
                             .map(IGitRepo.ModifiedFile::file)
                             .collect(Collectors.toList());
                 }
 
                 var fileNamesSummary = formatFileList(changedFiles);
 
-                var newestShort = ((GitRepo) repo).shortHash(newestCommitId);
-                var oldestShort = ((GitRepo) repo).shortHash(oldestCommitId);
+                var newestShort = repo.shortHash(newestCommitId);
+                var oldestShort = repo.shortHash(oldestCommitId);
                 var hashTxt = newestCommitId.equals(oldestCommitId) ? newestShort : oldestShort + ".." + newestShort;
 
                 var description = "Diff of %s [%s]".formatted(fileNamesSummary, hashTxt);
@@ -453,11 +454,11 @@ public interface GitDiffUiUtil {
 
     /** Open a BrokkDiffPanel showing all file changes in the specified commit. */
     static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo) {
-        var repo = cm.getProject().getRepo();
+        var repo = (GitRepo) cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
-                var files = commitInfo.changedFiles();
+                var files = CommitInfo.changedFiles(repo, commitInfo.id());
                 if (files.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit.");
                     return;
@@ -495,11 +496,11 @@ public interface GitDiffUiUtil {
 
     /** Open a BrokkDiffPanel showing all file changes in the specified commit with a specific file pre-selected. */
     static void openCommitDiffPanel(ContextManager cm, Chrome chrome, ICommitInfo commitInfo, String targetFileName) {
-        var repo = cm.getProject().getRepo();
+        var repo = (GitRepo) cm.getProject().getRepo();
 
         cm.submitBackgroundTask("Opening diff for commit " + ((GitRepo) repo).shortHash(commitInfo.id()), () -> {
             try {
-                var files = commitInfo.changedFiles();
+                var files = CommitInfo.changedFiles(repo, commitInfo.id());
                 if (files.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit.");
                     return;
@@ -554,14 +555,14 @@ public interface GitDiffUiUtil {
 
     static void compareCommitToLocal(ContextManager contextManager, Chrome chrome, ICommitInfo commitInfo) {
         contextManager.submitBackgroundTask("Comparing commit to local", () -> {
+            var repo = (GitRepo) contextManager.getProject().getRepo();
             try {
-                var changedFiles = commitInfo.changedFiles();
+                var changedFiles = CommitInfo.changedFiles(repo, commitInfo.id());
                 if (changedFiles.isEmpty()) {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No files changed in this commit");
                     return;
                 }
 
-                var repo = contextManager.getProject().getRepo();
                 var shortId = ((GitRepo) repo).shortHash(commitInfo.id());
                 var leftSources = new ArrayList<BufferSource>();
                 var rightSources = new ArrayList<BufferSource>();
@@ -603,7 +604,7 @@ public interface GitDiffUiUtil {
                     return;
                 }
                 List<ProjectFile> changedFiles =
-                        repo.listFilesChangedBetweenBranches(compareBranchName, baseBranchName).stream()
+                        repo.listFilesChangedBetweenBranches(baseBranchName, compareBranchName).stream()
                                 .map(IGitRepo.ModifiedFile::file)
                                 .collect(Collectors.toList());
                 var description = "Diff of %s vs %s".formatted(compareBranchName, baseBranchName);
@@ -731,7 +732,7 @@ public interface GitDiffUiUtil {
                 }
 
                 List<ProjectFile> changedFiles =
-                        repo.listFilesChangedBetweenCommits(prHeadSha, effectiveBaseSha).stream()
+                        repo.listFilesChangedBetweenCommits(effectiveBaseSha, prHeadSha).stream()
                                 .map(IGitRepo.ModifiedFile::file)
                                 .collect(Collectors.toList());
                 String fileNamesSummary = formatFileList(changedFiles);
@@ -802,7 +803,7 @@ public interface GitDiffUiUtil {
                             prBaseFetchRef);
                 }
 
-                var modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+                var modifiedFiles = repo.listFilesChangedBetweenBranches(prBaseSha, prHeadSha);
 
                 if (modifiedFiles.isEmpty()) {
                     chrome.systemNotify(

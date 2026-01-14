@@ -2,7 +2,6 @@ package ai.brokk;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.IWatchService.EventBatch;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.DisabledAnalyzer;
 import ai.brokk.analyzer.IAnalyzer;
@@ -11,6 +10,8 @@ import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.project.IProject;
 import ai.brokk.util.LoggingExecutorService;
+import ai.brokk.watchservice.AbstractWatchService;
+import ai.brokk.watchservice.AbstractWatchService.EventBatch;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,24 +30,20 @@ import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper {
+public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzerWrapper {
     private final Logger logger = LogManager.getLogger(AnalyzerWrapper.class);
 
     private final AnalyzerListener listener; // can be null if no one is listening
 
     private final Path root;
 
-    @Nullable
-    private final Path gitRepoRoot;
-
     private final IProject project;
-    private final IWatchService watchService;
+    private final AbstractWatchService watchService;
 
     private volatile @Nullable IAnalyzer currentAnalyzer = null;
 
     // Flags related to external rebuild requests and readiness
     private volatile boolean externalRebuildRequested = false;
-    private volatile boolean wasReady = false;
     private final AtomicLong idlePollTriggeredRebuilds = new AtomicLong(0);
 
     // Dedicated single-threaded executor for analyzer refresh tasks
@@ -64,10 +61,10 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * @param analyzerListener Listener for analyzer lifecycle events (can be null for headless mode)
      * @param watchService The watch service to use (can be null for headless mode or testing)
      */
-    public AnalyzerWrapper(IProject project, AnalyzerListener analyzerListener, @NotNull IWatchService watchService) {
+    public AnalyzerWrapper(
+            IProject project, AnalyzerListener analyzerListener, @NotNull AbstractWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
-        this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.listener = analyzerListener;
 
         // Use provided watch service or create stub for headless mode
@@ -152,35 +149,14 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             }
         }
 
-        // AnalyzerWrapper now focuses only on analyzer-relevant changes.
-        // Git metadata and tracked file change notifications are handled by ContextManager's listener.
-
         logger.trace(
-                "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}, gitMetaDir={}",
-                batch.files.size(),
-                batch.isOverflowed,
-                batch.untrackedGitignoreChanged);
-
-        // 1) Handle untracked gitignore file changes by invalidating project cache
-        if (batch.untrackedGitignoreChanged) {
-            logger.debug("Untracked gitignore files changed, invalidating project file cache");
-            project.invalidateAllFiles();
-        }
-
-        // 2) Possibly refresh Git
-        if (gitRepoRoot != null) {
-            Path relativeGitMetaDir = root.relativize(gitRepoRoot.resolve(".git"));
-            boolean gitMetaTouched =
-                    batch.files.stream().anyMatch(pf -> pf.getRelPath().startsWith(relativeGitMetaDir));
-            if (batch.isOverflowed || gitMetaTouched) {
-                logger.debug("Changes in git metadata directory ({}) detected", gitRepoRoot.resolve(".git"));
-                listener.onRepoChange();
-                listener.onTrackedFileChange(); // Tracked files can also change as a result, e.g. git add <files>
-            }
-        }
+                "onFilesChanged fired: files={}, overflowed={}, untrackedGitignoreChanged={}",
+                batch.getFiles().size(),
+                batch.isOverflowed(),
+                batch.isUntrackedGitignoreChanged());
 
         // 1) Handle overflow - trigger full analyzer rebuild
-        if (batch.isOverflowed) {
+        if (batch.isOverflowed()) {
             logger.debug("Event batch overflowed, triggering full analyzer rebuild");
             refresh(prev -> {
                 long startTime = System.currentTimeMillis();
@@ -192,12 +168,12 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
             return; // No need to process individual files after full rebuild
         }
 
-        // 2) Filter for analyzer-relevant files
+        // 2) Filter for analyzer-relevant files.
         var trackedFiles = project.getRepo().getTrackedFiles();
         var projectLanguages = requireNonNull(currentAnalyzer).languages();
 
         // Only consider tracked files that match our analyzer's language extensions
-        var relevantFiles = batch.files.stream()
+        var relevantFiles = batch.getFiles().stream()
                 .filter(trackedFiles::contains) // Must be tracked by git
                 .filter(pf -> projectLanguages.stream()
                         .anyMatch(L -> L.getExtensions().contains(pf.extension())))
@@ -217,7 +193,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         } else {
             logger.trace(
                     "No analyzer-relevant files changed (batch contained {} files); skipping analyzer rebuild",
-                    batch.files.size());
+                    batch.getFiles().size());
         }
     }
 
@@ -273,6 +249,9 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         logger.debug("Loading/creating analyzer for languages: {}", langHandle);
         if (langHandle == Languages.NONE) {
             logger.info("No languages configured, using disabled analyzer for: {}", project.getRoot());
+            logger.debug("Analyzer became ready (Disabled), notifying listeners");
+            listener.onAnalyzerReady();
+            listener.afterEachBuild(false);
             return new DisabledAnalyzer(project);
         }
 
@@ -323,25 +302,11 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
         }
 
         // Persist analyzer snapshots by language (best-effort)
-        try {
-            persistAnalyzerState(analyzer);
-        } catch (Throwable t) {
-            logger.debug("Ignoring exception during analyzer state persistence: {}", t.toString());
-        }
+        persistAnalyzerState(analyzer);
 
-        /* ── 4.  Notify listeners ───────────────────────────────────────────────────── */
-        logger.debug("AnalyzerWrapper has listener, submitting workspace refresh task");
-
-        // always refresh workspace in case there was a race and we shut down
-        // after saving a new analyzer but before refreshing the workspace
-        if (wasReady) {
-            logger.debug("No analyzer ready transition detected");
-        } else {
-            logger.debug("Analyzer became ready during loadOrCreateAnalyzer, notifying listeners");
-            listener.onAnalyzerReady();
-        }
+        logger.debug("Analyzer became ready, notifying listeners");
+        listener.onAnalyzerReady();
         listener.afterEachBuild(false);
-        wasReady = true;
 
         /* ── 5.  If we used stale caches, schedule a background rebuild ─────────────── */
         if (needsRebuild && !externalRebuildRequested) {
@@ -429,41 +394,24 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     /**
      * Refreshes the analyzer by scheduling a job on the analyzerExecutor. The function controls whether a new analyzer
      * is created, or an optimistic or pessimistic incremental rebuild. The function receives the current analyzer
-     * (possibly {@code null}) as its argument and must return the new analyzer to become current.
+     * (non-null) as its argument and must return the new analyzer to become current.
      *
      * <p>Returns the Future representing the scheduled task.
-     *
-     * <p>Synchronized to simplify reasoning about pause/resume; otherwise is inherently threadsafe.
      */
-    private synchronized CompletableFuture<IAnalyzer> refresh(Function<IAnalyzer, IAnalyzer> fn) {
+    private CompletableFuture<IAnalyzer> refresh(Function<IAnalyzer, IAnalyzer> fn) {
         logger.trace("Scheduling analyzer refresh task");
         return analyzerExecutor.submit(() -> {
             requireNonNull(currentAnalyzer);
             listener.beforeEachBuild();
 
-            // The function is supplied the current analyzer (may be null).
+            // The function is supplied the current analyzer.
             currentAnalyzer = fn.apply(currentAnalyzer);
-
             // Persist analyzer snapshots by language (best-effort)
-            try {
-                persistAnalyzerState(currentAnalyzer);
-            } catch (Throwable t) {
-                logger.debug("Ignoring exception during analyzer state persistence: {}", t.toString());
-            }
-
+            persistAnalyzerState(currentAnalyzer);
             logger.debug("Analyzer refresh completed.");
 
-            boolean isNowReady = (currentAnalyzer != null);
-            logger.debug(
-                    "Checking analyzer ready transition after refresh: wasReady={}, isNowReady={}",
-                    wasReady,
-                    isNowReady);
-            if (!wasReady && isNowReady) {
-                logger.debug("Analyzer became ready, notifying listeners");
-                listener.onAnalyzerReady();
-            }
             listener.afterEachBuild(externalRebuildRequested);
-            wasReady = isNowReady;
+
             return currentAnalyzer;
         });
     }
@@ -514,13 +462,13 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
 
     /** Pause the file watching service. */
     @Override
-    public synchronized void pause() {
+    public void pause() {
         watchService.pause();
     }
 
     /** Resume the file watching service. */
     @Override
-    public synchronized void resume() {
+    public void resume() {
         watchService.resume();
     }
 
@@ -530,7 +478,7 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
     }
 
     @Override
-    public IWatchService getWatchService() {
+    public AbstractWatchService getWatchService() {
         return watchService;
     }
 
@@ -550,7 +498,6 @@ public class AnalyzerWrapper implements IWatchService.Listener, IAnalyzerWrapper
      * Persist per-language analyzer snapshots if the sub-analyzers are TreeSitter-backed.
      */
     private void persistAnalyzerState(IAnalyzer analyzer) {
-
         var langs = analyzer.languages();
         if (langs.isEmpty()) {
             logger.trace(

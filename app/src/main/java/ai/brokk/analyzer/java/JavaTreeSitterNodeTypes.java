@@ -32,5 +32,8 @@ public final class JavaTreeSitterNodeTypes {
     // Import declarations
     public static final String IMPORT_DECLARATION = "import.declaration";
 
+    // Test detection
+    public static final String TEST_MARKER = "test_marker";
+
     private JavaTreeSitterNodeTypes() {}
 }

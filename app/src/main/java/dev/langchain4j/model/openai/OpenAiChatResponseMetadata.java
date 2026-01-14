@@ -1,12 +1,13 @@
 package dev.langchain4j.model.openai;
 
+import ai.brokk.AbstractService.ProcessingTier;
 import dev.langchain4j.model.chat.response.ChatResponseMetadata;
 import java.util.Objects;
 
 public class OpenAiChatResponseMetadata extends ChatResponseMetadata {
 
     private final Long created;
-    private final String serviceTier;
+    private final ProcessingTier serviceTier;
     private final String systemFingerprint;
 
     private OpenAiChatResponseMetadata(Builder builder) {
@@ -25,7 +26,7 @@ public class OpenAiChatResponseMetadata extends ChatResponseMetadata {
         return created;
     }
 
-    public String serviceTier() {
+    public ProcessingTier serviceTier() {
         return serviceTier;
     }
 
@@ -76,7 +77,7 @@ public class OpenAiChatResponseMetadata extends ChatResponseMetadata {
     public static class Builder extends ChatResponseMetadata.Builder<Builder> {
 
         private Long created;
-        private String serviceTier;
+        private ProcessingTier serviceTier;
         private String systemFingerprint;
 
         public Builder created(Long created) {
@@ -84,7 +85,7 @@ public class OpenAiChatResponseMetadata extends ChatResponseMetadata {
             return this;
         }
 
-        public Builder serviceTier(String serviceTier) {
+        public Builder serviceTier(ProcessingTier serviceTier) {
             this.serviceTier = serviceTier;
             return this;
         }

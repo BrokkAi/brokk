@@ -1761,8 +1761,7 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
     @Override
     public void applyBlame(
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> leftMap,
-            Map<Integer, ai.brokk.difftool.ui.BlameService.BlameInfo> rightMap) {
+            Map<Integer, BlameService.BlameInfo> leftMap, Map<Integer, BlameService.BlameInfo> rightMap) {
         var right = getFilePanel(PanelSide.RIGHT);
         if (right != null) {
             right.getGutterComponent().setBlameLines(rightMap);
@@ -1791,14 +1790,14 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
 
     @Override
     @Nullable
-    public java.nio.file.Path getTargetPathForBlame() {
+    public Path getTargetPathForBlame() {
         var right = getFilePanel(PanelSide.RIGHT);
         if (right != null) {
             var bd = right.getBufferDocument();
             if (bd != null) {
                 String name = bd.getName();
                 if (!name.isBlank()) {
-                    var targetPath = java.nio.file.Paths.get(name);
+                    var targetPath = Paths.get(name);
                     if (!targetPath.isAbsolute()) {
                         return targetPath.toAbsolutePath().normalize();
                     }
@@ -1823,5 +1822,52 @@ public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowC
             applyDerivedFont(rightPanel.getEditor(), size);
             applyDerivedFontToGutter(rightPanel.getGutterComponent(), size);
         }
+    }
+
+    /**
+     * Scrolls the right panel (new content side) to center the specified line.
+     *
+     * @param lineNumber 1-based line number to scroll to
+     */
+    public void scrollToLine(int lineNumber) {
+        scrollToLine(lineNumber, PanelSide.RIGHT);
+    }
+
+    /**
+     * Scrolls the specified panel side to center the specified line.
+     *
+     * @param lineNumber 1-based line number to scroll to
+     * @param side the panel side to scroll
+     */
+    public void scrollToLine(int lineNumber, PanelSide side) {
+        // Explicit manual scroll cancels any pending initial auto-scroll
+        initialAutoScrollDone = true;
+
+        var panel = getFilePanel(side);
+        if (panel == null) return;
+
+        // Wrap in invokeLater to ensure components are laid out and sized
+        SwingUtilities.invokeLater(() -> {
+            var editor = panel.getEditor();
+            try {
+                // Convert 1-based to 0-based line number
+                int offset = editor.getLineStartOffset(Math.max(0, lineNumber - 1));
+                editor.setCaretPosition(offset);
+
+                // Center the line in the viewport
+                var rect = editor.modelToView2D(offset);
+                if (rect != null) {
+                    var viewport = panel.getScrollPane().getViewport();
+                    int viewHeight = viewport.getHeight();
+
+                    // If viewHeight is 0, we can't center properly, so we just scroll to top of line
+                    int y = (viewHeight > 0) ? (int) rect.getY() - viewHeight / 2 : (int) rect.getY();
+
+                    viewport.setViewPosition(new Point(0, Math.max(0, y)));
+                }
+            } catch (BadLocationException e) {
+                logger.warn("Could not scroll to line {} on side {}", lineNumber, side, e);
+            }
+        });
     }
 }

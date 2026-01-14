@@ -1107,7 +1107,12 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(
-                                        "Unavailable", 150_000, "0.00", TokenUsageBar.WarningLevel.NONE, 100),
+                                        "Unavailable",
+                                        150_000,
+                                        "0.00",
+                                        config.tier(),
+                                        TokenUsageBar.WarningLevel.NONE,
+                                        100),
                                 150_000,
                                 0,
                                 TokenUsageBar.WarningLevel.NONE,
@@ -1162,8 +1167,8 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
                         warningLevel = TokenUsageBar.WarningLevel.NONE;
                     }
 
-                    String tooltipHtml =
-                            buildTokenUsageTooltip(modelName, modelMaxTokens, costStr, warningLevel, successRate);
+                    String tooltipHtml = buildTokenUsageTooltip(
+                            modelName, modelMaxTokens, costStr, config.tier(), warningLevel, successRate);
                     return new TokenUsageBarComputation(
                             tooltipHtml, barScaleMax, approxTokens, warningLevel, config, successRate, isTested);
                 })
@@ -1229,22 +1234,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
      * Calculate cost estimate mirroring ContextActions for only the model currently selected in InstructionsPanel.
      */
     private String calculateCostEstimate(Service.ModelConfig config, int inputTokens, AbstractService service) {
-        var pricing = service.getModelPricing(config.name());
-        if (pricing.bands().isEmpty()) {
-            return "";
-        }
-
-        long estimatedOutputTokens = Math.min(4000, inputTokens / 2);
-        if (service.isReasoning(config)) {
-            estimatedOutputTokens += 1000;
-        }
-        double estimatedCost = pricing.getCostFor(inputTokens, 0, estimatedOutputTokens);
-
-        if (service.isFreeTier(config.name())) {
-            return "$0.00 (Free Tier)";
-        } else {
-            return String.format("$%.2f", estimatedCost);
-        }
+        return service.estimateCost(config, inputTokens).formatted();
     }
 
     private static String buildBrokkRankingOnlyTooltip(int successRate) {
@@ -1271,6 +1261,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             String modelName,
             int maxTokens,
             String costPerRequest,
+            Service.ProcessingTier tier,
             TokenUsageBar.WarningLevel warningLevel,
             int successRate) {
         StringBuilder body = new StringBuilder();
@@ -1294,6 +1285,14 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             body.append("<div>Estimated cost/request: ")
                     .append(htmlEscape(costPerRequest))
                     .append("</div>");
+        }
+        var multiplier = tier.getMultiplierLabel();
+        if (!multiplier.isEmpty()) {
+            body.append("<div>Service tier: ")
+                    .append(tier.toString())
+                    .append(" (")
+                    .append(multiplier)
+                    .append(")</div>");
         }
 
         body.append("<hr style='border:0;border-top:1px solid #ccc;margin:8px 0;'/>");
@@ -3216,7 +3215,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
 
         // If any tasks were removed, update the task list and refresh UI
         if (filtered.size() < originalTasks.size()) {
-            cm.setTaskList(new TaskList.TaskListData(filtered));
+            cm.setTaskListAsync(new TaskList.TaskListData(filtered));
         }
     }
 

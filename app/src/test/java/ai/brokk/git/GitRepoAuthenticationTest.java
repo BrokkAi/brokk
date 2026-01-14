@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.transport.URIish;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,8 +49,7 @@ public class GitRepoAuthenticationTest {
             localGit.tag().setName("v1.0.0").setMessage("Version 1.0.0").call();
 
             // Push to remote using URI string
-            var remoteUri =
-                    new org.eclipse.jgit.transport.URIish(remoteDir.toUri().toString());
+            var remoteUri = new URIish(remoteDir.toUri().toString());
             localGit.remoteAdd().setName("origin").setUri(remoteUri).call();
             localGit.push().setRemote("origin").add("master").call();
             localGit.push().setRemote("origin").setPushTags().call();

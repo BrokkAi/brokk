@@ -53,6 +53,13 @@ public interface IAnalyzer {
     List<CodeUnit> getTopLevelDeclarations(ProjectFile file);
 
     /**
+     * @return true if the given file contains test cases according to this analyzer's logic.
+     */
+    default boolean containsTests(ProjectFile file) {
+        return false;
+    }
+
+    /**
      * Returns the set of languages this analyzer understands.
      */
     Set<Language> languages();
@@ -161,10 +168,32 @@ public interface IAnalyzer {
     List<String> importStatementsOf(ProjectFile file);
 
     /**
+     * Retrieves the resolved import CodeUnits for a given file.
+     *
+     * @param file the project file
+     * @return an unmodifiable set of resolved CodeUnits from import statements
+     */
+    default Set<CodeUnit> importedCodeUnitsOf(ProjectFile file) {
+        return Set.of();
+    }
+
+    /**
+     * Returns the set of files that import the given file.
+     */
+    default Set<ProjectFile> referencingFilesOf(ProjectFile file) {
+        return Set.of();
+    }
+
+    /**
      * @return the nearest enclosing code unit of the range within the file. Returns null if none exists or range is
      * invalid.
      */
     Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, Range range);
+
+    /**
+     * @return the nearest enclosing code unit of the line range within the file. Returns empty if none exists.
+     */
+    Optional<CodeUnit> enclosingCodeUnit(ProjectFile file, int startLine, int endLine);
 
     record Range(int startByte, int endByte, int startLine, int endLine, int commentStartByte) {
         public boolean isEmpty() {
@@ -181,6 +210,14 @@ public interface IAnalyzer {
      * Implementations should return only the immediate ancestors.
      */
     List<CodeUnit> getDirectAncestors(CodeUnit cu);
+
+    /**
+     * Returns the direct subtypes/descendants (non-transitive) for the given CodeUnit.
+     * Implementations should return only the immediate descendants.
+     */
+    default Set<CodeUnit> getDirectDescendants(CodeUnit cu) {
+        return Set.of();
+    }
 
     // Things most implementations won't have to override
 
@@ -394,6 +431,52 @@ public interface IAnalyzer {
     }
 
     /**
+     * Returns the transitive set of subtypes/descendants for the given CodeUnit.
+     * This is computed via a fixed-point iterative traversal using getDirectDescendants:
+     * - Direct descendants are listed first, followed by their descendants in discovery order (BFS).
+     * - Duplicates are removed by fqName.
+     * - Cycles are handled gracefully via a visited set.
+     * <p>
+     * Implementations should override {@link #getDirectDescendants(CodeUnit)} to provide language-specific direct
+     * descendant resolution. This method composes those results into a transitive closure.
+     */
+    default List<CodeUnit> getDescendants(CodeUnit cu) {
+        // Seed with direct descendants
+        Set<CodeUnit> direct = getDirectDescendants(cu);
+        if (direct.isEmpty()) {
+            return List.of();
+        }
+
+        // Fixed-point traversal: BFS over direct descendants
+        var result = new ArrayList<CodeUnit>(direct.size());
+        var visited = new LinkedHashSet<String>(Math.max(16, direct.size() * 2));
+        var queue = new ArrayDeque<CodeUnit>(direct.size());
+
+        for (var d : direct) {
+            if (visited.add(d.fqName())) {
+                result.add(d);
+                queue.add(d);
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            var current = queue.removeFirst();
+            Set<CodeUnit> children = getDirectDescendants(current);
+            if (children.isEmpty()) continue;
+
+            for (var child : children) {
+                String key = child.fqName();
+                if (visited.add(key)) {
+                    result.add(child);
+                    queue.addLast(child);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
      * Returns an analyzer that targets the given language if one is available. For single-analyzers, it will be the
      * analyzer instance itself if there is a match. For multi-analyzers, it will be a matching delegate, if any.
      *
@@ -407,5 +490,38 @@ public interface IAnalyzer {
         } else {
             return Optional.empty();
         }
+    }
+
+    default String buildRelatedIdentifiers(ProjectFile file) {
+        return buildRelatedIdentifiers(file, CodeUnitType.ALL);
+    }
+
+    default String buildRelatedIdentifiers(ProjectFile file, Set<CodeUnitType> types) {
+        return buildRelatedIdentifiers(getTopLevelDeclarations(file), types, 0);
+    }
+
+    default String buildRelatedIdentifiers(List<CodeUnit> units, Set<CodeUnitType> types, int indent) {
+        var prefix = "  ".repeat(Math.max(0, indent));
+        var sb = new StringBuilder();
+        for (var cu : units) {
+            // Skip anonymous/lambda artifacts
+            if (cu.isAnonymous()) {
+                continue;
+            }
+
+            // Use FQN for top-level entries, simple identifier for nested entries
+            String name = indent == 0 ? cu.fqName() : cu.identifier();
+            sb.append(prefix).append("- ").append(name);
+
+            var children = getDirectChildren(cu).stream()
+                    .filter(child -> types.contains(child.kind()))
+                    .toList();
+            if (!children.isEmpty()) {
+                sb.append("\n");
+                sb.append(this.buildRelatedIdentifiers(children, types, indent + 1));
+            }
+            sb.append("\n");
+        }
+        return sb.toString().stripTrailing();
     }
 }

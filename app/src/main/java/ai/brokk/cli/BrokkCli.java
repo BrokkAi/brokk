@@ -30,6 +30,7 @@ import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.Streams;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.io.IOException;
@@ -43,6 +44,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
@@ -975,7 +977,7 @@ public final class BrokkCli implements Callable<Integer> {
                 .toList();
         try {
             return AbstractProject.objectMapper.writeValueAsString(modelInfos);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+        } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to serialize models list", e);
         }
     }
@@ -1065,7 +1067,7 @@ public final class BrokkCli implements Callable<Integer> {
             var propsFile = getTaskPropertiesFile(taskFile);
             if (propsFile != null && Files.exists(propsFile)) {
                 try {
-                    var props = new java.util.Properties();
+                    var props = new Properties();
                     try (var in = Files.newBufferedReader(propsFile)) {
                         props.load(in);
                     }
@@ -1141,7 +1143,7 @@ public final class BrokkCli implements Callable<Integer> {
         }
 
         // Load existing properties
-        var props = new java.util.Properties();
+        var props = new Properties();
         if (Files.exists(propsFile)) {
             try (var in = Files.newBufferedReader(propsFile)) {
                 props.load(in);

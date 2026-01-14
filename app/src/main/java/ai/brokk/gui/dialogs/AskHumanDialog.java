@@ -1,12 +1,10 @@
 package ai.brokk.gui.dialogs;
 
-import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.BorderUtils;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
-import dev.langchain4j.data.message.AiMessage;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -52,10 +50,8 @@ public final class AskHumanDialog {
 
             // Question (Markdown)
             var questionPanel = new MarkdownOutputPanel(true);
-            questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
-            var fragment = new ContextFragments.TaskFragment(
-                    chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
-            questionPanel.setText(fragment);
+            questionPanel.setContextForLookups(chrome.getContextManager(), chrome);
+            questionPanel.setStaticDocument(question);
             questionPanel.applyTheme(chrome.getTheme());
 
             var questionScroll = new JScrollPane(questionPanel);
@@ -194,10 +190,8 @@ public final class AskHumanDialog {
 
             // Question (Markdown)
             var questionPanel = new MarkdownOutputPanel(true);
-            questionPanel.withContextForLookups(chrome.getContextManager(), chrome);
-            var fragment = new ContextFragments.TaskFragment(
-                    chrome.getContextManager(), List.of(new AiMessage(question)), sessionName);
-            questionPanel.setText(fragment);
+            questionPanel.setContextForLookups(chrome.getContextManager(), chrome);
+            questionPanel.setStaticDocument(question);
             questionPanel.applyTheme(chrome.getTheme());
 
             var questionScroll = new JScrollPane(questionPanel);
@@ -290,6 +284,61 @@ public final class AskHumanDialog {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
             return null;
+        }
+        return resultRef.get();
+    }
+
+    /**
+     * Shows a simple text editing dialog and returns the result.
+     * Blocks until the user clicks OK or Cancel.
+     */
+    @Blocking
+    public static @Nullable String showEditDialog(Chrome chrome, String title, String initialText) {
+        assert !SwingUtilities.isEventDispatchThread();
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<String> resultRef = new AtomicReference<>(null);
+
+        SwingUtil.runOnEdt(() -> {
+            var textArea = new JTextArea(initialText, 10, 50);
+            textArea.setLineWrap(true);
+            textArea.setWrapStyleWord(true);
+            var scroll = new JScrollPane(textArea);
+
+            var okButton = new MaterialButton("OK");
+            SwingUtil.applyPrimaryButtonStyle(okButton);
+            var cancelButton = new MaterialButton("Cancel");
+
+            var optionPane = new JOptionPane(
+                    scroll,
+                    JOptionPane.PLAIN_MESSAGE,
+                    JOptionPane.OK_CANCEL_OPTION,
+                    null,
+                    new Object[] {okButton, cancelButton},
+                    okButton);
+
+            var dialog = optionPane.createDialog(null, title);
+            dialog.setModal(false);
+            dialog.setResizable(true);
+
+            okButton.addActionListener(e -> {
+                resultRef.set(textArea.getText().trim());
+                latch.countDown();
+                dialog.dispose();
+            });
+
+            cancelButton.addActionListener(e -> {
+                latch.countDown();
+                dialog.dispose();
+            });
+
+            dialog.setVisible(true);
+        });
+
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
         return resultRef.get();
     }

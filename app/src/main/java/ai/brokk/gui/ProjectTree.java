@@ -3,7 +3,6 @@ package ai.brokk.gui;
 import ai.brokk.AnalyzerWrapper;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.TrackedFileChangeListener;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
@@ -14,6 +13,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.util.ExecutorServiceUtil;
 import ai.brokk.util.FileManagerUtil;
 import ai.brokk.util.PathNormalizer;
+import ai.brokk.watchservice.AbstractWatchService;
 import java.awt.*;
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -55,7 +55,7 @@ import org.jetbrains.annotations.Nullable;
  * A custom tree component for displaying project files with lazy loading, git tracking status, and interactive
  * features.
  */
-public class ProjectTree extends JTree implements TrackedFileChangeListener {
+public class ProjectTree extends JTree implements AbstractWatchService.Listener {
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
     private static final ExecutorService IO_EXECUTOR = ExecutorServiceUtil.newFixedThreadExecutor(4, "ProjectTree-IO-");
@@ -83,7 +83,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
         this.project = project;
         this.contextManager = contextManager;
         this.chrome = chrome;
-        this.contextManager.addTrackedFileChangeListener(this);
+        this.contextManager.addFileChangeListener(this);
 
         initializeTree();
         setupTreeBehavior(); // Includes mouse listeners and keyboard bindings now
@@ -92,7 +92,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
     @Override
     public void removeNotify() {
         super.removeNotify();
-        this.contextManager.removeTrackedFileChangeListener(this);
+        this.contextManager.removeFileChangeListener(this);
     }
 
     private void initializeTree() {
@@ -531,7 +531,8 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             contextMenu.addSeparator();
             // Add "Run Tests in Shell" item
             JMenuItem runTestsItem = new JMenuItem("Run Tests");
-            boolean hasTestFiles = targetFiles.stream().allMatch(ContextManager::isTestFile);
+            var currentAnalyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
+            boolean hasTestFiles = targetFiles.stream().allMatch(f -> ContextManager.isTestFile(f, currentAnalyzer));
             runTestsItem.setEnabled(hasTestFiles);
             if (!hasTestFiles) {
                 runTestsItem.setToolTipText("Non-test files in selection");
@@ -539,8 +540,9 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
 
             runTestsItem.addActionListener(ev -> {
                 contextManager.submitLlmAction(() -> {
+                    var innerAnalyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
                     var testProjectFiles = targetFiles.stream()
-                            .filter(ContextManager::isTestFile)
+                            .filter(f -> ContextManager.isTestFile(f, innerAnalyzer))
                             .collect(Collectors.toSet());
 
                     if (testProjectFiles.isEmpty()) {
@@ -849,18 +851,26 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             isRestoringExpansion = false;
             if (pendingRefreshDuringRestore) {
                 pendingRefreshDuringRestore = false;
-                onTrackedFilesChanged();
+                scheduleRefresh();
             }
         });
     }
 
     @Override
-    public void onTrackedFilesChanged() {
-        // Queue refresh request during expansion state restoration
+    public void onFilesChanged(AbstractWatchService.EventBatch batch) {
+        scheduleRefresh();
+    }
+
+    /**
+     * Schedules a debounced refresh of the project tree.
+     * Can be called directly when a refresh is needed outside of file watch events.
+     */
+    public void scheduleRefresh() {
         if (isRestoringExpansion) {
             pendingRefreshDuringRestore = true;
             return;
         }
+
         // Debounce rapid calls - only refresh after 100ms of no new calls
         SwingUtilities.invokeLater(() -> {
             if (refreshDebounceTimer != null) {
@@ -1473,7 +1483,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
             @Override
             protected void done() {
                 super.done();
-                onTrackedFilesChanged();
+                scheduleRefresh();
             }
         };
 
@@ -1792,7 +1802,7 @@ public class ProjectTree extends JTree implements TrackedFileChangeListener {
                     try {
                         get(); // Check for exceptions
                         // Trigger tree refresh
-                        onTrackedFilesChanged();
+                        scheduleRefresh();
                     } catch (Exception ignored) {
                         // Already handled by ExceptionAwareSwingWorker.done()
                     }

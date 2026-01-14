@@ -56,6 +56,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.errors.ConfigInvalidException;
 import org.eclipse.jgit.util.SystemReader;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -452,6 +453,7 @@ public final class MainProject extends AbstractProject {
         invalidateAllFiles();
     }
 
+    @Override
     public void setBuildDetails(BuildAgent.BuildDetails details) {
         if (detailsFuture.isDone()) {
             detailsFuture = new CompletableFuture<>();
@@ -785,8 +787,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public boolean isGitHubRepo() {
-        if (!hasGit()) return false; // hasGit from AbstractProject
-        var gitRepo = (GitRepo) getRepo(); // getRepo from AbstractProject
+        if (!(getRepo() instanceof GitRepo gitRepo)) return false;
         String remoteUrl = gitRepo.remote().getUrl("origin");
         if (remoteUrl == null || remoteUrl.isBlank()) return false;
         return remoteUrl.contains("github.com");
@@ -1186,15 +1187,16 @@ public final class MainProject extends AbstractProject {
      * Performs the actual style.md to AGENTS.md migration.
      * Delegates to StyleGuideMigrator for the core migration logic.
      *
-     * @param chrome the Chrome instance for showing notifications
+     * @param io the IConsoleIO instance for showing notifications
      * @return true if migration succeeded, false otherwise
      */
-    public boolean performStyleMdToAgentsMdMigration(Chrome chrome) {
+    @Blocking
+    public boolean performStyleMdToAgentsMdMigration(IConsoleIO io) {
         try {
             var gitTopLevel = getMasterRootPathForConfig();
-            var legacyStyle = new ai.brokk.analyzer.ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
-            var agentsFile = new ai.brokk.analyzer.ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
-            var gitRepo = hasGit() ? (GitRepo) getRepo() : null;
+            var legacyStyle = new ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
+            var agentsFile = new ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
+            var gitRepo = getRepo() instanceof GitRepo g ? g : null;
 
             logger.info(
                     "Starting style.md to AGENTS.md migration for {} via StyleGuideMigrator",
@@ -1205,11 +1207,11 @@ public final class MainProject extends AbstractProject {
             if (result.performed()) {
                 logger.info("Migration successful: {}", result.message());
                 setMigrationDeclined(false);
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, result.message());
+                io.showNotification(IConsoleIO.NotificationRole.INFO, result.message());
                 return true;
             } else {
                 logger.info("Migration not performed: {}", result.message());
-                chrome.showNotification(IConsoleIO.NotificationRole.INFO, "Migration skipped: " + result.message());
+                io.showNotification(IConsoleIO.NotificationRole.INFO, "Migration skipped: " + result.message());
                 return false;
             }
         } catch (Exception e) {
@@ -1218,7 +1220,7 @@ public final class MainProject extends AbstractProject {
                     getRoot().getFileName(),
                     e.getMessage(),
                     e);
-            chrome.toolError("Migration failed: " + e.getMessage(), "Migration Error");
+            io.toolError("Migration failed: " + e.getMessage(), "Migration Error");
             return false;
         }
     }
