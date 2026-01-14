@@ -10,7 +10,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -22,7 +21,6 @@ import org.jetbrains.annotations.Nullable;
 public final class SimpleHttpServer {
     private static final Logger logger = LogManager.getLogger(SimpleHttpServer.class);
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static final AtomicInteger workerThreadCounter = new AtomicInteger(0);
 
     private final HttpServer httpServer;
     private final String authToken;

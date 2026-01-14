@@ -1,5 +1,7 @@
 package ai.brokk.concurrent;
 
+import static java.util.Objects.requireNonNull;
+
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IConsoleIO;
 import ai.brokk.exception.GlobalExceptionHandler;
@@ -47,7 +49,7 @@ public class UserActionManager {
     }
 
     public boolean isCancelableActionInProgress() {
-        var action = activeAction.get();
+        var action = requireNonNull(activeAction.get());
         return action.thread() != null && action.cancelable();
     }
 
@@ -56,12 +58,12 @@ public class UserActionManager {
     }
 
     public boolean isCurrentThreadCancelableAction() {
-        var action = activeAction.get();
+        var action = requireNonNull(activeAction.get());
         return Thread.currentThread() == action.thread() && action.cancelable();
     }
 
     public void cancelActiveAction() {
-        var action = activeAction.get();
+        var action = requireNonNull(activeAction.get());
         if (action.cancelable() && action.thread() != null && action.thread().isAlive()) {
             logger.debug("Interrupting cancelable user action thread "
                     + action.thread().getName());
@@ -70,7 +72,7 @@ public class UserActionManager {
     }
 
     private void checkForDeadlock() {
-        if (Thread.currentThread() == activeAction.get().thread()) {
+        if (Thread.currentThread() == requireNonNull(activeAction.get()).thread()) {
             throw new IllegalStateException(
                     "Deadlock detected: cannot submit action from within an active action on the same executor");
         }
