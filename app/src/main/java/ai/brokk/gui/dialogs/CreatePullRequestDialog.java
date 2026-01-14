@@ -23,7 +23,6 @@ import ai.brokk.gui.widgets.FileStatusTable;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -390,7 +389,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 }
 
                 // Use GitWorkflowService to get branch diff information
-                var branchDiff = workflowService.diffBetweenBranches(sourceBranch, targetBranch);
+                var branchDiff = workflowService.diffBetweenBranches(targetBranch, sourceBranch);
                 this.mergeBaseCommit = branchDiff.mergeBase(); // Store merge base from service
                 logger.debug(
                         "Calculated merge base between {} and {}: {}",
@@ -944,15 +943,12 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
             return new DiffService.CumulativeChanges(0, 0, 0, List.of(), currentCommits);
         }
 
-        // Convert List<GitRepo.ModifiedFile> to Set for DiffService.summarizeDiff
-        Set<ai.brokk.git.IGitRepo.ModifiedFile> fileSet = new HashSet<>(files);
-
         // Use DiffService to summarize changes between merge base and source branch
-        return DiffService.summarizeDiff(repo, mergeBaseCommit, sourceBranch, fileSet, currentCommits);
+        return DiffService.computeCumulativeDiff(repo, mergeBaseCommit, sourceBranch, currentCommits);
     }
 
     private void updateReviewTabContent(
-            DiffService.CumulativeChanges res, List<Map.Entry<String, DiffService.DiffEntry>> prepared) {
+            DiffService.CumulativeChanges res, List<Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff>> prepared) {
         assert SwingUtilities.isEventDispatchThread() : "updateReviewTabContent must run on EDT";
 
         // Dispose any previous diff panel
@@ -1020,7 +1016,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
     }
 
-    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, DiffService.DiffEntry>> prepared) {
+    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff>> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header
@@ -1028,7 +1024,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         headerPanel.setOpaque(false);
         headerPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
 
-        String targetBranch = (String) targetBranchComboBox.getSelectedItem();
+        String targetBranch = targetBranchComboBox.getSelectedItem();
         String baselineLabelText = targetBranch != null ? "Comparing vs " + targetBranch : "Branch-based changes";
         var baselineLabel = new JLabel(baselineLabelText);
         baselineLabel.setFont(baselineLabel.getFont().deriveFont(Font.BOLD));
@@ -1041,12 +1037,12 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
                 .setMultipleCommitsContext(false)
                 .setRootTitle("PR Changes");
 
-        // Use precomputed list in stable order; do not call Context.DiffEntry::title here
+        // Use precomputed list in stable order
         for (var entry : prepared) {
             String title = entry.getKey();
-            DiffService.DiffEntry de = entry.getValue();
-            var left = new BufferSource.StringSource(de.oldContent(), title + " (base)");
-            var right = new BufferSource.StringSource(de.newContent(), title);
+            var fd = entry.getValue();
+            var left = new BufferSource.StringSource(fd.oldText(), title + " (base)");
+            var right = new BufferSource.StringSource(fd.newText(), title);
             builder.leftSource(left).rightSource(right);
         }
 

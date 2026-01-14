@@ -5,7 +5,9 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.util.ReviewParser.DesignFeedback;
 import ai.brokk.util.ReviewParser.GuidedReview;
+import ai.brokk.util.ReviewParser.KeyChanges;
 import ai.brokk.util.ReviewParser.TacticalFeedback;
+import ai.brokk.util.ReviewParser.TestFeedback;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -90,6 +92,11 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
 
         addItem("Overview", review.overview(), true);
 
+        addHeader("Key Changes");
+        for (KeyChanges change : review.keyChanges()) {
+            addItem(change.title(), change, false);
+        }
+
         addHeader("Design");
         for (DesignFeedback design : review.designNotes()) {
             addItem(design.title(), design, false);
@@ -101,8 +108,8 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         }
 
         addHeader("Tests");
-        for (String test : review.additionalTests()) {
-            addItem(test, test, false);
+        for (TestFeedback test : review.additionalTests()) {
+            addItem(test.title(), test, false);
         }
 
         // Auto-select Overview
@@ -155,6 +162,26 @@ public class ReviewListPanel extends JPanel implements ThemeAware {
         item.setForeground(UIManager.getColor("List.selectionForeground"));
         onItemSelected.accept(data);
         repaint();
+    }
+
+    public boolean isLastItemSelected() {
+        Component[] components = contentPanel.getComponents();
+        int currentIndex = -1;
+
+        for (int i = 0; i < components.length; i++) {
+            if (components[i] instanceof JLabel label && label.isOpaque()) {
+                currentIndex = i;
+                break;
+            }
+        }
+        assert currentIndex >= 0 : "isLastItemSelected called with no item selected";
+
+        for (int i = currentIndex + 1; i < components.length; i++) {
+            if (components[i] instanceof JLabel label && label.getCursor().getType() == Cursor.HAND_CURSOR) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public void selectNext() {

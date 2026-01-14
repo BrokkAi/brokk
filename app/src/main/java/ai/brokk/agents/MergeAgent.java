@@ -677,10 +677,10 @@ public class MergeAgent {
         List<ProjectFile> theirsChanged;
 
         if (baseCommitId != null) {
-            oursChanged = repo.listFilesChangedBetweenCommits(conflict.ourCommitId(), baseCommitId).stream()
+            oursChanged = repo.listFilesChangedBetweenCommits(baseCommitId, conflict.ourCommitId()).stream()
                     .map(ModifiedFile::file)
                     .collect(Collectors.toList());
-            theirsChanged = repo.listFilesChangedBetweenCommits(otherCommitId, baseCommitId).stream()
+            theirsChanged = repo.listFilesChangedBetweenCommits(baseCommitId, otherCommitId).stream()
                     .map(ModifiedFile::file)
                     .collect(Collectors.toList());
         } else {
@@ -708,7 +708,7 @@ public class MergeAgent {
                 return List.of();
             }
             var parent = commit.getParent(0);
-            return repo.listFilesChangedBetweenCommits(commitId, parent.getName()).stream()
+            return repo.listFilesChangedBetweenCommits(parent.getName(), commitId).stream()
                     .map(ModifiedFile::file)
                     .collect(Collectors.toList());
         } catch (IOException e) {

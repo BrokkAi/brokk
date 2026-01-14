@@ -52,7 +52,7 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
 
     private void handleItemSelected(Object item) {
         List<CodeExcerpt> excerpts = itemExcerpts.getOrDefault(item, List.of());
-        detailPanel.showItem(item, excerpts);
+        detailPanel.showItem(item, excerpts, listPanel.isLastItemSelected());
 
         if (!excerpts.isEmpty()) {
             CodeExcerpt first = excerpts.getFirst();
@@ -84,6 +84,10 @@ public class CodeReviewPanel extends JPanel implements ThemeAware {
         this.reviewContext = context;
         itemExcerpts.clear();
         itemExcerpts.put(review.overview(), List.of());
+
+        for (var change : review.keyChanges()) {
+            itemExcerpts.put(change, change.excerpts());
+        }
 
         for (var design : review.designNotes()) {
             itemExcerpts.put(design, design.excerpts());
