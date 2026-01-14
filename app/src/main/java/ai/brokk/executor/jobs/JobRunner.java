@@ -20,6 +20,7 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
@@ -152,28 +153,29 @@ public final class JobRunner {
                         (rawCodeModelName != null && !rawCodeModelName.isBlank()) ? rawCodeModelName.trim() : null;
                 var hasCodeModelOverride = trimmedCodeModelName != null;
 
-                final StreamingChatModel architectPlannerModel =
-                        mode == Mode.ARCHITECT || mode == Mode.LUTZ ? resolveModelOrThrow(spec.plannerModel()) : null;
+                final StreamingChatModel architectPlannerModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
+                        ? resolveModelOrThrow(spec, spec.plannerModel())
+                        : null;
                 final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
                         ? (trimmedCodeModelName != null
-                                ? resolveModelOrThrow(trimmedCodeModelName)
-                                : defaultCodeModel())
+                                ? resolveModelOrThrow(spec, trimmedCodeModelName)
+                                : defaultCodeModel(spec))
                         : null;
                 final StreamingChatModel reviewPlannerModel =
-                        mode == Mode.REVIEW ? resolveModelOrThrow(spec.plannerModel()) : null;
+                        mode == Mode.REVIEW ? resolveModelOrThrow(spec, spec.plannerModel()) : null;
                 // Resolve scan model for REVIEW mode (prefer explicit spec.scanModel() if provided; otherwise project
                 // default)
                 final StreamingChatModel reviewScanModel = mode == Mode.REVIEW
                         ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? resolveModelOrThrow(spec.scanModel().trim())
-                                : cm.getService().getScanModel())
+                                ? resolveModelOrThrow(spec, spec.scanModel().trim())
+                                : defaultScanModel(spec))
                         : null;
                 final StreamingChatModel askPlannerModel =
-                        mode == Mode.ASK || mode == Mode.ISSUE ? resolveModelOrThrow(spec.plannerModel()) : null;
+                        mode == Mode.ASK || mode == Mode.ISSUE ? resolveModelOrThrow(spec, spec.plannerModel()) : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
-                                ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
-                                : defaultCodeModel())
+                                ? resolveModelOrThrow(spec, Objects.requireNonNull(trimmedCodeModelName))
+                                : defaultCodeModel(spec))
                         : null;
 
                 var service = cm.getService();
@@ -182,8 +184,8 @@ public final class JobRunner {
                 // otherwise project default)
                 final StreamingChatModel searchPlannerModel = mode == Mode.SEARCH
                         ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? resolveModelOrThrow(spec.scanModel().trim())
-                                : cm.getService().getScanModel())
+                                ? resolveModelOrThrow(spec, spec.scanModel().trim())
+                                : defaultScanModel(spec))
                         : null;
 
                 String plannerModelNameForLog =
@@ -371,8 +373,8 @@ public final class JobRunner {
                                                 StreamingChatModel scanModelToUse = null;
                                                 try {
                                                     scanModelToUse = !trimmedScanModel.isEmpty()
-                                                            ? resolveModelOrThrow(trimmedScanModel)
-                                                            : cm.getService().getScanModel();
+                                                            ? resolveModelOrThrow(spec, trimmedScanModel)
+                                                            : defaultScanModel(spec);
                                                 } catch (IllegalArgumentException iae) {
                                                     // resolveModelOrThrow may throw; log and continue without
                                                     // failing job.
@@ -520,8 +522,8 @@ public final class JobRunner {
                                             String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
                                             final StreamingChatModel scanModelToUse =
                                                     (trimmedScanModel != null && !trimmedScanModel.isEmpty())
-                                                            ? resolveModelOrThrow(trimmedScanModel)
-                                                            : cm.getService().getScanModel();
+                                                            ? resolveModelOrThrow(spec, trimmedScanModel)
+                                                            : defaultScanModel(spec);
 
                                             // SearchAgent now handles scanning internally via execute()
                                             var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
@@ -1092,16 +1094,65 @@ public final class JobRunner {
         }
     }
 
-    private StreamingChatModel resolveModelOrThrow(String name) {
-        var model = cm.getService().getModel(new Service.ModelConfig(name));
+    private StreamingChatModel resolveModelOrThrow(JobSpec spec, String name) {
+        var service = cm.getService();
+
+        Service.ModelConfig baseConfig = new Service.ModelConfig(name);
+
+        var modelOverrides = spec.reasoningLevel() != null || spec.temperature() != null;
+        if (!modelOverrides) {
+            var model = service.getModel(baseConfig);
+            if (model == null) {
+                throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
+            }
+            return model;
+        }
+
+        Service.ReasoningLevel reasoning =
+                Service.ReasoningLevel.fromString(spec.reasoningLevel(), baseConfig.reasoning());
+        var config = new Service.ModelConfig(name, reasoning, baseConfig.tier());
+
+        OpenAiChatRequestParameters.Builder parametersOverride =
+                spec.temperature() == null
+                        ? null
+                        : OpenAiChatRequestParameters.builder().temperature(spec.temperature());
+
+        var model = service.getModel(config, parametersOverride);
         if (model == null) {
             throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
         }
         return model;
     }
 
-    private StreamingChatModel defaultCodeModel() {
-        return cm.getCodeModel();
+    private StreamingChatModel resolveModelOrThrow(JobSpec spec, Service.ModelConfig baseConfig) {
+        var service = cm.getService();
+
+        Service.ReasoningLevel reasoning =
+                Service.ReasoningLevel.fromString(spec.reasoningLevel(), baseConfig.reasoning());
+        var config = new Service.ModelConfig(baseConfig.name(), reasoning, baseConfig.tier());
+
+        OpenAiChatRequestParameters.Builder parametersOverride =
+                spec.temperature() == null
+                        ? null
+                        : OpenAiChatRequestParameters.builder().temperature(spec.temperature());
+
+        var model = service.getModel(config, parametersOverride);
+        if (model == null) {
+            throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + baseConfig.name());
+        }
+        return model;
+    }
+
+    private StreamingChatModel defaultCodeModel(JobSpec spec) {
+        var service = cm.getService();
+        var baseConfig = Service.ModelConfig.from(cm.getCodeModel(), service);
+        return resolveModelOrThrow(spec, baseConfig);
+    }
+
+    private StreamingChatModel defaultScanModel(JobSpec spec) {
+        var service = cm.getService();
+        var baseConfig = Service.ModelConfig.from(service.getScanModel(), service);
+        return resolveModelOrThrow(spec, baseConfig);
     }
 
     /**
