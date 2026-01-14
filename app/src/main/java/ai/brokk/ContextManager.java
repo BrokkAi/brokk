@@ -378,7 +378,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 project.hasGit() ? project.getRoot() : null,
                 globalGitignorePath,
                 List.of() // Start with empty listeners
-        );
+                );
         watchService.start(CompletableFuture.completedFuture(null));
 
         this.io = new Chrome(this);

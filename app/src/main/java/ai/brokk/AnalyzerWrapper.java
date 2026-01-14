@@ -37,9 +37,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
 
     private final Path root;
 
-    @Nullable
-    private final Path gitRepoRoot;
-
     private final IProject project;
     private final AbstractWatchService watchService;
 
@@ -68,7 +65,6 @@ public class AnalyzerWrapper implements AbstractWatchService.Listener, IAnalyzer
             IProject project, AnalyzerListener analyzerListener, @NotNull AbstractWatchService watchService) {
         this.project = project;
         this.root = project.getRoot();
-        this.gitRepoRoot = project.hasGit() ? project.getRepo().getGitTopLevel() : null;
         this.listener = analyzerListener;
 
         // Use provided watch service or create stub for headless mode
