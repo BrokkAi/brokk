@@ -1105,9 +1105,15 @@ public final class JobRunner {
                 ? baseConfig
                 : new Service.ModelConfig(baseConfig.name(), reasoning, baseConfig.tier());
 
-        @Nullable OpenAiChatRequestParameters.Builder parametersOverride = spec.temperature() == null
-                ? null
-                : OpenAiChatRequestParameters.builder().temperature(spec.temperature());
+        @Nullable OpenAiChatRequestParameters.Builder parametersOverride = null;
+        if (spec.temperature() != null) {
+            if (cm.getService().supportsTemperature(baseConfig.name())) {
+                parametersOverride = OpenAiChatRequestParameters.builder().temperature(spec.temperature());
+            } else {
+                logger.debug(
+                        "Skipping temperature override for model {} as it is not supported.", baseConfig.name());
+            }
+        }
 
         return new AppliedOverrides(config, parametersOverride);
     }
