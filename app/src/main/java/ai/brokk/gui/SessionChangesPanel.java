@@ -36,6 +36,7 @@ import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.Icons;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -170,12 +171,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
         });
 
-        this.commitBtn = new MaterialButton("Changes to Commit");
-        this.pullBtn = new MaterialButton("Pull");
-        this.pushBtn = new MaterialButton("Push");
-        this.prBtn = new MaterialButton("Create PR");
+        this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
+
+        this.pullBtn = createIconButton(Icons.DOWNLOAD, null);
+        this.pushBtn = createIconButton(Icons.PUBLISH, null);
+        this.prBtn = createIconButton(Icons.ADD_DIAMOND, "Create PR");
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
-        this.pasteBtn = new MaterialButton("Paste Review");
+
+        this.pasteBtn = createIconButton(Icons.CONTENT_CAPTURE, "Paste Review");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -266,10 +269,33 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
         pasteBtn.addActionListener(e -> handlePasteReview());
 
-        SwingUtil.applyPrimaryButtonStyle(commitBtn);
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
         guidedReviewBtn.setIdleAction(this::generateGuidedReview);
         guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
+    }
+
+    private MaterialButton createIconButton(Icon icon, @Nullable String tooltip) {
+        var btn = new MaterialButton("") {
+            @Override
+            public Dimension getPreferredSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMinimumSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(24, 24);
+            }
+        };
+        btn.setIcon(icon);
+        if (tooltip != null) {
+            btn.setToolTipText(tooltip);
+        }
+        return btn;
     }
 
     private DiffDisplayCore createDiffCore(BrokkDiffPanel dummyPanel) {
@@ -655,11 +681,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             ? "No changes to pull"
                             : "No upstream branch configured");
         } else {
-            pullBtn.setToolTipText(null);
+            pullBtn.setToolTipText("Pull");
         }
         pullBtn.setVisible(true);
 
         pushBtn.setEnabled(!hasUncommittedChanges);
+        pushBtn.setToolTipText(hasUncommittedChanges ? "Commit changes before pushing" : "Push");
         pushBtn.setVisible(pushPull != null && pushPull.canPush());
 
         boolean isDefaultBranch = false;
