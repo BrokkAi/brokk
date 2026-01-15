@@ -3,7 +3,6 @@ package ai.brokk.difftool.ui.unified;
 import ai.brokk.difftool.ui.JMHighlightPainter;
 import ai.brokk.difftool.ui.JMHighlighter;
 import ai.brokk.gui.mop.ThemeColors;
-import java.awt.Color;
 import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -76,7 +75,7 @@ public final class UnifiedDiffHighlighter {
                 painter = new JMHighlightPainter.JMHighlightFullLinePainter(deletedColor);
             }
             case HEADER -> {
-                var separatorColor = isDarkTheme ? new Color(140, 140, 140) : new Color(160, 160, 160);
+                var separatorColor = ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_SEPARATOR);
                 painter = new JMHighlightPainter.JMHighlightWavyLinePainter(separatorColor);
             }
             case CONTEXT, OMITTED_LINES -> {
