@@ -36,6 +36,7 @@ import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.Icons;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -171,10 +172,20 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
 
         this.commitBtn = new MaterialButton("Changes to Commit");
+        this.commitBtn.setIcon(Icons.COMMIT);
+
         this.pullBtn = new MaterialButton("Pull");
+        this.pullBtn.setIcon(Icons.DOWNLOAD);
+
         this.pushBtn = new MaterialButton("Push");
+        this.pushBtn.setIcon(Icons.PUBLISH);
+
         this.prBtn = new MaterialButton("Create PR");
+        this.prBtn.setIcon(Icons.ADD_DIAMOND);
+
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
+        this.guidedReviewBtn.setIcon(Icons.DIFF_TOOLS);
+
         this.pasteBtn = new MaterialButton("Paste Review");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
