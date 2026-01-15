@@ -1014,7 +1014,7 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.codeModel(),
                     preScanFlag,
                     safeTags,
-                    new JobSpec.ModelOverrides(reasoningLevel, reasoningLevelCode, temperature));
+                    new JobSpec.ModelOverrides(reasoningLevel, reasoningLevelCode, temperature, null));
 
             // Create or get job (idempotent)
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);

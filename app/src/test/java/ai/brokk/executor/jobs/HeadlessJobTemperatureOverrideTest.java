@@ -92,7 +92,8 @@ class HeadlessJobTemperatureOverrideTest {
                 null,
                 null,
                 null,
-                0.7);
+                0.7,
+                null);
 
         runner.runAsync("job-unsupported", spec).get(5, TimeUnit.SECONDS);
 
@@ -118,7 +119,8 @@ class HeadlessJobTemperatureOverrideTest {
                 null,
                 null,
                 null,
-                0.7);
+                0.7,
+                null);
 
         runner.runAsync("job-supported", spec).get(5, TimeUnit.SECONDS);
 
@@ -146,6 +148,7 @@ class HeadlessJobTemperatureOverrideTest {
                 null,
                 "LOW",
                 "HIGH",
+                null,
                 null);
 
         runner.runAsync("job-reasoning-split", spec).get(5, TimeUnit.SECONDS);
