@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Icon from "@iconify/svelte";
   import CodeBlockShell from "./CodeBlockShell.svelte";
   import type { BubbleState } from "../types";
 
@@ -64,13 +63,10 @@
       on:scroll={onScroll}
       on:wheel|passive={handleWheel}
     >
-      <code class="terminal" bind:this={codeElem}></code>
+      <code class="terminal" bind:this={codeElem}></code>{#if bubble.streaming}<span
+          class="terminal-cursor">█</span
+        >{/if}
     </pre>
-    {#if bubble.streaming}
-      <div class="terminal-status">
-        <Icon icon="mdi:loading" class="spin-icon" />
-      </div>
-    {/if}
   </svelte:fragment>
 </CodeBlockShell>
 
@@ -95,27 +91,19 @@
     display: inline;
   }
 
-  .terminal-status {
-    position: absolute;
-    bottom: 8px;
-    right: 12px;
-    display: flex;
-    align-items: center;
-    color: var(--shiki-foreground);
-    opacity: 0.7;
-    pointer-events: none;
+  .terminal-cursor {
+    display: inline;
+    animation: blink 1s step-end infinite;
   }
 
-  :global(.spin-icon) {
-    animation: spin 1.5s linear infinite;
-  }
-
-  @keyframes spin {
-    from {
-      transform: rotate(0deg);
+  @keyframes blink {
+    0%,
+    50% {
+      opacity: 1;
     }
-    to {
-      transform: rotate(360deg);
+    51%,
+    100% {
+      opacity: 0;
     }
   }
 </style>
