@@ -175,10 +175,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.pullBtn = createIconButton(Icons.DOWNLOAD, null);
         this.pushBtn = createIconButton(Icons.PUBLISH, null);
-        this.prBtn = createIconButton(Icons.ADD_DIAMOND, "Create PR");
+        this.prBtn = createIconButton(Icons.ADD_DIAMOND, "Create a pull request for the current branch");
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
 
-        this.pasteBtn = createIconButton(Icons.CONTENT_CAPTURE, "Paste Review");
+        this.pasteBtn = createIconButton(Icons.CONTENT_CAPTURE, "Paste a review from the clipboard");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -674,19 +674,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         boolean canPull = pushPull != null && pushPull.canPull();
         pullBtn.setEnabled(canPull && !hasUncommittedChanges);
         if (hasUncommittedChanges) {
-            pullBtn.setToolTipText("Commit or stash changes before pulling");
+            pullBtn.setToolTipText("Commit or stash changes before pulling from the remote");
         } else if (!canPull) {
             pullBtn.setToolTipText(
                     pushPull != null && pushPull.hasUpstream()
-                            ? "No changes to pull"
-                            : "No upstream branch configured");
+                            ? "No changes to pull from the remote"
+                            : "No upstream branch configured for pulling");
         } else {
-            pullBtn.setToolTipText("Pull");
+            pullBtn.setToolTipText("Pull changes from the remote repository");
         }
         pullBtn.setVisible(true);
 
         pushBtn.setEnabled(!hasUncommittedChanges);
-        pushBtn.setToolTipText(hasUncommittedChanges ? "Commit changes before pushing" : "Push");
+        pushBtn.setToolTipText(hasUncommittedChanges
+                ? "Commit your changes before pushing to the remote"
+                : "Push your commits to the remote repository");
         pushBtn.setVisible(pushPull != null && pushPull.canPush());
 
         boolean isDefaultBranch = false;
@@ -700,7 +702,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 || (baselineMode == BaselineMode.BRANCH_BASELINE && isDefaultBranch && res.filesChanged() > 0);
 
         boolean prBtnEnabled = !hasUncommittedChanges;
-        String prBtnTooltip = null;
+        String prBtnTooltip = hasUncommittedChanges
+                ? "Commit your changes before creating a pull request"
+                : "Create a pull request for the current branch";
         if (prBtnEnabled && showPR) {
             try {
                 String currentBranch = repo.getCurrentBranch();
