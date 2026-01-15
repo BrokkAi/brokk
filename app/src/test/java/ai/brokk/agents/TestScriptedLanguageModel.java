@@ -15,7 +15,8 @@ public class TestScriptedLanguageModel implements StreamingChatModel {
 
     public TestScriptedLanguageModel(String... cannedTexts) {
         this.responses = new LinkedList<>(Arrays.asList(cannedTexts));
-        this.fallbackResponse = cannedTexts.length == 0 ? "TestScriptedLanguageModel: fallback response" : cannedTexts[0];
+        this.fallbackResponse =
+                cannedTexts.length == 0 ? "TestScriptedLanguageModel: fallback response" : cannedTexts[0];
     }
 
     @Override

@@ -53,9 +53,8 @@ public final class HeadlessExecutorMain {
     private static final ai.brokk.AbstractService.ReasoningLevel[] REASONING_LEVEL_VALUES =
             ai.brokk.AbstractService.ReasoningLevel.values();
 
-    private static final Set<String> ALLOWED_REASONING_LEVELS = Arrays.stream(REASONING_LEVEL_VALUES)
-            .map(Enum::name)
-            .collect(Collectors.toUnmodifiableSet());
+    private static final Set<String> ALLOWED_REASONING_LEVELS =
+            Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.toUnmodifiableSet());
 
     private static final String ALLOWED_REASONING_LEVELS_LIST =
             Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.joining(", "));
