@@ -8,7 +8,6 @@ import ai.brokk.gui.AutoScalingHtmlPane;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
 import ai.brokk.gui.FilterBox;
-import ai.brokk.gui.GfmRenderer;
 import ai.brokk.gui.components.GitHubTokenMissingPanel;
 import ai.brokk.gui.components.IssueHeaderCellRenderer;
 import ai.brokk.gui.components.LoadingTextBox;
@@ -33,7 +32,6 @@ import ai.brokk.issues.JiraIssueService;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
-import ai.brokk.util.HtmlUtil;
 import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;
@@ -143,7 +141,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
     private final List<String> actualStatusFilterOptions = new ArrayList<>(STATUS_FILTER_OPTIONS);
 
     private volatile @Nullable Future<?> currentSearchFuture;
-    private final GfmRenderer gfmRenderer;
     private final OkHttpClient httpClient;
     private final IssueService issueService;
     private final Set<Future<?>> activeFutures = ConcurrentHashMap.newKeySet();
@@ -153,7 +150,6 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         this.chrome = chrome;
         this.contextManager = contextManager;
         this.issueService = issueService;
-        this.gfmRenderer = new GfmRenderer();
         this.httpClient = initializeHttpClient();
 
         // Initialize nullable fields to avoid NullAway errors
@@ -825,13 +821,13 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
         var future = contextManager.submitBackgroundTask("Fetching/Rendering Issue Details for " + header.id(), () -> {
             try {
                 IssueDetails details = issueService.loadDetails(header.id());
-                String rawBody = details.markdownBody();
+                String htmlBody = details.htmlBody();
 
                 if (Thread.currentThread().isInterrupted()) {
                     return null;
                 }
 
-                if (rawBody.isBlank()) {
+                if (htmlBody.isBlank()) {
                     SwingUtilities.invokeLater(() -> {
                         issueBodyTextPane.setContentType("text/html");
                         issueBodyTextPane.setText("<html><body><p>No description provided.</p></body></html>");
@@ -839,22 +835,11 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
                     return null;
                 }
 
-                if (this.issueService instanceof JiraIssueService) {
-                    // For Jira, rawBody is HTML.
-                    SwingUtilities.invokeLater(() -> {
-                        issueBodyTextPane.setContentType("text/html");
-                        issueBodyTextPane.setText(rawBody);
-                        issueBodyTextPane.setCaretPosition(0); // Scroll to top
-                    });
-                } else {
-                    // For GitHub or other Markdown-based services, render Markdown to HTML.
-                    String htmlBody = this.gfmRenderer.render(rawBody);
-                    SwingUtilities.invokeLater(() -> {
-                        issueBodyTextPane.setContentType("text/html");
-                        issueBodyTextPane.setText(htmlBody);
-                        issueBodyTextPane.setCaretPosition(0); // Scroll to top
-                    });
-                }
+                SwingUtilities.invokeLater(() -> {
+                    issueBodyTextPane.setContentType("text/html");
+                    issueBodyTextPane.setText(htmlBody);
+                    issueBodyTextPane.setCaretPosition(0); // Scroll to top
+                });
 
             } catch (Exception e) {
                 if (!wasCancellation(e)) {
@@ -1141,9 +1126,8 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
             var today = LocalDate.now(ZoneId.systemDefault());
             for (var header : displayedIssues) {
-                String updated = header.updated() == null
-                        ? ""
-                        : GitDiffUiUtil.formatRelativeDate(header.updated().toInstant(), today);
+                String updated =
+                        header.updated() == null ? "" : GitDiffUiUtil.formatRelativeDate(header.updated(), today);
                 issueTableModel.addRow(new Object[] {header.id(), header.title(), header.author(), updated});
             }
 
@@ -1280,10 +1264,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     private List<ChatMessage> buildIssueTextContentFromDetails(IssueDetails details) {
         IssueHeader header = details.header();
-        String bodyForCapture = details.markdownBody(); // This is HTML from Jira, Markdown from GitHub
-        if (this.issueService instanceof JiraIssueService) {
-            bodyForCapture = HtmlUtil.convertToMarkdown(bodyForCapture);
-        }
+        String bodyForCapture = details.markdownBody();
         bodyForCapture = bodyForCapture.isBlank() ? "*No description provided.*" : bodyForCapture;
         String content = String.format(
                 """
@@ -1322,11 +1303,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
         for (Comment comment : dtoComments) {
             String author = comment.author().isBlank() ? "unknown" : comment.author();
-            String originalCommentBody = comment.markdownBody(); // HTML from Jira, Markdown from GitHub
-            String commentBodyForCapture = originalCommentBody;
-            if (this.issueService instanceof JiraIssueService) {
-                commentBodyForCapture = HtmlUtil.convertToMarkdown(originalCommentBody);
-            }
+            String commentBodyForCapture = comment.markdownBody();
 
             if (!commentBodyForCapture.isBlank()) {
                 chatMessages.add(UserMessage.from(author, commentBodyForCapture));

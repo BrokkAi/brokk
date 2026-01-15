@@ -1,6 +1,6 @@
 package ai.brokk.context;
 
-import ai.brokk.util.ComputedValue;
+import ai.brokk.concurrent.ComputedValue;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;

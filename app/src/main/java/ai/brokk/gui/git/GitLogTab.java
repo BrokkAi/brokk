@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -1224,7 +1225,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
      * Creates a cell renderer with fuzzy match highlighting for simple single-column tables.
      */
     private static DefaultTableCellRenderer createFuzzyHighlightRenderer(
-            java.util.function.Supplier<@Nullable FuzzyMatcher> matcherSupplier) {
+            Supplier<@Nullable FuzzyMatcher> matcherSupplier) {
         return new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(

@@ -5,12 +5,13 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.ContextSizeGuard;
 import ai.brokk.project.IProject;
-import ai.brokk.util.ExecutorServiceUtil;
 import ai.brokk.util.FileManagerUtil;
 import ai.brokk.util.PathNormalizer;
 import ai.brokk.watchservice.AbstractWatchService;
@@ -58,7 +59,7 @@ import org.jetbrains.annotations.Nullable;
 public class ProjectTree extends JTree implements AbstractWatchService.Listener {
     private static final Logger logger = LogManager.getLogger(ProjectTree.class);
     private static final String LOADING_PLACEHOLDER = "Loading...";
-    private static final ExecutorService IO_EXECUTOR = ExecutorServiceUtil.newFixedThreadExecutor(4, "ProjectTree-IO-");
+    private static final ExecutorService IO_EXECUTOR = ExecutorsUtil.newFixedThreadExecutor(4, "ProjectTree-IO-");
 
     private final IProject project;
     private final ContextManager contextManager;
@@ -224,7 +225,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                     if (treeNode.isDirectory()) {
                         // Collect directory contents async to avoid EDT I/O
                         final int menuX = e.getX(), menuY = e.getY();
-                        CompletableFuture.supplyAsync(() -> collectProjectFilesUnderDirectory(f), IO_EXECUTOR)
+                        LoggingFuture.supplyAsync(() -> collectProjectFilesUnderDirectory(f), IO_EXECUTOR)
                                 .thenAccept(files -> SwingUtilities.invokeLater(
                                         () -> prepareAndShowContextMenu(menuX, menuY, files, true, f)));
                         return;
@@ -372,7 +373,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
                         + (finalOpenTarget == null ? "<unknown>" : finalOpenTarget.toAbsolutePath()));
                 return;
             }
-            ExceptionAwareSwingWorker<Void, Void> worker = new ai.brokk.gui.ExceptionAwareSwingWorker<>(chrome) {
+            ExceptionAwareSwingWorker<Void, Void> worker = new ExceptionAwareSwingWorker<>(chrome) {
                 @Override
                 protected Void doInBackground() throws Exception {
                     FileManagerUtil.revealPath(finalOpenTarget);
@@ -637,7 +638,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         final File expectedDirectory = directory;
 
         // Perform expensive filesystem operations off the EDT using dedicated I/O executor.
-        CompletableFuture.supplyAsync(
+        LoggingFuture.supplyAsync(
                         () -> {
                             File[] children = expectedDirectory.listFiles();
                             if (children == null) {
@@ -996,7 +997,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         Path projectRoot = project.getRoot();
 
         // Preload all directory contents in parallel off the EDT
-        CompletableFuture.supplyAsync(
+        LoggingFuture.supplyAsync(
                         () -> {
                             // Build list of directories along the path that need loading
                             List<File> dirsToLoad = new ArrayList<>();
@@ -1436,7 +1437,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         }
 
         // Reuse the existing file drop handler
-        ExceptionAwareSwingWorker<Void, String> worker = new ai.brokk.gui.ExceptionAwareSwingWorker<>(chrome) {
+        ExceptionAwareSwingWorker<Void, String> worker = new ExceptionAwareSwingWorker<>(chrome) {
             @Override
             protected Void doInBackground() throws Exception {
                 List<File> filesToCopy = new ArrayList<>();
@@ -1753,7 +1754,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
         /** Handles the file drop operation by copying files to the target directory. */
         private void handleFileDrop(List<File> droppedFiles, Path targetDirectory) {
-            ExceptionAwareSwingWorker<Void, String> worker = new ai.brokk.gui.ExceptionAwareSwingWorker<>(chrome) {
+            ExceptionAwareSwingWorker<Void, String> worker = new ExceptionAwareSwingWorker<>(chrome) {
                 @Override
                 protected Void doInBackground() throws Exception {
                     List<File> filesToCopy = new ArrayList<>();

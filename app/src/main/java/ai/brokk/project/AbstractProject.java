@@ -4,11 +4,12 @@ import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.LocalFileRepo;
-import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.EnvironmentJava;
 import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -160,7 +161,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public CompletableFuture<Void> updateLiveDependencies(
             Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
-        return CompletableFuture.supplyAsync(() -> {
+        return LoggingFuture.supplyAsync(() -> {
             // If analyzer provided, pause watcher and compute prev files
             Set<ProjectFile> prevFiles = null;
             if (analyzerWrapper != null) {

@@ -11,6 +11,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,7 +40,7 @@ public class CodeFragmentTest {
 
         // Use addDeclaration instead of re-init to match TestAnalyzer patterns if possible,
         // but re-init is safe here.
-        analyzer = new TestAnalyzer(List.of(baseCls, subCls), java.util.Map.of());
+        analyzer = new TestAnalyzer(List.of(baseCls, subCls), Map.of());
         contextManager = new TestContextManager(tempDir, null, analyzer);
 
         analyzer.setDirectAncestors(subCls, List.of(baseCls));

@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.concurrent.AtomicWrites;
 import com.google.common.base.Splitter;
 import java.awt.Frame;
 import java.awt.Rectangle;

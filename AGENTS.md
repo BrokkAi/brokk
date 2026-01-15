@@ -54,13 +54,21 @@ with try/catch is unnecessary and futile; don't do that.
    - Avoid direct assertEquals on raw multi-line code output.
 2. We have standard mock versions of common interfaces: TestAnalyzer, TestConsoleIO, TestContextManager, TestGitRepo, TestProject. Ask the user to add these to the Workspace rather than rolling your own.
 
-## GUI standards
+## Concurrency
 
-1. **Swing thread safety**: Public methods that deal with Swing components should either assert they are being run on the EDT, or wrap in SwingUtilities.invokeLater. (Prefer `SwingUtil.runOnEdt(Callable<T> task, T defaultValue)` or `SwingUtil.runOnEdt(Runnable task)` to `SwingUtilities.invokeAndWait` when blocking for the result.)
-1. **Popup dialogs**: IConsoleIO (implemented by Chrome) offers `systemNotify(String message, String title, int messageType)` and `toolError(String message, String title)` methods backed by JMessageDialog, prefer these for simple "OK" notifications 
-1. **Named components**: Avoid navigating component hierarchies to retrieve a specific component by index or text. Save a reference as a field instead.
-1. **Buttons**: Use ai.brokk.gui.components.MaterialButton instead of JButton. Use ai.brokk.gui.components.MaterialToggleButton instead of JToggleButton.
-1. **Dialogs**: When building dialogs have buttons on the bottom. Start with a primary action button such as Ok or Done. It should have the following function applied to it ai.brokk.gui.SwingUtil.applyPrimaryButtonStyle(javax.swing.AbstractButton b). Next it should have a cancel button which is a normal ai.brokk.gui.components.MaterialButton with the text Cancel.
-1. **Notifications**: Use IConsoleIO.showNotification for informational messages, and IConsoleIO.toolError for modal errors. If you do not have the IConsoleIO API available in the Workspace, stop and ask the user to provide it.
-
-
+1. Always use utility classes that log exceptions appropriately. If you create an ExecutorService, you
+   should wrap it in a ai.brokk.concurrent.LoggingExecutorService as follows:
+   ```
+   ExecutorService delegateExecutor = ...;
+   Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
+   this.executor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
+   ```
+   The lambda (`String st -> {}`) is for notifying the user of problems, if you have an appropriate API avaiable then
+   you should wire that up as well.
+   There are convenience methods for newVirtualThreadExecutor and newFixedThreadExecutor in ai.brokk.concurrent.ExecutorsUtil
+   that you should use unless you need to roll a custom ThreadFactory.
+2. Use LoggingFuture.supplyAsync, .allOf, .anyOf instead of CompletableFuture static methods; the API is the same.
+   LoggingFuture also has a supplyCallableAsync method when that is a better fit.
+3. Avoid SwingWorker in favor of virtual threads using ExecutorsUtil.newVirtualThreadExecutor, or LoggingFuture.supplyAsync.
+4. ContextManager.submitBackgroundTask is for tasks that run long enough to be noticeable by the user. For shorter
+   tasks use LoggingFuture.supplyAsync if it is just one, otherwise consider using LoggingExecutorService.newVirtualThreadExecutor.

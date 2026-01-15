@@ -71,14 +71,15 @@ class JobSpecTest {
     @Test
     void testGetPrNumber_ReturnsNullForInvalidNumber() {
         var spec = JobSpec.of(
-                "task", true, true, "model", null, null, false, Map.of("pr_number", "not-a-number"), null, null);
+                "task", true, true, "model", null, null, false, Map.of("pr_number", "not-a-number"), null, null, null);
 
         assertNull(spec.getPrNumber());
     }
 
     @Test
     void testGetPrNumber_ReturnsNullForEmptyString() {
-        var spec = JobSpec.of("task", true, true, "model", null, null, false, Map.of("pr_number", ""), null, null);
+        var spec =
+                JobSpec.of("task", true, true, "model", null, null, false, Map.of("pr_number", ""), null, null, null);
 
         assertNull(spec.getPrNumber());
     }
@@ -101,5 +102,25 @@ class JobSpecTest {
         assertTrue(tags.containsKey("repo_owner"));
         assertTrue(tags.containsKey("repo_name"));
         assertTrue(tags.containsKey("pr_number"));
+    }
+
+    @Test
+    void testReasoningLevelCode_StoredAndAccessible() {
+        var spec = JobSpec.of("task", true, true, "model", null, null, false, Map.of(), "rlc-123");
+
+        assertNull(spec.reasoningLevel());
+        assertEquals("rlc-123", spec.reasoningLevelCode());
+        assertNull(spec.temperature());
+    }
+
+    @Test
+    void testReasoningLevelCode_FromOverrides() {
+        var overrides = new JobSpec.ModelOverrides("HIGH", "rlc-xyz", 0.2, null);
+
+        var spec = JobSpec.of("task", true, true, "model", null, null, false, Map.of(), overrides);
+
+        assertEquals("HIGH", spec.reasoningLevel());
+        assertEquals("rlc-xyz", spec.reasoningLevelCode());
+        assertEquals(0.2, spec.temperature());
     }
 }

@@ -4,16 +4,18 @@ import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
-import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.cli.MemoryConsole;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.DiffService;
+import ai.brokk.context.DiffService.CumulativeChanges;
 import ai.brokk.context.SpecialTextType;
-import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.WorkspaceTools;
@@ -36,9 +38,11 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,7 +56,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.annotations.VisibleForTesting;
 import org.jspecify.annotations.NullMarked;
 
 /**
@@ -62,7 +66,7 @@ import org.jspecify.annotations.NullMarked;
 public class ReviewAgent {
     private static final Logger logger = LogManager.getLogger(ReviewAgent.class);
 
-    private final DiffService.CumulativeChanges changes;
+    private final CumulativeChanges changes;
     private final List<UUID> sessionIds;
 
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
@@ -80,33 +84,36 @@ public class ReviewAgent {
     }
 
     private final IContextManager cm;
-    private final IConsoleIO io;
-    private final List<FileComparisonInfo> fileComparisons;
     private @Nullable Context contextBeingBuilt;
     private boolean isComplex = false;
 
     private record ContextSetupResult(Context context, boolean isComplex) {}
 
-    public ReviewAgent(
-            DiffService.CumulativeChanges changes,
-            List<UUID> sessionIds,
-            IContextManager cm,
-            IConsoleIO io,
-            List<FileComparisonInfo> fileComparisons) {
-        this.changes = changes;
-        this.sessionIds = List.copyOf(sessionIds);
+    /**
+     * Intended usage to review the changes on the current branch from `commit` [exclusive] to HEAD [inclusive]:
+     * var scope = ReviewScope.fromBaseline(commit, cm);
+     * var result = new ReviewAgent(scope, cm).execute();
+     *
+     * An example of determining `commit` using GitRepo::getMergeBase is in SessionChangesPanel.
+     */
+    public ReviewAgent(ReviewScope scope, IContextManager cm) {
+        this.changes = scope.changes();
+        this.sessionIds = scope.sessionIds();
         this.cm = cm;
-        this.io = io;
-        this.fileComparisons = fileComparisons;
     }
 
-    @TestOnly
-    ReviewAgent(IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
-        this(new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of()), List.of(), cm, io, fileComparisons);
+    @VisibleForTesting
+    ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm) {
+        this.changes = changes;
+        this.sessionIds = sessionIds;
+        this.cm = cm;
     }
 
     private @Nullable ProgressUpdater progressUpdater;
 
+    /**
+     * Optional
+     */
     public void setProgressUpdater(@Nullable ProgressUpdater updater) {
         this.progressUpdater = updater;
     }
@@ -127,7 +134,7 @@ public class ReviewAgent {
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        try (var scope = cm.beginTask("Code Review", true, "Performing code review")) {
+        try (var scope = cm.beginTask("Code Review", true, false, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
             var instructionsOpt = extractInstructionsFragment(sessionIds);
@@ -151,7 +158,6 @@ public class ReviewAgent {
                     setupResult.isComplex() ? ModelType.ARCHITECT.defaultConfig() : ModelType.SCAN.defaultConfig();
             var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
-            turn1Llm.setOutput(io);
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
             long turn1Start = System.currentTimeMillis();
@@ -174,13 +180,13 @@ public class ReviewAgent {
                         if (token.contains("\n")) {
                             int lines = linesSeen.addAndGet(
                                     (int) token.chars().filter(ch -> ch == '\n').count());
-                            int p = turn1Floor + (lines / 10);
+                            int p = turn1Floor + (lines / 8);
                             updateProgress("Analyzing changes", min(100, p));
                         }
                     }
                 };
-
                 turn1Llm.setOutput(progressConsole);
+
                 turn1Result = turn1Llm.sendRequest(turn1Messages);
                 if (turn1Result.error() == null) {
                     break;
@@ -239,13 +245,13 @@ public class ReviewAgent {
             var publishedMessages = List.of(
                     new UserMessage("Please review this diff"), new AiMessage(mergedReviewText, mergedReasoning));
 
-            var result = new ai.brokk.TaskResult(
+            var result = new TaskResult(
                     cm,
                     "Code Review",
                     publishedMessages,
                     reviewContext,
-                    new ai.brokk.TaskResult.StopDetails(ai.brokk.TaskResult.StopReason.SUCCESS),
-                    new ai.brokk.TaskResult.TaskMeta(ai.brokk.TaskResult.Type.REVIEW, turn1ModelConfig));
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
+                    new TaskResult.TaskMeta(TaskResult.Type.REVIEW, turn1ModelConfig));
 
             scope.append(result);
 
@@ -261,7 +267,6 @@ public class ReviewAgent {
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
         var scanModel = cm.getService().getModel(ModelType.SCAN);
         var llm = cm.getLlm(scanModel, "Review Context Selection");
-        llm.setOutput(io);
 
         var messages = new ArrayList<ChatMessage>();
         messages.add(buildSystemMessage());
@@ -272,10 +277,10 @@ public class ReviewAgent {
                         """
                 Examine the proposed diff and identify additional context needed for a thorough code review.
 
-                Examine the proposed diff and determine:
-                1. Is this a complex change requiring deep architectural analysis, or a straightforward change?
-                   - Complex: changes spanning multiple subsystems, introducing new abstractions, or with subtle correctness concerns
-                   - Straightforward: localized changes, simple refactors, or changes with obvious correctness
+                Examine the proposed diff and determine the complexity level:
+                1. TRIVIAL: very small changes, documentation updates, or simple boilerplate with no logic risk.
+                2. STRAIGHTFORWARD: localized changes, simple refactors, easy to see if bugs were introduced.
+                3. COMPLEX: changes spanning multiple subsystems, introducing new abstractions, or with subtle correctness concerns.
 
                 Then identify additional context needed for a thorough code review. You will have access to the full
                 diff during the review, so only add code that you need to perform the review, that you cannot infer from the diff alone.
@@ -322,7 +327,7 @@ public class ReviewAgent {
                 .collect(Collectors.toList());
         var ctx = initialContext.addFragments(filesToContext);
         ctx = ctx.addFragments(ctx.buildAutoContext(10));
-        return new ContextSetupResult(ctx, false);
+        return new ContextSetupResult(ctx, true);
     }
 
     private void updateProgress(String stage, int progress) {
@@ -332,13 +337,11 @@ public class ReviewAgent {
         }
     }
 
-    public static @Nullable FileComparisonInfo findFileComparison(
-            String relPath, List<FileComparisonInfo> fileComparisons) {
-        return fileComparisons.stream()
-                .filter(info ->
-                        (info.file() != null && relPath.equals(info.file().toString()))
-                                || relPath.equals(info.rightSource().filename())
-                                || relPath.equals(info.leftSource().filename()))
+    static @Nullable FileDiff findFileDiff(String relPath, List<FileDiff> fileDiffs) {
+        return fileDiffs.stream()
+                .filter(fd -> (fd.oldFile() != null
+                                && relPath.equals(fd.oldFile().toString()))
+                        || (fd.newFile() != null && relPath.equals(fd.newFile().toString())))
                 .findFirst()
                 .orElse(null);
     }
@@ -420,7 +423,6 @@ public class ReviewAgent {
                     """
                             .formatted(errorList)));
 
-            llm.setOutput(io);
             currentResult = llm.sendRequest(retryFileMessages);
             totalRetries++;
             if (currentResult.error() != null) {
@@ -463,13 +465,13 @@ public class ReviewAgent {
         for (var entry : validPathExcerpts.entrySet()) {
             int id = entry.getKey();
             RawExcerpt excerpt = entry.getValue();
-            FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
-            if (fileInfo == null) {
+            FileDiff fileDiff = findFileDiff(excerpt.file(), changes.perFileChanges());
+            if (fileDiff == null) {
                 pendingTextErrors.put(id, "File not in diff: " + excerpt.file());
                 continue;
             }
 
-            ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(excerpt, fileInfo);
+            ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(excerpt, fileDiff);
             if (match == null) {
                 pendingTextErrors.put(id, "Excerpt text not found in " + excerpt.file());
             } else {
@@ -528,7 +530,6 @@ public class ReviewAgent {
                     """
                             .formatted(errorList)));
 
-            llm.setOutput(io);
             Llm.StreamingResult textResult = llm.sendRequest(retryTextMessages);
             totalRetries++;
             if (textResult.error() != null) {
@@ -552,12 +553,12 @@ public class ReviewAgent {
                 // Update the validPathExcerpts with the fixed version
                 validPathExcerpts.put(id, fixed);
 
-                FileComparisonInfo fileInfo = findFileComparison(fixed.file(), fileComparisons);
-                if (fileInfo == null) {
+                FileDiff fileDiff = findFileDiff(fixed.file(), changes.perFileChanges());
+                if (fileDiff == null) {
                     continue;
                 }
 
-                ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fixed, fileInfo);
+                ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fixed, fileDiff);
                 if (match != null) {
                     var file = cm.toFile(fixed.file());
                     int lineCount = (int) match.matchedText().lines().count();
@@ -582,8 +583,7 @@ public class ReviewAgent {
         return new RetryResult(matchedExcerpts, totalRetries, mergedResponseText);
     }
 
-    private String correctFailedNotes(Llm llm, String responseText, List<ReviewParser.NoteValidationError> errors)
-            throws InterruptedException {
+    private String correctFailedNotes(Llm llm, String responseText, List<ReviewParser.NoteValidationError> errors) {
         Map<String, List<String>> errorsByNote = errors.stream()
                 .collect(Collectors.groupingBy(
                         ReviewParser.NoteValidationError::title,
@@ -604,10 +604,9 @@ public class ReviewAgent {
 
                 futures.put(
                         title,
-                        CompletableFuture.supplyAsync(
+                        LoggingFuture.supplyAsync(
                                 () -> {
                                     Llm correctionLlm = cm.getLlm(llm.getModel(), "Note Correction");
-                                    correctionLlm.setOutput(io);
                                     String currentNote = noteSection;
                                     List<String> currentIssues = initialIssues;
 
@@ -643,13 +642,12 @@ public class ReviewAgent {
                                             // Re-validate the correction
                                             var newErrors =
                                                     ReviewParser.instance.validateParsedNotes(correctionText).stream()
-                                                            .filter(e -> e.title()
-                                                                            .equalsIgnoreCase(title)
-                                                                    || correctionText
-                                                                            .toLowerCase(java.util.Locale.ROOT)
-                                                                            .contains(("### " + e.title())
-                                                                                    .toLowerCase(
-                                                                                            java.util.Locale.ROOT)))
+                                                            .filter(e ->
+                                                                    e.title().equalsIgnoreCase(title)
+                                                                            || correctionText
+                                                                                    .toLowerCase(Locale.ROOT)
+                                                                                    .contains(("### " + e.title())
+                                                                                            .toLowerCase(Locale.ROOT)))
                                                             .toList();
 
                                             if (newErrors.isEmpty()) {
@@ -692,9 +690,7 @@ public class ReviewAgent {
                 if (ReviewParser.extractNoteSection(mergedText, requestedTitle) == null) {
                     // If requested title isn't found, try to see if the correction contains a known title
                     for (String title : errorsByNote.keySet()) {
-                        if (correction
-                                .toLowerCase(java.util.Locale.ROOT)
-                                .contains(("### " + title).toLowerCase(java.util.Locale.ROOT))) {
+                        if (correction.toLowerCase(Locale.ROOT).contains(("### " + title).toLowerCase(Locale.ROOT))) {
                             actualTitle = title;
                             break;
                         }
@@ -799,6 +795,8 @@ public class ReviewAgent {
                 ```
                 $code
                 ```
+
+                I will look for EXACT matches for your excerpt, so avoid ellipsis or commentary in the block.
                 </excerpt_format>
                 <review_format>
                 ## Key Changes
@@ -836,10 +834,8 @@ public class ReviewAgent {
 
     @Tool(
             "Add context fragments to help perform a thorough code review. Call this once with all the files, summaries, classes, and methods needed.")
-    public String addFragments(
-            @P(
-                            "True if this is a complex change requiring deep architectural analysis; false for straightforward changes")
-                    boolean isComplex,
+    private String addFragments(
+            @P("The categorized complexity of the change: TRIVIAL, STRAIGHTFORWARD, or COMPLEX") String complexity,
             @P("Full project paths for files where you need to see complete implementation details")
                     List<String> filesForFullSource,
             @P("Full project paths for files where you only need to see API signatures/skeletons")
@@ -850,7 +846,7 @@ public class ReviewAgent {
             @P(
                             "Fully qualified method names (e.g., 'com.example.MyClass.myMethod') for specific methods you need to examine")
                     List<String> methodNames) {
-        this.isComplex = isComplex;
+        this.isComplex = !complexity.equalsIgnoreCase("TRIVIAL");
         var wst = new WorkspaceTools(requireNonNull(contextBeingBuilt));
         wst.addFilesToWorkspace(filesForFullSource);
         wst.addFileSummariesToWorkspace(filesForSummaries);
@@ -870,15 +866,20 @@ public class ReviewAgent {
         var sessionManager = cm.getProject().getSessionManager();
 
         // Extract instructions from all matching histories
+        var relevantTypes = Set.of(TaskResult.Type.CODE, TaskResult.Type.ARCHITECT, TaskResult.Type.BLITZFORGE);
         List<String> instructions = sessionIds.stream()
+                .parallel()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
                 .filter(Objects::nonNull)
                 .flatMap(h -> h.getHistory().stream()) // Stream<Context>
                 .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
-                .filter(te -> te.log() != null)
-                .filter(te -> te.meta() == null || te.meta().type() != ai.brokk.TaskResult.Type.REVIEW)
-                .sorted(Comparator.comparing(te -> requireNonNull(te.log()).id()))
-                .map(te -> requireNonNull(te.log()).description().join())
+                .filter(te ->
+                        te.meta() != null && relevantTypes.contains(te.meta().type()))
+                .map(TaskEntry::log)
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(log -> log.id()))
+                .map(log -> log.description().join())
+                .filter(Objects::nonNull) // legacy entries can be null here
                 .filter(desc -> !desc.isBlank())
                 .distinct()
                 .toList();

@@ -8,8 +8,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.git.GitRepo;
-import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.SwingUtil;
@@ -551,7 +549,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (var line : lines) {
             var text = line.strip();
             if (!text.isEmpty()) {
-                items.add(new TaskList.TaskItem(text, text, false));
+                String title = "Task " + (items.size() + 1);
+                items.add(new TaskList.TaskItem(title, text, false));
                 added++;
             }
         }
@@ -1056,26 +1055,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         if (choice[0] == 0) {
             // Commit first, then proceed on success
-            var workflow = new GitWorkflow(chrome.getContextManager());
             var commitDialog = new CommitDialog(
-                    chrome.getFrame(), chrome, chrome.getContextManager(), workflow, dirtyFiles, commitResult -> {
-                        try {
-                            var repo = (GitRepo)
-                                    chrome.getContextManager().getProject().getRepo();
-                            chrome.showNotification(
-                                    IConsoleIO.NotificationRole.INFO,
-                                    "Committed "
-                                            + repo.shortHash(commitResult.commitId())
-                                            + ": "
-                                            + commitResult.firstLine());
-                            chrome.updateCommitPanel();
-                            chrome.updateLogTab();
-                            chrome.selectCurrentBranchInLogTab();
-                        } finally {
-                            // Proceed to run tasks after committing
-                            SwingUtilities.invokeLater(action);
-                        }
-                    });
+                    chrome.getFrame(),
+                    chrome,
+                    chrome.getContextManager(),
+                    dirtyFiles,
+                    commitResult -> SwingUtilities.invokeLater(action));
             commitDialog.setVisible(true);
         } else if (choice[0] == 1) {
             // Continue without committing
@@ -2279,7 +2264,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             // Always show title; fallback to first line of text if title is empty
             String displayText = value.title();
-            if (displayText == null || displayText.isBlank()) {
+            if (displayText.isBlank()) {
                 // Fallback: use first line of text
                 String fullText = value.text();
                 int newlineIndex = fullText.indexOf('\n');

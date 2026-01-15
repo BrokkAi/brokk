@@ -19,11 +19,12 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.git.GitRepo;
-import ai.brokk.util.ComputedValue;
 import ai.brokk.util.FragmentUtils;
 import ai.brokk.util.ImageUtil;
-import ai.brokk.util.LoggingExecutorService;
 import ai.brokk.util.Messages;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
@@ -54,9 +55,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -134,13 +132,7 @@ public class ContextFragments {
     }
 
     private static LoggingExecutorService createFragmentExecutor() {
-        ThreadFactory virtualThreadFactory = Thread.ofVirtual()
-                .name("brokk-cf-", 0) // Prefix and starting counter
-                .factory();
-        ExecutorService virtualExecutor = Executors.newThreadPerTaskExecutor(virtualThreadFactory);
-        return new LoggingExecutorService(
-                virtualExecutor,
-                th -> logger.error("Uncaught exception in ContextFragment Virtual Thread executor", th));
+        return ExecutorsUtil.newVirtualThreadExecutor("brokk-cf-", 1_000);
     }
 
     public sealed interface PathFragment extends ContextFragment

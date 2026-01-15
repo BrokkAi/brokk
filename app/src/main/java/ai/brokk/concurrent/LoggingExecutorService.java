@@ -1,4 +1,4 @@
-package ai.brokk.util;
+package ai.brokk.concurrent;
 
 import java.util.Collection;
 import java.util.List;
@@ -27,7 +27,7 @@ public class LoggingExecutorService implements ExecutorService {
     @Override
     public <T> CompletableFuture<T> submit(Callable<T> task) {
         var wrappedCallable = wrap(task);
-        var cf = new CompletableFuture<T>();
+        var cf = new EdtAwareFuture<T>();
         try {
             var underlyingFuture = delegate.submit(() -> {
                 try {
@@ -51,7 +51,7 @@ public class LoggingExecutorService implements ExecutorService {
     @Override
     public CompletableFuture<Void> submit(Runnable task) {
         var wrappedRunnable = wrap(task);
-        var cf = new CompletableFuture<Void>();
+        var cf = new EdtAwareFuture<Void>();
         try {
             var underlyingFuture = delegate.submit(() -> {
                 try {
@@ -75,7 +75,7 @@ public class LoggingExecutorService implements ExecutorService {
     @Override
     public <T> CompletableFuture<T> submit(Runnable task, T result) {
         var wrappedRunnable = wrap(task);
-        var cf = new CompletableFuture<T>();
+        var cf = new EdtAwareFuture<T>();
         try {
             var underlyingFuture = delegate.submit(() -> {
                 try {
@@ -163,23 +163,29 @@ public class LoggingExecutorService implements ExecutorService {
      */
     public CompletableFuture<Void> shutdownAndAwait(long timeoutMillis, String name) {
         delegate.shutdown();
-        return CompletableFuture.runAsync(() -> {
-            try {
-                if (!delegate.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS)) {
-                    logger.warn("{} did not terminate within {}ms; forcing shutdownNow()", name, timeoutMillis);
-                    var pending = delegate.shutdownNow();
-                    if (!pending.isEmpty()) {
-                        logger.debug("Canceled {} queued tasks in {}", pending.size(), name);
+        var cf = new EdtAwareFuture<Void>();
+        CompletableFuture.runAsync(() -> {
+                    try {
+                        if (!delegate.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS)) {
+                            logger.warn("{} did not terminate within {}ms; forcing shutdownNow()", name, timeoutMillis);
+                            var pending = delegate.shutdownNow();
+                            if (!pending.isEmpty()) {
+                                logger.debug("Canceled {} queued tasks in {}", pending.size(), name);
+                            }
+                            if (!delegate.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS)) {
+                                logger.warn("{} still not terminated after shutdownNow()", name);
+                            }
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        logger.warn("Interrupted while awaiting termination of {}", name, e);
                     }
-                    if (!delegate.awaitTermination(timeoutMillis, TimeUnit.MILLISECONDS)) {
-                        logger.warn("{} still not terminated after shutdownNow()", name);
-                    }
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warn("Interrupted while awaiting termination of {}", name, e);
-            }
-        });
+                })
+                .whenComplete((res, ex) -> {
+                    if (ex != null) cf.completeExceptionally(ex);
+                    else cf.complete(null);
+                });
+        return cf;
     }
 
     @Override

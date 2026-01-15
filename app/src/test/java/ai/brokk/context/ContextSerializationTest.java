@@ -880,8 +880,8 @@ public class ContextSerializationTest {
         ContextHistory loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
 
         // Allow both histories to be loaded
-        context.awaitContextsAreComputed(Duration.ofSeconds(10));
-        loadedHistory.liveContext().awaitContextsAreComputed(Duration.ofSeconds(10));
+        context.awaitContentsAreComputed(Duration.ofSeconds(10));
+        loadedHistory.liveContext().awaitContentsAreComputed(Duration.ofSeconds(10));
 
         assertContextsEqual(
                 originalHistory.getHistory().get(0), loadedHistory.getHistory().get(0));
@@ -1059,8 +1059,8 @@ public class ContextSerializationTest {
 
         var originalCtx = originalHistory.getHistory().getFirst();
         var loadedCtx = loadedHistory.getHistory().getFirst();
-        originalCtx.awaitContextsAreComputed(Duration.ofSeconds(15));
-        loadedCtx.awaitContextsAreComputed(Duration.ofSeconds(15));
+        originalCtx.awaitContentsAreComputed(Duration.ofSeconds(15));
+        loadedCtx.awaitContentsAreComputed(Duration.ofSeconds(15));
         // equals no longer passes since we changed description from fqName to shortName
         // assertContextsEqual(originalCtx, loadedCtx);
 
@@ -2030,8 +2030,8 @@ public class ContextSerializationTest {
         HistoryIo.writeZip(originalHistory, zipFile);
         var loadedHistory = HistoryIo.readZip(zipFile, mockContextManager);
 
-        context.awaitContextsAreComputed(Duration.ofSeconds(10));
-        loadedHistory.liveContext().awaitContextsAreComputed(Duration.ofSeconds(10));
+        context.awaitContentsAreComputed(Duration.ofSeconds(10));
+        loadedHistory.liveContext().awaitContentsAreComputed(Duration.ofSeconds(10));
 
         var loadedFragment = (ContextFragments.PasteTextFragment) loadedHistory
                 .liveContext()

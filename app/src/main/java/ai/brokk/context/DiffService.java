@@ -4,6 +4,8 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ExceptionReporter;
 import ai.brokk.IContextManager;
+import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoData.FileDiff;
@@ -14,11 +16,9 @@ import ai.brokk.util.ContentDiffUtils;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,7 +33,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>Uses a global bounded cache of (prev, curr) context pairs to avoid redundant computations across sessions.
  * This service materializes computed values asynchronously as needed via
- * {@link ai.brokk.util.ComputedValue#await(Duration)}.
+ * {@link ComputedValue#await(Duration)}.
  */
 public final class DiffService {
     private static final Logger logger = LogManager.getLogger(DiffService.class);
@@ -91,7 +91,7 @@ public final class DiffService {
             var revision = history.getGitState(k.prev().id())
                     .map(ContextHistory.GitState::commitHash)
                     .orElse("HEAD");
-            return CompletableFuture.supplyAsync(
+            return LoggingFuture.supplyAsync(
                     () -> computeDiff(k.curr(), castNonNull(k.prev()), revision), cm.getBackgroundTasks());
         });
     }
@@ -323,16 +323,6 @@ public final class DiffService {
         return new FragmentDiff(thisFragment, diff, 1, 1, "[image]", "[image]");
     }
 
-    /**
-     * Summarizes cumulative changes between two Git references.
-     * Uses JGit's structured diff for proper rename and copy detection.
-     *
-     * @param repo the Git repository
-     * @param leftRef the baseline commit/branch reference (left/old side)
-     * @param rightRef the target commit/branch reference (right/new side)
-     * @param commits the list of commits in the range
-     * @return CumulativeChanges with per-file diffs and aggregated statistics
-     */
     @Blocking
     public static CumulativeChanges computeCumulativeDiff(
             IGitRepo repo, String leftRef, String rightRef, List<CommitInfo> commits) {
@@ -403,45 +393,6 @@ public final class DiffService {
                 List<FileDiff> perFileChanges,
                 List<CommitInfo> commits) {
             this(filesChanged, totalAdded, totalDeleted, perFileChanges, commits, null);
-        }
-
-        /**
-         * Identifies session IDs that overlap with the commits in this cumulative change.
-         */
-        @Blocking
-        public static List<UUID> findOverlappingSessions(IContextManager cm, List<CommitInfo> commits) {
-            if (commits.isEmpty()) {
-                return List.of();
-            }
-
-            var sessionManager = cm.getProject().getSessionManager();
-            Instant earliestCommit = commits.stream()
-                    .map(CommitInfo::date)
-                    .min(Comparator.naturalOrder())
-                    .orElse(Instant.now());
-            // Buffer by one day to catch sessions that might have started just before the first commit
-            Instant timeBound = earliestCommit.minus(java.time.temporal.ChronoUnit.DAYS.getDuration());
-
-            List<ai.brokk.SessionManager.SessionInfo> shortlisted = sessionManager.listSessions().stream()
-                    .filter(s -> s.createdAt().isAfter(timeBound))
-                    .toList();
-
-            Set<String> changeCommitIds = commits.stream().map(CommitInfo::id).collect(Collectors.toSet());
-            List<UUID> overlappingIds = new ArrayList<>();
-
-            for (var session : shortlisted) {
-                var history = sessionManager.loadHistory(session.id(), cm);
-                if (history == null) continue;
-
-                boolean hasOverlap = history.getGitStates().values().stream()
-                        .map(ContextHistory.GitState::commitHash)
-                        .anyMatch(changeCommitIds::contains);
-
-                if (hasOverlap) {
-                    overlappingIds.add(session.id());
-                }
-            }
-            return overlappingIds;
         }
     }
 

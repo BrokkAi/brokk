@@ -3,10 +3,12 @@ package ai.brokk.util;
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.project.MainProject;
 import com.google.common.base.Splitter;
+import com.vladsch.flexmark.ast.FencedCodeBlock;
 import com.vladsch.flexmark.ast.Heading;
+import com.vladsch.flexmark.ast.ListBlock;
 import com.vladsch.flexmark.ast.Paragraph;
 import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.ast.Node;
@@ -16,7 +18,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -46,9 +50,9 @@ public class ReviewParser {
 
     public record ExcerptMatch(int line, DiffSide side, String matchedText) {}
 
-    public static @Nullable ExcerptMatch matchExcerptInFile(RawExcerpt excerpt, FileComparisonInfo fileInfo) {
+    public static @Nullable ExcerptMatch matchExcerptInFile(RawExcerpt excerpt, FileDiff fileDiff) {
         // Try NEW content first
-        String newContent = fileInfo.rightSource().content();
+        String newContent = fileDiff.newText();
         var newMatch = matchExcerptInContent(excerpt, newContent);
         if (newMatch.isPresent()) {
             return new ExcerptMatch(
@@ -56,7 +60,7 @@ public class ReviewParser {
         }
 
         // Try OLD content
-        String oldContent = fileInfo.leftSource().content();
+        String oldContent = fileDiff.oldText();
         var oldMatch = matchExcerptInContent(excerpt, oldContent);
         if (oldMatch.isPresent()) {
             return new ExcerptMatch(
@@ -500,7 +504,7 @@ public class ReviewParser {
     public static @Nullable String extractNoteSection(String markdown, String noteTitle) {
         List<String> lines = Splitter.on('\n').splitToList(markdown);
         int start = -1;
-        java.util.Locale locale = java.util.Locale.ROOT;
+        Locale locale = Locale.ROOT;
         String headerLower = ("### " + noteTitle).toLowerCase(locale);
 
         for (int i = 0; i < lines.size(); i++) {
@@ -548,7 +552,7 @@ public class ReviewParser {
         // Get all excerpts in sequence to match them against nodes during parsing.
         // Track which global indices have been consumed to handle duplicates correctly.
         List<RawExcerpt> allExcerpts = parseExcerpts(markdown);
-        var consumedIndices = new java.util.HashSet<Integer>();
+        var consumedIndices = new HashSet<Integer>();
 
         for (Node node = document.getFirstChild(); node != null; node = node.getNext()) {
             if (node instanceof Heading heading) {
@@ -617,7 +621,7 @@ public class ReviewParser {
                         }
                         overviewBuilder.append(pText);
                     }
-                } else if (node instanceof com.vladsch.flexmark.ast.ListBlock lb) {
+                } else if (node instanceof ListBlock lb) {
                     String listText = lb.getChars().toString().trim();
                     if (!listText.isEmpty()) {
                         if (!overviewBuilder.isEmpty()) {
@@ -688,7 +692,7 @@ public class ReviewParser {
                         }
                     }
                 }
-            } else if (node instanceof com.vladsch.flexmark.ast.FencedCodeBlock fcb) {
+            } else if (node instanceof FencedCodeBlock fcb) {
                 if (pendingFile != null) {
                     String content = fcb.getContentChars().toString();
                     if (content.endsWith("\n")) {
@@ -699,7 +703,7 @@ public class ReviewParser {
                     pendingFile = null;
                     pendingLine = -1;
                 }
-            } else if (node instanceof com.vladsch.flexmark.ast.ListBlock) {
+            } else if (node instanceof ListBlock) {
                 String filtered = filterAtFileLines(rawChars.trim());
                 if (inRecommendation) {
                     recommendation.append(filtered).append("\n");

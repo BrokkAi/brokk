@@ -40,6 +40,7 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
@@ -1438,7 +1439,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
         logger.debug("Attempting to refresh {} from disk", file);
         try {
             // Check if file still exists
-            if (!java.nio.file.Files.exists(file.absPath())) {
+            if (!Files.exists(file.absPath())) {
                 logger.debug("File no longer exists: {}", file);
                 SwingUtilities.invokeLater(() -> {
                     chrome.showNotification(IConsoleIO.NotificationRole.INFO, "File has been deleted: " + file);
