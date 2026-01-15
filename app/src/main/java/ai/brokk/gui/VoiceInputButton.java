@@ -6,6 +6,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IConsoleIO.NotificationRole;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.util.Icons;
 import com.google.common.base.Splitter;
 import java.awt.*;
@@ -168,11 +169,16 @@ public class VoiceInputButton extends JButton {
         });
 
         // Initialize enabled state based on whether an STT model is available.
-        boolean sttAvailable = contextManager.getService().hasSttModel();
-        setEnabled(sttAvailable);
-        if (!sttAvailable) {
-            setToolTipText("Speech-to-text unavailable — configure a transcription-capable model in Settings.");
-        }
+        // We move this off the EDT as it may involve network/model checks.
+        LoggingFuture.supplyAsync(() -> {
+            boolean sttAvailable = contextManager.getService().hasSttModel();
+            SwingUtilities.invokeLater(() -> {
+                setEnabled(sttAvailable);
+                if (!sttAvailable) {
+                    setToolTipText("Speech-to-text unavailable — configure a transcription-capable model in Settings.");
+                }
+            });
+        });
 
         // Register for service reload notifications so we can update the button state dynamically.
         try {
@@ -199,15 +205,19 @@ public class VoiceInputButton extends JButton {
         this(targetTextArea, contextManager, onRecordingStart, null, null, null, onError);
     }
 
-    /** Update the button enabled/tooltip state based on current STT availability. This is invoked on the EDT. */
+    /** Update the button enabled/tooltip state based on current STT availability. This moves the check off the EDT. */
     private void updateSttAvailability() {
-        boolean available = contextManager.getService().hasSttModel();
-        setEnabled(available);
-        if (available) {
-            setToolTipText("Toggle Microphone (Cmd/Ctrl+L)");
-        } else {
-            setToolTipText("Speech-to-text unavailable — configure a transcription-capable model in Settings.");
-        }
+        LoggingFuture.supplyAsync(() -> {
+            boolean available = contextManager.getService().hasSttModel();
+            SwingUtilities.invokeLater(() -> {
+                setEnabled(available);
+                if (available) {
+                    setToolTipText("Toggle Microphone (Cmd/Ctrl+L)");
+                } else {
+                    setToolTipText("Speech-to-text unavailable — configure a transcription-capable model in Settings.");
+                }
+            });
+        });
     }
 
     @Override
@@ -259,7 +269,7 @@ public class VoiceInputButton extends JButton {
 
         // Move audio device initialization to background thread to avoid blocking EDT
         AudioFormat format = new AudioFormat(16000.0f, 16, 1, true, true);
-        contextManager.submitBackgroundTask("Initializing microphone", () -> {
+        LoggingFuture.supplyAsync(() -> {
             try {
                 // Initialize audio device (blocking I/O)
                 TargetDataLine line = initializeAudioDevice(format);
