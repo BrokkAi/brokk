@@ -1480,7 +1480,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         TaskResult result;
-        var title = task.title() == null ? task.text() : task.title();
+        var title = task.title().isBlank() ? task.text() : task.title();
         try (var scope = beginTask(prompt, true, true, "Task: " + title)) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithScan();

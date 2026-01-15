@@ -101,7 +101,7 @@ public enum SpecialTextType {
                     boolean done = item.done();
                     var title = item.title();
                     String text = item.text();
-                    boolean hasTitle = title != null && !title.isBlank();
+                    boolean hasTitle = !title.isBlank();
                     boolean hasText = !text.isBlank();
 
                     sb.append(done ? "- [x] " : "- [ ] ");
