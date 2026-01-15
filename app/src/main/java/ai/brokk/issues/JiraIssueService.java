@@ -374,9 +374,10 @@ public class JiraIssueService implements IssueService {
 
                     String authorName =
                             rawComment.path("author").path("displayName").asText("Unknown Author");
-                    String bodyHtml = HtmlUtil.sanitize((htmlComment != null)
-                            ? htmlComment.path("renderedBody").asText("")
-                            : "");
+                    String bodyHtml = HtmlUtil.sanitize(
+                            (htmlComment != null)
+                                    ? htmlComment.path("renderedBody").asText("")
+                                    : "");
                     // If renderedBody is not available from htmlComment, bodyHtml will be empty.
                     // This follows the user's provided logic snippet.
 

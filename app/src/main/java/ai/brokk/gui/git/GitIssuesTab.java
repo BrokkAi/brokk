@@ -32,7 +32,6 @@ import ai.brokk.issues.JiraIssueService;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Environment;
-import ai.brokk.util.HtmlUtil;
 import ai.brokk.util.ImageUtil;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.UserMessage;

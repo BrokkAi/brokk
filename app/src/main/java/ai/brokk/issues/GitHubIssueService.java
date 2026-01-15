@@ -285,7 +285,8 @@ public class GitHubIssueService implements IssueService {
                     .post(RequestBody.create(
                             objectMapper.writeValueAsString(requestBody), MediaType.get("application/json")));
 
-            try (Response response = httpClient().newCall(requestBuilder.build()).execute()) {
+            try (Response response =
+                    httpClient().newCall(requestBuilder.build()).execute()) {
                 if (!response.isSuccessful()) {
                     throw new IOException("GraphQL query failed: " + response.code() + " " + response.message());
                 }
@@ -294,7 +295,8 @@ public class GitHubIssueService implements IssueService {
                 }
                 JsonNode root = objectMapper.readTree(response.body().byteStream());
                 if (root.has("errors")) {
-                    throw new IOException("GraphQL errors: " + root.get("errors").toString());
+                    throw new IOException(
+                            "GraphQL errors: " + root.get("errors").toString());
                 }
 
                 JsonNode issueNode = root.path("data").path("repository").path("issue");
@@ -314,7 +316,8 @@ public class GitHubIssueService implements IssueService {
                         allImageUrls.addAll(MarkupImageParser.extractImageUrls(htmlBody));
                     }
 
-                    String author = issueNode.path("author").isMissingNode() || issueNode.path("author").isNull()
+                    String author = issueNode.path("author").isMissingNode()
+                                    || issueNode.path("author").isNull()
                             ? "N/A"
                             : issueNode.path("author").path("login").asText("N/A");
 
@@ -347,11 +350,13 @@ public class GitHubIssueService implements IssueService {
                 if (commentsNode.isArray()) {
                     for (JsonNode node : commentsNode) {
                         String cBody = node.path("body").asText("");
-                        String cHtmlBody = HtmlUtil.sanitize(node.path("bodyHTML").asText(""));
+                        String cHtmlBody =
+                                HtmlUtil.sanitize(node.path("bodyHTML").asText(""));
                         if (!cHtmlBody.isBlank()) {
                             allImageUrls.addAll(MarkupImageParser.extractImageUrls(cHtmlBody));
                         }
-                        String cAuthor = node.path("author").isMissingNode() || node.path("author").isNull()
+                        String cAuthor = node.path("author").isMissingNode()
+                                        || node.path("author").isNull()
                                 ? "N/A"
                                 : node.path("author").path("login").asText("N/A");
                         Instant cCreated = parseIsoDate(node.path("createdAt").asText(null));

@@ -8,14 +8,14 @@ import ai.brokk.project.IProject;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import okhttp3.*;
-import okio.Timeout;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.LinkedList;
 import java.util.Queue;
+import okhttp3.*;
+import okio.Timeout;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 public class GitHubIssueServiceTest {
 
@@ -25,8 +25,15 @@ public class GitHubIssueServiceTest {
     @BeforeEach
     void setUp() {
         IProject mockProject = new IProject() {
-            @Override public IssueProvider getIssuesProvider() { return null; }
-            @Override public Path getRoot() { return Path.of("mock-root"); }
+            @Override
+            public IssueProvider getIssuesProvider() {
+                return null;
+            }
+
+            @Override
+            public Path getRoot() {
+                return Path.of("mock-root");
+            }
         };
         mockHttpClient = new MockOkHttpClient();
         service = new TestableGitHubIssueService(mockProject, mockHttpClient);
@@ -49,10 +56,10 @@ public class GitHubIssueServiceTest {
         assertEquals("#123", details.header().id());
         assertEquals("Test Issue Title", details.header().title());
         assertEquals(2, details.comments().size());
-        
+
         assertEquals("Comment 1", details.comments().get(0).markdownBody());
         assertEquals("author1", details.comments().get(0).author());
-        
+
         assertEquals("Comment 2", details.comments().get(1).markdownBody());
         assertEquals("author2", details.comments().get(1).author());
     }
@@ -72,10 +79,10 @@ public class GitHubIssueServiceTest {
         issue.put("bodyHTML", "<p>Issue Body</p>");
         issue.put("createdAt", "2023-01-01T00:00:00Z");
         issue.put("updatedAt", "2023-01-01T00:00:00Z");
-        
+
         ObjectNode issueAuthor = issue.putObject("author");
         issueAuthor.put("login", "issue-author");
-        
+
         issue.putObject("assignees").putArray("nodes");
         issue.putObject("labels").putArray("nodes");
 
@@ -163,12 +170,35 @@ public class GitHubIssueServiceTest {
                     .build();
         }
 
-        @Override public void enqueue(Callback responseCallback) { }
-        @Override public void cancel() { }
-        @Override public boolean isExecuted() { return true; }
-        @Override public boolean isCanceled() { return false; }
-        @Override public Timeout timeout() { return Timeout.NONE; }
-        @Override public Call clone() { return this; }
-        @Override public Request request() { return request; }
+        @Override
+        public void enqueue(Callback responseCallback) {}
+
+        @Override
+        public void cancel() {}
+
+        @Override
+        public boolean isExecuted() {
+            return true;
+        }
+
+        @Override
+        public boolean isCanceled() {
+            return false;
+        }
+
+        @Override
+        public Timeout timeout() {
+            return Timeout.NONE;
+        }
+
+        @Override
+        public Call clone() {
+            return this;
+        }
+
+        @Override
+        public Request request() {
+            return request;
+        }
     }
 }
