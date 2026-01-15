@@ -3,7 +3,6 @@ package ai.brokk.gui.dialogs;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.gui.Chrome;
-import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
 import ai.brokk.util.GlobalUiSettings;
@@ -14,56 +13,39 @@ import javax.swing.*;
 import org.jetbrains.annotations.Nullable;
 
 public class PreviewFrame extends DetachableTabFrame {
-    private PreviewTabbedPane tabbedPane;
-
-    public PreviewFrame(Chrome chrome, PreviewTabbedPane initialPane) {
-        super("Preview", initialPane, () -> {
+    public PreviewFrame(Chrome chrome, JComponent initialContent) {
+        super("Preview", initialContent, () -> {
             chrome.getRightPanel().redockPreview();
             chrome.clearPreviewFrame();
         });
-        this.tabbedPane = initialPane;
+    }
 
-        // Register close tab shortcut for PreviewFrame (defaults to platform accelerator + W)
-        // This overrides the DetachableTabFrame default behavior which redocks the whole frame
-        KeyStroke closeTabKeyStroke = GlobalUiSettings.getKeybinding(
-                "global.closeTab", KeyboardShortcutUtil.createPlatformShortcut(KeyEvent.VK_W));
-        var root = this.getRootPane();
-        root.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(closeTabKeyStroke, "closePreviewTab");
-        root.getActionMap().put("closePreviewTab", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                closeSelectedTab();
+    public void setContent(JComponent newContent) {
+        setContentComponent(newContent);
+    }
+
+    /**
+     * Refreshes the preview for the given file if it matches.
+     */
+    public void refreshForFile(ProjectFile file) {
+        SwingUtilities.invokeLater(() -> {
+            Component content = getContentPane();
+            if (content instanceof JRootPane rp) {
+                content = rp.getContentPane();
+            }
+            if (content instanceof Container container && container.getComponentCount() > 0) {
+                Component comp = container.getComponent(0);
+                if (comp instanceof ai.brokk.gui.dialogs.PreviewTextPanel panel) {
+                    if (file.equals(panel.getFile())) panel.refreshFromDisk();
+                } else if (comp instanceof ai.brokk.gui.dialogs.PreviewImagePanel imagePanel) {
+                    if (file.equals(imagePanel.getFile())) imagePanel.refreshFromDisk();
+                }
             }
         });
     }
 
-    public void setTabbedPane(PreviewTabbedPane newPane) {
-        setContentComponent(newPane);
-        this.tabbedPane = newPane;
-    }
-
-    public void addOrSelectTab(
-            String title, JComponent panel, @Nullable ProjectFile fileKey, @Nullable ContextFragment fragmentKey) {
-        SwingUtilities.invokeLater(() -> tabbedPane.addOrSelectTab(title, panel, fileKey, fragmentKey));
-    }
-
-    /**
-     * Closes the currently selected tab.
-     */
-    private void closeSelectedTab() {
-        tabbedPane.closeSelectedTab();
-    }
-
-    /**
-     * Finds and refreshes all tabs for the given file.
-     */
-    public void refreshTabsForFile(ProjectFile file) {
-        SwingUtilities.invokeLater(() -> tabbedPane.refreshTabsForFile(file));
-    }
-
     @Override
     public void applyTheme(GuiTheme guiTheme) {
-        tabbedPane.applyTheme(guiTheme);
         super.applyTheme(guiTheme);
     }
 }

@@ -10,7 +10,6 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.dialogs.PreviewFrame;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
@@ -219,8 +218,8 @@ public class PreviewManager {
     }
 
     /**
-     * Shows a component in the shared tabbed preview frame. Lazily creates the frame and
-     * ensures bounds, min size, and theme are applied. Selects existing tab by file or fragment when possible.
+     * Shows a component in the shared preview frame. Lazily creates the frame and
+     * ensures bounds, min size, and theme are applied.
      */
     public void showPreviewInTabbedFrame(String title, JComponent panel, @Nullable ContextFragment fragment) {
         SwingUtilities.invokeLater(() -> {
@@ -228,8 +227,7 @@ public class PreviewManager {
 
             if (isPreviewDocked) {
                 RightPanel rightPanel = chrome.getRightPanel();
-                var previewTabs = rightPanel.getPreviewTabbedPane();
-                previewTabs.addOrSelectTab(title, panel, file, fragment);
+                rightPanel.setPreviewContent(panel);
                 if (file != null) {
                     projectFileToPreviewWindow.put(file, chrome.getFrame());
                 }
@@ -238,16 +236,10 @@ public class PreviewManager {
             }
 
             // Standalone frame
-            if (panel instanceof PreviewTabbedPane ptp) {
-                ensurePreviewFrame(ptp);
-            } else {
-                ensurePreviewFrame();
-            }
+            ensurePreviewFrame();
             var frame = castNonNull(previewFrame);
 
-            if (!(panel instanceof PreviewTabbedPane)) {
-                frame.addOrSelectTab(title, panel, file, fragment);
-            }
+            frame.setContent(panel);
             if (file != null) {
                 projectFileToPreviewWindow.put(file, frame);
             }
@@ -264,22 +256,11 @@ public class PreviewManager {
     }
 
     private void ensurePreviewFrame() {
-        ensurePreviewFrame(null);
-    }
-
-    private void ensurePreviewFrame(@Nullable PreviewTabbedPane existingPane) {
         if (previewFrame != null && previewFrame.isDisplayable()) {
-            if (existingPane != null) {
-                previewFrame.setTabbedPane(existingPane);
-            }
             return;
         }
 
-        PreviewTabbedPane pane = existingPane != null
-                ? existingPane
-                : new PreviewTabbedPane(chrome, chrome.getTheme(), title -> {}, () -> {});
-
-        previewFrame = new PreviewFrame(chrome, pane);
+        previewFrame = new PreviewFrame(chrome, new JPanel(new BorderLayout()));
         var frame = previewFrame;
 
         var project = cm.getProject();
@@ -335,28 +316,16 @@ public class PreviewManager {
     }
 
     /**
-     * Shows a diff panel in the shared tabbed preview interface.
-     * Incorporates deduplication logic to raise existing windows or select existing tabs.
+     * Shows a diff panel in the shared preview interface.
      */
     public void showDiffInTab(
             String title, BrokkDiffPanel panel, List<BufferSource> leftSources, List<BufferSource> rightSources) {
         SwingUtilities.invokeLater(() -> {
-            // 1. Check for existing standalone window first
+            // Check for existing standalone window first
             if (tryRaiseExistingDiffWindow(leftSources, rightSources)) {
                 return;
             }
 
-            // 2. Check for existing tab in the BuildPane or PreviewFrame
-            RightPanel rightPanel = chrome.getRightPanel();
-            PreviewTabbedPane tabs = rightPanel.getPreviewTabbedPane();
-
-            var existing = findExistingDiffTab(tabs, leftSources, rightSources);
-            if (existing.isPresent() && tabs.selectTab(existing.get())) {
-                rightPanel.selectPreviewTab();
-                return;
-            }
-
-            // 3. Not found, show it as a new tab
             showPreviewInTabbedFrame(title, panel, null);
         });
     }
@@ -377,13 +346,6 @@ public class PreviewManager {
             }
         }
         return false;
-    }
-
-    private Optional<BrokkDiffPanel> findExistingDiffTab(
-            PreviewTabbedPane tabs, List<BufferSource> leftSources, List<BufferSource> rightSources) {
-        return tabs.findTab(
-                        comp -> comp instanceof BrokkDiffPanel panel && panel.matchesContent(leftSources, rightSources))
-                .map(c -> (BrokkDiffPanel) c);
     }
 
     @Nullable
@@ -431,16 +393,11 @@ public class PreviewManager {
             for (ProjectFile file : changedFiles) {
                 JFrame previewFrame = projectFileToPreviewWindow.get(file);
 
-                // If it's in the main frame, refresh the BuildPane's preview tabs
-                if (previewFrame == chrome.getFrame()) {
-                    RightPanel rightPanel = chrome.getRightPanel();
-                    rightPanel.getPreviewTabbedPane().refreshTabsForFile(file);
-                    continue;
-                }
-
                 if (previewFrame != null && previewFrame.isDisplayable() && previewFrame != excludeFrame) {
                     if (previewFrame == this.previewFrame) {
-                        this.previewFrame.refreshTabsForFile(file);
+                        this.previewFrame.refreshForFile(file);
+                    } else if (previewFrame == chrome.getFrame()) {
+                        chrome.getRightPanel().refreshPreviewForFile(file);
                     } else {
                         // Legacy standalone windows; keep best-effort refresh
                         Container contentPane = previewFrame.getContentPane();
@@ -733,14 +690,15 @@ public class PreviewManager {
     }
 
     /**
-     * Replaces an existing tab's content with a new component.
-     * Used when placeholder content needs to be replaced with a different component type (e.g., text -> markdown).
+     * Replaces an existing preview's content with a new component.
      */
     private void replaceTabContent(JComponent oldComponent, JComponent newComponent, String title) {
         SwingUtilities.invokeLater(() -> {
-            // Check BuildPane first
-            RightPanel rightPanel = chrome.getRightPanel();
-            rightPanel.getPreviewTabbedPane().replaceTabComponent(oldComponent, newComponent, title);
+            if (isPreviewDocked) {
+                chrome.getRightPanel().setPreviewContent(newComponent);
+            } else if (previewFrame != null) {
+                previewFrame.setContent(newComponent);
+            }
         });
     }
 
@@ -748,15 +706,7 @@ public class PreviewManager {
      * Update the window title for an existing preview in a safe EDT manner and repaint.
      */
     private void updatePreviewWindowTitle(JComponent contentComponent, String newTitle) {
-        SwingUtilities.invokeLater(() -> {
-            try {
-                // Check BuildPane first
-                RightPanel rightPanel = chrome.getRightPanel();
-                rightPanel.getPreviewTabbedPane().updateTabTitle(contentComponent, newTitle);
-            } catch (Exception ex) {
-                logger.debug("Unable to update preview window title", ex);
-            }
-        });
+        // No-op: tab titles removed
     }
 
     /**

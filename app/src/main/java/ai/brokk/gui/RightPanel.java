@@ -1,7 +1,6 @@
 package ai.brokk.gui;
 
 import ai.brokk.ContextManager;
-import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.terminal.TaskListPanel;
 import ai.brokk.gui.terminal.TerminalPanel;
 import ai.brokk.gui.theme.GuiTheme;
@@ -34,7 +33,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     private final JSplitPane buildSplitPane;
     private final JTabbedPane buildReviewTabs;
-    private PreviewTabbedPane previewTabbedPane;
+    private JPanel previewPanel;
     private final JTabbedPane commandPane;
     private final JPanel commandPanel;
     private final JPanel branchSelectorPanel;
@@ -68,7 +67,7 @@ public class RightPanel extends JPanel implements ThemeAware {
     static UndockTarget getUndockTarget(
             Component comp,
             Component reviewTabComponent,
-            Component previewTabbedPane,
+            Component previewPanel,
             Component terminalPanel,
             Component buildSplitPane,
             @Nullable Component verticalActivityCombinedPanel) {
@@ -77,7 +76,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             return UndockTarget.NONE;
         }
         if (comp == reviewTabComponent) return UndockTarget.REVIEW;
-        if (comp == previewTabbedPane) return UndockTarget.PREVIEW;
+        if (comp == previewPanel) return UndockTarget.PREVIEW;
         if (comp == terminalPanel) return UndockTarget.TERMINAL;
         return UndockTarget.NONE;
     }
@@ -135,13 +134,8 @@ public class RightPanel extends JPanel implements ThemeAware {
         buildSplitPane.setMinimumSize(new Dimension(200, 325));
         setupSplitPanePersistence();
 
-        // Preview Pane (lazy content but tab is always present)
-        previewTabbedPane = new PreviewTabbedPane(
-                chrome,
-                chrome.getTheme(),
-                title -> {}, // No window title to update here
-                () -> {} // Don't close main UI tab when empty
-                );
+        // Preview Pane
+        previewPanel = new JPanel(new BorderLayout());
 
         // Review Tab Setup - show placeholder if no Git repo
         if (chrome.getProject().hasGit()) {
@@ -159,7 +153,7 @@ public class RightPanel extends JPanel implements ThemeAware {
         buildReviewTabs.addTab("Build", Icons.HANDYMAN, buildSplitPane);
         buildReviewTabs.addTab("Review", Icons.FLOWSHEET, reviewTabComponent);
 
-        buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
+        buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewPanel);
         buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
 
         if (!chrome.getPreviewManager().isPreviewDocked()) {
@@ -446,7 +440,7 @@ public class RightPanel extends JPanel implements ThemeAware {
                 UndockTarget target = getUndockTarget(
                         comp,
                         reviewTabComponent,
-                        previewTabbedPane,
+                        previewPanel,
                         terminalPanel,
                         buildSplitPane,
                         verticalActivityCombinedPanel);
@@ -518,7 +512,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             buildReviewTabs.removeTabAt(idx);
         }
 
-        chrome.getPreviewManager().showPreviewInTabbedFrame("Preview", previewTabbedPane, null);
+        chrome.getPreviewManager().showPreviewInTabbedFrame("Preview", previewPanel, null);
     }
 
     public void redockPreview() {
@@ -530,9 +524,9 @@ public class RightPanel extends JPanel implements ThemeAware {
         // Re-add the Preview tab to BuildPane
         int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
         if (terminalIdx != -1) {
-            buildReviewTabs.insertTab("Preview", Icons.VISIBILITY, previewTabbedPane, null, terminalIdx);
+            buildReviewTabs.insertTab("Preview", Icons.VISIBILITY, previewPanel, null, terminalIdx);
         } else {
-            buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
+            buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewPanel);
         }
 
         selectPreviewTab();
@@ -571,9 +565,9 @@ public class RightPanel extends JPanel implements ThemeAware {
                 // Insert before Terminal if possible
                 int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
                 if (terminalIdx != -1) {
-                    buildReviewTabs.insertTab("Preview", Icons.VISIBILITY, previewTabbedPane, null, terminalIdx);
+                    buildReviewTabs.insertTab("Preview", Icons.VISIBILITY, previewPanel, null, terminalIdx);
                 } else {
-                    buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewTabbedPane);
+                    buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewPanel);
                 }
             }
         } else {
@@ -842,8 +836,22 @@ public class RightPanel extends JPanel implements ThemeAware {
         }
     }
 
-    public PreviewTabbedPane getPreviewTabbedPane() {
-        return previewTabbedPane;
+    public void setPreviewContent(Component content) {
+        previewPanel.removeAll();
+        previewPanel.add(content, BorderLayout.CENTER);
+        previewPanel.revalidate();
+        previewPanel.repaint();
+    }
+
+    public void refreshPreviewForFile(ai.brokk.analyzer.ProjectFile file) {
+        if (previewPanel.getComponentCount() > 0) {
+            Component comp = previewPanel.getComponent(0);
+            if (comp instanceof ai.brokk.gui.dialogs.PreviewTextPanel panel) {
+                if (file.equals(panel.getFile())) panel.refreshFromDisk();
+            } else if (comp instanceof ai.brokk.gui.dialogs.PreviewImagePanel imagePanel) {
+                if (file.equals(imagePanel.getFile())) imagePanel.refreshFromDisk();
+            }
+        }
     }
 
     public JTabbedPane getCommandPane() {
@@ -926,7 +934,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             UndockTarget target = getUndockTarget(
                     comp,
                     reviewTabComponent,
-                    previewTabbedPane,
+                    previewPanel,
                     terminalPanel,
                     buildSplitPane,
                     verticalActivityCombinedPanel);
@@ -984,7 +992,7 @@ public class RightPanel extends JPanel implements ThemeAware {
             UndockTarget target = getUndockTarget(
                     comp,
                     reviewTabComponent,
-                    previewTabbedPane,
+                    previewPanel,
                     terminalPanel,
                     buildSplitPane,
                     verticalActivityCombinedPanel);
