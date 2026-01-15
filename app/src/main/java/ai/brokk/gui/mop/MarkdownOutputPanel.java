@@ -236,14 +236,17 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             isNew = true;
         } else {
             var last = messages.getLast();
-            boolean lastIsReasoning = Messages.isReasoningMessage(last);
-            boolean lastIsTerminal = Messages.isTerminalMessage(last);
 
-            // New bubble required when:
-            // - reasoning or terminal state changes (these are sub-variants of AI/CustomMessage)
-            // - previous was terminal (terminal = semantically complete, frontend skips markdown parsing)
-            // - ChatMessageType changes
-            isNew = meta.isReasoning() != lastIsReasoning || meta.isTerminal() != lastIsTerminal || type != last.type();
+            // Precedence is intentional:
+            // - a base ChatMessageType change always starts a new bubble
+            // - within the same type, split on variant changes (reasoning for AI, terminal for CUSTOM)
+            if (type != last.type()) {
+                isNew = true;
+            } else {
+                boolean lastIsReasoning = Messages.isReasoningMessage(last);
+                boolean lastIsTerminal = Messages.isTerminalMessage(last);
+                isNew = meta.isReasoning() != lastIsReasoning || meta.isTerminal() != lastIsTerminal;
+            }
         }
 
         var chunkMeta = new ChunkMeta(isNew, meta.isReasoning(), meta.isTerminal());
