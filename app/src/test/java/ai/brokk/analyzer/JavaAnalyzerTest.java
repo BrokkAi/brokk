@@ -1071,8 +1071,8 @@ public class JavaAnalyzerTest {
             var analyzer = new JavaAnalyzer(project);
             var cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
 
-            var frag = new ContextFragments.SummaryFragment(
-                    cm, "p.Outer", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+            var frag =
+                    new ContextFragments.SummaryFragment(cm, "p.Outer", ContextFragment.SummaryType.CODEUNIT_SKELETON);
 
             var ids = frag.supportingFragments().stream()
                     .filter(f -> f instanceof ContextFragments.SummaryFragment)

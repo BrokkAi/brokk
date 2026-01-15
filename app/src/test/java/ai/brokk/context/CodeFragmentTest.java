@@ -10,9 +10,9 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -103,40 +103,27 @@ public class CodeFragmentTest {
         CodeUnit outer = CodeUnit.cls(file, "com.example", "Outer");
         CodeUnit inner = CodeUnit.cls(file, "com.example", "Inner");
         CodeUnit outerBase = CodeUnit.cls(outerBaseFile, "com.example", "OuterBase");
-        CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "InnerBase");
+        CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "Outer.InnerBase");
 
-        // Custom analyzer to simulate specific file structure and definition resolution
-        var customAnalyzer = new TestAnalyzer() {
+        TestAnalyzer analyzer = new TestAnalyzer() {
             @Override
-            public List<CodeUnit> getTopLevelDeclarations(ProjectFile f) {
-                if (f.equals(file)) return List.of(outer);
-                return List.of();
-            }
-
-            @Override
-            public Set<CodeUnit> getDeclarations(ProjectFile f) {
-                if (f.equals(file)) return Set.of(outer, inner);
-                return Set.of();
-            }
-
-            @Override
-            public java.util.SequencedSet<CodeUnit> getDefinitions(String fqName) {
-                if ("com.example.Outer".equals(fqName)) {
-                    return new java.util.LinkedHashSet<>(List.of(outer));
+            public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+                if (Objects.equals(outer, cu)) {
+                    return List.of(inner);
                 }
-                return super.getDefinitions(fqName);
+                return super.getDirectChildren(cu);
             }
         };
 
-        customAnalyzer.addDeclaration(outer);
-        customAnalyzer.addDeclaration(inner);
-        customAnalyzer.addDeclaration(outerBase);
-        customAnalyzer.addDeclaration(innerBase);
-        customAnalyzer.setDirectAncestors(outer, List.of(outerBase));
-        customAnalyzer.setDirectAncestors(inner, List.of(innerBase));
-        customAnalyzer.setSource(outer, "class Outer extends OuterBase { class Inner extends InnerBase {} }");
+        analyzer.addDeclaration(outer);
+        analyzer.addDeclaration(inner);
+        analyzer.addDeclaration(outerBase);
+        analyzer.addDeclaration(innerBase);
+        analyzer.setDirectAncestors(outer, List.of(outerBase));
+        analyzer.setDirectAncestors(inner, List.of(innerBase));
+        analyzer.setSource(outer, "class Outer extends OuterBase { class Inner extends InnerBase {} }");
 
-        TestContextManager customManager = new TestContextManager(tempDir, new TestConsoleIO(), customAnalyzer);
+        TestContextManager customManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
         var fragment = new ContextFragments.CodeFragment(customManager, "com.example.Outer");
 
         var supporting = fragment.supportingFragments();
@@ -162,7 +149,7 @@ public class CodeFragmentTest {
         ProjectFile childFile = new ProjectFile(tempDir, "Child.java");
 
         CodeUnit parentCls = CodeUnit.cls(parentFile, "com.example", "Parent");
-        CodeUnit childCls = CodeUnit.cls(childFile, "com.example", "Child");
+        CodeUnit childCls = CodeUnit.cls(childFile, "com.example", "Parent.Child");
 
         analyzer.addDeclaration(parentCls);
         analyzer.addDeclaration(childCls);

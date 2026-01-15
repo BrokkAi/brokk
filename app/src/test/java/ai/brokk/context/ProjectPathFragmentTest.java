@@ -11,10 +11,10 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
-import java.util.Set;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -106,37 +106,28 @@ public class ProjectPathFragmentTest {
 
         // Setup CodeUnits
         CodeUnit outerCls = CodeUnit.cls(outerFile, "com.example", "Outer");
-        CodeUnit innerCls = CodeUnit.cls(outerFile, "com.example", "Inner");
+        CodeUnit innerCls = CodeUnit.cls(outerFile, "com.example", "Outer.Inner");
         CodeUnit outerBase = CodeUnit.cls(outerBaseFile, "com.example", "OuterBase");
-        CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "InnerBase");
+        CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "Outer.InnerBase");
 
-        // Custom analyzer that returns only 'Outer' as a Top Level Declaration for the file
-        TestAnalyzer customAnalyzer = new TestAnalyzer() {
+        TestAnalyzer analyzer = new TestAnalyzer() {
             @Override
-            public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
-                if (file.equals(outerFile)) {
-                    return List.of(outerCls);
+            public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+                if (Objects.equals(outerCls, cu)) {
+                    return List.of(innerCls);
                 }
-                return super.getTopLevelDeclarations(file);
-            }
-
-            @Override
-            public Set<CodeUnit> getDeclarations(ProjectFile file) {
-                if (file.equals(outerFile)) {
-                    return Set.of(outerCls, innerCls);
-                }
-                return super.getDeclarations(file);
+                return super.getDirectChildren(cu);
             }
         };
 
-        customAnalyzer.addDeclaration(outerCls);
-        customAnalyzer.addDeclaration(innerCls);
-        customAnalyzer.setDirectAncestors(outerCls, List.of(outerBase));
-        customAnalyzer.setDirectAncestors(innerCls, List.of(innerBase));
-        customAnalyzer.setSkeleton(outerBase, "public class OuterBase {}");
-        customAnalyzer.setSkeleton(innerBase, "public class InnerBase {}");
+        analyzer.addDeclaration(outerCls);
+        analyzer.addDeclaration(innerCls);
+        analyzer.setDirectAncestors(outerCls, List.of(outerBase));
+        analyzer.setDirectAncestors(innerCls, List.of(innerBase));
+        analyzer.setSkeleton(outerBase, "public class OuterBase {}");
+        analyzer.setSkeleton(innerBase, "public class InnerBase {}");
 
-        TestContextManager cm = new TestContextManager(tempDir, new TestConsoleIO(), customAnalyzer);
+        TestContextManager cm = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
         ProjectPathFragment fragment = new ProjectPathFragment(outerFile, cm);
 
         var supporting = fragment.supportingFragments();

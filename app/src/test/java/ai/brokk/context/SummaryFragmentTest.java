@@ -8,13 +8,14 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment.SummaryType;
 import ai.brokk.context.ContextFragments.SummaryFragment;
-import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -311,42 +312,26 @@ public class SummaryFragmentTest {
             ProjectFile innerBaseFile = new ProjectFile(testProject.getRoot(), "InnerBase.java");
 
             CodeUnit outer = CodeUnit.cls(outerFile, "com.example", "Outer");
-            CodeUnit inner = CodeUnit.cls(outerFile, "com.example", "Inner");
+            CodeUnit inner = CodeUnit.cls(outerFile, "com.example", "Outer.Inner");
             CodeUnit outerBase = CodeUnit.cls(outerBaseFile, "com.example", "OuterBase");
             CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "InnerBase");
 
-            TestAnalyzer customAnalyzer = new TestAnalyzer() {
+            TestAnalyzer analyzer = new TestAnalyzer() {
                 @Override
-                public List<CodeUnit> getTopLevelDeclarations(ProjectFile f) {
-                    if (f.equals(outerFile)) {
-                        return List.of(outer);
+                public List<CodeUnit> getDirectChildren(CodeUnit cu) {
+                    if (Objects.equals(outer, cu)) {
+                        return List.of(inner);
                     }
-                    return super.getTopLevelDeclarations(f);
-                }
-
-                @Override
-                public Set<CodeUnit> getDeclarations(ProjectFile f) {
-                    if (f.equals(outerFile)) {
-                        return Set.of(outer, inner);
-                    }
-                    return super.getDeclarations(f);
-                }
-
-                @Override
-                public java.util.SequencedSet<CodeUnit> getDefinitions(String fqName) {
-                    if ("com.example.Outer".equals(fqName)) {
-                        return new java.util.LinkedHashSet<>(List.of(outer, inner));
-                    }
-                    return super.getDefinitions(fqName);
+                    return super.getDirectChildren(cu);
                 }
             };
 
-            customAnalyzer.addDeclaration(outer);
-            customAnalyzer.addDeclaration(inner);
-            customAnalyzer.setDirectAncestors(outer, List.of(outerBase));
-            customAnalyzer.setDirectAncestors(inner, List.of(innerBase));
+            analyzer.addDeclaration(outer);
+            analyzer.addDeclaration(inner);
+            analyzer.setDirectAncestors(outer, List.of(outerBase));
+            analyzer.setDirectAncestors(inner, List.of(innerBase));
 
-            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), customAnalyzer);
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
             var fragment = new SummaryFragment(cm, "com.example.Outer", SummaryType.CODEUNIT_SKELETON);
 
             var supporting = fragment.supportingFragments();
