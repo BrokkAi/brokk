@@ -7,37 +7,62 @@ import java.util.function.Supplier;
 public final class LoggingFuture {
     private LoggingFuture() {}
 
+    public static <T> CompletableFuture<T> supplyCallableAsync(Callable<T> callable) {
+        return supplyCallableAsync(callable, ForkJoinPool.commonPool());
+    }
+
+    public static <T> CompletableFuture<T> supplyCallableAsync(Callable<T> callable, Executor executor) {
+        var cf = new EdtAwareFuture<T>();
+        executor.execute(() -> {
+            try {
+                cf.complete(callable.call());
+            } catch (Throwable th) {
+                GlobalExceptionHandler.handle(th, st -> {});
+                cf.completeExceptionally(th);
+            }
+        });
+        return cf;
+    }
+
     public static <T> CompletableFuture<T> supplyAsync(Supplier<T> supplier) {
-        return supplyAsync(supplier, ForkJoinPool.commonPool());
+        return supplyCallableAsync(supplier::get, ForkJoinPool.commonPool());
     }
 
     public static <T> CompletableFuture<T> supplyAsync(Supplier<T> supplier, Executor executor) {
-        if (executor instanceof LoggingExecutorService) {
-            return CompletableFuture.supplyAsync(supplier, executor);
-        }
-
-        return CompletableFuture.supplyAsync(
-                () -> {
-                    try {
-                        return supplier.get();
-                    } catch (Throwable th) {
-                        GlobalExceptionHandler.handle(th, st -> {});
-                        throw th;
-                    }
-                },
-                executor);
+        return supplyCallableAsync(supplier::get, executor);
     }
 
     public static CompletableFuture<Void> supplyAsync(Runnable runnable) {
-        return supplyAsync(runnable, ForkJoinPool.commonPool());
+        return supplyCallableAsync(Executors.callable(runnable, null), ForkJoinPool.commonPool());
     }
 
     public static CompletableFuture<Void> supplyAsync(Runnable runnable, Executor executor) {
-        return supplyAsync(
-                () -> {
-                    runnable.run();
-                    return null;
-                },
-                executor);
+        return supplyCallableAsync(Executors.callable(runnable, null), executor);
+    }
+
+    public static CompletableFuture<Void> allOf(CompletableFuture<?>... cfs) {
+        var result = new EdtAwareFuture<Void>();
+        CompletableFuture.allOf(cfs).whenComplete((v, th) -> {
+            if (th != null) {
+                GlobalExceptionHandler.handle(th, st -> {});
+                result.completeExceptionally(th);
+            } else {
+                result.complete(null);
+            }
+        });
+        return result;
+    }
+
+    public static CompletableFuture<Object> anyOf(CompletableFuture<?>... cfs) {
+        var result = new EdtAwareFuture<Object>();
+        CompletableFuture.anyOf(cfs).whenComplete((v, th) -> {
+            if (th != null) {
+                GlobalExceptionHandler.handle(th, st -> {});
+                result.completeExceptionally(th);
+            } else {
+                result.complete(v);
+            }
+        });
+        return result;
     }
 }
