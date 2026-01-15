@@ -166,10 +166,40 @@ class HeadlessJobTemperatureOverrideTest {
                 "codeModel should use spec.reasoningLevelCode()");
     }
 
+    @Test
+    void temperatureOverrides_applySeparately_forPlannerVsCodeModels() throws Exception {
+        spyService.setExposedModelLocations(Map.of("plannerA", "locPlannerA", "codeA", "locCodeA"));
+        spyService.setExposedModelInfoMap(Map.of(
+                "locPlannerA", Map.of("supported_openai_params", List.of("temperature")),
+                "locCodeA", Map.of("supported_openai_params", List.of("temperature"))));
+
+        JobSpec spec = new JobSpec(
+                "test task",
+                false,
+                false,
+                "plannerA",
+                null,
+                "codeA",
+                false,
+                Map.of("mode", "ARCHITECT"),
+                null,
+                null,
+                null,
+                null,
+                0.11,
+                0.88);
+
+        runner.runAsync("job-temp-split", spec).get(5, TimeUnit.SECONDS);
+
+        assertEquals(0.11, spyService.lastTemperatureByModelName.get("plannerA"), 0.001);
+        assertEquals(0.88, spyService.lastTemperatureByModelName.get("codeA"), 0.001);
+    }
+
     private static class SpyService extends TestService {
         @Nullable
         Double lastTemperatureSeen;
 
+        final Map<String, Double> lastTemperatureByModelName = new HashMap<>();
         final Map<String, Service.ReasoningLevel> lastReasoningByModelName = new HashMap<>();
 
         SpyService(IProject project) {
@@ -189,11 +219,13 @@ class HeadlessJobTemperatureOverrideTest {
                 ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
             lastReasoningByModelName.put(config.name(), config.reasoning());
 
+            @Nullable Double temperature = null;
             if (parametersOverride != null) {
-                this.lastTemperatureSeen = parametersOverride.build().temperature();
-            } else {
-                this.lastTemperatureSeen = null;
+                temperature = parametersOverride.build().temperature();
             }
+            this.lastTemperatureSeen = temperature;
+            lastTemperatureByModelName.put(config.name(), temperature);
+
             return new DummyStreamingChatModel();
         }
     }
