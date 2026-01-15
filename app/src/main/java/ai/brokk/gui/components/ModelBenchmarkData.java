@@ -39,6 +39,7 @@ public class ModelBenchmarkData {
 
     static {
         // Gemini models
+        addModel("gemini-3-flash-preview", Service.ReasoningLevel.DEFAULT, 100, 100, 67);
         addModel("gemini-3-pro-preview", Service.ReasoningLevel.DEFAULT, 100, 94, 80);
         addModel("gemini-2.5-pro", Service.ReasoningLevel.DEFAULT, 93, 94, 50);
         addModel("gemini-2.5-pro", Service.ReasoningLevel.HIGH, 83, 70, 54);
