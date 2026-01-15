@@ -872,7 +872,6 @@ public class ReviewAgent {
 
         // Extract instructions from all matching histories
         List<String> instructions = sessionIds.stream()
-                .parallel()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
                 .filter(Objects::nonNull)
                 .flatMap(h -> h.getHistory().stream()) // Stream<Context>
