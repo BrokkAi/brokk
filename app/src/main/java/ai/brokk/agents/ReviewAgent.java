@@ -89,9 +89,16 @@ public class ReviewAgent {
 
     private record ContextSetupResult(Context context, boolean isComplex) {}
 
-    public ReviewAgent(ReviewScope context, IContextManager cm) {
-        this.changes = context.changes();
-        this.sessionIds = context.sessionIds();
+    /**
+     * Intended usage to review the changes on the current branch from `commit` [exclusive] to HEAD [inclusive]:
+     * var scope = ReviewScope.fromBaseline(commit, cm);
+     * var result = new ReviewAgent(scope, cm).execute();
+     *
+     * An example of determining `commit` using GitRepo::getMergeBase is in SessionChangesPanel.
+     */
+    public ReviewAgent(ReviewScope scope, IContextManager cm) {
+        this.changes = scope.changes();
+        this.sessionIds = scope.sessionIds();
         this.cm = cm;
     }
 
