@@ -1115,7 +1115,6 @@ public final class JobRunner {
             Service.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {}
 
     private AppliedOverrides applyOverrides(
-            JobSpec spec,
             Service.ModelConfig baseConfig,
             @Nullable String reasoningLevelOverride,
             @Nullable Double temperatureOverride) {
@@ -1142,7 +1141,7 @@ public final class JobRunner {
             JobSpec spec, String name, @Nullable String reasoningLevelOverride, @Nullable Double temperatureOverride) {
         var service = cm.getService();
 
-        var applied = applyOverrides(spec, new Service.ModelConfig(name), reasoningLevelOverride, temperatureOverride);
+        var applied = applyOverrides(new Service.ModelConfig(name), reasoningLevelOverride, temperatureOverride);
         var model = service.getModel(applied.config(), applied.parametersOverride());
         if (model == null) {
             throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
@@ -1157,7 +1156,7 @@ public final class JobRunner {
             @Nullable Double temperatureOverride) {
         var service = cm.getService();
 
-        var applied = applyOverrides(spec, baseConfig, reasoningLevelOverride, temperatureOverride);
+        var applied = applyOverrides(baseConfig, reasoningLevelOverride, temperatureOverride);
         var model = service.getModel(applied.config(), applied.parametersOverride());
         if (model == null) {
             throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + baseConfig.name());
