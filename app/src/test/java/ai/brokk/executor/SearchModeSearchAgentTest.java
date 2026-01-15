@@ -435,10 +435,11 @@ class SearchModeSearchAgentTest {
         }
     }
 
-    @Disabled
     @Test
     void testSearchModeWithExplicitScanModel() throws Exception {
         uploadSession();
+
+        String explicitScanModel = "gpt-4o";
 
         // Create a SEARCH job with explicit scanModel
         var jobSpec = Map.<String, Object>of(
@@ -453,67 +454,32 @@ class SearchModeSearchAgentTest {
                 "plannerModel",
                 "gemini-2.0-flash",
                 "scanModel",
-                "gemini-2.0-flash",
+                explicitScanModel,
                 "tags",
                 Map.of("mode", "SEARCH"));
 
         var jobId = createJobWithSpec(jobSpec, "search-test-scan-model");
 
-        // Wait for job to complete
-        awaitJobCompletion(baseUrl, jobId, authToken, Duration.ofSeconds(30));
-
-        // Poll events to ensure search produced LLM tokens/notifications and no code edits
-        var eventsUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/events?after=-1&limit=1000")
-                .toURL();
-        var eventsConn = (HttpURLConnection) eventsUrl.openConnection();
-        eventsConn.setRequestMethod("GET");
-        eventsConn.setRequestProperty("Authorization", "Bearer " + authToken);
-
-        assertEquals(200, eventsConn.getResponseCode());
-        try (InputStream is = eventsConn.getInputStream()) {
-            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            var eventsData = OBJECT_MAPPER.readValue(response, new TypeReference<Map<String, Object>>() {});
-            var events = (List<?>) eventsData.get("events");
-
-            assertNotNull(events, "Events should not be null");
-            assertTrue(events.size() > 0, "SEARCH mode should produce events");
-
-            var eventTypes = events.stream()
-                    .map(e -> ((Map<?, ?>) e).get("type"))
-                    .map(Object::toString)
-                    .toList();
-
-            assertTrue(
-                    eventTypes.stream().anyMatch(t -> t.contains("LLM_TOKEN") || t.contains("NOTIFICATION")),
-                    "SEARCH mode should produce LLM or notification events; got: " + eventTypes);
-            assertFalse(
-                    eventTypes.stream().anyMatch(t -> t.contains("CODE_EDIT")),
-                    "SEARCH mode should not produce CODE_EDIT events; got: " + eventTypes);
-        } finally {
-            eventsConn.disconnect();
+        // Wait for the model resolution to occur in JobRunner
+        var deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (capturingService.lastConfig == null && System.nanoTime() < deadlineNanos) {
+            Thread.sleep(50);
         }
 
-        // Diff check as well
-        var diffUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/diff").toURL();
-        var diffConn = (HttpURLConnection) diffUrl.openConnection();
-        diffConn.setRequestMethod("GET");
-        diffConn.setRequestProperty("Authorization", "Bearer " + authToken);
+        var capturedConfig = capturingService.lastConfig;
+        assertNotNull(capturedConfig, "Expected JobRunner to resolve a scan model via Service.getModel(...)");
+        assertEquals(explicitScanModel, capturedConfig.name());
 
+        // Cancel the job now that we've verified model resolution
+        var cancelUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/cancel").toURL();
+        var cancelConn = (HttpURLConnection) cancelUrl.openConnection();
+        cancelConn.setRequestMethod("POST");
+        cancelConn.setRequestProperty("Authorization", "Bearer " + authToken);
         try {
-            var statusCode = diffConn.getResponseCode();
-            assertTrue(
-                    statusCode == 200 || statusCode == 409,
-                    "Diff endpoint should succeed or report no git; got: " + statusCode);
-            if (statusCode == 200) {
-                try (InputStream is = diffConn.getInputStream()) {
-                    var diffText = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                    assertTrue(
-                            diffText.isEmpty() || diffText.isBlank(),
-                            "SEARCH should produce no diff; got: " + diffText);
-                }
-            }
+            int status = cancelConn.getResponseCode();
+            assertTrue(status == 200 || status == 202 || status == 409);
         } finally {
-            diffConn.disconnect();
+            cancelConn.disconnect();
         }
     }
 
