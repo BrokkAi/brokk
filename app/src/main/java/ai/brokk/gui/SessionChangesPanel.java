@@ -175,33 +175,38 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.commitBtn.setIcon(Icons.COMMIT);
 
         this.pullBtn = new MaterialButton("");
-        this.pullBtn.setIcon(Icons.DOWNLOAD);
-        this.pullBtn.setPreferredSize(new Dimension(24, 24));
-        this.pullBtn.setMinimumSize(new Dimension(24, 24));
-        this.pullBtn.setMaximumSize(new Dimension(24, 24));
-
         this.pushBtn = new MaterialButton("");
-        this.pushBtn.setIcon(Icons.PUBLISH);
-        this.pushBtn.setPreferredSize(new Dimension(24, 24));
-        this.pushBtn.setMinimumSize(new Dimension(24, 24));
-        this.pushBtn.setMaximumSize(new Dimension(24, 24));
-
         this.prBtn = new MaterialButton("");
-        this.prBtn.setIcon(Icons.ADD_DIAMOND);
-        this.prBtn.setToolTipText("Create PR");
-        this.prBtn.setPreferredSize(new Dimension(24, 24));
-        this.prBtn.setMinimumSize(new Dimension(24, 24));
-        this.prBtn.setMaximumSize(new Dimension(24, 24));
 
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
         this.guidedReviewBtn.setIcon(Icons.CHECK);
 
         this.pasteBtn = new MaterialButton("");
-        this.pasteBtn.setIcon(Icons.CONTENT_CAPTURE);
-        this.pasteBtn.setToolTipText("Paste Review");
-        this.pasteBtn.setPreferredSize(new Dimension(24, 24));
-        this.pasteBtn.setMinimumSize(new Dimension(24, 24));
-        this.pasteBtn.setMaximumSize(new Dimension(24, 24));
+
+        // Set icons and size constraints after component is displayable
+        SwingUtilities.invokeLater(() -> {
+            pullBtn.setIcon(Icons.DOWNLOAD);
+            pullBtn.setPreferredSize(new Dimension(24, 24));
+            pullBtn.setMinimumSize(new Dimension(24, 24));
+            pullBtn.setMaximumSize(new Dimension(24, 24));
+
+            pushBtn.setIcon(Icons.PUBLISH);
+            pushBtn.setPreferredSize(new Dimension(24, 24));
+            pushBtn.setMinimumSize(new Dimension(24, 24));
+            pushBtn.setMaximumSize(new Dimension(24, 24));
+
+            prBtn.setIcon(Icons.ADD_DIAMOND);
+            prBtn.setToolTipText("Create PR");
+            prBtn.setPreferredSize(new Dimension(24, 24));
+            prBtn.setMinimumSize(new Dimension(24, 24));
+            prBtn.setMaximumSize(new Dimension(24, 24));
+
+            pasteBtn.setIcon(Icons.CONTENT_CAPTURE);
+            pasteBtn.setToolTipText("Paste Review");
+            pasteBtn.setPreferredSize(new Dimension(24, 24));
+            pasteBtn.setMinimumSize(new Dimension(24, 24));
+            pasteBtn.setMaximumSize(new Dimension(24, 24));
+        });
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
