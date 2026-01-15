@@ -219,6 +219,15 @@ public class JCefSetup {
                 settings.resources_dir_path = libPath.toString();
                 settings.locales_dir_path = libPath.resolve("locales").toString();
                 logger.info("Using Linux resources from {}", libPath);
+
+                // Set browser subprocess path - critical to prevent infinite spawning
+                Path helperExe = libPath.resolve("jcef_helper");
+                if (Files.exists(helperExe)) {
+                    settings.browser_subprocess_path = helperExe.toString();
+                    logger.info("Set browser_subprocess_path = {}", helperExe);
+                } else {
+                    logger.warn("jcef_helper not found at {}", helperExe);
+                }
             }
         } else if (Environment.isWindows()) {
             // On Windows, resources are typically in bin/
@@ -227,6 +236,15 @@ public class JCefSetup {
                 settings.resources_dir_path = binPath.toString();
                 settings.locales_dir_path = binPath.resolve("locales").toString();
                 logger.info("Using Windows resources from {}", binPath);
+
+                // Set browser subprocess path - critical to prevent infinite spawning
+                Path helperExe = binPath.resolve("jcef_helper.exe");
+                if (Files.exists(helperExe)) {
+                    settings.browser_subprocess_path = helperExe.toString();
+                    logger.info("Set browser_subprocess_path = {}", helperExe);
+                } else {
+                    logger.warn("jcef_helper.exe not found at {}", helperExe);
+                }
             }
         }
     }
