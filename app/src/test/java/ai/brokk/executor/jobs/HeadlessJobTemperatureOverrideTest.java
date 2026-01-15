@@ -1,6 +1,7 @@
 package ai.brokk.executor.jobs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import ai.brokk.AbstractService;
@@ -18,6 +19,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -78,7 +80,19 @@ class HeadlessJobTemperatureOverrideTest {
         spyService.setExposedModelInfoMap(Map.of("locA", Map.of("supported_openai_params", List.of("top_p"))));
 
         JobSpec spec = new JobSpec(
-                "test task", false, false, "modelA", null, null, false, Map.of("mode", "ASK"), null, null, null, 0.7);
+                "test task",
+                false,
+                false,
+                "modelA",
+                null,
+                null,
+                false,
+                Map.of("mode", "ASK"),
+                null,
+                null,
+                null,
+                null,
+                0.7);
 
         runner.runAsync("job-unsupported", spec).get(5, TimeUnit.SECONDS);
 
@@ -92,7 +106,19 @@ class HeadlessJobTemperatureOverrideTest {
         spyService.setExposedModelInfoMap(Map.of("locA", Map.of("supported_openai_params", List.of("temperature"))));
 
         JobSpec spec = new JobSpec(
-                "test task", false, false, "modelA", null, null, false, Map.of("mode", "ASK"), null, null, null, 0.7);
+                "test task",
+                false,
+                false,
+                "modelA",
+                null,
+                null,
+                false,
+                Map.of("mode", "ASK"),
+                null,
+                null,
+                null,
+                null,
+                0.7);
 
         runner.runAsync("job-supported", spec).get(5, TimeUnit.SECONDS);
 
@@ -100,9 +126,48 @@ class HeadlessJobTemperatureOverrideTest {
                 0.7, spyService.lastTemperatureSeen, 0.001, "Temperature SHOULD be passed to getModel if supported");
     }
 
+    @Test
+    void reasoningLevelOverrides_applySeparately_forPlannerVsCodeModels() throws Exception {
+        spyService.setExposedModelLocations(Map.of("plannerA", "locPlannerA", "codeA", "locCodeA"));
+        spyService.setExposedModelInfoMap(Map.of(
+                "locPlannerA", Map.of("supported_openai_params", List.of()),
+                "locCodeA", Map.of("supported_openai_params", List.of())));
+
+        JobSpec spec = new JobSpec(
+                "test task",
+                false,
+                false,
+                "plannerA",
+                null,
+                "codeA",
+                false,
+                Map.of("mode", "ARCHITECT"),
+                null,
+                null,
+                "LOW",
+                "HIGH",
+                null);
+
+        runner.runAsync("job-reasoning-split", spec).get(5, TimeUnit.SECONDS);
+
+        assertNotNull(spyService.lastReasoningByModelName.get("plannerA"));
+        assertNotNull(spyService.lastReasoningByModelName.get("codeA"));
+
+        assertEquals(
+                Service.ReasoningLevel.LOW,
+                spyService.lastReasoningByModelName.get("plannerA"),
+                "plannerModel should use spec.reasoningLevel()");
+        assertEquals(
+                Service.ReasoningLevel.HIGH,
+                spyService.lastReasoningByModelName.get("codeA"),
+                "codeModel should use spec.reasoningLevelCode()");
+    }
+
     private static class SpyService extends TestService {
         @Nullable
         Double lastTemperatureSeen;
+
+        final Map<String, Service.ReasoningLevel> lastReasoningByModelName = new HashMap<>();
 
         SpyService(IProject project) {
             super(project);
@@ -119,6 +184,8 @@ class HeadlessJobTemperatureOverrideTest {
         @Override
         public @Nullable StreamingChatModel getModel(
                 ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+            lastReasoningByModelName.put(config.name(), config.reasoning());
+
             if (parametersOverride != null) {
                 this.lastTemperatureSeen = parametersOverride.build().temperature();
             } else {

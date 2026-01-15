@@ -654,7 +654,7 @@ public class Llm {
                 && !tools.isEmpty()
                 && (cr != null && cr.toolRequests.isEmpty())
                 && toolChoice == ToolChoice.REQUIRED) {
-            return new StreamingResult(cr, new MissingToolCallsException(totalAttemptsMade), result.retries());
+            return new StreamingResult(null, new MissingToolCallsException(totalAttemptsMade), result.retries());
         }
 
         return result;

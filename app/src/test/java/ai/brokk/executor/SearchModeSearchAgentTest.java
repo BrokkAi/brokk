@@ -227,6 +227,8 @@ class SearchModeSearchAgentTest {
                 "gemini-2.0-flash",
                 "reasoningLevel",
                 "medium",
+                "reasoningLevelCode",
+                "high",
                 "temperature",
                 0.5,
                 "tags",
@@ -245,6 +247,7 @@ class SearchModeSearchAgentTest {
         assertNotNull(persisted);
 
         assertEquals("MEDIUM", persisted.reasoningLevel());
+        assertEquals("HIGH", persisted.reasoningLevelCode());
         assertEquals(0.5, persisted.temperature());
     }
 
@@ -599,7 +602,6 @@ class SearchModeSearchAgentTest {
 
             var contextsEntry = new ZipEntry("contexts.jsonl");
             zos.putNextEntry(contextsEntry);
-            zos.write("{\"role\":\"user\",\"content\":\"seed\"}\n".getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();
         }
         return out.toByteArray();

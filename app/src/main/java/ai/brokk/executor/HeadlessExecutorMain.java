@@ -927,6 +927,20 @@ public final class HeadlessExecutorMain {
                 reasoningLevel = normalized;
             }
 
+            @Nullable String reasoningLevelCode = null;
+            var reasoningLevelCodeRaw = jobSpecRequest.reasoningLevelCode();
+            if (reasoningLevelCodeRaw != null && !reasoningLevelCodeRaw.isBlank()) {
+                var normalized = reasoningLevelCodeRaw.strip().toUpperCase(Locale.ROOT);
+
+                if (!ALLOWED_REASONING_LEVELS.contains(normalized)) {
+                    sendValidationError(
+                            exchange, "reasoningLevelCode must be one of: " + ALLOWED_REASONING_LEVELS_LIST);
+                    return;
+                }
+
+                reasoningLevelCode = normalized;
+            }
+
             @Nullable Double temperature = null;
             var tempRaw = jobSpecRequest.temperature();
             if (tempRaw != null) {
@@ -1000,7 +1014,7 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.codeModel(),
                     preScanFlag,
                     safeTags,
-                    new JobSpec.ModelOverrides(reasoningLevel, temperature));
+                    new JobSpec.ModelOverrides(reasoningLevel, reasoningLevelCode, temperature));
 
             // Create or get job (idempotent)
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
@@ -1514,6 +1528,7 @@ public final class HeadlessExecutorMain {
             @Nullable List<String> contextText,
             @Nullable ContextPayload context,
             @Nullable String reasoningLevel,
+            @Nullable String reasoningLevelCode,
             @Nullable Double temperature) {}
 
     private record ContextPayload(@Nullable List<String> text) {}

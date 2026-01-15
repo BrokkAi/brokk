@@ -49,6 +49,7 @@ public class HeadlessExecCli {
     private boolean autoCompress = false;
     private boolean preScan = false;
     private String reasoningLevel = "";
+    private String reasoningLevelCode = "";
     private @Nullable Double temperature = null;
     private String prompt = "";
 
@@ -204,6 +205,9 @@ public class HeadlessExecCli {
 
         if (!reasoningLevel.isBlank()) {
             jobSpec.put("reasoningLevel", reasoningLevel);
+        }
+        if (!reasoningLevelCode.isBlank()) {
+            jobSpec.put("reasoningLevelCode", reasoningLevelCode);
         }
         if (temperature != null) {
             jobSpec.put("temperature", temperature.doubleValue());
@@ -441,6 +445,7 @@ public class HeadlessExecCli {
         System.out.println(
                 "  --pre-scan               Enable repository prescan before ASK (uses --scan-model if provided)");
         System.out.println("  --reasoning-level LEVEL  Job-level reasoning level override (optional)");
+        System.out.println("  --reasoning-level-code LEVEL  Job-level code reasoning level override (optional)");
         System.out.println("  --temperature VALUE      Job-level temperature override (optional)");
         System.out.println("  --token TOKEN            Auth token (default: random UUID)");
         System.out.println("  --auto-commit            Enable auto-commit of changes");
@@ -452,7 +457,7 @@ public class HeadlessExecCli {
         System.out.println();
         System.out.println("Example:");
         System.out.println(
-                "  java HeadlessExecCli --planner-model gpt-5 --mode SEARCH --scan-model gpt-5-mini --reasoning-level medium --temperature 0.2 'Describe the project layout'");
+                "  java HeadlessExecCli --planner-model gpt-5 --mode SEARCH --scan-model gpt-5-mini --reasoning-level medium --reasoning-level-code medium --temperature 0.2 'Describe the project layout'");
     }
 
     private boolean parseArgs(String[] args) {
@@ -525,6 +530,7 @@ public class HeadlessExecCli {
             case "scan-model" -> scanModel = value;
             case "code-model" -> codeModel = value;
             case "reasoning-level" -> reasoningLevel = value;
+            case "reasoning-level-code" -> reasoningLevelCode = value;
             case "temperature" -> {
                 if (value.isBlank()) {
                     System.err.println("ERROR: --temperature requires a value");
