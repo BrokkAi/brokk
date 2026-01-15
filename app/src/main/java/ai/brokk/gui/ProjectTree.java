@@ -74,7 +74,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     private Timer expansionSaveTimer;
 
     /** Flag to prevent refresh during expansion state restoration */
-    private volatile boolean isRestoringExpansion = false;
+    private volatile boolean isRestoringExpansion = true;  // true until first restoration completes
 
     /** Flag to track if a refresh was requested during expansion restoration */
     private volatile boolean pendingRefreshDuringRestore = false;
@@ -815,11 +815,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     private void restoreExpansionState() {
         var paths = project.getExpandedTreePaths();
         if (paths.isEmpty()) {
+            isRestoringExpansion = false;
             return;
         }
-
-        // Block refresh during restoration to avoid race conditions
-        isRestoringExpansion = true;
 
         var root = (DefaultMutableTreeNode) getModel().getRoot();
         if (root == null) {
