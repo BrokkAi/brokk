@@ -177,6 +177,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.pushBtn = createIconButton(Icons.PUBLISH, "Push your commits to the remote repository");
         this.prBtn = createIconButton(Icons.ADD_DIAMOND, "Create a pull request for the current branch");
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
+        this.guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
 
         this.pasteBtn = createIconButton(Icons.CONTENT_CAPTURE, "Paste a code review from the clipboard (JSON format)");
         this.diffContainer = new JPanel(new BorderLayout());
