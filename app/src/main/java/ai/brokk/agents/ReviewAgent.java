@@ -955,13 +955,15 @@ public class ReviewAgent {
         var sessionManager = cm.getProject().getSessionManager();
 
         // Extract instructions from all matching histories
+        var relevantTypes = Set.of(TaskResult.Type.CODE, TaskResult.Type.ARCHITECT, TaskResult.Type.BLITZFORGE);
         List<String> instructions = sessionIds.stream()
                 .parallel()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
                 .filter(Objects::nonNull)
                 .flatMap(h -> h.getHistory().stream()) // Stream<Context>
                 .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
-                .filter(te -> te.meta() == null || te.meta().type() != TaskResult.Type.REVIEW)
+                .filter(te ->
+                        te.meta() != null && relevantTypes.contains(te.meta().type()))
                 .map(TaskEntry::log)
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(log -> log.id()))
