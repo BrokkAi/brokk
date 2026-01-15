@@ -27,7 +27,7 @@ export type BrokkEvent =
       taskSequence: number;
       compressed: boolean;
       summary?: string;
-      messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM'; reasoning?: boolean }[];
+      messages?: { text: string; msgType: 'USER' | 'AI' | 'SYSTEM'; reasoning?: boolean; terminal?: boolean }[];
     }
   | {
       type: 'live-summary';

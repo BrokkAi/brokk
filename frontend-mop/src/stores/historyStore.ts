@@ -60,6 +60,7 @@ export function onHistoryEvent(evt: BrokkEvent): void {
                         type: msg.msgType,
                         markdown: msg.text,
                         streaming: false,
+                        isTerminal: !!msg.terminal,
                         reasoningState: isReasoning ? {
                             complete: true,
                             isCollapsed: true,
