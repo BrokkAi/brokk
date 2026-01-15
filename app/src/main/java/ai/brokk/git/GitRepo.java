@@ -36,6 +36,7 @@ import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.TreeWalk;
+import org.eclipse.jgit.util.SystemReader;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
@@ -286,11 +287,20 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         // Fallback to XDG location or legacy home location if core.excludesfile is not set
+        String xdgConfigHome = SystemReader.getInstance().getenv("XDG_CONFIG_HOME");
+        if (xdgConfigHome != null && !xdgConfigHome.isEmpty()) {
+            Path xdgIgnore = Path.of(xdgConfigHome).resolve("git/ignore");
+            if (Files.exists(xdgIgnore)) {
+                logger.trace("Using global gitignore from XDG_CONFIG_HOME: {}", xdgIgnore);
+                return Optional.of(xdgIgnore);
+            }
+        }
+
         File userHome = fs.userHome();
         if (userHome != null) {
             Path xdgIgnore = userHome.toPath().resolve(".config/git/ignore");
             if (Files.exists(xdgIgnore)) {
-                logger.trace("Using global gitignore from XDG location: {}", xdgIgnore);
+                logger.trace("Using global gitignore from default XDG location: {}", xdgIgnore);
                 return Optional.of(xdgIgnore);
             }
 
