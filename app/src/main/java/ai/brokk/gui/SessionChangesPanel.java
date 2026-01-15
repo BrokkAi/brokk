@@ -666,11 +666,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                             ? "No changes to pull"
                             : "No upstream branch configured");
         } else {
-            pullBtn.setToolTipText(null);
+            pullBtn.setToolTipText("Pull");
         }
         pullBtn.setVisible(true);
 
         pushBtn.setEnabled(!hasUncommittedChanges);
+        pushBtn.setToolTipText(hasUncommittedChanges ? "Commit changes before pushing" : "Push");
         pushBtn.setVisible(pushPull != null && pushPull.canPush());
 
         boolean isDefaultBranch = false;
