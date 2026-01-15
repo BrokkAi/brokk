@@ -1190,7 +1190,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     public void startCommitRangeReview(String oldestCommitId) {
         assert SwingUtilities.isEventDispatchThread();
 
-        this.reviewBaselineRef = oldestCommitId + "^";
+        var parentId = oldestCommitId + "^";
+        this.reviewBaselineRef = parentId;
 
         // Set busy state immediately
         setGuidedReviewBusy(true);
@@ -1200,7 +1201,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // Compute changes and run review independently of requestUpdate
         LoggingFuture.supplyAsync(() -> {
                     try {
-                        var changes = computeCumulativeChanges(oldestCommitId, BaselineMode.COMMIT_RANGE);
+                        var changes = computeCumulativeChanges(parentId, BaselineMode.COMMIT_RANGE);
                         var prepared = DiffService.preparePerFileSummaries(changes);
                         var comparisons = prepared.stream()
                                 .map(this::toFileComparisonInfo)

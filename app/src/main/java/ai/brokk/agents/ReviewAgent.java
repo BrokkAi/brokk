@@ -800,7 +800,7 @@ public class ReviewAgent {
                 ```
                 $code
                 ```
-                
+
                 I will look for EXACT matches for your excerpt, so avoid ellipsis or commentary in the block.
                 </excerpt_format>
                 <review_format>
