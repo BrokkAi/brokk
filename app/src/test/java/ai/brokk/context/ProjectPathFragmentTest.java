@@ -139,6 +139,6 @@ public class ProjectPathFragmentTest {
                 .toList();
 
         assertTrue(targetIds.contains("com.example.OuterBase"), "Should include OuterBase skeleton");
-        assertTrue(!targetIds.contains("com.example.InnerBase"), "Should NOT include InnerBase skeleton");
+        assertFalse(targetIds.contains("com.example.InnerBase"), "Should NOT include InnerBase skeleton");
     }
 }

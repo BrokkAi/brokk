@@ -101,9 +101,9 @@ public class CodeFragmentTest {
         ProjectFile innerBaseFile = new ProjectFile(tempDir, "InnerBase.java");
 
         CodeUnit outer = CodeUnit.cls(file, "com.example", "Outer");
-        CodeUnit inner = CodeUnit.cls(file, "com.example", "Inner");
+        CodeUnit inner = CodeUnit.cls(file, "com.example", "Outer.Inner");
         CodeUnit outerBase = CodeUnit.cls(outerBaseFile, "com.example", "OuterBase");
-        CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "Outer.InnerBase");
+        CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "InnerBase");
 
         TestAnalyzer analyzer = new TestAnalyzer() {
             @Override
@@ -140,7 +140,7 @@ public class CodeFragmentTest {
                 .anyMatch(sf -> sf.getTargetIdentifier().equals("com.example.InnerBase"));
 
         assertTrue(hasOuterBase, "Should include ancestor of targeted class");
-        assertTrue(!hasInnerBase, "Should NOT include ancestor of non-targeted inner class");
+        assertFalse(hasInnerBase, "Should NOT include ancestor of non-targeted inner class");
     }
 
     @Test
