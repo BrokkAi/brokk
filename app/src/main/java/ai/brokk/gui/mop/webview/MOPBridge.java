@@ -235,8 +235,11 @@ public final class MOPBridge {
             var msgs = taskFragment.messages();
             for (var message : msgs) {
                 var text = Messages.getText(message);
-                messages.add(
-                        new BrokkEvent.HistoryTask.Message(text, message.type(), Messages.isReasoningMessage(message)));
+                messages.add(new BrokkEvent.HistoryTask.Message(
+                        text,
+                        message.type(),
+                        Messages.isReasoningMessage(message),
+                        Messages.isTerminalMessage(message)));
             }
         }
 

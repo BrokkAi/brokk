@@ -79,7 +79,8 @@ public sealed interface BrokkEvent {
         public static record Message(
                 String text,
                 @JsonSerialize(using = ToStringSerializer.class) ChatMessageType msgType,
-                boolean reasoning) {}
+                boolean reasoning,
+                boolean terminal) {}
 
         @Override
         public String getType() {

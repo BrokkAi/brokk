@@ -19,7 +19,7 @@ public class BrokkEventTest {
 
     @Test
     public void testHistoryTaskSerialization() throws Exception {
-        var message = new BrokkEvent.HistoryTask.Message("Hello", ChatMessageType.USER, false);
+        var message = new BrokkEvent.HistoryTask.Message("Hello", ChatMessageType.USER, false, true);
         var event = new BrokkEvent.HistoryTask(123, 456, false, null, List.of(message));
 
         String json = MAPPER.writeValueAsString(event);
@@ -28,7 +28,8 @@ public class BrokkEventTest {
         assertTrue(json.contains("\"epoch\":123"));
         assertTrue(json.contains("\"taskSequence\":456"));
         assertTrue(json.contains("\"compressed\":false"));
-        assertTrue(json.contains("\"messages\":[{\"text\":\"Hello\",\"msgType\":\"USER\",\"reasoning\":false}]"));
+        assertTrue(json.contains(
+                "\"messages\":[{\"text\":\"Hello\",\"msgType\":\"USER\",\"reasoning\":false,\"terminal\":true}]"));
     }
 
     @Test
@@ -46,7 +47,7 @@ public class BrokkEventTest {
 
     @Test
     public void testHistoryTaskSerializationWithBothSummaryAndMessages() throws Exception {
-        var message = new BrokkEvent.HistoryTask.Message("Full message content", ChatMessageType.AI, false);
+        var message = new BrokkEvent.HistoryTask.Message("Full message content", ChatMessageType.AI, false, false);
         var event = new BrokkEvent.HistoryTask(123, 456, true, "AI summary", List.of(message));
 
         String json = MAPPER.writeValueAsString(event);
@@ -57,7 +58,7 @@ public class BrokkEventTest {
         assertTrue(json.contains("\"compressed\":true"));
         assertTrue(json.contains("\"summary\":\"AI summary\""));
         assertTrue(json.contains(
-                "\"messages\":[{\"text\":\"Full message content\",\"msgType\":\"AI\",\"reasoning\":false}]"));
+                "\"messages\":[{\"text\":\"Full message content\",\"msgType\":\"AI\",\"reasoning\":false,\"terminal\":false}]"));
     }
 
     @Test
@@ -68,7 +69,7 @@ public class BrokkEventTest {
                 456,
                 true,
                 "summary text",
-                List.of(new BrokkEvent.HistoryTask.Message("msg", ChatMessageType.USER, false)));
+                List.of(new BrokkEvent.HistoryTask.Message("msg", ChatMessageType.USER, false, false)));
 
         String json = MAPPER.writeValueAsString(event);
 
@@ -81,7 +82,11 @@ public class BrokkEventTest {
     public void testHistoryTaskSerializationCompressedFlagWithoutSummary() throws Exception {
         // When only messages are present, compressed should be false
         var event = new BrokkEvent.HistoryTask(
-                123, 456, false, null, List.of(new BrokkEvent.HistoryTask.Message("msg", ChatMessageType.USER, false)));
+                123,
+                456,
+                false,
+                null,
+                List.of(new BrokkEvent.HistoryTask.Message("msg", ChatMessageType.USER, false, false)));
 
         String json = MAPPER.writeValueAsString(event);
 
