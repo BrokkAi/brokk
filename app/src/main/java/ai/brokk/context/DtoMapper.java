@@ -559,10 +559,7 @@ public class DtoMapper {
         }
 
         return new ChatMessageDto(
-                message.type().name().toLowerCase(Locale.ROOT),
-                contentId,
-                reasoningContentId,
-                attributes);
+                message.type().name().toLowerCase(Locale.ROOT), contentId, reasoningContentId, attributes);
     }
 
     private static ProjectFile fromProjectFileDto(ProjectFileDto dto, IContextManager mgr) {

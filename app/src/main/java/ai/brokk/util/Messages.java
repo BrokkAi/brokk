@@ -189,7 +189,6 @@ public class Messages {
     }
 
     public static boolean isTerminalMessage(ChatMessage message) {
-        return message instanceof CustomMessage cm
-                && cm.attributes().get("isTerminal") != null;
+        return message instanceof CustomMessage cm && cm.attributes().get("isTerminal") != null;
     }
 }

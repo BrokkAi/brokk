@@ -461,10 +461,7 @@ public class CodeAgent {
 
     void reportComplete(String message) {
         logger.debug(message);
-        io.llmOutput(
-                "\n# Code Agent Finished\n" + message,
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.DEFAULT);
+        io.llmOutput("\n# Code Agent Finished\n" + message, ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
     }
 
     Step parsePhase(

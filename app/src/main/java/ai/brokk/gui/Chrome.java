@@ -976,8 +976,7 @@ public class Chrome
         if (SwingUtilities.isEventDispatchThread()) {
             rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta);
         } else {
-            SwingUtilities.invokeLater(
-                    () -> rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta));
+            SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta));
         }
     }
 

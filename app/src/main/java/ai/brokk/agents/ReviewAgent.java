@@ -179,8 +179,7 @@ public class ReviewAgent {
                 AtomicInteger linesSeen = new AtomicInteger(0);
                 MemoryConsole progressConsole = new MemoryConsole() {
                     @Override
-                    public void llmOutput(
-                            String token, ChatMessageType type, LlmOutputMeta meta) {
+                    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
                         super.llmOutput(token, type, meta);
                         if (token.contains("\n")) {
                             int lines = linesSeen.addAndGet(

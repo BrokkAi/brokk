@@ -5,9 +5,9 @@ import static java.lang.Math.min;
 
 import ai.brokk.AnalyzerUtil;
 import ai.brokk.IConsoleIO;
-import ai.brokk.LlmOutputMeta;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;

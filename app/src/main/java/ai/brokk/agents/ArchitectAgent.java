@@ -689,7 +689,10 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                     var toolResult = tr.executeTool(answerReq);
-                    io.llmOutput("Project final answer: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+                    io.llmOutput(
+                            "Project final answer: " + toolResult.resultText(),
+                            ChatMessageType.AI,
+                            LlmOutputMeta.DEFAULT);
                     return codeAgentSuccessResult();
                 }
             }
@@ -703,7 +706,8 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
                     var toolResult = tr.executeTool(abortReq);
-                    io.llmOutput("Project aborted: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+                    io.llmOutput(
+                            "Project aborted: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     return resultWithMessages(StopReason.LLM_ABORTED);
                 }
             }

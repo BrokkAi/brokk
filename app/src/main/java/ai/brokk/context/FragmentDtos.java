@@ -119,7 +119,10 @@ public class FragmentDtos {
 
     /** DTO for ChatMessage - simplified representation with role and content. */
     public record ChatMessageDto(
-            String role, String contentId, @Nullable String reasoningContentId, @Nullable Map<String, Object> attributes) {
+            String role,
+            String contentId,
+            @Nullable String reasoningContentId,
+            @Nullable Map<String, Object> attributes) {
         public ChatMessageDto {
             if (role.isEmpty()) {
                 throw new IllegalArgumentException("role cannot be null or empty");

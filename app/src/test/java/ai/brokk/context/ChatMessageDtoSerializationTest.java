@@ -63,18 +63,18 @@ class ChatMessageDtoSerializationTest {
     }
 
     @Test
-        void testSerializeAndDeserializeWithAttributes() throws Exception {
-            // Use Boolean value since attributes is now Map<String, Object>
-            ChatMessageDto original = new ChatMessageDto("custom", "content-123", null, Map.of("terminal", true));
+    void testSerializeAndDeserializeWithAttributes() throws Exception {
+        // Use Boolean value since attributes is now Map<String, Object>
+        ChatMessageDto original = new ChatMessageDto("custom", "content-123", null, Map.of("terminal", true));
 
-            String json = objectMapper.writeValueAsString(original);
-            ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
+        String json = objectMapper.writeValueAsString(original);
+        ChatMessageDto deserialized = objectMapper.readValue(json, ChatMessageDto.class);
 
-            assertEquals("custom", deserialized.role());
-            assertEquals("content-123", deserialized.contentId());
-            assertNull(deserialized.reasoningContentId());
-            assertEquals(Map.of("terminal", true), deserialized.attributes());
-        }
+        assertEquals("custom", deserialized.role());
+        assertEquals("content-123", deserialized.contentId());
+        assertNull(deserialized.reasoningContentId());
+        assertEquals(Map.of("terminal", true), deserialized.attributes());
+    }
 
     @Test
     void testDeserializeLegacyJsonWithoutAttributesField() throws Exception {

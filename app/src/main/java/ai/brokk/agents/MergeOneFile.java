@@ -4,9 +4,9 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
-import ai.brokk.LlmOutputMeta;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments;
@@ -165,7 +165,8 @@ public final class MergeOneFile {
             if (Thread.interrupted()) {
                 return new Outcome(Status.INTERRUPTED, null);
             }
-            io.llmOutput("\n# Merge %s (step %d)".formatted(file, step), ChatMessageType.AI, LlmOutputMeta.newMessage());
+            io.llmOutput(
+                    "\n# Merge %s (step %d)".formatted(file, step), ChatMessageType.AI, LlmOutputMeta.newMessage());
 
             Llm.StreamingResult result;
             try {
@@ -234,7 +235,10 @@ public final class MergeOneFile {
                         return new Outcome(Status.RESOLVED, null);
                     } else {
                         var details = formatFailure(file, exec.resultText());
-                        io.llmOutput("\nCodeAgent failed to resolve conflicts for " + file, ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+                        io.llmOutput(
+                                "\nCodeAgent failed to resolve conflicts for " + file,
+                                ChatMessageType.AI,
+                                LlmOutputMeta.DEFAULT);
                         return new Outcome(Status.UNRESOLVED, details);
                     }
                 }

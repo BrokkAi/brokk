@@ -528,7 +528,8 @@ public class SearchAgent {
         }
         var toolSpecs = tr.getTools(toolNames);
 
-        io.llmOutput("\n**Brokk** performing initial workspace review…", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        io.llmOutput(
+                "\n**Brokk** performing initial workspace review…", ChatMessageType.AI, LlmOutputMeta.newMessage());
         var janitorOpts = new Llm.Options(scanModel, "Janitor: " + goal).withEcho();
         var jLlm = cm.getLlm(janitorOpts);
         jLlm.setOutput(this.io);
@@ -560,7 +561,10 @@ public class SearchAgent {
         Set<ProjectFile> filesBeforeScan = getWorkspaceFileSet();
 
         var contextAgent = new ContextAgent(cm, scanModel, goal, this.io);
-        io.llmOutput("\n**Brokk Context Engine** analyzing repository context…\n", ChatMessageType.AI, LlmOutputMeta.newMessage());
+        io.llmOutput(
+                "\n**Brokk Context Engine** analyzing repository context…\n",
+                ChatMessageType.AI,
+                LlmOutputMeta.newMessage());
 
         var recommendation = contextAgent.getRecommendations(context);
         var md = recommendation.metadata();
@@ -583,7 +587,8 @@ public class SearchAgent {
                 addToWorkspace(recommendation);
                 io.llmOutput(
                         "\n\n**Brokk Context Engine** complete — contextual insights added to Workspace.\n",
-                        ChatMessageType.AI, LlmOutputMeta.DEFAULT);
+                        ChatMessageType.AI,
+                        LlmOutputMeta.DEFAULT);
             }
         } else {
             io.llmOutput("\n\nNo additional context insights found\n", ChatMessageType.AI, LlmOutputMeta.DEFAULT);

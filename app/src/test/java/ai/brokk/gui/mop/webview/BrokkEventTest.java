@@ -92,11 +92,7 @@ public class BrokkEventTest {
     @Test
     public void testChunkSerializationWithTerminal() throws Exception {
         var event = new BrokkEvent.Chunk(
-                "terminal output",
-                ChatMessageType.AI,
-                100,
-                false,
-                new ChunkMeta(true, false, true));
+                "terminal output", ChatMessageType.AI, 100, false, new ChunkMeta(true, false, true));
 
         var node = MAPPER.readTree(MAPPER.writeValueAsString(event));
 
@@ -113,8 +109,7 @@ public class BrokkEventTest {
         assertTrue(node.has("meta"));
         var meta = node.get("meta");
 
-        var metaKeys = StreamSupport.stream(
-                        java.util.Spliterators.spliteratorUnknownSize(meta.fieldNames(), 0), false)
+        var metaKeys = StreamSupport.stream(java.util.Spliterators.spliteratorUnknownSize(meta.fieldNames(), 0), false)
                 .collect(java.util.stream.Collectors.toSet());
         assertEquals(Set.of("isNewMessage", "isReasoning", "isTerminal"), metaKeys);
 
@@ -125,12 +120,8 @@ public class BrokkEventTest {
 
     @Test
     public void testChunkSerializationReasoningNonTerminal() throws Exception {
-        var event = new BrokkEvent.Chunk(
-                "thinking...",
-                ChatMessageType.AI,
-                200,
-                true,
-                new ChunkMeta(false, true, false));
+        var event =
+                new BrokkEvent.Chunk("thinking...", ChatMessageType.AI, 200, true, new ChunkMeta(false, true, false));
 
         var json = MAPPER.writeValueAsString(event);
         var node = MAPPER.readTree(json);
@@ -151,8 +142,7 @@ public class BrokkEventTest {
         assertTrue(node.has("meta"));
         var meta = node.get("meta");
 
-        var metaKeys = StreamSupport.stream(
-                        java.util.Spliterators.spliteratorUnknownSize(meta.fieldNames(), 0), false)
+        var metaKeys = StreamSupport.stream(java.util.Spliterators.spliteratorUnknownSize(meta.fieldNames(), 0), false)
                 .collect(java.util.stream.Collectors.toSet());
         assertEquals(Set.of("isNewMessage", "isReasoning", "isTerminal"), metaKeys);
 

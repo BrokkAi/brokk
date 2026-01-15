@@ -609,7 +609,8 @@ class HeadlessHttpConsoleTest {
     void testConcurrentEvents_MaintainsOrder() throws Exception {
         // Submit multiple events rapidly
         for (int i = 0; i < 10; i++) {
-            console.llmOutput("token" + i, ChatMessageType.AI, i == 0 ? LlmOutputMeta.newMessage() : LlmOutputMeta.DEFAULT);
+            console.llmOutput(
+                    "token" + i, ChatMessageType.AI, i == 0 ? LlmOutputMeta.newMessage() : LlmOutputMeta.DEFAULT);
         }
 
         var events = awaitEvents(10, 10_000);

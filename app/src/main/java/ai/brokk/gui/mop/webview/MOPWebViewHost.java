@@ -66,7 +66,8 @@ public final class MOPWebViewHost extends JPanel {
 
     // Represents commands to be sent to the bridge; buffered until bridge is ready
     private sealed interface HostCommand {
-        record Append(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta) implements HostCommand {}
+        record Append(String text, ChatMessageType msgType, boolean streaming, ChunkMeta chunkMeta)
+                implements HostCommand {}
 
         record SetTheme(String themeName, boolean isDevMode, boolean wrapMode, double zoom) implements HostCommand {}
 
@@ -560,8 +561,7 @@ public final class MOPWebViewHost extends JPanel {
             logger.info("Flushing {} buffered commands", pendingCommands.size());
             pendingCommands.forEach(command -> {
                 switch (command) {
-                    case HostCommand.Append a ->
-                        bridge.append(a.text(), a.msgType(), a.streaming(), a.chunkMeta());
+                    case HostCommand.Append a -> bridge.append(a.text(), a.msgType(), a.streaming(), a.chunkMeta());
                     case HostCommand.SetTheme t ->
                         bridge.setTheme(t.themeName(), t.isDevMode(), t.wrapMode(), t.zoom());
                     case HostCommand.SetZoom z -> bridge.setZoom(z.zoom());

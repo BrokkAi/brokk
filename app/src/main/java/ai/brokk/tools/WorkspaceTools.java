@@ -202,7 +202,8 @@ public class WorkspaceTools {
 
         // Operate on actual stored fragments only
         var allFragments = context.allFragments().toList();
-        Map<String, ContextFragment> byId = allFragments.stream().collect(Collectors.toMap(ContextFragment::id, f -> f));
+        Map<String, ContextFragment> byId =
+                allFragments.stream().collect(Collectors.toMap(ContextFragment::id, f -> f));
 
         var idsToDropSet = new HashSet<>(idToRemoval.keySet());
 

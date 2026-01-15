@@ -1120,7 +1120,8 @@ public class BuildAgent {
         if (verificationCommand == null || verificationCommand.isBlank()) {
             io.llmOutput(
                     "\nNo verification command specified, skipping build/check.",
-                    ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+                    ChatMessageType.CUSTOM,
+                    LlmOutputMeta.DEFAULT);
             return ctx; // unchanged
         }
 
@@ -1203,15 +1204,12 @@ public class BuildAgent {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
-        io.llmOutput(
-                "\nRunning verification command:",
-                ChatMessageType.CUSTOM,
-                LlmOutputMeta.newMessage());
+        io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
 
-        io.llmOutput(verificationCommand + "\n\n",
+        io.llmOutput(
+                verificationCommand + "\n\n",
                 ChatMessageType.CUSTOM,
-                LlmOutputMeta.newMessage().withTerminal(true)
-        );
+                LlmOutputMeta.newMessage().withTerminal(true));
 
         try {
             var details = override != null ? override : cm.getProject().awaitBuildDetails();

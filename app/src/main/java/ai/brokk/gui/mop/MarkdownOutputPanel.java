@@ -13,7 +13,6 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -26,8 +25,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.swing.*;
-
-import dev.langchain4j.data.message.CustomMessage;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -246,9 +243,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             // - reasoning or terminal state changes (these are sub-variants of AI/CustomMessage)
             // - previous was terminal (terminal = semantically complete, frontend skips markdown parsing)
             // - ChatMessageType changes
-            isNew = meta.isReasoning() != lastIsReasoning
-                    || meta.isTerminal() != lastIsTerminal
-                    || type != last.type();
+            isNew = meta.isReasoning() != lastIsReasoning || meta.isTerminal() != lastIsTerminal || type != last.type();
         }
 
         var chunkMeta = new ChunkMeta(isNew, meta.isReasoning(), meta.isTerminal());

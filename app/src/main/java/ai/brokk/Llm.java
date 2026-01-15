@@ -378,7 +378,8 @@ public class Llm {
                                     LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                             fenceOpen.set(true);
                         }
-                        io.llmOutput(token, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+                        io.llmOutput(
+                                token, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                     }
                 });
             }
@@ -471,8 +472,7 @@ public class Llm {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, message);
                 errorRef.set(mapped);
                 if (echo && addJsonFence && fenceOpen.get()) {
-                    io.llmOutput(
-                            "\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+                    io.llmOutput("\n```", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
                     fenceOpen.set(false);
                 }
                 completed.set(true);
@@ -816,8 +816,7 @@ public class Llm {
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n"));
         if (!rendered.isBlank()) {
-            io.llmOutput(
-                    "\n" + rendered, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+            io.llmOutput("\n" + rendered, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
         }
     }
 
