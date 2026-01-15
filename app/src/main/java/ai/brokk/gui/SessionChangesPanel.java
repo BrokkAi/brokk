@@ -599,6 +599,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
+    // TODO migrate BrokkDiffPanel to FileDiff
     private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, GitRepoData.FileDiff> entry) {
         ProjectFile pf = null;
         try {
@@ -938,30 +939,28 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         codeReviewPanel.setBusy(true);
         guidedReviewBtn.setProgress(0);
 
-        generateGuidedReviewAsync(changes, fileComparisons);
+        generateGuidedReviewAsync(changes);
     }
 
     /**
      * Core review generation logic that accepts explicit parameters.
      * This allows callers to provide their own computed data rather than relying on cached state.
      */
-    private void generateGuidedReviewAsync(
-            DiffService.CumulativeChanges changes, List<FileComparisonInfo> comparisons) {
+    private void generateGuidedReviewAsync(DiffService.CumulativeChanges changes) {
         LoggingFuture.supplyAsync(() -> {
             // these are broken out separately to avoid deadlock (they both want to run on the exclusive UAM thread)
             ensureReviewSession(changes);
-            generateGuidedReviewInternal(changes, comparisons);
+            generateGuidedReviewInternal(changes);
         });
     }
 
-    private void generateGuidedReviewInternal(
-            DiffService.CumulativeChanges changes, List<FileComparisonInfo> comparisons) {
+    private void generateGuidedReviewInternal(DiffService.CumulativeChanges changes) {
         contextManager.submitLlmAction(() -> {
             try {
                 List<UUID> sessions =
                         DiffService.CumulativeChanges.findOverlappingSessions(contextManager, changes.commits());
 
-                var agent = new ReviewAgent(changes, sessions, contextManager, chrome, comparisons);
+                var agent = new ReviewAgent(changes, sessions, contextManager, chrome);
 
                 agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
                     guidedReviewBtn.setProgress(p);
@@ -1233,22 +1232,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         guidedReviewBtn.setProgress(0);
 
         // Compute changes and run review independently of requestUpdate
-        LoggingFuture.supplyAsync(() -> {
-                    try {
-                        var changes = computeCumulativeChanges(parentId, BaselineMode.COMMIT_RANGE);
-                        var prepared = DiffService.preparePerFileSummaries(changes);
-                        var comparisons = prepared.stream()
-                                .map(this::toFileComparisonInfo)
-                                .toList();
-                        return new ReviewInput(changes, comparisons);
-                    } catch (GitAPIException e) {
-                        throw new RuntimeException("Failed to compute changes for review", e);
-                    }
-                })
-                .thenAccept(input -> {
-                    // Now run the review with the explicitly computed data
-                    generateGuidedReviewAsync(input.changes(), input.comparisons());
-                })
+        // Now run the review with the explicitly computed data
+        LoggingFuture.supplyCallableAsync(() -> computeCumulativeChanges(parentId, BaselineMode.COMMIT_RANGE))
+                .thenAccept(this::generateGuidedReviewAsync)
                 .exceptionally(ex -> {
                     logger.error("Failed to prepare commit range review", ex);
                     SwingUtilities.invokeLater(() -> {
@@ -1259,8 +1245,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     return null;
                 });
     }
-
-    private record ReviewInput(DiffService.CumulativeChanges changes, List<FileComparisonInfo> comparisons) {}
 
     public void clearReviewBaseline() {
         SwingUtil.runOnEdt(() -> {

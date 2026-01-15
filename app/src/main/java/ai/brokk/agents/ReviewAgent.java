@@ -16,7 +16,7 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService;
 import ai.brokk.context.SpecialTextType;
-import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.WorkspaceTools;
@@ -85,28 +85,22 @@ public class ReviewAgent {
 
     private final IContextManager cm;
     private final IConsoleIO io;
-    private final List<FileComparisonInfo> fileComparisons;
     private @Nullable Context contextBeingBuilt;
     private boolean isComplex = false;
 
     private record ContextSetupResult(Context context, boolean isComplex) {}
 
     public ReviewAgent(
-            DiffService.CumulativeChanges changes,
-            List<UUID> sessionIds,
-            IContextManager cm,
-            IConsoleIO io,
-            List<FileComparisonInfo> fileComparisons) {
+            DiffService.CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm, IConsoleIO io) {
         this.changes = changes;
-        this.sessionIds = List.copyOf(sessionIds);
+        this.sessionIds = sessionIds;
         this.cm = cm;
         this.io = io;
-        this.fileComparisons = fileComparisons;
     }
 
     @TestOnly
-    ReviewAgent(IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
-        this(new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of()), List.of(), cm, io, fileComparisons);
+    ReviewAgent(IContextManager cm, IConsoleIO io, List<FileDiff> fileDiffs) {
+        this(new DiffService.CumulativeChanges(0, 0, 0, fileDiffs, List.of()), List.of(), cm, io);
     }
 
     private @Nullable ProgressUpdater progressUpdater;
@@ -336,13 +330,11 @@ public class ReviewAgent {
         }
     }
 
-    public static @Nullable FileComparisonInfo findFileComparison(
-            String relPath, List<FileComparisonInfo> fileComparisons) {
-        return fileComparisons.stream()
-                .filter(info ->
-                        (info.file() != null && relPath.equals(info.file().toString()))
-                                || relPath.equals(info.rightSource().filename())
-                                || relPath.equals(info.leftSource().filename()))
+    static @Nullable FileDiff findFileDiff(String relPath, List<FileDiff> fileDiffs) {
+        return fileDiffs.stream()
+                .filter(fd -> (fd.oldFile() != null
+                                && relPath.equals(fd.oldFile().toString()))
+                        || (fd.newFile() != null && relPath.equals(fd.newFile().toString())))
                 .findFirst()
                 .orElse(null);
     }
@@ -467,13 +459,13 @@ public class ReviewAgent {
         for (var entry : validPathExcerpts.entrySet()) {
             int id = entry.getKey();
             RawExcerpt excerpt = entry.getValue();
-            FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
-            if (fileInfo == null) {
+            FileDiff fileDiff = findFileDiff(excerpt.file(), changes.perFileChanges());
+            if (fileDiff == null) {
                 pendingTextErrors.put(id, "File not in diff: " + excerpt.file());
                 continue;
             }
 
-            ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(excerpt, fileInfo);
+            ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(excerpt, fileDiff);
             if (match == null) {
                 pendingTextErrors.put(id, "Excerpt text not found in " + excerpt.file());
             } else {
@@ -556,12 +548,12 @@ public class ReviewAgent {
                 // Update the validPathExcerpts with the fixed version
                 validPathExcerpts.put(id, fixed);
 
-                FileComparisonInfo fileInfo = findFileComparison(fixed.file(), fileComparisons);
-                if (fileInfo == null) {
+                FileDiff fileDiff = findFileDiff(fixed.file(), changes.perFileChanges());
+                if (fileDiff == null) {
                     continue;
                 }
 
-                ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fixed, fileInfo);
+                ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fixed, fileDiff);
                 if (match != null) {
                     var file = cm.toFile(fixed.file());
                     int lineCount = (int) match.matchedText().lines().count();
