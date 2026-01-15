@@ -484,7 +484,7 @@ public class ContextFragments {
             if (analyzer == null) {
                 return Set.of();
             }
-            return resolveAncestorFragments(analyzer.getDeclarations(file), contextManager);
+            return resolveAncestorFragments(analyzer.getTopLevelDeclarations(file), contextManager);
         }
     }
 
