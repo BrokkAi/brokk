@@ -176,13 +176,22 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.pullBtn = new MaterialButton("");
         this.pullBtn.setIcon(Icons.DOWNLOAD);
+        this.pullBtn.setPreferredSize(new Dimension(24, 24));
+        this.pullBtn.setMinimumSize(new Dimension(24, 24));
+        this.pullBtn.setMaximumSize(new Dimension(24, 24));
 
         this.pushBtn = new MaterialButton("");
         this.pushBtn.setIcon(Icons.PUBLISH);
+        this.pushBtn.setPreferredSize(new Dimension(24, 24));
+        this.pushBtn.setMinimumSize(new Dimension(24, 24));
+        this.pushBtn.setMaximumSize(new Dimension(24, 24));
 
         this.prBtn = new MaterialButton("");
         this.prBtn.setIcon(Icons.ADD_DIAMOND);
         this.prBtn.setToolTipText("Create PR");
+        this.prBtn.setPreferredSize(new Dimension(24, 24));
+        this.prBtn.setMinimumSize(new Dimension(24, 24));
+        this.prBtn.setMaximumSize(new Dimension(24, 24));
 
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
         this.guidedReviewBtn.setIcon(Icons.CHECK);
@@ -190,6 +199,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.pasteBtn = new MaterialButton("");
         this.pasteBtn.setIcon(Icons.CONTENT_CAPTURE);
         this.pasteBtn.setToolTipText("Paste Review");
+        this.pasteBtn.setPreferredSize(new Dimension(24, 24));
+        this.pasteBtn.setMinimumSize(new Dimension(24, 24));
+        this.pasteBtn.setMaximumSize(new Dimension(24, 24));
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
