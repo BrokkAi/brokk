@@ -115,7 +115,7 @@ class JobSpecTest {
 
     @Test
     void testReasoningLevelCode_FromOverrides() {
-        var overrides = new JobSpec.ModelOverrides("HIGH", "rlc-xyz", 0.2);
+        var overrides = new JobSpec.ModelOverrides("HIGH", "rlc-xyz", 0.2, null);
 
         var spec = JobSpec.of("task", true, true, "model", null, null, false, Map.of(), overrides);
 
