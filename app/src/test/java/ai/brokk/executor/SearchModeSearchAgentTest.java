@@ -602,7 +602,6 @@ class SearchModeSearchAgentTest {
 
             var contextsEntry = new ZipEntry("contexts.jsonl");
             zos.putNextEntry(contextsEntry);
-            zos.write("{\"role\":\"user\",\"content\":\"seed\"}\n".getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();
         }
         return out.toByteArray();
