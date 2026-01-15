@@ -7,6 +7,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.util.Decompiler;
 import ai.brokk.util.DownloadProgressListener;
 import ai.brokk.util.MavenArtifactFetcher;
+import java.util.concurrent.TimeUnit;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import org.apache.logging.log4j.LogManager;
@@ -158,7 +159,10 @@ public class DependencyTools {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Adding " + depName + " to Code Intelligence...");
             logger.debug("Adding {} to live dependencies...", depName);
             var analyzerWrapper = contextManager.getAnalyzerWrapper();
-            contextManager.getProject().addLiveDependency(depName, analyzerWrapper).join();
+            contextManager.getProject()
+                    .addLiveDependency(depName, analyzerWrapper)
+                    .orTimeout(60, TimeUnit.SECONDS)
+                    .join();
             logger.info("Successfully added {} to live dependencies", depName);
             intelligenceStatus = "The library has been added to live dependencies and Code Intelligence is updating.";
         } catch (Exception e) {
