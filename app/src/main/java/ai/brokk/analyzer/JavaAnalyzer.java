@@ -106,13 +106,22 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
         if (skeletonType == SkeletonType.MODULE_STATEMENT) {
-            // For Java packages, the FQN is just the package name.
-            // TreeSitterAnalyzer expects us to return a CodeUnit where
-            // packageName + "." + shortName equals the module FQN.
-            int idx = simpleName.lastIndexOf('.');
-            String parentPkg = idx >= 0 ? simpleName.substring(0, idx) : "";
-            String moduleShortName = idx >= 0 ? simpleName.substring(idx + 1) : simpleName;
-            return CodeUnit.module(file, parentPkg, moduleShortName);
+            // In Java, the 'simpleName' captured is the full package name (e.g. 'com.foo.bar').
+            // TreeSitterAnalyzer identifies modules by their FQN, which is packageName.identifier.
+            // To make FQN equal the full package name, we split it: the parent path becomes
+            // packageName, and the final segment becomes the identifier.
+            // This allows top-level classes (whose packageName matches the module's FQN) to be linked as children.
+            int lastDot = simpleName.lastIndexOf('.');
+            String modulePackageName;
+            String moduleIdentifier;
+            if (lastDot >= 0) {
+                modulePackageName = simpleName.substring(0, lastDot);
+                moduleIdentifier = simpleName.substring(lastDot + 1);
+            } else {
+                modulePackageName = "";
+                moduleIdentifier = simpleName;
+            }
+            return CodeUnit.module(file, modulePackageName, moduleIdentifier);
         }
 
         final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
@@ -130,6 +139,63 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 };
 
         return new CodeUnit(file, type, packageName, shortName);
+    }
+
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        createModulesFromImports(
+                file,
+                localImportStatements,
+                rootNode,
+                modulePackageName,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges,
+                new HashMap<>());
+    }
+
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, List<CodeUnit>> localChildren) {
+
+        if (modulePackageName.isBlank()) {
+            return;
+        }
+
+        int idx = modulePackageName.lastIndexOf('.');
+        String parentPkg = idx >= 0 ? modulePackageName.substring(0, idx) : "";
+        String simpleName = idx >= 0 ? modulePackageName.substring(idx + 1) : modulePackageName;
+
+        CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
+
+        List<CodeUnit> children = localTopLevelCUs.stream()
+                .filter(cu -> modulePackageName.equals(cu.packageName()))
+                .filter(CodeUnit::isClass)
+                .toList();
+
+        localChildren.put(moduleCu, children);
+        localCuByFqName.put(moduleCu.fqName(), moduleCu);
+
+        localSignatures
+                .computeIfAbsent(moduleCu, k -> new ArrayList<>())
+                .add("module " + modulePackageName);
     }
 
     @Override
@@ -554,35 +620,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         }
 
         return List.copyOf(result);
-    }
-
-    @Override
-    protected void createModulesFromImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges,
-            Map<CodeUnit, List<CodeUnit>> localChildren) {
-        // Module creation is now handled by TreeSitterAnalyzer via java.scm captures.
-        // We only need to wire up the top-level classes as children of the package module.
-        if (modulePackageName.isBlank()) {
-            return;
-        }
-
-        CodeUnit moduleCu = localCuByFqName.get(modulePackageName);
-        if (moduleCu != null && moduleCu.isModule()) {
-            List<CodeUnit> classesInThisFileAndPackage = new ArrayList<>();
-            for (CodeUnit cu : localTopLevelCUs) {
-                if (cu.isClass() && modulePackageName.equals(cu.packageName())) {
-                    classesInThisFileAndPackage.add(cu);
-                }
-            }
-            localChildren.put(moduleCu, classesInThisFileAndPackage);
-        }
     }
 
     @Override
