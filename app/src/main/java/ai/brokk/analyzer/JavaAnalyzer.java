@@ -158,15 +158,26 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (maybeDeclaration != null && packageDef.equals(maybeDeclaration.getType())) {
+            // In Java, package_declaration has a single identifier or scoped_identifier child.
+            // In Scala, it may have multiple package_identifier children.
+            // We iterate through named children and skip annotations (blacklist approach).
             for (int i = 0; i < maybeDeclaration.getNamedChildCount(); i++) {
                 final TSNode nameNode = maybeDeclaration.getNamedChild(i);
                 if (nameNode != null && !nameNode.isNull()) {
+                    String type = nameNode.getType();
+                    // Skip annotations: ensures both Java (@NullMarked) and Scala package nodes work.
+                    if ("annotation".equals(type) || "marker_annotation".equals(type)) {
+                        continue;
+                    }
+                    // Extract the text for this part of the namespace.
                     String nsPart = textSlice.apply(nameNode, sourceContent);
-                    namespaceParts.add(nsPart);
+                    if (!nsPart.isEmpty()) {
+                        namespaceParts.add(nsPart);
+                    }
                 }
             }
         }
-        Collections.reverse(namespaceParts);
+        // Join parts with dots. Java's single scoped_identifier is preserved; Scala's parts are joined.
         return String.join(".", namespaceParts);
     }
 
@@ -600,7 +611,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         }
         localChildren.put(moduleCu, classesInThisFileAndPackage);
 
-        // Register in local lookup for potential parent-child bindings (not added as a top-level CU)
+        // Register module as a top-level CodeUnit and in local lookup
+        localTopLevelCUs.add(moduleCu);
         localCuByFqName.put(moduleCu.fqName(), moduleCu);
     }
 
