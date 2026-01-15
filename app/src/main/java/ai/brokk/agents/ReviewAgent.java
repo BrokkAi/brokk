@@ -7,8 +7,11 @@ import static java.util.Objects.requireNonNullElse;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.TaskEntry;
+import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.cli.MemoryConsole;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService;
@@ -17,6 +20,7 @@ import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.WorkspaceTools;
+import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.ReviewParser;
 import ai.brokk.util.ReviewParser.CodeExcerpt;
 import ai.brokk.util.ReviewParser.RawExcerpt;
@@ -35,6 +39,7 @@ import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -115,13 +120,18 @@ public class ReviewAgent {
         long startTime = System.currentTimeMillis();
 
         // Prepare the initial context with the diff pinned
-        var diff = changes.perFileChanges().stream()
-                .map(de -> "File: " + de.title() + "\n" + de.diff())
+        String diff = changes.perFileChanges().stream()
+                .map(fd -> {
+                    String oldName = fd.oldFile() == null ? null : fd.oldFile().toString();
+                    String newName = fd.newFile() == null ? null : fd.newFile().toString();
+                    return ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), oldName, newName)
+                            .diff();
+                })
                 .collect(Collectors.joining("\n\n"));
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        try (var scope = cm.beginTask("Code Review", true, "Performing code review")) {
+        try (var scope = cm.beginTask("Code Review", true, false, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
             var instructionsOpt = extractInstructionsFragment(sessionIds);
@@ -168,7 +178,7 @@ public class ReviewAgent {
                         if (token.contains("\n")) {
                             int lines = linesSeen.addAndGet(
                                     (int) token.chars().filter(ch -> ch == '\n').count());
-                            int p = turn1Floor + (lines / 10);
+                            int p = turn1Floor + (lines / 8);
                             updateProgress("Analyzing changes", min(100, p));
                         }
                     }
@@ -233,13 +243,13 @@ public class ReviewAgent {
             var publishedMessages = List.of(
                     new UserMessage("Please review this diff"), new AiMessage(mergedReviewText, mergedReasoning));
 
-            var result = new ai.brokk.TaskResult(
+            var result = new TaskResult(
                     cm,
                     "Code Review",
                     publishedMessages,
                     reviewContext,
-                    new ai.brokk.TaskResult.StopDetails(ai.brokk.TaskResult.StopReason.SUCCESS),
-                    new ai.brokk.TaskResult.TaskMeta(ai.brokk.TaskResult.Type.REVIEW, turn1ModelConfig));
+                    new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
+                    new TaskResult.TaskMeta(TaskResult.Type.REVIEW, turn1ModelConfig));
 
             scope.append(result);
 
@@ -300,12 +310,20 @@ public class ReviewAgent {
         // Fallback
         var testFiles = cm.getTestFiles();
         var filesToContext = changes.perFileChanges().stream()
-                .filter(de -> !testFiles.contains(
-                        de.fragment().files().join().iterator().next()))
-                .filter(de -> !de.oldContent().isEmpty() && !de.newContent().isEmpty())
-                .filter(de -> de.diff().split("@@").length > 3) // > 2 hunks
-                .map(DiffService.DiffEntry::fragment)
-                .toList();
+                .filter(fd -> {
+                    var file = fd.newFile() != null ? fd.newFile() : fd.oldFile();
+                    return file != null && !testFiles.contains(file);
+                })
+                .filter(fd -> !fd.oldText().isEmpty() && !fd.newText().isEmpty())
+                .filter(fd -> {
+                    var diffRes = ContentDiffUtils.computeDiffResult(fd.oldText(), fd.newText(), "old", "new");
+                    return diffRes.diff().split("@@").length > 3; // > 2 hunks
+                })
+                .map(fd -> {
+                    var file = requireNonNull(fd.newFile() != null ? fd.newFile() : fd.oldFile());
+                    return new ContextFragments.GitFileFragment(file, "WORKING", fd.newText());
+                })
+                .collect(Collectors.toList());
         var ctx = initialContext.addFragments(filesToContext);
         ctx = ctx.addFragments(ctx.buildAutoContext(10));
         return new ContextSetupResult(ctx, false);
@@ -382,7 +400,13 @@ public class ReviewAgent {
             String reasoning = (currentResult.chatResponse() != null)
                     ? requireNonNullElse(currentResult.chatResponse().reasoningContent(), "")
                     : "";
-            retryFileMessages.add(new AiMessage(textToValidate, reasoning));
+
+            String taggedText =
+                    "[HARNESS NOTE: some code excerpts in this message were invalid or could not be matched. "
+                            + "Your code excerpts have been tagged with [Excerpt N] markers below to help you identify and fix them.]\n\n"
+                            + ReviewParser.instance.tagExcerpts(textToValidate);
+
+            retryFileMessages.add(new AiMessage(taggedText, reasoning));
             retryFileMessages.add(new UserMessage(
                     """
                     The following excerpts referenced unknown file paths.
@@ -392,7 +416,7 @@ public class ReviewAgent {
                     %s
 
                     Use this format:
-                    Excerpt 1:
+                    Excerpt 0:
                     At `path/to/file.java` line 42:
                     ```
                     corrected code
@@ -484,7 +508,12 @@ public class ReviewAgent {
             retryTextMessages.addAll(
                     WorkspacePrompts.getMessagesInAddedOrder(filteredCtx, EnumSet.noneOf(SpecialTextType.class)));
             retryTextMessages.add(buildAnalysisRequestMessage());
-            retryTextMessages.add(new AiMessage(mergedResponseText));
+            String taggedText =
+                    "[HARNESS NOTE: some code excerpts in this message were invalid or could not be matched. "
+                            + "Your code excerpts have been tagged with [Excerpt N] markers below to help you identify and fix them.]\n\n"
+                            + ReviewParser.instance.tagExcerpts(mergedResponseText);
+
+            retryTextMessages.add(new AiMessage(taggedText));
 
             retryTextMessages.add(new UserMessage(
                     """
@@ -579,7 +608,7 @@ public class ReviewAgent {
 
                 futures.put(
                         title,
-                        CompletableFuture.supplyAsync(
+                        LoggingFuture.supplyAsync(
                                 () -> {
                                     Llm correctionLlm = cm.getLlm(llm.getModel(), "Note Correction");
                                     correctionLlm.setOutput(io);
@@ -618,13 +647,12 @@ public class ReviewAgent {
                                             // Re-validate the correction
                                             var newErrors =
                                                     ReviewParser.instance.validateParsedNotes(correctionText).stream()
-                                                            .filter(e -> e.title()
-                                                                            .equalsIgnoreCase(title)
-                                                                    || correctionText
-                                                                            .toLowerCase(java.util.Locale.ROOT)
-                                                                            .contains(("### " + e.title())
-                                                                                    .toLowerCase(
-                                                                                            java.util.Locale.ROOT)))
+                                                            .filter(e ->
+                                                                    e.title().equalsIgnoreCase(title)
+                                                                            || correctionText
+                                                                                    .toLowerCase(Locale.ROOT)
+                                                                                    .contains(("### " + e.title())
+                                                                                            .toLowerCase(Locale.ROOT)))
                                                             .toList();
 
                                             if (newErrors.isEmpty()) {
@@ -667,9 +695,7 @@ public class ReviewAgent {
                 if (ReviewParser.extractNoteSection(mergedText, requestedTitle) == null) {
                     // If requested title isn't found, try to see if the correction contains a known title
                     for (String title : errorsByNote.keySet()) {
-                        if (correction
-                                .toLowerCase(java.util.Locale.ROOT)
-                                .contains(("### " + title).toLowerCase(java.util.Locale.ROOT))) {
+                        if (correction.toLowerCase(Locale.ROOT).contains(("### " + title).toLowerCase(Locale.ROOT))) {
                             actualTitle = title;
                             break;
                         }
@@ -846,14 +872,17 @@ public class ReviewAgent {
 
         // Extract instructions from all matching histories
         List<String> instructions = sessionIds.stream()
+                .parallel()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
                 .filter(Objects::nonNull)
                 .flatMap(h -> h.getHistory().stream()) // Stream<Context>
                 .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
-                .filter(te -> te.log() != null)
-                .filter(te -> te.meta() == null || te.meta().type() != ai.brokk.TaskResult.Type.REVIEW)
-                .sorted(Comparator.comparing(te -> requireNonNull(te.log()).id()))
-                .map(te -> requireNonNull(te.log()).description().join())
+                .filter(te -> te.meta() == null || te.meta().type() != TaskResult.Type.REVIEW)
+                .map(TaskEntry::log)
+                .filter(Objects::nonNull)
+                .sorted(Comparator.comparing(log -> log.id()))
+                .map(log -> log.description().join())
+                .filter(Objects::nonNull) // legacy entries can be null here
                 .filter(desc -> !desc.isBlank())
                 .distinct()
                 .toList();

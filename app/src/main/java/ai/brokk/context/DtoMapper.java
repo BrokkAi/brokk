@@ -87,7 +87,7 @@ public class DtoMapper {
                         var pm = new Service.ModelConfig(
                                 taskRefDto.primaryModelName(), reasoning, Service.ProcessingTier.DEFAULT);
                         meta = new TaskResult.TaskMeta(type, pm);
-                        logger.debug(
+                        logger.trace(
                                 "Reconstructed TaskMeta for sequence {}: type={}, model={}",
                                 taskRefDto.sequence(),
                                 meta.type(),

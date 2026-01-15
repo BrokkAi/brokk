@@ -1765,7 +1765,7 @@ public class CodeAgent {
 
         // If any fragments need to be computed, we'll wait a bit
         try {
-            ctx.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            ctx.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }

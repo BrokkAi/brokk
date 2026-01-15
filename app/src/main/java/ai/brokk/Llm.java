@@ -6,6 +6,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.ToolRegistry;
+import ai.brokk.util.Exceptions;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
@@ -46,10 +47,7 @@ import dev.langchain4j.model.openai.internal.OpenAiUtils;
 import dev.langchain4j.model.openai.internal.chat.ChatCompletionRequest;
 import dev.langchain4j.model.openai.internal.shared.StreamOptions;
 import dev.langchain4j.model.output.FinishReason;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -1723,7 +1721,7 @@ public class Llm {
                        [Error: %s]
                        %s
                        """
-                        .formatted(formatThrowable(error), contentToShow);
+                        .formatted(Exceptions.formatThrowable(error), contentToShow);
             }
 
             AiMessage ai = aiMessage();
@@ -1760,14 +1758,6 @@ public class Llm {
                             ai.reasoningContent() == null ? "" : ai.reasoningContent(),
                             toolRequestsJson,
                             metadataJson);
-        }
-
-        private String formatThrowable(Throwable th) {
-            var baos = new ByteArrayOutputStream();
-            try (var ps = new PrintStream(baos)) {
-                th.printStackTrace(ps);
-            }
-            return baos.toString(StandardCharsets.UTF_8);
         }
 
         /**

@@ -211,11 +211,6 @@ class NativeProjectWatchServiceManualTest {
             currentLatch.countDown();
         }
 
-        @Override
-        public void onNoFilesChangedDuringPollInterval() {
-            // No-op
-        }
-
         boolean awaitEvent(long timeout, TimeUnit unit) throws InterruptedException {
             return currentLatch.await(timeout, unit);
         }

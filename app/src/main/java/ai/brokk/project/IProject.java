@@ -156,6 +156,14 @@ public interface IProject extends AutoCloseable {
         throw new UnsupportedOperationException();
     }
 
+    default void setBuildDetails(BuildAgent.BuildDetails details) {
+        throw new UnsupportedOperationException();
+    }
+
+    default void setRepo(IGitRepo repo) {
+        throw new UnsupportedOperationException();
+    }
+
     default CompletableFuture<BuildAgent.BuildDetails> getBuildDetailsFuture() {
         return CompletableFuture.failedFuture(new UnsupportedOperationException());
     }

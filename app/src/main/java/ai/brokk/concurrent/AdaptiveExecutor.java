@@ -1,6 +1,7 @@
-package ai.brokk.util;
+package ai.brokk.concurrent;
 
 import ai.brokk.AbstractService;
+import ai.brokk.util.TokenAware;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;

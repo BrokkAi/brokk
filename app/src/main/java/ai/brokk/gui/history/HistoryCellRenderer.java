@@ -1,11 +1,15 @@
-package ai.brokk.gui;
+package ai.brokk.gui.history;
 
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
+import ai.brokk.gui.ActivityTableRenderers;
+import ai.brokk.gui.Chrome;
+import ai.brokk.gui.Constants;
+import ai.brokk.gui.HistoryOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
-import ai.brokk.util.ComputedValue;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -14,6 +18,7 @@ import java.awt.Font;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -42,12 +47,9 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
     private final ActivityTableRenderers.ActionCellRenderer fallback = new ActivityTableRenderers.ActionCellRenderer();
     private final Font smallFont = new Font(Font.DIALOG, Font.PLAIN, 11);
 
-    private final HistoryOutputPanel historyOutputPanel;
+    private final HistoryTable historyTable;
     private final ContextManager contextManager;
     private final Chrome chrome;
-
-    @SuppressWarnings("unused")
-    private final JTable historyTable;
 
     // Flyweight components reused for all cells
     private final JPanel outerPanel;
@@ -57,23 +59,20 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
     /**
      * Creates a new HistoryCellRenderer.
      *
-     * @param historyOutputPanel owning HistoryOutputPanel (used for tooltip helpers)
+     * @param historyTable   history table
      * @param contextManager     context manager used to obtain diff services
      * @param chrome             chrome instance used for theme lookups
-     * @param historyTable       the history JTable instance
      */
-    public HistoryCellRenderer(
-            HistoryOutputPanel historyOutputPanel, ContextManager contextManager, Chrome chrome, JTable historyTable) {
-        this.historyOutputPanel = historyOutputPanel;
+    public HistoryCellRenderer(HistoryTable historyTable, ContextManager contextManager, Chrome chrome) {
+        this.historyTable = historyTable;
         this.contextManager = contextManager;
         this.chrome = chrome;
-        this.historyTable = historyTable;
 
         this.outerPanel = new JPanel(new BorderLayout());
         outerPanel.setOpaque(true);
 
         this.diffPanel = new JPanel();
-        diffPanel.setLayout(new javax.swing.BoxLayout(diffPanel, javax.swing.BoxLayout.Y_AXIS));
+        diffPanel.setLayout(new BoxLayout(diffPanel, BoxLayout.Y_AXIS));
         diffPanel.setOpaque(false);
         diffPanel.setBorder(new EmptyBorder(0, 0, 0, 0));
     }
@@ -84,12 +83,12 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         // Extract action text and indent level.
         int indentLevel = 0;
         String actionText;
-        if (value instanceof HistoryOutputPanel.ActionText at) {
+        if (value instanceof ActivityTableRenderers.ActionText at) {
             actionText = at.text().renderNowOr(Context.SUMMARIZING);
             indentLevel = Math.max(0, at.indentLevel());
         } else if (value instanceof ComputedValue<?> cv) {
             @SuppressWarnings("unchecked")
-            var castCv = (ai.brokk.util.ComputedValue<Object>) cv;
+            var castCv = (ComputedValue<Object>) cv;
             Object result = castCv.renderNowOr(Context.SUMMARIZING);
             actionText = result != null ? result.toString() : "";
         } else {
@@ -128,7 +127,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
                     return;
                 }
                 SwingUtilities.invokeLater(() -> {
-                    historyOutputPanel.adjustRowHeightForContext(ctx);
+                    historyTable.adjustRowHeightForContext(ctx);
                     table.repaint();
                 });
             });
@@ -151,9 +150,9 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         outerPanel.add(actionComp, BorderLayout.NORTH);
 
         // Ensure tooltip is visible even though we return a composite panel.
-        outerPanel.setToolTipText(historyOutputPanel.buildTooltipWithModel(ctx, actionText));
+        outerPanel.setToolTipText(ActivityTableRenderers.buildTooltipWithModel(ctx, actionText));
 
-        List<DiffService.DiffEntry> diffs = cachedOpt.orElseGet(List::of);
+        List<DiffService.FragmentDiff> diffs = cachedOpt.orElseGet(List::of);
         if (!diffs.isEmpty()) {
             boolean isDark = chrome.getTheme().isDarkTheme();
             Color plusColor = ThemeColors.getColor(isDark, "diff_added_fg");
@@ -164,7 +163,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
             for (int i = 0; i < diffRows.size(); i++) {
                 DiffRow dr = diffRows.get(i);
                 if (i < diffs.size()) {
-                    DiffService.DiffEntry de = diffs.get(i);
+                    DiffService.FragmentDiff de = diffs.get(i);
                     String bareName = computeBareName(de);
 
                     dr.nameLabel.setText(bareName + " ");
@@ -210,7 +209,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
      * Computes a short display name for a diff entry: preferably the filename of the first ProjectFile,
      * or the fragment's shortDescription() as a fallback.
      */
-    private String computeBareName(DiffService.DiffEntry de) {
+    private String computeBareName(DiffService.FragmentDiff de) {
         var fragment = de.fragment();
         Set<ProjectFile> files = Set.of();
         var computedFilesOpt = fragment.files();

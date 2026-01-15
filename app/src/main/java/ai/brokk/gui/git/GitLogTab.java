@@ -30,6 +30,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -899,7 +900,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                         currentActualBranch = localTrackingName;
                     }
                 }
-                chrome.refreshGitAndFetch(currentActualBranch);
+                chrome.refreshGitAsync(currentActualBranch);
             } catch (GitAPIException e) {
                 logger.error("Error checking out branch: {}", branchName, e);
                 chrome.toolError(Objects.toString(e.getMessage(), "Unknown error during checkout."));
@@ -992,7 +993,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
                 SwingUtilities.invokeLater(() -> {
                     // Update commit/branch tables
                     if (branchForUiRefreshFinal != null) {
-                        chrome.refreshGitAndFetch(branchForUiRefreshFinal);
+                        chrome.refreshGitAsync(branchForUiRefreshFinal);
                     }
                 });
             }
@@ -1059,7 +1060,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
             contextManager.submitExclusiveAction(() -> {
                 try {
                     getRepo().createAndCheckoutBranch(newName, sourceBranch);
-                    chrome.refreshGitAndFetch(newName);
+                    chrome.refreshGitAsync(newName);
                     chrome.showNotification(
                             IConsoleIO.NotificationRole.INFO,
                             "Created and checked out new branch '" + newName + "' from '" + sourceBranch + "'");
@@ -1224,7 +1225,7 @@ public class GitLogTab extends JPanel implements ThemeAware {
      * Creates a cell renderer with fuzzy match highlighting for simple single-column tables.
      */
     private static DefaultTableCellRenderer createFuzzyHighlightRenderer(
-            java.util.function.Supplier<@Nullable FuzzyMatcher> matcherSupplier) {
+            Supplier<@Nullable FuzzyMatcher> matcherSupplier) {
         return new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(

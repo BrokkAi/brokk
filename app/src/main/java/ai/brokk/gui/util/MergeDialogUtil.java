@@ -7,6 +7,7 @@ import ai.brokk.gui.MergeDialogPanel;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.WorktreeProject;
 import java.awt.Component;
+import java.awt.Frame;
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 import org.apache.logging.log4j.LogManager;
@@ -96,7 +97,7 @@ public class MergeDialogUtil {
         }
 
         var owner = SwingUtilities.getWindowAncestor(options.parentComponent());
-        MergeDialogPanel dialog = new MergeDialogPanel(owner instanceof java.awt.Frame f ? f : null, options);
+        MergeDialogPanel dialog = new MergeDialogPanel(owner instanceof Frame f ? f : null, options);
 
         MergeDialogPanel.Result r = dialog.showDialog();
 
