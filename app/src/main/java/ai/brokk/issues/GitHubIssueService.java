@@ -51,7 +51,7 @@ public class GitHubIssueService implements IssueService {
         this.gfmRenderer = new GfmRenderer();
     }
 
-    private GitHubAuth getAuth() throws IOException {
+    protected GitHubAuth getAuth() throws IOException {
         return GitHubAuth.getOrCreateInstance(this.project);
     }
 
@@ -163,11 +163,15 @@ public class GitHubIssueService implements IssueService {
                     "Invalid issue ID format: " + issueId + ". Must be a number, optionally prefixed with '#'.", e);
         }
 
-        if (GitHubAuth.tokenPresent()) {
+        if (isTokenPresent()) {
             return loadDetailsFromGraphQL(numericId);
         } else {
             return loadDetailsFromRest(numericId);
         }
+    }
+
+    protected boolean isTokenPresent() {
+        return GitHubAuth.tokenPresent();
     }
 
     private IssueDetails loadDetailsFromRest(int issueNumber) throws IOException {
@@ -222,7 +226,7 @@ public class GitHubIssueService implements IssueService {
     private IssueDetails loadDetailsFromGraphQL(int issueNumber) throws IOException {
         String query =
                 """
-                query($owner: String!, $repo: String!, $number: Int!) {
+                query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
                   repository(owner: $owner, name: $repo) {
                     issue(number: $number) {
                       number
@@ -236,7 +240,11 @@ public class GitHubIssueService implements IssueService {
                       author { login }
                       assignees(first: 100) { nodes { login } }
                       labels(first: 100) { nodes { name } }
-                      comments(first: 100) {
+                      comments(first: 100, after: $cursor) {
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
                         nodes {
                           body
                           bodyHTML
@@ -249,98 +257,124 @@ public class GitHubIssueService implements IssueService {
                 }
                 """;
 
-        ObjectNode variables = objectMapper.createObjectNode();
-        variables.put("owner", getAuth().getOwner());
-        variables.put("repo", getAuth().getRepoName());
-        variables.put("number", issueNumber);
+        String owner = getAuth().getOwner();
+        String repo = getAuth().getRepoName();
+        String cursor = null;
+        boolean hasNextPage = true;
 
-        ObjectNode requestBody = objectMapper.createObjectNode();
-        requestBody.put("query", query);
-        requestBody.set("variables", variables);
+        IssueHeader header = null;
+        String body = "";
+        String htmlBody = "";
+        List<Comment> comments = new ArrayList<>();
+        Set<String> allImageUrls = new LinkedHashSet<>();
 
-        Request.Builder requestBuilder = new Request.Builder()
-                .url("https://api.github.com/graphql")
-                .post(RequestBody.create(
-                        objectMapper.writeValueAsString(requestBody), MediaType.parse("application/json")));
+        while (hasNextPage) {
+            ObjectNode variables = objectMapper.createObjectNode();
+            variables.put("owner", owner);
+            variables.put("repo", repo);
+            variables.put("number", issueNumber);
+            variables.put("cursor", cursor);
 
-        try (Response response = httpClient().newCall(requestBuilder.build()).execute()) {
-            if (!response.isSuccessful()) {
-                throw new IOException("GraphQL query failed: " + response.code() + " " + response.message());
-            }
-            if (response.body() == null) {
-                throw new IOException("GraphQL query returned empty body");
-            }
-            JsonNode root = objectMapper.readTree(response.body().byteStream());
-            if (root.has("errors")) {
-                throw new IOException("GraphQL errors: " + root.get("errors").toString());
-            }
+            ObjectNode requestBody = objectMapper.createObjectNode();
+            requestBody.put("query", query);
+            requestBody.set("variables", variables);
 
-            JsonNode issueNode = root.path("data").path("repository").path("issue");
-            if (issueNode.isMissingNode() || issueNode.isNull()) {
-                throw new IOException("Issue #" + issueNumber + " not found or access denied.");
-            }
+            Request.Builder requestBuilder = new Request.Builder()
+                    .url("https://api.github.com/graphql")
+                    .post(RequestBody.create(
+                            objectMapper.writeValueAsString(requestBody), MediaType.parse("application/json")));
 
-            String id = "#" + issueNode.path("number").asInt();
-            String title = issueNode.path("title").asText();
-            String urlStr = issueNode.path("url").asText();
-            String state = issueNode.path("state").asText();
-            String body = issueNode.path("body").asText("");
-            String htmlBody = issueNode.path("bodyHTML").asText("");
+            try (Response response = httpClient().newCall(requestBuilder.build()).execute()) {
+                if (!response.isSuccessful()) {
+                    throw new IOException("GraphQL query failed: " + response.code() + " " + response.message());
+                }
+                if (response.body() == null) {
+                    throw new IOException("GraphQL query returned empty body");
+                }
+                JsonNode root = objectMapper.readTree(response.body().byteStream());
+                if (root.has("errors")) {
+                    throw new IOException("GraphQL errors: " + root.get("errors").toString());
+                }
 
-            Set<String> allImageUrls = new LinkedHashSet<>();
-            if (!htmlBody.isBlank()) {
-                allImageUrls.addAll(MarkupImageParser.extractImageUrls(htmlBody));
-            }
+                JsonNode issueNode = root.path("data").path("repository").path("issue");
+                if (issueNode.isMissingNode() || issueNode.isNull()) {
+                    throw new IOException("Issue #" + issueNumber + " not found or access denied.");
+                }
 
-            String author = issueNode.path("author").isMissingNode()
-                            || issueNode.path("author").isNull()
-                    ? "N/A"
-                    : issueNode.path("author").path("login").asText("N/A");
+                if (header == null) {
+                    String id = "#" + issueNode.path("number").asInt();
+                    String title = issueNode.path("title").asText();
+                    String urlStr = issueNode.path("url").asText();
+                    String state = issueNode.path("state").asText();
+                    body = issueNode.path("body").asText("");
+                    htmlBody = issueNode.path("bodyHTML").asText("");
 
-            Instant updated = parseIsoDate(issueNode.path("updatedAt").asText(null));
-            URI htmlUrl;
-            try {
-                htmlUrl = new URI(urlStr);
-            } catch (URISyntaxException e) {
-                logger.warn("Invalid URI from GraphQL: {}", urlStr, e);
-                htmlUrl = null;
-            }
-
-            List<String> labels = new ArrayList<>();
-            issueNode
-                    .path("labels")
-                    .path("nodes")
-                    .forEach(n -> labels.add(n.path("name").asText()));
-
-            List<String> assignees = new ArrayList<>();
-            issueNode
-                    .path("assignees")
-                    .path("nodes")
-                    .forEach(n -> assignees.add(n.path("login").asText()));
-
-            List<Comment> comments = new ArrayList<>();
-            JsonNode commentsNode = issueNode.path("comments").path("nodes");
-            if (commentsNode.isArray()) {
-                for (JsonNode node : commentsNode) {
-                    String cBody = node.path("body").asText("");
-                    String cHtmlBody = node.path("bodyHTML").asText("");
-                    if (!cHtmlBody.isBlank()) {
-                        allImageUrls.addAll(MarkupImageParser.extractImageUrls(cHtmlBody));
+                    if (!htmlBody.isBlank()) {
+                        allImageUrls.addAll(MarkupImageParser.extractImageUrls(htmlBody));
                     }
-                    String cAuthor = node.path("author").isMissingNode()
-                                    || node.path("author").isNull()
+
+                    String author = issueNode.path("author").isMissingNode() || issueNode.path("author").isNull()
                             ? "N/A"
-                            : node.path("author").path("login").asText("N/A");
-                    Instant cCreated = parseIsoDate(node.path("createdAt").asText(null));
-                    comments.add(new Comment(cAuthor, cBody, cCreated));
+                            : issueNode.path("author").path("login").asText("N/A");
+
+                    Instant updated = parseIsoDate(issueNode.path("updatedAt").asText(null));
+                    URI htmlUrl;
+                    try {
+                        htmlUrl = new URI(urlStr);
+                    } catch (URISyntaxException e) {
+                        logger.warn("Invalid URI from GraphQL: {}", urlStr, e);
+                        htmlUrl = null;
+                    }
+
+                    List<String> labels = new ArrayList<>();
+                    issueNode
+                            .path("labels")
+                            .path("nodes")
+                            .forEach(n -> labels.add(n.path("name").asText()));
+
+                    List<String> assignees = new ArrayList<>();
+                    issueNode
+                            .path("assignees")
+                            .path("nodes")
+                            .forEach(n -> assignees.add(n.path("login").asText()));
+
+                    header = new IssueHeader(id, title, author, updated, labels, assignees, state, htmlUrl);
+                }
+
+                JsonNode commentsSection = issueNode.path("comments");
+                JsonNode commentsNode = commentsSection.path("nodes");
+                if (commentsNode.isArray()) {
+                    for (JsonNode node : commentsNode) {
+                        String cBody = node.path("body").asText("");
+                        String cHtmlBody = node.path("bodyHTML").asText("");
+                        if (!cHtmlBody.isBlank()) {
+                            allImageUrls.addAll(MarkupImageParser.extractImageUrls(cHtmlBody));
+                        }
+                        String cAuthor = node.path("author").isMissingNode() || node.path("author").isNull()
+                                ? "N/A"
+                                : node.path("author").path("login").asText("N/A");
+                        Instant cCreated = parseIsoDate(node.path("createdAt").asText(null));
+                        comments.add(new Comment(cAuthor, cBody, cCreated));
+                    }
+                }
+
+                JsonNode pageInfo = commentsSection.path("pageInfo");
+                hasNextPage = pageInfo.path("hasNextPage").asBoolean(false);
+                if (hasNextPage) {
+                    cursor = pageInfo.path("endCursor").asText(null);
+                    if (cursor == null) {
+                        hasNextPage = false;
+                    }
                 }
             }
-
-            IssueHeader header = new IssueHeader(id, title, author, updated, labels, assignees, state, htmlUrl);
-            List<URI> attachmentUrls = mapToUri(allImageUrls);
-
-            return new IssueDetails(header, body, htmlBody, comments, attachmentUrls);
         }
+
+        if (header == null) {
+            throw new IOException("Failed to load issue details (header is null).");
+        }
+
+        List<URI> attachmentUrls = mapToUri(allImageUrls);
+        return new IssueDetails(header, body, htmlBody, comments, attachmentUrls);
     }
 
     private static List<URI> mapToUri(Set<String> allImageUrls) {
