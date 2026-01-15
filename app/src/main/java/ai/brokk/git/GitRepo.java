@@ -257,10 +257,25 @@ public class GitRepo implements Closeable, IGitRepo {
             fixedPairs.add(Map.entry(Path.of(""), globalIgnore));
         });
 
-        // info/exclude is in the git directory, shared across worktrees
-        var gitInfoExclude = repository.getDirectory().toPath().resolve("info/exclude");
-        if (Files.exists(gitInfoExclude)) {
-            fixedPairs.add(Map.entry(Path.of(""), gitInfoExclude));
+        // info/exclude: check both the private git directory (per-worktree)
+        // and the common directory (shared). Standard git uses the common one.
+        Path gitDir = repository.getDirectory().toPath();
+        Path infoExclude = gitDir.resolve("info/exclude");
+        if (Files.exists(infoExclude)) {
+            fixedPairs.add(Map.entry(Path.of(""), infoExclude));
+        } else {
+            // Check common directory if different (e.g. in worktrees)
+            try {
+                // JGit's Repository doesn't expose getCommonDir directly in all versions
+                // but usually info/exclude is expected in the administrative dir provided by JGit.
+                // If it's not in the private dir, we check the gitTopLevel/.git (main repo)
+                Path commonInfoExclude = gitTopLevel.resolve(".git/info/exclude");
+                if (!commonInfoExclude.equals(infoExclude) && Files.exists(commonInfoExclude)) {
+                    fixedPairs.add(Map.entry(Path.of(""), commonInfoExclude));
+                }
+            } catch (Exception e) {
+                logger.debug("Could not resolve common info/exclude: {}", e.getMessage());
+            }
         }
 
         // Root .gitignore is in the working tree, which differs for worktrees
@@ -287,6 +302,7 @@ public class GitRepo implements Closeable, IGitRepo {
         }
 
         // Fallback to XDG location or legacy home location if core.excludesfile is not set
+        // Use JGit's SystemReader to respect environment variables correctly
         String xdgConfigHome = SystemReader.getInstance().getenv("XDG_CONFIG_HOME");
         if (xdgConfigHome != null && !xdgConfigHome.isEmpty()) {
             Path xdgIgnore = Path.of(xdgConfigHome).resolve("git/ignore");
