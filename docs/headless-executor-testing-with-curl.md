@@ -834,7 +834,8 @@ curl -sS -X POST "${BASE}/v1/jobs/<job-id>/cancel" \
 
 You can pass these optional top-level fields in any `POST /v1/jobs` payload:
 
-- `reasoningLevel` (string): `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
+- `reasoningLevel` (string): `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"` — applies to the planner model.
+- `reasoningLevelCode` (string): `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"` — applies to the code model (CODE and ARCHITECT modes).
 - `temperature` (number): `0.0` to `2.0` inclusive.
 
 If omitted, the executor uses the model/service defaults.
@@ -855,6 +856,7 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   "plannerModel": "gpt-5",
   "codeModel": "gpt-5-mini",
   "reasoningLevel": "MEDIUM",
+  "reasoningLevelCode": "LOW",
   "temperature": 0.0,
   "tags": {
     "mode": "CODE"

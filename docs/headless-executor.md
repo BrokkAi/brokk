@@ -518,9 +518,10 @@ Once running, the executor exposes the following endpoints:
 
 #### Job-level model overrides (optional)
 
-You can optionally override two model behaviors per job:
+You can optionally override model behaviors per job:
 
-- `reasoningLevel` (string, optional): Controls how much explicit reasoning effort the model should use.
+- `reasoningLevel` (string, optional): Controls how much explicit reasoning effort the planner model should use.
+- `reasoningLevelCode` (string, optional): Controls how much explicit reasoning effort the code model should use. Applies to CODE and ARCHITECT modes.
 - `temperature` (number, optional): Controls sampling randomness for supported models.
 
 These fields are accepted in the top-level job payload alongside `plannerModel` / `codeModel` / `scanModel`.
@@ -530,7 +531,12 @@ These fields are accepted in the top-level job payload alongside `plannerModel` 
 - `reasoningLevel`:
   - If provided, must be a string.
   - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
-  - If omitted or null, the executor uses the model/service default reasoning configuration.
+  - If omitted or null, the executor uses the model/service default reasoning configuration for the planner model.
+
+- `reasoningLevelCode`:
+  - If provided, must be a string.
+  - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
+  - If omitted or null, the executor uses the model/service default reasoning configuration for the code model.
 
 - `temperature`:
   - If provided, must be a JSON number.
@@ -553,6 +559,7 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   "plannerModel": "gpt-5",
   "codeModel": "gpt-5-mini",
   "reasoningLevel": "HIGH",
+  "reasoningLevelCode": "MEDIUM",
   "temperature": 0.2,
   "tags": {
     "mode": "ARCHITECT"
