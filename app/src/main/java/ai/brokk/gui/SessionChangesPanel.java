@@ -174,10 +174,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.commitBtn = new MaterialButton("Changes to Commit");
         this.commitBtn.setIcon(Icons.COMMIT);
 
-        this.pullBtn = new MaterialButton("Pull");
+        this.pullBtn = new MaterialButton("");
         this.pullBtn.setIcon(Icons.DOWNLOAD);
 
-        this.pushBtn = new MaterialButton("Push");
+        this.pushBtn = new MaterialButton("");
         this.pushBtn.setIcon(Icons.PUBLISH);
 
         this.prBtn = new MaterialButton("Create PR");
