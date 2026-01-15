@@ -199,7 +199,7 @@ class HeadlessJobTemperatureOverrideTest {
         @Nullable
         Double lastTemperatureSeen;
 
-        final Map<String, Double> lastTemperatureByModelName = new HashMap<>();
+        final Map<String, @Nullable Double> lastTemperatureByModelName = new HashMap<>();
         final Map<String, Service.ReasoningLevel> lastReasoningByModelName = new HashMap<>();
 
         SpyService(IProject project) {
