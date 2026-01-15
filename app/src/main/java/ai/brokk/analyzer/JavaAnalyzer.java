@@ -178,19 +178,41 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             return;
         }
 
+        // Locate the package_declaration node for a precise range
+        TSNode packageNode = null;
+        for (int i = 0; i < rootNode.getChildCount(); i++) {
+            TSNode child = rootNode.getChild(i);
+            if (child != null && !child.isNull() && PACKAGE_DECLARATION.equals(child.getType())) {
+                packageNode = child;
+                break;
+            }
+        }
+
         int lastDot = modulePackageName.lastIndexOf('.');
         String parentPkg = lastDot >= 0 ? modulePackageName.substring(0, lastDot) : "";
         String simpleName = lastDot >= 0 ? modulePackageName.substring(lastDot + 1) : modulePackageName;
 
         CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
 
+        // Children: include top-level classes declared in this exact package
         List<CodeUnit> children = localTopLevelCUs.stream()
                 .filter(cu -> cu.isClass() && modulePackageName.equals(cu.packageName()))
                 .toList();
 
         localChildren.put(moduleCu, children);
         localCuByFqName.put(moduleCu.fqName(), moduleCu);
-        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add("module " + modulePackageName);
+
+        // Signature and Range
+        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add("package " + modulePackageName + ";");
+        if (packageNode != null) {
+            Range r = new Range(
+                    packageNode.getStartByte(),
+                    packageNode.getEndByte(),
+                    packageNode.getStartPoint().getRow(),
+                    packageNode.getEndPoint().getRow(),
+                    packageNode.getStartByte());
+            localSourceRanges.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(r);
+        }
     }
 
     @Override
