@@ -78,7 +78,7 @@ class HeadlessJobTemperatureOverrideTest {
         spyService.setExposedModelInfoMap(Map.of("locA", Map.of("supported_openai_params", List.of("top_p"))));
 
         JobSpec spec = new JobSpec(
-                "test task", false, false, "modelA", null, null, false, Map.of("mode", "ASK"), null, null, null, 0.7);
+                "test task", false, false, "modelA", null, null, false, Map.of("mode", "ASK"), null, null, null, null, 0.7);
 
         runner.runAsync("job-unsupported", spec).get(5, TimeUnit.SECONDS);
 
@@ -92,7 +92,7 @@ class HeadlessJobTemperatureOverrideTest {
         spyService.setExposedModelInfoMap(Map.of("locA", Map.of("supported_openai_params", List.of("temperature"))));
 
         JobSpec spec = new JobSpec(
-                "test task", false, false, "modelA", null, null, false, Map.of("mode", "ASK"), null, null, null, 0.7);
+                "test task", false, false, "modelA", null, null, false, Map.of("mode", "ASK"), null, null, null, null, 0.7);
 
         runner.runAsync("job-supported", spec).get(5, TimeUnit.SECONDS);
 

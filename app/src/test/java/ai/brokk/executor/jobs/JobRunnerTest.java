@@ -9,7 +9,7 @@ class JobRunnerTest {
     @Test
     void testParseModeLegacyPrReviewFallsBackToArchitect() {
         var spec = JobSpec.of(
-                "test task", false, false, "test-model", null, null, false, Map.of("mode", "pr_review"), null, null);
+                "test task", false, false, "test-model", null, null, false, Map.of("mode", "pr_review"), null, null, null);
 
         var mode = JobRunner.parseMode(spec);
         assertEquals(JobRunner.Mode.ARCHITECT, mode);
@@ -26,7 +26,7 @@ class JobRunnerTest {
     @Test
     void testParseModeCaseInsensitive_InvalidValueFallsBackToArchitect() {
         var spec = JobSpec.of(
-                "test task", false, false, "test-model", null, null, false, Map.of("mode", "PR_REVIEW"), null, null);
+                "test task", false, false, "test-model", null, null, false, Map.of("mode", "PR_REVIEW"), null, null, null);
 
         var mode = JobRunner.parseMode(spec);
         assertEquals(JobRunner.Mode.ARCHITECT, mode);
@@ -35,7 +35,7 @@ class JobRunnerTest {
     @Test
     void testParseModeRecognizesReviewCaseInsensitive() {
         var spec = JobSpec.of(
-                "test task", false, false, "test-model", null, null, false, Map.of("mode", "ReViEw"), null, null);
+                "test task", false, false, "test-model", null, null, false, Map.of("mode", "ReViEw"), null, null, null);
 
         var mode = JobRunner.parseMode(spec);
         assertEquals(JobRunner.Mode.REVIEW, mode);
