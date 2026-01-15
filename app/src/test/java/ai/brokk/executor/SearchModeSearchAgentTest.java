@@ -227,6 +227,8 @@ class SearchModeSearchAgentTest {
                 "gemini-2.0-flash",
                 "reasoningLevel",
                 "medium",
+                "reasoningLevelCode",
+                "high",
                 "temperature",
                 0.5,
                 "tags",
@@ -245,6 +247,7 @@ class SearchModeSearchAgentTest {
         assertNotNull(persisted);
 
         assertEquals("MEDIUM", persisted.reasoningLevel());
+        assertEquals("HIGH", persisted.reasoningLevelCode());
         assertEquals(0.5, persisted.temperature());
     }
 
