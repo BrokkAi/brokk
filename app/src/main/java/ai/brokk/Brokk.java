@@ -3,6 +3,7 @@ package ai.brokk;
 import static java.util.Objects.requireNonNull;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.exception.GlobalExceptionHandler;
@@ -279,7 +280,7 @@ public class Brokk {
      * Blocks the calling thread until validation completes.
      */
     private static ValidationOutcome blockingValidateKey(String key) {
-        var future = CompletableFuture.supplyAsync(() -> {
+        var future = LoggingFuture.supplyAsync(() -> {
             try {
                 Service.validateKey(key);
                 return ValidationOutcome.VALID;
@@ -1016,7 +1017,7 @@ public class Brokk {
         MainProject parent = builder.parent;
 
         // Run all blocking initialization off the calling thread (which may be EDT)
-        return CompletableFuture.supplyAsync(() -> {
+        return LoggingFuture.supplyAsync(() -> {
             try {
                 MainProject.updateRecentProject(projectPath);
                 var project = AbstractProject.createProject(projectPath, parent);

@@ -21,7 +21,7 @@ class IssueServiceTest {
             // GitRepo requires at least one commit to resolve HEAD in many operations
             Files.writeString(projectRoot.resolve("README.md"), "test");
             git.add().addFilepattern("README.md").call();
-            git.commit().setMessage("Initial commit").call();
+            git.commit().setMessage("Initial commit").setSign(false).call();
         }
         return new TestGitRepo(projectRoot, worktreeDir);
     }

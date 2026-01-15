@@ -8,6 +8,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragments.ProjectPathFragment;
 import ai.brokk.testutil.TestAnalyzer;
+import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -58,7 +59,7 @@ public class ProjectPathFragmentTest {
         analyzer.setSkeleton(baseClass, "public class Base {\n  void baseMethod();\n}");
 
         // Create ContextManager with the configured analyzer
-        contextManager = new TestContextManager(tempDir, new ai.brokk.testutil.TestConsoleIO(), analyzer);
+        contextManager = new TestContextManager(tempDir, new TestConsoleIO(), analyzer);
     }
 
     @Test

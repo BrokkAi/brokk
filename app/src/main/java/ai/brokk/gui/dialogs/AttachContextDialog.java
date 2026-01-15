@@ -29,6 +29,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -615,8 +616,7 @@ public class AttachContextDialog extends BaseThemedDialog {
 
             List<ShorthandCompletion> ranked = scored.stream()
                     .filter(sf -> (sf.shortScore() <= shortThreshold) || (sf.longScore() < bestShortScore))
-                    .sorted(java.util.Comparator.comparingInt(
-                                    (ScoredFolder sf) -> Math.min(sf.shortScore(), sf.longScore()))
+                    .sorted(Comparator.comparingInt((ScoredFolder sf) -> Math.min(sf.shortScore(), sf.longScore()))
                             .thenComparing(ScoredFolder::shortName))
                     .limit(100)
                     .map(sf -> new ShorthandCompletion(this, sf.shortName(), sf.path(), sf.path()))

@@ -1,5 +1,6 @@
 package ai.brokk.gui.dialogs;
 
+import ai.brokk.concurrent.LoggingFuture;
 import eu.hansolo.fx.jdkmon.tools.Distro;
 import eu.hansolo.fx.jdkmon.tools.Finder;
 import java.awt.*;
@@ -9,7 +10,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -63,7 +63,7 @@ public class JdkSelector extends JPanel {
      * desired path is not among discovered ones, a "Custom JDK" entry will be added and selected.
      */
     public void loadJdksAsync(@Nullable String desiredPath) {
-        CompletableFuture.supplyAsync(JdkSelector::discoverInstalledJdks, ForkJoinPool.commonPool())
+        LoggingFuture.supplyAsync(JdkSelector::discoverInstalledJdks, ForkJoinPool.commonPool())
                 .whenComplete((List<JdkItem> items, @Nullable Throwable ex) -> {
                     if (ex != null) {
                         logger.warn("JDK discovery failed: {}", ex.getMessage(), ex);

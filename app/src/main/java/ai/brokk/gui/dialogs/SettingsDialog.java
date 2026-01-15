@@ -464,7 +464,7 @@ public class SettingsDialog extends BaseThemedDialog implements ThemeAware {
             MainProject.JvmMemorySettings jvmMemorySettings,
             String brokkApiKey,
             String accountBalance,
-            java.util.List<Service.FavoriteModel> favoriteModels,
+            List<Service.FavoriteModel> favoriteModels,
 
             // Project-specific settings (nullable if no project)
             @Nullable BuildAgent.BuildDetails buildDetails,

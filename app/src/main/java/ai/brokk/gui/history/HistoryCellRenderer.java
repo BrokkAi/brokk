@@ -2,6 +2,7 @@ package ai.brokk.gui.history;
 
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.DiffService;
 import ai.brokk.gui.ActivityTableRenderers;
@@ -9,7 +10,6 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.gui.Constants;
 import ai.brokk.gui.HistoryOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
-import ai.brokk.util.ComputedValue;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -18,6 +18,7 @@ import java.awt.Font;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import javax.swing.BoxLayout;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -71,7 +72,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
         outerPanel.setOpaque(true);
 
         this.diffPanel = new JPanel();
-        diffPanel.setLayout(new javax.swing.BoxLayout(diffPanel, javax.swing.BoxLayout.Y_AXIS));
+        diffPanel.setLayout(new BoxLayout(diffPanel, BoxLayout.Y_AXIS));
         diffPanel.setOpaque(false);
         diffPanel.setBorder(new EmptyBorder(0, 0, 0, 0));
     }
@@ -87,7 +88,7 @@ public final class HistoryCellRenderer extends DefaultTableCellRenderer {
             indentLevel = Math.max(0, at.indentLevel());
         } else if (value instanceof ComputedValue<?> cv) {
             @SuppressWarnings("unchecked")
-            var castCv = (ai.brokk.util.ComputedValue<Object>) cv;
+            var castCv = (ComputedValue<Object>) cv;
             Object result = castCv.renderNowOr(Context.SUMMARIZING);
             actionText = result != null ? result.toString() : "";
         } else {

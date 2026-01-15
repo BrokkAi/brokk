@@ -16,6 +16,7 @@ import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.ModelBenchmarkData;
@@ -357,19 +358,19 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
             public void focusGained(FocusEvent e) {
                 // Use a brighter, thicker focus border for visibility
                 var focusColor = new Color(0x3DA9FF);
-                var original = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                var original = (Border) micButton.getClientProperty("originalBorder");
                 if (original == null) {
                     micButton.putClientProperty("originalBorder", micButton.getBorder());
                 }
                 var focusBorder = BorderFactory.createLineBorder(focusColor, 4, true);
-                var inner = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                var inner = (Border) micButton.getClientProperty("originalBorder");
                 micButton.setBorder(BorderFactory.createCompoundBorder(focusBorder, inner));
                 micButton.repaint();
             }
 
             @Override
             public void focusLost(FocusEvent e) {
-                var original = (javax.swing.border.Border) micButton.getClientProperty("originalBorder");
+                var original = (Border) micButton.getClientProperty("originalBorder");
                 micButton.setBorder(original);
                 micButton.repaint();
             }
@@ -983,8 +984,7 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
         tokenUsageBar.setOnHoverScroll(() -> {
             try {
                 var hovered = tokenUsageBar.getHoveredFragments();
-                ai.brokk.context.ContextFragment fragment =
-                        hovered.stream().findFirst().orElse(null);
+                ContextFragment fragment = hovered.stream().findFirst().orElse(null);
                 workspaceItemsChipPanel.scrollFragmentIntoView(fragment);
             } catch (Exception ex) {
                 logger.trace("TokenUsageBar onHoverScroll handler threw", ex);

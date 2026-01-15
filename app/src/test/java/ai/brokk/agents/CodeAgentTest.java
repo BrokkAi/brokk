@@ -918,7 +918,7 @@ class CodeAgentTest {
         var ctx = newContext().addFragments(List.of(roFrag));
         ctx = ctx.setReadonly(roFrag, true);
 
-        ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        ctx.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
         // Scripted model proposes an edit to the read-only file
         var response =
                 """
@@ -972,7 +972,7 @@ class CodeAgentTest {
         // Simulate a read-only virtual fragment by wrapping in a mock (this is a simplified test)
         // In practice, Code/Usage fragments would be read-only; here we just ensure the logic
         // favors the editable ProjectPathFragment
-        ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        ctx.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         var response =
                 """
@@ -1202,7 +1202,7 @@ class CodeAgentTest {
         ctx = ctx.setReadonly(codeCodeReadonlyOnly, true);
 
         // Make sure computed fragments have resolved their files() so computeReadOnlyPaths sees correct ProjectFiles.
-        ctx.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        ctx.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         var readOnlyPaths = CodeAgent.computeReadOnlyPaths(ctx);
 
@@ -1272,7 +1272,7 @@ class CodeAgentTest {
         ctx = ctx.setReadonly(roPpf, true);
 
         // Ensure context fragments have resolved
-        ctx.awaitContextsAreComputed(Duration.of(5, ChronoUnit.SECONDS));
+        ctx.awaitContentsAreComputed(Duration.of(5, ChronoUnit.SECONDS));
 
         var request = new UserMessage("Please fix things");
 

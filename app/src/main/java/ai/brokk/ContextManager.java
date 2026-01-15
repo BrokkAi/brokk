@@ -14,6 +14,11 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.cli.HeadlessConsole;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingExecutorService;
+import ai.brokk.concurrent.LoggingFuture;
+import ai.brokk.concurrent.UserActionManager;
+import ai.brokk.concurrent.UserActionManager.ThrowingRunnable;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.ContextFragment;
@@ -37,7 +42,6 @@ import ai.brokk.tools.SearchTools;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.UiTools;
 import ai.brokk.util.*;
-import ai.brokk.util.UserActionManager.ThrowingRunnable;
 import ai.brokk.watchservice.AbstractWatchService;
 import ai.brokk.watchservice.FileWatcherHelper;
 import ai.brokk.watchservice.NoopWatchService;
@@ -139,7 +143,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             60L,
             TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(), // Unbounded queue
-            ExecutorServiceUtil.createNamedThreadFactory("ContextTask")));
+            ExecutorsUtil.createNamedThreadFactory("ContextTask")));
 
     // Internal background tasks (unrelated to user actions)
     // Lots of threads allowed since AutoContext updates get dropped here
@@ -150,7 +154,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             60L,
             TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(), // Unbounded queue to prevent rejection
-            ExecutorServiceUtil.createNamedThreadFactory("BackgroundTask")));
+            ExecutorsUtil.createNamedThreadFactory("BackgroundTask")));
 
     private final Service.Provider serviceProvider;
 
@@ -1030,7 +1034,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         var pasteInfoFuture = new DescribePasteWorker(this, text);
         pasteInfoFuture.execute();
 
-        var descriptionFuture = CompletableFuture.supplyAsync(
+        var descriptionFuture = LoggingFuture.supplyAsync(
                 () -> {
                     try {
                         return pasteInfoFuture.get().description();
@@ -1040,7 +1044,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
                 },
                 contextActionExecutor);
-        var syntaxStyleFuture = CompletableFuture.supplyAsync(
+        var syntaxStyleFuture = LoggingFuture.supplyAsync(
                 () -> {
                     try {
                         return pasteInfoFuture.get().syntaxStyle();
@@ -1473,8 +1477,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
 
         TaskResult result;
-        var title = task.title().isBlank() ? task.text() : task.title();
-        try (var scope = beginTask(prompt, true, "Task: " + title)) {
+        var title = task.title() == null ? task.text() : task.title();
+        try (var scope = beginTask(prompt, true, true, "Task: " + title)) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithScan();
 
@@ -1722,20 +1726,6 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
                 });
             }
-        });
-    }
-
-    /**
-     * Submits a background task that doesn't return a result.
-     *
-     * @param taskDescription a description of the task
-     * @param task the task to execute
-     * @return a {@link Future} representing pending completion of the task
-     */
-    public CompletableFuture<Void> submitBackgroundTask(String taskDescription, Runnable task) {
-        return submitBackgroundTask(taskDescription, () -> {
-            task.run();
-            return null;
         });
     }
 
@@ -2102,7 +2092,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
     @Override
-    public TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
+    public TaskScope beginTask(String input, boolean group, boolean compress, @Nullable String taskDescription) {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
@@ -2125,7 +2115,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
         }
 
-        return new TaskScope(groupAndCompress, taskDescription);
+        return new TaskScope(group, compress, taskDescription);
     }
 
     /**
@@ -2135,13 +2125,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * without losing important history.
      */
     public class TaskScope implements AutoCloseable {
-        private final boolean groupAndCompress;
+        private final boolean group;
+        private final boolean compress;
         private final AtomicBoolean closed = new AtomicBoolean(false);
         private final UUID groupId = UUID.randomUUID();
         private final String groupLabel;
 
-        private TaskScope(boolean groupAndCompress, @Nullable String taskDescription) {
-            this.groupAndCompress = groupAndCompress;
+        private TaskScope(boolean group, boolean compress, @Nullable String taskDescription) {
+            this.group = group;
+            this.compress = compress;
             this.groupLabel = taskDescription == null ? "Task" : taskDescription;
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
@@ -2189,7 +2181,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return updated.addHistoryEntry(entry, result.output());
             });
 
-            if (groupAndCompress) {
+            if (group) {
                 UUID contextId = updatedContext.id();
                 contextHistory.addContextToGroup(contextId, groupId, groupLabel);
             }
@@ -2230,7 +2222,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.setTaskInProgress(false);
             });
 
-            if (groupAndCompress) {
+            if (compress) {
                 var finalCtx = contextHistory.replaceTop(ctx -> {
                     try {
                         return compressHistory(ctx);
@@ -2246,7 +2238,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public class AnonymousScope extends TaskScope {
         private AnonymousScope() {
-            super(false, "");
+            super(false, false, "");
         }
 
         @Override
@@ -2293,7 +2285,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * @return A CompletableFuture that resolves to the ContextHistory for the specified session
      */
     public CompletableFuture<ContextHistory> loadSessionHistoryAsync(UUID sessionId) {
-        return CompletableFuture.supplyAsync(
+        return LoggingFuture.supplyAsync(
                 () -> project.getSessionManager().loadHistory(sessionId, this), backgroundTasks);
     }
 
@@ -2734,7 +2726,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             // Use bounded-concurrency executor to avoid overwhelming the LLM provider
             List<Future<TaskEntry>> futures =
                     new ArrayList<>(ctx.getTaskHistory().size());
-            try (var exec = ExecutorServiceUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
+            try (var exec = ExecutorsUtil.newFixedThreadExecutor(5, "HistoryCompress-")) {
                 // Submit all compression tasks
                 for (TaskEntry entry : ctx.getTaskHistory()) {
                     futures.add(exec.submit(() -> compressHistory(entry)));

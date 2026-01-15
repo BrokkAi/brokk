@@ -32,7 +32,7 @@ public class UndoRedoRestoreTest {
         pf.write("v1");
 
         var live = new Context(cm).addFragments(List.of(new ContextFragments.ProjectPathFragment(pf, cm)));
-        live.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        live.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // 2) Build history with the initial snapshot
         var history = new ContextHistory(live);
@@ -77,7 +77,7 @@ public class UndoRedoRestoreTest {
                         new ContextFragments.ProjectPathFragment(pf, cm),
                         new ContextFragments.ExternalPathFragment(new ExternalFile(externalPath), cm),
                         new ContextFragments.ImageFileFragment(new ExternalFile(imagePath), cm)));
-        live.awaitContextsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
+        live.awaitContentsAreComputed(Duration.of(10, ChronoUnit.SECONDS));
 
         // Initialize history (snapshot 1)
         var history = new ContextHistory(live);
@@ -140,7 +140,7 @@ public class UndoRedoRestoreTest {
                         new ContextFragments.ProjectPathFragment(pfText, cm),
                         new ContextFragments.ImageFileFragment(pfImg, cm),
                         new ContextFragments.ExternalPathFragment(extFile, cm)));
-        live.awaitContextsAreComputed(Duration.ofSeconds(10));
+        live.awaitContentsAreComputed(Duration.ofSeconds(10));
 
         // Build history capturing v1 snapshot
         var history = new ContextHistory(live);
