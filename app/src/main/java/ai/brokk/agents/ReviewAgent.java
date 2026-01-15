@@ -846,7 +846,7 @@ public class ReviewAgent {
             @P(
                             "Fully qualified method names (e.g., 'com.example.MyClass.myMethod') for specific methods you need to examine")
                     List<String> methodNames) {
-        this.isComplex = complexity.equalsIgnoreCase("COMPLEX");
+        this.isComplex = !complexity.equalsIgnoreCase("TRIVIAL");
         var wst = new WorkspaceTools(requireNonNull(contextBeingBuilt));
         wst.addFilesToWorkspace(filesForFullSource);
         wst.addFileSummariesToWorkspace(filesForSummaries);
