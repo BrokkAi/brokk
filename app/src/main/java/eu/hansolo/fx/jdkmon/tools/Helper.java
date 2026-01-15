@@ -489,40 +489,6 @@ public class Helper {
         }
     }
 
-    public static final void zip(final List<Path> pathsToZip, final Path zipFile, final boolean includeEmptyDirs) throws IOException {
-        try (ZipArchiveOutputStream zos = new ZipArchiveOutputStream(zipFile.toFile())) {
-            for (Path path : pathsToZip) {
-                if (Files.isDirectory(path)) {
-                    List<Path> walkedPaths;
-                    try (var stream = Files.walk(path)) {
-                        walkedPaths = stream.toList();
-                    }
-                    for (Path p : walkedPaths) {
-                        if (!includeEmptyDirs && Files.isDirectory(p)) {
-                            continue;
-                        }
-                        String name = path.getParent().relativize(p).toString().replace('\\', '/');
-                        if (Files.isDirectory(p) && !name.endsWith("/")) {
-                            name += "/";
-                        }
-                        ZipArchiveEntry entry = new ZipArchiveEntry(p.toFile(), name);
-                        zos.putArchiveEntry(entry);
-                        if (Files.isRegularFile(p)) {
-                            Files.copy(p, zos);
-                        }
-                        zos.closeArchiveEntry();
-                    }
-                } else {
-                    String name = path.getFileName().toString();
-                    ZipArchiveEntry entry = new ZipArchiveEntry(path.toFile(), name);
-                    zos.putArchiveEntry(entry);
-                    Files.copy(path, zos);
-                    zos.closeArchiveEntry();
-                }
-            }
-            zos.finish();
-        }
-    }
 
     public static final Set<PosixFilePermission> parsePerms(int perms) {
         final char[] ds = Integer.toString(perms).toCharArray();
