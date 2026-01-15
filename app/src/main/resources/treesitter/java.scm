@@ -1,11 +1,10 @@
 ; Package declaration
-; Captures the package_declaration as a module definition.
-; The @module.name captures only the package identifier (not annotations).
 (package_declaration
   [
     (identifier)
     (scoped_identifier)
-  ] @package.name) @package.definition
+  ] @package.name
+) @package.declaration
 
 ; Import declarations
 (import_declaration) @import.declaration

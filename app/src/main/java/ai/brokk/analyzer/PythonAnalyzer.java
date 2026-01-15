@@ -851,37 +851,21 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             return;
         }
 
-        // Ensure the module is registered. In Python, every file is a module.
         int idx = modulePackageName.lastIndexOf('.');
         String parentPkg = idx >= 0 ? modulePackageName.substring(0, idx) : "";
         String simpleName = idx >= 0 ? modulePackageName.substring(idx + 1) : modulePackageName;
+
         CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
 
-        if (localCuByFqName.putIfAbsent(moduleCu.fqName(), moduleCu) == null) {
-            localTopLevelCUs.addFirst(moduleCu);
-            localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add("# module " + modulePackageName);
-            // Default range for the module is the whole file
-            localSourceRanges
-                    .computeIfAbsent(moduleCu, k -> new ArrayList<>())
-                    .add(new Range(
-                            rootNode.getStartByte(),
-                            rootNode.getEndByte(),
-                            rootNode.getStartPoint().getRow(),
-                            rootNode.getEndPoint().getRow(),
-                            rootNode.getStartByte()));
-        }
+        List<CodeUnit> children = localTopLevelCUs.stream()
+                .filter(cu -> modulePackageName.equals(cu.packageName()))
+                .filter(cu -> cu.isClass() || cu.isFunction() || cu.isField())
+                .toList();
 
-        // Call super to handle linking the module to children.
-        super.createModulesFromImports(
-                file,
-                localImportStatements,
-                rootNode,
-                modulePackageName,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges,
-                localChildren);
+        localChildren.put(moduleCu, children);
+        localCuByFqName.put(moduleCu.fqName(), moduleCu);
+
+        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add("# module " + modulePackageName);
     }
 
     @Override
