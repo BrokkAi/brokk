@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.gui.mop.ChunkMeta;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -92,7 +93,11 @@ public class BrokkEventTest {
     @Test
     public void testChunkSerializationWithTerminal() throws Exception {
         var event = new BrokkEvent.Chunk(
-                "terminal output", ChatMessageType.AI, 100, false, new ChunkMeta(true, false, true));
+                "terminal output",
+                ChatMessageType.AI,
+                100,
+                false,
+                ChunkMeta.fromLlmOutputMeta(LlmOutputMeta.terminal(), true));
 
         var node = MAPPER.readTree(MAPPER.writeValueAsString(event));
 
@@ -120,8 +125,12 @@ public class BrokkEventTest {
 
     @Test
     public void testChunkSerializationReasoningNonTerminal() throws Exception {
-        var event =
-                new BrokkEvent.Chunk("thinking...", ChatMessageType.AI, 200, true, new ChunkMeta(false, true, false));
+        var event = new BrokkEvent.Chunk(
+                "thinking...",
+                ChatMessageType.AI,
+                200,
+                true,
+                ChunkMeta.fromLlmOutputMeta(LlmOutputMeta.reasoning(), false));
 
         var json = MAPPER.writeValueAsString(event);
         var node = MAPPER.readTree(json);

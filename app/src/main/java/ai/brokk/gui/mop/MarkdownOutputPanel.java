@@ -249,7 +249,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             }
         }
 
-        var chunkMeta = new ChunkMeta(isNew, meta.isReasoning(), meta.isTerminal());
+        var chunkMeta = ChunkMeta.fromLlmOutputMeta(meta, isNew);
 
         if (isNew) {
             messages.add(Messages.create(text, type, meta));
@@ -268,9 +268,10 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         clearMain();
         messages.addAll(newMessages);
         for (var message : newMessages) {
-            var isReasoning = Messages.isReasoningMessage(message);
-            var isTerminal = Messages.isTerminalMessage(message);
-            var chunkMeta = new ChunkMeta(true, isReasoning, isTerminal);
+            LlmOutputMeta meta = LlmOutputMeta.DEFAULT
+                    .withReasoning(Messages.isReasoningMessage(message))
+                    .withTerminal(Messages.isTerminalMessage(message));
+            var chunkMeta = ChunkMeta.fromLlmOutputMeta(meta, true);
             webHost.append(Messages.getText(message), message.type(), false, chunkMeta);
         }
         // All appends are sent, now flush to make sure they are processed.
