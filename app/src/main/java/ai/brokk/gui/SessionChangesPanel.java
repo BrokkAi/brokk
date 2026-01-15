@@ -184,7 +184,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.prBtn.setIcon(Icons.ADD_DIAMOND);
 
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
-        this.guidedReviewBtn.setIcon(Icons.DIFF_TOOLS);
+        this.guidedReviewBtn.setIcon(Icons.CHECK);
 
         this.pasteBtn = new MaterialButton("Paste Review");
         this.diffContainer = new JPanel(new BorderLayout());
