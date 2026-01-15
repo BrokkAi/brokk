@@ -49,6 +49,7 @@ public class ModelBenchmarkData {
         addModel("gemini-2.5-flash-lite", Service.ReasoningLevel.DEFAULT, 0, 0, 0);
 
         // GPT models
+        addModel("gpt-5.2", Service.ReasoningLevel.DEFAULT, 100, 100, 67);
         addModel("gpt-5.1", Service.ReasoningLevel.DEFAULT, 100, 100, 67);
         addModel("gpt-5", Service.ReasoningLevel.DEFAULT, 93, 71, 50);
         addModel("gpt-5", Service.ReasoningLevel.HIGH, 90, 77, 48);
