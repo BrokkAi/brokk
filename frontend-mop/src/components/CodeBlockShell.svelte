@@ -190,12 +190,15 @@
     </span>
   </div>
 
-  {#if showCode}
+  <div class="code-body" class:collapsed={!showCode} aria-hidden={!showCode}>
     <slot {preId} {registerPre} {handleWheel}></slot>
-  {/if}
+  </div>
 </div>
 
 <style>
+  .code-body.collapsed {
+    display: none;
+  }
   .custom-code-block {
     position: relative;
     overflow: hidden;
