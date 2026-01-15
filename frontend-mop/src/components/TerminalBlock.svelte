@@ -63,7 +63,7 @@
       on:scroll={onScroll}
       on:wheel|passive={handleWheel}
     >
-      <code class="terminal" bind:this={codeElem}></code>{#if !bubble.terminalComplete}<span
+      <code class="terminal" bind:this={codeElem}></code>{#if !bubble.terminalState?.complete}<span
           class="terminal-cursor">█</span
         >{/if}
     </pre>

@@ -69,17 +69,18 @@ export type ReasoningState = {
   isCollapsed: boolean;         // for UI state
 };
 
+export type TerminalState = {
+  complete: boolean;            // true when terminal output is finalized
+};
+
 export type BubbleState = Bubble & {
   threadId: number;
   hast?: ResultMsg['tree'];     // latest parsed tree
   epoch?: number;               // mirrors Java event for ACK
   streaming: boolean;           // indicates if still growing
 
-  // If true, this bubble should be treated as terminal output by the UI.
-  isTerminal?: boolean;
-
-  // True when terminal output is finalized (new message started or task ended)
-  terminalComplete?: boolean;
+  // Optional terminal state - presence indicates this is a terminal output bubble
+  terminalState?: TerminalState;
 
   // Optional reasoning state - presence indicates this is a reasoning bubble
   reasoningState?: ReasoningState;
