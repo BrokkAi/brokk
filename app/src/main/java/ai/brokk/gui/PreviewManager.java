@@ -10,7 +10,7 @@ import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.gui.dialogs.PreviewFrame;
+import ai.brokk.gui.dialogs.DetachableTabFrame;
 import ai.brokk.gui.dialogs.PreviewImagePanel;
 import ai.brokk.gui.dialogs.PreviewTextPanel;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
@@ -30,6 +30,7 @@ import java.awt.*;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.io.IOException;
+import javax.swing.JRootPane;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -100,7 +101,7 @@ public class PreviewManager {
 
     // Shared frame for all PreviewTextPanel tabs
     @Nullable
-    private PreviewFrame previewFrame;
+    private DetachableTabFrame previewFrame;
 
     private final ContextManager cm;
 
@@ -239,7 +240,7 @@ public class PreviewManager {
             ensurePreviewFrame();
             var frame = castNonNull(previewFrame);
 
-            frame.setContent(panel);
+            frame.setContentComponent(panel);
             if (file != null) {
                 projectFileToPreviewWindow.put(file, frame);
             }
@@ -260,7 +261,10 @@ public class PreviewManager {
             return;
         }
 
-        previewFrame = new PreviewFrame(chrome, new JPanel(new BorderLayout()));
+        previewFrame = new DetachableTabFrame("Preview", new JPanel(new BorderLayout()), () -> {
+            chrome.getRightPanel().redockPreview();
+            chrome.clearPreviewFrame();
+        });
         var frame = previewFrame;
 
         var project = cm.getProject();
@@ -395,7 +399,7 @@ public class PreviewManager {
 
                 if (previewFrame != null && previewFrame.isDisplayable() && previewFrame != excludeFrame) {
                     if (previewFrame == this.previewFrame) {
-                        this.previewFrame.refreshForFile(file);
+                        refreshFrameForFile(this.previewFrame, file);
                     } else if (previewFrame == chrome.getFrame()) {
                         chrome.getRightPanel().refreshPreviewForFile(file);
                     } else {
@@ -413,6 +417,21 @@ public class PreviewManager {
                 }
             }
         });
+    }
+
+    private void refreshFrameForFile(DetachableTabFrame frame, ProjectFile file) {
+        Component content = frame.getContentPane();
+        if (content instanceof JRootPane rp) {
+            content = rp.getContentPane();
+        }
+        if (content instanceof Container container && container.getComponentCount() > 0) {
+            Component comp = container.getComponent(0);
+            if (comp instanceof PreviewTextPanel panel) {
+                if (file.equals(panel.getFile())) panel.refreshFromDisk();
+            } else if (comp instanceof PreviewImagePanel imagePanel) {
+                if (file.equals(imagePanel.getFile())) imagePanel.refreshFromDisk();
+            }
+        }
     }
 
     /**
@@ -697,7 +716,7 @@ public class PreviewManager {
             if (isPreviewDocked) {
                 chrome.getRightPanel().setPreviewContent(newComponent);
             } else if (previewFrame != null) {
-                previewFrame.setContent(newComponent);
+                previewFrame.setContentComponent(newComponent);
             }
         });
     }

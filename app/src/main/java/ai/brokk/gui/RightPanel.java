@@ -44,6 +44,7 @@ public class RightPanel extends JPanel implements ThemeAware {
 
     private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame reviewFrame = null;
     private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame terminalFrame = null;
+    private @Nullable ai.brokk.gui.dialogs.DetachableTabFrame previewFrame = null;
 
     // Review tab infrastructure
     private final JComponent reviewTabComponent;
@@ -530,6 +531,11 @@ public class RightPanel extends JPanel implements ThemeAware {
         }
 
         selectPreviewTab();
+
+        if (previewFrame != null) {
+            previewFrame.dispose();
+            previewFrame = null;
+        }
     }
 
     private void undockTerminal() {
