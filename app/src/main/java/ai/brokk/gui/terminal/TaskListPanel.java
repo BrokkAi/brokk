@@ -551,7 +551,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (var line : lines) {
             var text = line.strip();
             if (!text.isEmpty()) {
-                items.add(new TaskList.TaskItem(text, text, false));
+                String title = "Task " + (items.size() + 1);
+                items.add(new TaskList.TaskItem(title, text, false));
                 added++;
             }
         }
@@ -2279,7 +2280,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             // Always show title; fallback to first line of text if title is empty
             String displayText = value.title();
-            if (displayText == null || displayText.isBlank()) {
+            if (displayText.isBlank()) {
                 // Fallback: use first line of text
                 String fullText = value.text();
                 int newlineIndex = fullText.indexOf('\n');

@@ -238,7 +238,7 @@ public final class JobRunner {
                                 switch (mode) {
                                     case ARCHITECT -> {
                                         cm.executeTask(
-                                                new TaskList.TaskItem(null, spec.taskInput(), false),
+                                                new TaskList.TaskItem("", spec.taskInput(), false),
                                                 Objects.requireNonNull(
                                                         architectPlannerModel,
                                                         "plannerModel required for ARCHITECT jobs"),

@@ -7,6 +7,7 @@ import ai.brokk.context.Context;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -123,7 +124,6 @@ public class TaskListTest {
         var data = result.getTaskListDataOrEmpty();
         assertEquals(1, data.tasks().size());
         var task = data.tasks().get(0);
-        assertNotNull(task.title(), "Task should have a title");
         assertFalse(task.title().isEmpty(), "Task title should not be empty");
         // Title may differ from full text due to summarization
         assertEquals(
@@ -142,10 +142,39 @@ public class TaskListTest {
         var data = result.getTaskListDataOrEmpty();
         var task = data.tasks().get(0);
         assertEquals("Simple task", task.text());
-        assertNotNull(task.title());
+        assertFalse(task.title().isEmpty());
     }
 
     // ===== Action Message Tests =====
+
+    @Test
+    void manuallyAddedTasks_useTaskNFormat() throws Exception {
+        // Simulate the logic used in TaskListPanel.addTask() to ensure consistent title generation
+        // We start with one existing task
+        var existing = new TaskList.TaskItem("Task 1", "Existing task", false);
+        var items = new ArrayList<TaskList.TaskItem>();
+        items.add(existing);
+
+        // Add new tasks simulating manual entry
+        var newTasksInput = List.of("New Item A", "New Item B");
+        for (String text : newTasksInput) {
+            String title = "Task " + (items.size() + 1);
+            items.add(new TaskList.TaskItem(title, text, false));
+        }
+
+        var result = context.withTaskList(new TaskList.TaskListData(items));
+        var data = result.getTaskListDataOrEmpty();
+
+        assertEquals(3, data.tasks().size());
+
+        var t2 = data.tasks().get(1);
+        assertEquals("Task 2", t2.title());
+        assertEquals("New Item A", t2.text());
+
+        var t3 = data.tasks().get(2);
+        assertEquals("Task 3", t3.title());
+        assertEquals("New Item B", t3.text());
+    }
 
     @Test
     void createOrReplaceTaskList_setsCorrectAction() throws Exception {
