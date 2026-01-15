@@ -356,8 +356,8 @@ public class JiraIssueService implements IssueService {
             IssueHeader header = new IssueHeader(key, title, author, updatedAt, labels, assignees, status, htmlUrl);
 
             // Extract renderedBody (HTML)
-            String renderedDescription =
-                    rootNode.path("renderedFields").path("description").asText("");
+            String renderedDescription = HtmlUtil.sanitize(
+                    rootNode.path("renderedFields").path("description").asText(""));
 
             // Parse comments
             List<Comment> comments = new ArrayList<>();
@@ -374,9 +374,9 @@ public class JiraIssueService implements IssueService {
 
                     String authorName =
                             rawComment.path("author").path("displayName").asText("Unknown Author");
-                    String bodyHtml = (htmlComment != null)
+                    String bodyHtml = HtmlUtil.sanitize((htmlComment != null)
                             ? htmlComment.path("renderedBody").asText("")
-                            : "";
+                            : "");
                     // If renderedBody is not available from htmlComment, bodyHtml will be empty.
                     // This follows the user's provided logic snippet.
 

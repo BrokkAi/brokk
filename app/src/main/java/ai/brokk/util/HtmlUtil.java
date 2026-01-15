@@ -1,6 +1,14 @@
 package ai.brokk.util;
 
+import org.jsoup.Jsoup;
+import org.jsoup.safety.Safelist;
+
 public class HtmlUtil {
+
+    public static String sanitize(String html) {
+        if (html == null) return "";
+        return Jsoup.clean(html, Safelist.relaxed());
+    }
 
     /**
      * Converts HTML content to Markdown.

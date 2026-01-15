@@ -4,6 +4,7 @@ import ai.brokk.GitHubAuth;
 import ai.brokk.gui.GfmRenderer;
 import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.project.IProject;
+import ai.brokk.util.HtmlUtil;
 import ai.brokk.util.MarkupImageParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -185,7 +186,7 @@ public class GitHubIssueService implements IssueService {
         if (body == null) {
             body = "";
         }
-        String htmlBody = gfmRenderer.render(body);
+        String htmlBody = HtmlUtil.sanitize(gfmRenderer.render(body));
 
         Set<String> allImageUrls = new LinkedHashSet<>();
         if (!body.isBlank()) {
@@ -307,7 +308,7 @@ public class GitHubIssueService implements IssueService {
                     String urlStr = issueNode.path("url").asText();
                     String state = issueNode.path("state").asText();
                     body = issueNode.path("body").asText("");
-                    htmlBody = issueNode.path("bodyHTML").asText("");
+                    htmlBody = HtmlUtil.sanitize(issueNode.path("bodyHTML").asText(""));
 
                     if (!htmlBody.isBlank()) {
                         allImageUrls.addAll(MarkupImageParser.extractImageUrls(htmlBody));
@@ -346,7 +347,7 @@ public class GitHubIssueService implements IssueService {
                 if (commentsNode.isArray()) {
                     for (JsonNode node : commentsNode) {
                         String cBody = node.path("body").asText("");
-                        String cHtmlBody = node.path("bodyHTML").asText("");
+                        String cHtmlBody = HtmlUtil.sanitize(node.path("bodyHTML").asText(""));
                         if (!cHtmlBody.isBlank()) {
                             allImageUrls.addAll(MarkupImageParser.extractImageUrls(cHtmlBody));
                         }
