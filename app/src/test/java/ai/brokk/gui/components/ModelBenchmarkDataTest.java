@@ -87,4 +87,25 @@ class ModelBenchmarkDataTest {
         int result = ModelBenchmarkData.getSuccessRate(config, 100);
         assertEquals(85, result, "ModelConfig with provider prefix should resolve to zai-glm-4.6 @100 => 85%");
     }
+
+    @Test
+    void gpt52_benchmarks_and_fallbacks() {
+        int[] representativeTokenCounts = {20_000, 50_000, 100_000};
+
+        for (int tokenCount : representativeTokenCounts) {
+            int rate51 = ModelBenchmarkData.getSuccessRate("gpt-5.1", Service.ReasoningLevel.DEFAULT, tokenCount);
+            int rate52 = ModelBenchmarkData.getSuccessRate("gpt-5.2", Service.ReasoningLevel.DEFAULT, tokenCount);
+
+            assertEquals(
+                    rate51,
+                    rate52,
+                    "gpt-5.2 should match gpt-5.1 for DEFAULT at %d tokens".formatted(tokenCount));
+
+            int rate52Medium = ModelBenchmarkData.getSuccessRate("gpt-5.2", Service.ReasoningLevel.MEDIUM, tokenCount);
+            assertEquals(
+                    rate52,
+                    rate52Medium,
+                    "gpt-5.2 MEDIUM should fall back to DEFAULT at %d tokens".formatted(tokenCount));
+        }
+    }
 }
