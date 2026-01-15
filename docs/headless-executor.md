@@ -397,8 +397,19 @@ When you submit an ISSUE job, the system follows these steps:
 5. **Completion & PR**: Upon successful verification of all tasks, the system:
     - Commits the changes with an automated message (e.g., `Resolves #42: ...`).
     - Pushes the branch to the remote.
-    - Automatically generates a Pull Request title and description.
+    - Automatically generates a Pull Request title and description. The PR description is generated from a summary of the merge-base diff (i.e., a concise summary of the changes introduced by the issue branch) and the system automatically appends a "Fixes #<issueNumber>" line so the issue will be closed when the PR is merged.
     - Creates the Pull Request on GitHub.
+
+Example Pull Request description produced by ISSUE mode:
+
+```markdown
+Brief summary of the changes and intent (one or two short paragraphs).
+
+- Fixed null pointer in UserService by adding a defensive null check.
+- Added unit tests covering the new behavior.
+
+Fixes #42
+```
 
 ### Configuration
 

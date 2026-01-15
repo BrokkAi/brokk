@@ -68,6 +68,22 @@ public final class IssueService {
     }
 
     /**
+     * Build a pull request description by combining an optional summary with a Fixes line
+     * referencing the issue number.
+     *
+     * <p>Behavior:
+     * - Treat null summaryMarkdown as empty.
+     * - Trim leading/trailing whitespace from summaryMarkdown.
+     * - If the resulting summary is empty, return only "Fixes #<issueNumber>".
+     * - If non-empty, return summary + two newlines + "Fixes #<issueNumber>".
+     */
+    public static String buildPrDescription(@Nullable String summaryMarkdown, int issueNumber) {
+        String summary = summaryMarkdown == null ? "" : summaryMarkdown.strip();
+        String fixes = "Fixes #" + issueNumber;
+        return summary.isEmpty() ? fixes : summary + "\n\n" + fixes;
+    }
+
+    /**
      * Generates a sanitized and unique branch name for an issue.
      *
      * @param issueNumber the GitHub issue number
