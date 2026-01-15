@@ -4,7 +4,7 @@ import ai.brokk.GitHubAuth;
 import ai.brokk.gui.GfmRenderer;
 import ai.brokk.gui.util.StreamingPaginationHelper;
 import ai.brokk.project.IProject;
-import ai.brokk.util.MarkdownImageParser;
+import ai.brokk.util.MarkupImageParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -185,7 +185,7 @@ public class GitHubIssueService implements IssueService {
 
         Set<String> allImageUrls = new LinkedHashSet<>();
         if (!body.isBlank()) {
-            allImageUrls.addAll(MarkdownImageParser.extractImageUrls(body));
+            allImageUrls.addAll(MarkupImageParser.extractImageUrls(body));
         }
 
         List<Comment> comments = new ArrayList<>();
@@ -197,7 +197,7 @@ public class GitHubIssueService implements IssueService {
             }
 
             if (!cBody.isBlank()) {
-                allImageUrls.addAll(MarkdownImageParser.extractImageUrls(cBody));
+                allImageUrls.addAll(MarkupImageParser.extractImageUrls(cBody));
             }
 
             String cAuthor;
@@ -289,7 +289,7 @@ public class GitHubIssueService implements IssueService {
 
             Set<String> allImageUrls = new LinkedHashSet<>();
             if (!htmlBody.isBlank()) {
-                allImageUrls.addAll(MarkdownImageParser.extractImageUrls(htmlBody));
+                allImageUrls.addAll(MarkupImageParser.extractImageUrls(htmlBody));
             }
 
             String author = issueNode.path("author").isMissingNode()
@@ -325,7 +325,7 @@ public class GitHubIssueService implements IssueService {
                     String cBody = node.path("body").asText("");
                     String cHtmlBody = node.path("bodyHTML").asText("");
                     if (!cHtmlBody.isBlank()) {
-                        allImageUrls.addAll(MarkdownImageParser.extractImageUrls(cHtmlBody));
+                        allImageUrls.addAll(MarkupImageParser.extractImageUrls(cHtmlBody));
                     }
                     String cAuthor = node.path("author").isMissingNode()
                                     || node.path("author").isNull()
