@@ -250,18 +250,16 @@ public class GitRepo implements Closeable, IGitRepo {
     }
 
     @Override
-    public List<Map.Entry<Path, Path>> getFixedGitignoreFiles() {
-        var fixedPairs = new ArrayList<Map.Entry<Path, Path>>();
+    public List<Path> getFixedGitignoreFiles() {
+        var fixedFiles = new ArrayList<Path>();
 
-        getGlobalGitignorePath().ifPresent(globalIgnore -> {
-            fixedPairs.add(Map.entry(Path.of(""), globalIgnore));
-        });
+        getGlobalGitignorePath().ifPresent(fixedFiles::add);
 
         // info/exclude: check the private git directory first
         Path gitDir = repository.getDirectory().toPath();
         Path infoExclude = gitDir.resolve("info/exclude");
         if (Files.exists(infoExclude)) {
-            fixedPairs.add(Map.entry(Path.of(""), infoExclude));
+            fixedFiles.add(infoExclude);
         }
 
         // For worktrees, also check the common directory (shared info/exclude)
@@ -269,14 +267,15 @@ public class GitRepo implements Closeable, IGitRepo {
         Path commondirFile = gitDir.resolve("commondir");
         if (Files.exists(commondirFile)) {
             try {
-                var commonDirContent = Files.readString(commondirFile, StandardCharsets.UTF_8).trim();
+                var commonDirContent =
+                        Files.readString(commondirFile, StandardCharsets.UTF_8).trim();
                 var commonDir = gitDir.resolve(commonDirContent).normalize();
                 var commonInfoExclude = commonDir.resolve("info/exclude");
                 if (!commonInfoExclude.equals(infoExclude) && Files.exists(commonInfoExclude)) {
-                    fixedPairs.add(Map.entry(Path.of(""), commonInfoExclude));
+                    fixedFiles.add(commonInfoExclude);
                 }
-            } catch (IOException e) {
-                logger.debug("Could not read commondir file: {}", e.getMessage());
+            } catch (IOException | InvalidPathException e) {
+                logger.debug("Could not resolve common info/exclude", e);
             }
         }
 
@@ -284,10 +283,10 @@ public class GitRepo implements Closeable, IGitRepo {
         var workTreeRoot = getWorkTreeRoot();
         var rootGitignore = workTreeRoot.resolve(".gitignore");
         if (Files.exists(rootGitignore)) {
-            fixedPairs.add(Map.entry(Path.of(""), rootGitignore));
+            fixedFiles.add(rootGitignore);
         }
 
-        return fixedPairs;
+        return fixedFiles;
     }
 
     @Override

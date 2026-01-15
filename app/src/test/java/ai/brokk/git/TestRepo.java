@@ -6,7 +6,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -23,7 +22,7 @@ public class TestRepo implements IGitRepo {
     private final Set<ProjectFile> addedFiles = new HashSet<>();
     private final Set<ProjectFile> removedFiles = new HashSet<>();
     private final Path root;
-    private List<Map.Entry<Path, Path>> fixedGitignoreFiles = List.of();
+    private List<Path> fixedGitignoreFiles = List.of();
     private Optional<Path> globalGitignorePath = Optional.empty();
 
     public TestRepo(Path root) {
@@ -156,11 +155,11 @@ public class TestRepo implements IGitRepo {
     }
 
     @Override
-    public List<Map.Entry<Path, Path>> getFixedGitignoreFiles() {
+    public List<Path> getFixedGitignoreFiles() {
         return fixedGitignoreFiles;
     }
 
-    public void setFixedGitignoreFiles(List<Map.Entry<Path, Path>> fixedGitignoreFiles) {
+    public void setFixedGitignoreFiles(List<Path> fixedGitignoreFiles) {
         this.fixedGitignoreFiles = fixedGitignoreFiles;
     }
 

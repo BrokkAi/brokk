@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.eclipse.jgit.api.MergeResult;
@@ -73,11 +72,12 @@ public interface IGitRepo {
     /**
      * Returns the fixed gitignore files that apply to all paths in this repo.
      * These include: global gitignore, .git/info/exclude, and root .gitignore.
-     * Each entry maps a scope directory (relative path, empty for root) to the ignore file path.
+     * All fixed files apply at root scope; nested .gitignore files are collected separately
+     * by FileFilteringService during path evaluation.
      *
-     * @return list of (scopeDir, ignoreFilePath) pairs in precedence order
+     * @return list of ignore file paths in precedence order
      */
-    default List<Map.Entry<Path, Path>> getFixedGitignoreFiles() {
+    default List<Path> getFixedGitignoreFiles() {
         return List.of();
     }
 

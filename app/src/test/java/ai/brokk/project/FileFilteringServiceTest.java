@@ -71,9 +71,7 @@ public class FileFilteringServiceTest {
         // Verify worktree setup
         assertTrue(worktreeRepo.isWorktree(), "Should be recognized as a worktree");
         assertNotEquals(
-                mainRepo.getGitTopLevel(),
-                worktreeRepo.getWorkTreeRoot(),
-                "Worktree root should differ from main repo's gitTopLevel");
+                mainRepoPath, worktreeRepo.getWorkTreeRoot(), "Worktree root should differ from main repo root");
 
         // Create a .gitignore in the worktree root (not in main repo)
         Path worktreeGitignore = worktreePath.resolve(".gitignore");
@@ -187,11 +185,8 @@ public class FileFilteringServiceTest {
         var fixedFiles = worktreeRepo.getFixedGitignoreFiles();
 
         // Should include the worktree's root .gitignore
-        boolean hasWorktreeGitignore =
-                fixedFiles.stream().anyMatch(entry -> entry.getValue().equals(worktreeGitignore));
-
         assertTrue(
-                hasWorktreeGitignore,
+                fixedFiles.contains(worktreeGitignore),
                 "Fixed gitignore files should include worktree's root .gitignore at: " + worktreeGitignore);
     }
 
@@ -213,17 +208,17 @@ public class FileFilteringServiceTest {
         var fixedFiles = worktreeRepo.getFixedGitignoreFiles();
 
         // Should include the main repo's shared info/exclude
-        boolean hasSharedInfoExclude = fixedFiles.stream()
-                .anyMatch(entry -> entry.getValue().toString().contains("info/exclude"));
+        boolean hasSharedInfoExclude =
+                fixedFiles.stream().anyMatch(path -> path.toString().contains("info/exclude"));
 
-        assertTrue(hasSharedInfoExclude,
-                "Worktree should include main repo's shared .git/info/exclude");
+        assertTrue(hasSharedInfoExclude, "Worktree should include main repo's shared .git/info/exclude");
 
         // Verify the pattern is actually applied
         Files.writeString(worktreePath.resolve("test.local"), "content");
         var filteringService = new FileFilteringService(worktreePath, worktreeRepo);
 
-        assertTrue(filteringService.isGitignored(Path.of("test.local")),
+        assertTrue(
+                filteringService.isGitignored(Path.of("test.local")),
                 "*.local pattern from shared info/exclude should be honored in worktree");
     }
 }
