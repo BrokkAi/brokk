@@ -14,8 +14,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import static java.util.Objects.requireNonNull;
+
+import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.ignore.IgnoreNode;
@@ -37,7 +39,7 @@ public final class FileFilteringService {
     private final Map<Path, List<Map.Entry<Path, Path>>> gitignoreChainCache = new ConcurrentHashMap<>();
 
     public FileFilteringService(Path root, IGitRepo repo) {
-        this.root = root;
+        this.root = requireNonNull(root).toAbsolutePath().normalize();
         this.repo = repo;
     }
 
