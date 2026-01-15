@@ -398,16 +398,15 @@ class SearchModeSearchAgentTest {
             assertNotNull(events, "Events should not be null");
             assertTrue(events.size() > 0, "SEARCH mode should produce events");
 
-            // Verify events contain search/LLM output, not code edits
             var eventTypes = events.stream()
                     .map(e -> ((Map<?, ?>) e).get("type"))
                     .map(Object::toString)
                     .toList();
 
-            // SEARCH mode should produce LLM_TOKEN or NOTIFICATION events, not CODE_EDIT events
             assertTrue(
-                    eventTypes.stream().anyMatch(t -> t.contains("LLM_TOKEN") || t.contains("NOTIFICATION")),
-                    "SEARCH mode should produce LLM or notification events; got: " + eventTypes);
+                    eventTypes.stream().anyMatch(t -> t.contains("LLM_TOKEN")),
+                    "Expected SEARCH mode to stream LLM tokens (TestScriptedLanguageModel emits partial responses); got: "
+                            + eventTypes);
             assertFalse(
                     eventTypes.stream().anyMatch(t -> t.contains("CODE_EDIT")),
                     "SEARCH mode should not produce CODE_EDIT events; got: " + eventTypes);
