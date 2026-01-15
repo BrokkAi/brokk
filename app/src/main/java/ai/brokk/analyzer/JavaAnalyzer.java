@@ -142,6 +142,58 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        createModulesFromImports(
+                file,
+                localImportStatements,
+                rootNode,
+                modulePackageName,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges,
+                new HashMap<>());
+    }
+
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges,
+            Map<CodeUnit, List<CodeUnit>> localChildren) {
+        if (modulePackageName.isBlank()) {
+            return;
+        }
+
+        int lastDot = modulePackageName.lastIndexOf('.');
+        String parentPkg = lastDot >= 0 ? modulePackageName.substring(0, lastDot) : "";
+        String simpleName = lastDot >= 0 ? modulePackageName.substring(lastDot + 1) : modulePackageName;
+
+        CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
+
+        List<CodeUnit> children = localTopLevelCUs.stream()
+                .filter(cu -> cu.isClass() && modulePackageName.equals(cu.packageName()))
+                .toList();
+
+        localChildren.put(moduleCu, children);
+        localCuByFqName.put(moduleCu.fqName(), moduleCu);
+        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add("module " + modulePackageName);
+    }
+
+    @Override
     protected String determinePackageName(
             ProjectFile file, TSNode definitionNode, TSNode rootNode, SourceContent sourceContent) {
         return determineJvmPackageName(
