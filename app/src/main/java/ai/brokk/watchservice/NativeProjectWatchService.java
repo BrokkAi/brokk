@@ -144,6 +144,11 @@ public class NativeProjectWatchService extends AbstractWatchService {
                 accumulatedBatch.untrackedGitignoreChanged = true;
             }
 
+            if (isUnrelatedEventFromGitignoreParentDirectory(changedPath)) {
+                logger.trace("Skipping non-gitignore event from global gitignore directory: {}", changedPath);
+                return;
+            }
+
             // Convert to ProjectFile - handle paths outside root (e.g., git metadata in worktrees)
             Path relativePath;
             Path baseForFile;
