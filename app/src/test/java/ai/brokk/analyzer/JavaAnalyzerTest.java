@@ -724,8 +724,10 @@ public class JavaAnalyzerTest {
         // Now includes the Package Module definition
         assertEquals(2, topLevelUnits.size(), "Should return top-level class Foo and Module p1");
 
-        boolean foundModule = topLevelUnits.stream().anyMatch(cu -> cu.isModule() && "io.github.jbellis.brokk".equals(cu.fqName()));
-        boolean foundClass = topLevelUnits.stream().anyMatch(cu -> cu.isClass() && "io.github.jbellis.brokk.Foo".equals(cu.fqName()));
+        boolean foundModule =
+                topLevelUnits.stream().anyMatch(cu -> cu.isModule() && "io.github.jbellis.brokk".equals(cu.fqName()));
+        boolean foundClass = topLevelUnits.stream()
+                .anyMatch(cu -> cu.isClass() && "io.github.jbellis.brokk.Foo".equals(cu.fqName()));
 
         assertTrue(foundModule, "Should find module definition");
         assertTrue(foundClass, "Should find class definition");
@@ -1036,8 +1038,7 @@ public class JavaAnalyzerTest {
 
                 import org.jspecify.annotations.NullMarked;
                 """;
-        String classA =
-                """
+        String classA = """
                 package p1;
                 public class A {}
                 """;
@@ -1062,8 +1063,7 @@ public class JavaAnalyzerTest {
 
             // Assert children include top-level classes (important for wildcard import resolution)
             var children = analyzer.getDirectChildren(module);
-            boolean foundClassA = children.stream()
-                    .anyMatch(cu -> cu.isClass() && "p1.A".equals(cu.fqName()));
+            boolean foundClassA = children.stream().anyMatch(cu -> cu.isClass() && "p1.A".equals(cu.fqName()));
             assertTrue(foundClassA, "Module 'p1' should have top-level class 'p1.A' as a child");
         }
     }

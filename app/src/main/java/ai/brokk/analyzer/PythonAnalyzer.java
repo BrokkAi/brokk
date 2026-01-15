@@ -861,13 +861,14 @@ public final class PythonAnalyzer extends TreeSitterAnalyzer {
             localTopLevelCUs.addFirst(moduleCu);
             localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add("# module " + modulePackageName);
             // Default range for the module is the whole file
-            localSourceRanges.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(new Range(
-                    rootNode.getStartByte(),
-                    rootNode.getEndByte(),
-                    rootNode.getStartPoint().getRow(),
-                    rootNode.getEndPoint().getRow(),
-                    rootNode.getStartByte()
-            ));
+            localSourceRanges
+                    .computeIfAbsent(moduleCu, k -> new ArrayList<>())
+                    .add(new Range(
+                            rootNode.getStartByte(),
+                            rootNode.getEndByte(),
+                            rootNode.getStartPoint().getRow(),
+                            rootNode.getEndPoint().getRow(),
+                            rootNode.getStartByte()));
         }
 
         // Call super to handle linking the module to children.
