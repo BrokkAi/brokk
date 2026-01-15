@@ -8,6 +8,7 @@ import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.ContextFragment.SummaryType;
 import ai.brokk.context.ContextFragments.SummaryFragment;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.InlineTestProjectCreator;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
@@ -296,6 +297,66 @@ public class SummaryFragmentTest {
             var sources = fragment.sources().join();
             var fqns = sources.stream().map(CodeUnit::fqName).collect(Collectors.toSet());
             assertEquals(Set.of("ChildA", "ChildB"), fqns, "sources() should include both children");
+        }
+    }
+
+    @Test
+    public void supportingFragments_excludesInnerClassAncestors() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code("", "Outer.java").build()) {
+            ProjectFile outerFile = testProject.getAllFiles().stream()
+                    .filter(pf -> pf.getFileName().equals("Outer.java"))
+                    .findFirst()
+                    .orElseThrow();
+            ProjectFile outerBaseFile = new ProjectFile(testProject.getRoot(), "OuterBase.java");
+            ProjectFile innerBaseFile = new ProjectFile(testProject.getRoot(), "InnerBase.java");
+
+            CodeUnit outer = CodeUnit.cls(outerFile, "com.example", "Outer");
+            CodeUnit inner = CodeUnit.cls(outerFile, "com.example", "Inner");
+            CodeUnit outerBase = CodeUnit.cls(outerBaseFile, "com.example", "OuterBase");
+            CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "InnerBase");
+
+            TestAnalyzer customAnalyzer = new TestAnalyzer() {
+                @Override
+                public List<CodeUnit> getTopLevelDeclarations(ProjectFile f) {
+                    if (f.equals(outerFile)) {
+                        return List.of(outer);
+                    }
+                    return super.getTopLevelDeclarations(f);
+                }
+
+                @Override
+                public Set<CodeUnit> getDeclarations(ProjectFile f) {
+                    if (f.equals(outerFile)) {
+                        return Set.of(outer, inner);
+                    }
+                    return super.getDeclarations(f);
+                }
+
+                @Override
+                public java.util.SequencedSet<CodeUnit> getDefinitions(String fqName) {
+                    if ("com.example.Outer".equals(fqName)) {
+                        return new java.util.LinkedHashSet<>(List.of(outer, inner));
+                    }
+                    return super.getDefinitions(fqName);
+                }
+            };
+
+            customAnalyzer.addDeclaration(outer);
+            customAnalyzer.addDeclaration(inner);
+            customAnalyzer.setDirectAncestors(outer, List.of(outerBase));
+            customAnalyzer.setDirectAncestors(inner, List.of(innerBase));
+
+            var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), customAnalyzer);
+            var fragment = new SummaryFragment(cm, "com.example.Outer", SummaryType.CODEUNIT_SKELETON);
+
+            var supporting = fragment.supportingFragments();
+            var targetIds = supporting.stream()
+                    .filter(f -> f instanceof SummaryFragment)
+                    .map(f -> ((SummaryFragment) f).getTargetIdentifier())
+                    .collect(Collectors.toSet());
+
+            assertTrue(targetIds.contains("com.example.OuterBase"), "Should include OuterBase");
+            assertFalse(targetIds.contains("com.example.InnerBase"), "Should NOT include InnerBase");
         }
     }
 
