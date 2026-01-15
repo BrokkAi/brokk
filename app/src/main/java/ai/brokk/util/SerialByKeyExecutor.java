@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.concurrent.LoggingFuture;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -60,7 +61,7 @@ public class SerialByKeyExecutor {
                 activeFutures.compute(key, (String k, @Nullable CompletableFuture<?> previous) -> {
                     var resultFuture = new CompletableFuture<T>();
 
-                    Runnable scheduleTask = () -> CompletableFuture.supplyAsync(supplier, executor)
+                    Runnable scheduleTask = () -> LoggingFuture.supplyAsync(supplier, executor)
                             .whenCompleteAsync(
                                     (T res, @Nullable Throwable err) -> {
                                         // guarantee cleanup precedes observable completion

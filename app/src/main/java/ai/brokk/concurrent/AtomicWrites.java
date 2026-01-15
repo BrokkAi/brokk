@@ -1,4 +1,4 @@
-package ai.brokk.util;
+package ai.brokk.concurrent;
 
 import java.io.IOException;
 import java.io.OutputStream;

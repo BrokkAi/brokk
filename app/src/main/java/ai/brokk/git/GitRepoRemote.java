@@ -16,6 +16,7 @@ import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -210,9 +211,21 @@ public class GitRepoRemote {
      * @throws GitAPIException if a Git error occurs.
      */
     public void fetchBranch(String remoteName, String branchName) throws GitAPIException {
+        fetchBranch(remoteName, branchName, null);
+    }
+
+    /**
+     * Fetches a specific branch from a remote using an explicit token for authentication.
+     *
+     * @param remoteName The name of the remote (e.g., "origin").
+     * @param branchName The name of the branch to fetch.
+     * @param token The GitHub token to use for authentication, or null to use the default.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    public void fetchBranch(String remoteName, String branchName, @Nullable String token) throws GitAPIException {
         var refSpec = new RefSpec("+refs/heads/" + branchName + ":refs/remotes/" + remoteName + "/" + branchName);
         var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(refSpec);
-        repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
+        repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName), token);
         fetchCommand.call();
     }
 
@@ -223,11 +236,24 @@ public class GitRepoRemote {
      * @param remoteName The name of the remote (e.g., "origin").
      * @throws GitAPIException if a Git error occurs.
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public void fetchPrRef(int prNumber, String remoteName) throws GitAPIException {
+        fetchPrRef(prNumber, remoteName, null);
+    }
+
+    /**
+     * Fetches a GitHub Pull Request ref from a remote using an explicit token for authentication.
+     *
+     * @param prNumber The PR number to fetch.
+     * @param remoteName The name of the remote (e.g., "origin").
+     * @param token The GitHub token to use for authentication, or null to use the default.
+     * @throws GitAPIException if a Git error occurs.
+     */
+    @Blocking
+    public void fetchPrRef(int prNumber, String remoteName, @Nullable String token) throws GitAPIException {
         var refSpec = new RefSpec("+refs/pull/" + prNumber + "/head:refs/remotes/" + remoteName + "/pr/" + prNumber);
         var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(refSpec);
-        repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName));
+        repo.applyGitHubAuthentication(fetchCommand, getUrl(remoteName), token);
         fetchCommand.call();
     }
 

@@ -342,7 +342,7 @@ public final class DialogButtonSizing {
         Container c = child;
         while (c != null) {
             if (c == ancestor) return true;
-            java.awt.Component parent = c.getParent();
+            Component parent = c.getParent();
             if (parent instanceof Container pc) c = pc;
             else break;
         }

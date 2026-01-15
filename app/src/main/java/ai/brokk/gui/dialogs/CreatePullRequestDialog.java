@@ -8,6 +8,7 @@ import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoData;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.ExceptionAwareSwingWorker;
@@ -948,7 +949,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
     }
 
     private void updateReviewTabContent(
-            DiffService.CumulativeChanges res, List<Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff>> prepared) {
+            DiffService.CumulativeChanges res, List<Map.Entry<String, GitRepoData.FileDiff>> prepared) {
         assert SwingUtilities.isEventDispatchThread() : "updateReviewTabContent must run on EDT";
 
         // Dispose any previous diff panel
@@ -1016,7 +1017,7 @@ public class CreatePullRequestDialog extends BaseThemedDialog {
         }
     }
 
-    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff>> prepared) {
+    private JPanel buildAggregatedChangesPanel(List<Map.Entry<String, GitRepoData.FileDiff>> prepared) {
         var wrapper = new JPanel(new BorderLayout());
 
         // Build header

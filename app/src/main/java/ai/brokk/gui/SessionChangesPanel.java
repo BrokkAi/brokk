@@ -8,7 +8,9 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.agents.ReviewGenerationException;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.difftool.ui.AbstractContentPanel;
@@ -28,6 +30,7 @@ import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitRepoData;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialProgressButton;
@@ -37,6 +40,7 @@ import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
@@ -45,6 +49,9 @@ import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +59,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
 import javax.swing.border.EmptyBorder;
@@ -59,6 +67,7 @@ import javax.swing.border.LineBorder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -94,6 +103,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private final DiffDisplayCore diffCore;
 
+    /** If non-null, an explicit commit/ref to compare against. If null, we auto-resolve based on branch. */
+    @Nullable
+    private String reviewBaselineRef = null;
+
     private final FileTreePanel fileTreePanel;
 
     private final CodeReviewPanel codeReviewPanel;
@@ -103,7 +116,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private final JPanel diffContainer;
     private final DiffToolbarPanel diffToolbar;
 
-    private final JComboBox<ComparisonTarget> baselineDropdown;
+    private final JComboBox<String> baselineDropdown;
 
     private final MaterialButton commitBtn;
 
@@ -156,16 +169,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         setBorder(new CompoundBorder(
                 new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
 
-        this.baselineDropdown = new JComboBox<>(ComparisonTarget.values());
+        this.baselineDropdown = new JComboBox<>();
         this.baselineDropdown.setOpaque(false);
-        this.baselineDropdown.addActionListener(e -> requestUpdate());
+        this.baselineDropdown.addActionListener(e -> {
+            if (reviewBaselineRef != null && baselineDropdown.getSelectedIndex() == 1) {
+                clearReviewBaseline();
+            }
+        });
 
-        this.commitBtn = new MaterialButton("Changes to Commit");
-        this.pullBtn = new MaterialButton("Pull");
-        this.pushBtn = new MaterialButton("Push");
-        this.prBtn = new MaterialButton("Create PR");
+        this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
+
+        this.pullBtn = createIconButton(Icons.DOWNLOAD, "Pull changes from the remote repository");
+        this.pushBtn = createIconButton(Icons.PUBLISH, "Push your commits to the remote repository");
+        this.prBtn = createIconButton(Icons.ADD_DIAMOND, "Create a pull request for the current branch");
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
-        this.pasteBtn = new MaterialButton("Paste Review");
+        this.guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
+
+        this.pasteBtn = createIconButton(Icons.CONTENT_CAPTURE, "Paste a code review from the clipboard (JSON format)");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -273,10 +293,33 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
         pasteBtn.addActionListener(e -> handlePasteReview());
 
-        SwingUtil.applyPrimaryButtonStyle(commitBtn);
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
         guidedReviewBtn.setIdleAction(this::generateGuidedReview);
         guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
+    }
+
+    private MaterialButton createIconButton(Icon icon, @Nullable String tooltip) {
+        var btn = new MaterialButton("") {
+            @Override
+            public Dimension getPreferredSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMinimumSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(24, 24);
+            }
+        };
+        btn.setIcon(icon);
+        if (tooltip != null) {
+            btn.setToolTipText(tooltip);
+        }
+        return btn;
     }
 
     private DiffDisplayCore createDiffCore(BrokkDiffPanel dummyPanel) {
@@ -353,7 +396,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
 
         // Kick off async computation
-        CompletableFuture.supplyAsync(() -> {
+        LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState();
                     int modifiedCount;
                     try {
@@ -403,25 +446,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private record BaselineState(BaselineMode baselineMode, String baselineLabel) {}
 
-    private enum ComparisonTarget {
-        CUMULATIVE,
-        SESSION;
-    }
-
     private @Nullable String resolvedBaselineBranch = null;
 
     private BaselineState resolveBaselineState() {
-        try {
-            ComparisonTarget target = (ComparisonTarget) baselineDropdown.getSelectedItem();
-            if (target == ComparisonTarget.SESSION) {
-                var firstSessionCommit = contextManager.getContextHistory().getFirstGitState();
-                if (firstSessionCommit.isPresent()) {
-                    return new BaselineState(
-                            BaselineMode.SESSION, firstSessionCommit.get().commitHash());
-                }
-                return new BaselineState(BaselineMode.NO_BASELINE, "No session start found");
-            }
+        if (reviewBaselineRef != null) {
+            return new BaselineState(BaselineMode.COMMIT_RANGE, reviewBaselineRef);
+        }
 
+        try {
             String defaultBranch = repo.getDefaultBranch();
             String currentBranch = repo.getCurrentBranch();
 
@@ -444,14 +476,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             resolvedBaselineBranch = baseline;
 
             if (!currentBranch.equals(defaultBranch)) {
-                return new BaselineState(BaselineMode.NON_DEFAULT_BRANCH, baseline);
+                return new BaselineState(BaselineMode.BRANCH_BASELINE, baseline);
             }
 
             if (hasUpstream && upstreamRefCandidate != null) {
-                return new BaselineState(BaselineMode.DEFAULT_WITH_UPSTREAM, upstreamRefCandidate);
+                return new BaselineState(BaselineMode.BRANCH_BASELINE, upstreamRefCandidate);
             }
 
-            return new BaselineState(BaselineMode.DEFAULT_LOCAL_ONLY, "HEAD");
+            return new BaselineState(BaselineMode.BRANCH_BASELINE, "HEAD");
         } catch (Exception e) {
             logger.warn("Failed to compute baseline for changes", e);
             String errorLabel = e.getMessage();
@@ -496,28 +528,22 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             return new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of(), null);
         }
 
-        String leftRef = null;
+        String leftRef;
         String currentBranch = repo.getCurrentBranch();
-        List<CommitInfo> commits = List.of();
 
-        switch (baselineMode) {
-            case NON_DEFAULT_BRANCH, DEFAULT_WITH_UPSTREAM -> {
-                leftRef = repo.getMergeBase("HEAD", baselineLabel);
-                if (leftRef == null) {
-                    leftRef = "HEAD";
-                } else {
-                    commits = repo.listCommitsBetweenBranches(leftRef, "HEAD", false);
-                }
-            }
-            case DEFAULT_LOCAL_ONLY -> {
+        if (baselineMode == BaselineMode.COMMIT_RANGE) {
+            leftRef = baselineLabel;
+        } else if ("HEAD".equals(baselineLabel)) {
+            leftRef = "HEAD";
+        } else {
+            leftRef = repo.getMergeBase("HEAD", baselineLabel);
+            if (leftRef == null) {
                 leftRef = "HEAD";
             }
-            case SESSION -> {
-                leftRef = baselineLabel;
-                commits = List.of();
-            }
-            default -> throw new AssertionError();
         }
+
+        List<CommitInfo> commits =
+                leftRef.equals("HEAD") ? List.of() : repo.listCommitsBetweenBranches(leftRef, "HEAD", false);
 
         var summarizedChanges = DiffService.computeCumulativeDiff(repo, requireNonNull(leftRef), "WORKING", commits);
 
@@ -576,7 +602,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public void updateContent(
             DiffService.CumulativeChanges res,
-            List<Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff>> prepared,
+            List<Map.Entry<String, GitRepoData.FileDiff>> prepared,
             @Nullable String baselineLabel,
             @Nullable BaselineMode baselineMode) {
 
@@ -607,7 +633,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff> entry) {
+    private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, GitRepoData.FileDiff> entry) {
         ProjectFile pf = null;
         try {
             pf = contextManager.toFile(entry.getKey());
@@ -629,28 +655,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             baselineDropdown.removeActionListener(al);
         }
 
-        ComparisonTarget currentSelection = (ComparisonTarget) baselineDropdown.getSelectedItem();
-
         baselineDropdown.removeAllItems();
-        baselineDropdown.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(
-                    JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-                super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value == ComparisonTarget.CUMULATIVE) {
-                    setText("Changes vs " + branchLabel);
-                } else if (value == ComparisonTarget.SESSION) {
-                    setText("Changes this Session");
-                }
-                return this;
-            }
-        });
-        baselineDropdown.addItem(ComparisonTarget.CUMULATIVE);
-        baselineDropdown.addItem(ComparisonTarget.SESSION);
-
-        // Restore selection without triggering listeners
-        if (currentSelection != null) {
-            baselineDropdown.setSelectedItem(currentSelection);
+        if (reviewBaselineRef != null) {
+            baselineDropdown.addItem("Changes from " + repo.shortHash(reviewBaselineRef));
+            baselineDropdown.addItem("Reset to " + branchLabel);
+            baselineDropdown.setSelectedIndex(0);
+        } else {
+            baselineDropdown.addItem("Changes vs " + branchLabel);
+            baselineDropdown.setSelectedIndex(0);
         }
 
         // Re-add action listeners
@@ -661,7 +673,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private void refreshUI(
             DiffService.CumulativeChanges res,
-            List<Map.Entry<String, ai.brokk.git.GitRepoData.FileDiff>> prepared,
+            List<Map.Entry<String, GitRepoData.FileDiff>> prepared,
             @Nullable BaselineMode baselineMode) {
 
         updateDropdownLabels();
@@ -689,9 +701,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             logger.debug("Unable to determine uncommitted changes state", e);
         }
 
-        boolean isSession = baselineMode == BaselineMode.SESSION;
-
-        commitBtn.setVisible(!isSession && hasUncommittedChanges);
+        commitBtn.setVisible(hasUncommittedChanges);
 
         guidedReviewBtn.setVisible(true);
 
@@ -699,26 +709,39 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         boolean canPull = pushPull != null && pushPull.canPull();
         pullBtn.setEnabled(canPull && !hasUncommittedChanges);
         if (hasUncommittedChanges) {
-            pullBtn.setToolTipText("Commit or stash changes before pulling");
+            pullBtn.setToolTipText(
+                    "Commit or stash your uncommitted changes before pulling from the remote repository");
         } else if (!canPull) {
             pullBtn.setToolTipText(
                     pushPull != null && pushPull.hasUpstream()
-                            ? "No changes to pull"
-                            : "No upstream branch configured");
+                            ? "Already up to date - no new changes to pull from the remote repository"
+                            : "No upstream branch configured - set up remote tracking to enable pulling");
         } else {
-            pullBtn.setToolTipText(null);
+            pullBtn.setToolTipText("Pull the latest changes from the remote repository into your local branch");
         }
-        pullBtn.setVisible(!isSession);
+        pullBtn.setVisible(true);
 
         pushBtn.setEnabled(!hasUncommittedChanges);
-        pushBtn.setVisible(!isSession && pushPull != null && pushPull.canPush());
+        pushBtn.setToolTipText(
+                hasUncommittedChanges
+                        ? "Commit your uncommitted changes before pushing to the remote repository"
+                        : "Push your local commits to the remote repository");
+        pushBtn.setVisible(pushPull != null && pushPull.canPush());
 
-        boolean showPR = !isSession
-                && (baselineMode == BaselineMode.NON_DEFAULT_BRANCH
-                        || (baselineMode == BaselineMode.DEFAULT_WITH_UPSTREAM && res.filesChanged() > 0));
+        boolean isDefaultBranch = false;
+        try {
+            isDefaultBranch = repo.getCurrentBranch().equals(repo.getDefaultBranch());
+        } catch (Exception e) {
+            logger.debug("Failed to check if current branch is default branch", e);
+        }
+
+        boolean showPR = (baselineMode == BaselineMode.BRANCH_BASELINE && !isDefaultBranch)
+                || (baselineMode == BaselineMode.BRANCH_BASELINE && isDefaultBranch && res.filesChanged() > 0);
 
         boolean prBtnEnabled = !hasUncommittedChanges;
-        String prBtnTooltip = null;
+        String prBtnTooltip = hasUncommittedChanges
+                ? "Commit your uncommitted changes before creating a pull request"
+                : "Create a pull request to merge the current branch into the default branch";
         if (prBtnEnabled && showPR) {
             try {
                 String currentBranch = repo.getCurrentBranch();
@@ -918,35 +941,65 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         });
     }
 
+    @Blocking
+    private void ensureReviewSession(DiffService.CumulativeChanges changes) {
+        // Check if all commits are already in the current session
+        Set<String> currentSessionCommits = contextManager.getContextHistory().getGitStates().values().stream()
+                .map(ContextHistory.GitState::commitHash)
+                .collect(Collectors.toSet());
+        List<String> reviewCommits =
+                changes.commits().stream().map(CommitInfo::id).toList();
+
+        if (!currentSessionCommits.containsAll(reviewCommits) && !reviewCommits.isEmpty()) {
+            // Create a new session for this review
+            String branchName = null;
+            try {
+                branchName = repo.getCurrentBranch();
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
+            String time = LocalTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"));
+            String sessionName = "Review " + branchName + " " + time;
+            contextManager.createSessionAsync(sessionName).join();
+        }
+    }
+
+    /**
+     * Generates a guided review using the currently cached cumulative changes.
+     * Called by the Guided Review button when there's already data available.
+     */
     private void generateGuidedReview() {
-        if (lastCumulativeChanges == null) return;
+        var changes = lastCumulativeChanges;
+        if (changes == null) return;
 
         setGuidedReviewBusy(true);
         codeReviewPanel.setBusy(true);
         guidedReviewBtn.setProgress(0);
 
+        generateGuidedReviewAsync(changes, fileComparisons);
+    }
+
+    /**
+     * Core review generation logic that accepts explicit parameters.
+     * This allows callers to provide their own computed data rather than relying on cached state.
+     */
+    private void generateGuidedReviewAsync(
+            DiffService.CumulativeChanges changes, List<FileComparisonInfo> comparisons) {
+        LoggingFuture.supplyAsync(() -> {
+            // these are broken out separately to avoid deadlock (they both want to run on the exclusive UAM thread)
+            ensureReviewSession(changes);
+            generateGuidedReviewInternal(changes, comparisons);
+        });
+    }
+
+    private void generateGuidedReviewInternal(
+            DiffService.CumulativeChanges changes, List<FileComparisonInfo> comparisons) {
         contextManager.submitLlmAction(() -> {
             try {
-                var changes = lastCumulativeChanges;
-                if (changes == null) {
-                    SwingUtilities.invokeLater(() -> {
-                        codeReviewPanel.setBusy(false);
-                        setGuidedReviewBusy(false);
-                        revalidate();
-                        repaint();
-                    });
-                    return;
-                }
+                List<UUID> sessions =
+                        DiffService.CumulativeChanges.findOverlappingSessions(contextManager, changes.commits());
 
-                List<UUID> sessions;
-                ComparisonTarget target = (ComparisonTarget) baselineDropdown.getSelectedItem();
-                if (target == ComparisonTarget.SESSION) {
-                    sessions = List.of(contextManager.getCurrentSessionId());
-                } else {
-                    sessions = DiffService.CumulativeChanges.findOverlappingSessions(contextManager, changes.commits());
-                }
-
-                var agent = new ReviewAgent(changes, sessions, contextManager, chrome, fileComparisons);
+                var agent = new ReviewAgent(changes, sessions, contextManager, chrome, comparisons);
 
                 agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
                     guidedReviewBtn.setProgress(p);
@@ -1064,7 +1117,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         // Parse and display
-        CompletableFuture.supplyAsync(() -> {
+        LoggingFuture.supplyAsync(() -> {
                     var rawReview = ReviewParser.RawReview.fromJson(json);
                     var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(contextManager, clipboardData);
                     return ReviewParser.GuidedReview.fromRaw(rawReview, resolvedExcerpts);
@@ -1405,6 +1458,58 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
+    /**
+     * Starts a review for a specific commit range, computing the diff and file comparisons
+     * independently of the UI refresh cycle to avoid race conditions.
+     */
+    public void startCommitRangeReview(String oldestCommitId) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        var parentId = oldestCommitId + "^";
+        this.reviewBaselineRef = parentId;
+
+        // Set busy state immediately
+        setGuidedReviewBusy(true);
+        codeReviewPanel.setBusy(true);
+        guidedReviewBtn.setProgress(0);
+
+        // Compute changes and run review independently of requestUpdate
+        LoggingFuture.supplyAsync(() -> {
+                    try {
+                        var changes = computeCumulativeChanges(parentId, BaselineMode.COMMIT_RANGE);
+                        var prepared = DiffService.preparePerFileSummaries(changes);
+                        var comparisons = prepared.stream()
+                                .map(this::toFileComparisonInfo)
+                                .toList();
+                        return new ReviewInput(changes, comparisons);
+                    } catch (GitAPIException e) {
+                        throw new RuntimeException("Failed to compute changes for review", e);
+                    }
+                })
+                .thenAccept(input -> {
+                    // Now run the review with the explicitly computed data
+                    generateGuidedReviewAsync(input.changes(), input.comparisons());
+                })
+                .exceptionally(ex -> {
+                    logger.error("Failed to prepare commit range review", ex);
+                    SwingUtilities.invokeLater(() -> {
+                        codeReviewPanel.setBusy(false);
+                        setGuidedReviewBusy(false);
+                        chrome.toolError("Failed to prepare review: " + ex.getMessage());
+                    });
+                    return null;
+                });
+    }
+
+    private record ReviewInput(DiffService.CumulativeChanges changes, List<FileComparisonInfo> comparisons) {}
+
+    public void clearReviewBaseline() {
+        SwingUtil.runOnEdt(() -> {
+            this.reviewBaselineRef = null;
+            requestUpdate();
+        });
+    }
+
     @Override
     public void applyTheme(GuiTheme guiTheme) {
         codeReviewPanel.applyTheme(guiTheme);
@@ -1420,10 +1525,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     public enum BaselineMode {
-        NON_DEFAULT_BRANCH,
-        DEFAULT_WITH_UPSTREAM,
-        DEFAULT_LOCAL_ONLY,
-        SESSION,
+        BRANCH_BASELINE,
+        COMMIT_RANGE,
         NO_BASELINE
     }
 }

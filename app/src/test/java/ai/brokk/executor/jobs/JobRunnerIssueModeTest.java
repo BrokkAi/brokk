@@ -41,7 +41,7 @@ class JobRunnerIssueModeTest {
         try (Git git = Git.init().setDirectory(projectRoot.toFile()).call()) {
             Files.writeString(projectRoot.resolve("README.md"), "initial");
             git.add().addFilepattern("README.md").call();
-            git.commit().setMessage("Initial commit").call();
+            git.commit().setMessage("Initial commit").setSign(false).call();
         }
 
         repo = new TestGitRepo(projectRoot, worktreeDir);

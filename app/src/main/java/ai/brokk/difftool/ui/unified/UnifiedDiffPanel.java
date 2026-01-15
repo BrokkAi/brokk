@@ -815,7 +815,7 @@ public class UnifiedDiffPanel extends AbstractDiffPanel implements ThemeAware {
     private void highlightExcerptLinesInternal(int startLine, int endLine) {
         try {
             int startOffset = textArea.getLineStartOffset(Math.max(0, startLine - 1));
-            int endOffset = textArea.getLineEndOffset(Math.max(0, endLine - 1));
+            int endOffset = textArea.getLineEndOffset(Math.max(0, endLine - 1)) - 1;
 
             boolean isDark = getTheme().isDarkTheme();
             // Using a color that stands out: green-ish for dark, blue-ish for light, or themed accent

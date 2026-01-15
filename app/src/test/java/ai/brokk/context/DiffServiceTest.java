@@ -6,11 +6,12 @@ import ai.brokk.IContextManager;
 import ai.brokk.SessionManager;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.testutil.NoOpConsoleIO;
+import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
-import ai.brokk.util.ComputedValue;
 import com.github.f4b6a3.uuid.UuidCreator;
 import java.awt.Color;
 import java.awt.image.BufferedImage;
@@ -497,8 +498,7 @@ class DiffServiceTest {
             }
         };
 
-        var customCm =
-                new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new ai.brokk.testutil.TestAnalyzer());
+        var customCm = new TestContextManager(project, new NoOpConsoleIO(), Set.of(), new TestAnalyzer());
         var overlapping = DiffService.CumulativeChanges.findOverlappingSessions(customCm, commits);
 
         assertTrue(overlapping.isEmpty(), "Should return empty list when no session git states match commit IDs");

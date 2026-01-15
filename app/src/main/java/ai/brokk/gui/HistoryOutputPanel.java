@@ -27,6 +27,7 @@ import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.GlobalUiSettings;
 import dev.langchain4j.agent.tool.ToolContext;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
@@ -1559,7 +1560,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         Guidance:
     %s
     """
-                                    .formatted(captureText, ai.brokk.tools.WorkspaceTools.TASK_LIST_GUIDANCE));
+                                    .formatted(captureText, WorkspaceTools.TASK_LIST_GUIDANCE));
 
                     // Register tool providers
                     var ws = new WorkspaceTools(contextManager.liveContext());
@@ -1733,7 +1734,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         for (int i = messages.size() - 1; i >= 0; i--) {
             var msg = messages.get(i);
             if (msg.type() == ChatMessageType.AI) {
-                if (msg instanceof dev.langchain4j.data.message.AiMessage aiMsg) {
+                if (msg instanceof AiMessage aiMsg) {
                     reviewMarkdown = aiMsg.text();
                     break;
                 }

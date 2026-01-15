@@ -10,10 +10,12 @@ import com.formdev.flatlaf.IntelliJTheme;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import java.awt.*;
 import java.io.IOException;
+import java.net.URI;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -494,7 +496,7 @@ public class GuiTheme {
      */
     public void updateComponentTreeUIPreservingFonts(Container container) {
         // Collect font sizes from FontSizeAware components before update
-        java.util.Map<Component, Float> fontMap = new java.util.HashMap<>();
+        Map<Component, Float> fontMap = new HashMap<>();
         collectExplicitFonts(container, fontMap);
 
         // Update UI
@@ -507,7 +509,7 @@ public class GuiTheme {
     /**
      * Recursively collects explicit font sizes from FontSizeAware components.
      */
-    private void collectExplicitFonts(Container container, java.util.Map<Component, Float> fontMap) {
+    private void collectExplicitFonts(Container container, Map<Component, Float> fontMap) {
         for (Component comp : container.getComponents()) {
             if (comp instanceof FontSizeAware fsAware && fsAware.hasExplicitFontSize()) {
                 float fontSize = fsAware.getExplicitFontSize();
@@ -522,7 +524,7 @@ public class GuiTheme {
     /**
      * Restores explicit font sizes to components.
      */
-    private void restoreExplicitFonts(java.util.Map<Component, Float> fontMap) {
+    private void restoreExplicitFonts(Map<Component, Float> fontMap) {
         fontMap.forEach((comp, fontSize) -> {
             if (comp instanceof RSyntaxTextArea textArea) {
                 Font currentFont = textArea.getFont();
@@ -652,7 +654,7 @@ public class GuiTheme {
 
                     // Decode URL encoding (e.g., %20 -> space) to handle paths with spaces
                     // Use URI to properly decode file paths (handles %20, etc. correctly)
-                    var jarFile = new java.net.URI(jarFileUrl).getPath();
+                    var jarFile = new URI(jarFileUrl).getPath();
 
                     try (var jar = new JarFile(jarFile)) {
                         var entries = jar.entries();

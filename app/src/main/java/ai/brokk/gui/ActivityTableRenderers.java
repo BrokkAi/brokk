@@ -2,10 +2,10 @@ package ai.brokk.gui;
 
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.gui.util.Icons;
-import ai.brokk.util.ComputedValue;
 import java.awt.*;
 import java.awt.geom.Path2D;
 import java.util.UUID;

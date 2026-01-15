@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import ai.brokk.Brokk;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.Chrome;
 import com.google.common.base.Splitter;
 import com.sun.management.UnixOperatingSystemMXBean;
@@ -264,9 +265,9 @@ public class Environment {
         }
 
         CompletableFuture<String> stdoutFuture =
-                CompletableFuture.supplyAsync(() -> readStream(process.getInputStream(), outputConsumer));
+                LoggingFuture.supplyAsync(() -> readStream(process.getInputStream(), outputConsumer));
         CompletableFuture<String> stderrFuture =
-                CompletableFuture.supplyAsync(() -> readStream(process.getErrorStream(), outputConsumer));
+                LoggingFuture.supplyAsync(() -> readStream(process.getErrorStream(), outputConsumer));
 
         String combinedOutput;
         try {

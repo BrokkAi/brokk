@@ -6,6 +6,7 @@ import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.InstructionsPanel;
@@ -18,6 +19,8 @@ import ai.brokk.util.Environment;
 import ai.brokk.util.ExecutorConfig;
 import ai.brokk.util.SerialByKeyExecutor;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -29,7 +32,6 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.swing.*;
@@ -73,7 +75,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
     private int maxRuns = 50;
     private final TestRunsStore runsStore;
     private boolean restoringRuns = false;
-    private final ExecutorService sessionExecutor = Executors.newFixedThreadPool(2);
+    private final ExecutorService sessionExecutor = ExecutorsUtil.newFixedThreadExecutor(2, "TestRunner-");
     private final SerialByKeyExecutor saveExecutor = new SerialByKeyExecutor(sessionExecutor);
 
     // Limit stored output size to avoid unbounded JSON growth
@@ -94,10 +96,10 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
 
         runList = new JList<>(runListModel) {
             @Override
-            public @Nullable String getToolTipText(java.awt.event.MouseEvent e) {
+            public @Nullable String getToolTipText(MouseEvent e) {
                 int index = locationToIndex(e.getPoint());
                 if (index < 0) return null;
-                java.awt.Rectangle cellBounds = getCellBounds(index, index);
+                Rectangle cellBounds = getCellBounds(index, index);
                 if (cellBounds == null) return null;
 
                 CompletedEntry run = runListModel.get(index);
@@ -122,16 +124,16 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
         });
 
-        runList.addMouseListener(new java.awt.event.MouseAdapter() {
+        runList.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
+            public void mouseClicked(MouseEvent e) {
                 int index = runList.locationToIndex(e.getPoint());
                 if (index < 0) return;
 
                 CompletedEntry run = runListModel.get(index);
                 if (!run.isFailed()) return;
 
-                java.awt.Rectangle cellBounds = runList.getCellBounds(index, index);
+                Rectangle cellBounds = runList.getCellBounds(index, index);
                 if (cellBounds == null) return;
 
                 int buttonX = cellBounds.x + cellBounds.width - FIX_BUTTON_WIDTH_PX;
@@ -141,7 +143,7 @@ public class TestRunnerPanel extends JPanel implements ThemeAware {
             }
         });
 
-        javax.swing.ToolTipManager.sharedInstance().registerComponent(runList);
+        ToolTipManager.sharedInstance().registerComponent(runList);
 
         runListScrollPane = new JScrollPane(
                 runList, JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, JScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED);

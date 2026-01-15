@@ -9,13 +9,13 @@ import ai.brokk.IContextManager;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AdaptiveExecutor;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.IGitRepo.ModifiedFile;
 import ai.brokk.tools.GitTools;
-import ai.brokk.util.AdaptiveExecutor;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -724,7 +724,7 @@ public class MergeAgent {
         var conflictFiles = allConflictFilesInWorkspace();
         // Give fragments time to compute if necessary
         try {
-            top.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+            top.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
         } catch (InterruptedException e) {
             logger.warn("Interrupted while waiting for contexts to be computed", e);
         }
