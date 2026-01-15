@@ -160,6 +160,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             for (int i = 0; i < maybeDeclaration.getNamedChildCount(); i++) {
                 final TSNode nameNode = maybeDeclaration.getNamedChild(i);
                 if (nameNode != null && !nameNode.isNull()) {
+                    String type = nameNode.getType();
+                    if ("annotation".equals(type) || "marker_annotation".equals(type)) {
+                        continue;
+                    }
                     String nsPart = textSlice.apply(nameNode, sourceContent);
                     namespaceParts.add(nsPart);
                 }
