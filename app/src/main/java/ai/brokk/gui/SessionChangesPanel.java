@@ -36,6 +36,7 @@ import ai.brokk.gui.git.GitCommitTab;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
+import ai.brokk.gui.util.Icons;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -170,12 +171,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
         });
 
-        this.commitBtn = new MaterialButton("Changes to Commit");
-        this.pullBtn = new MaterialButton("Pull");
-        this.pushBtn = new MaterialButton("Push");
-        this.prBtn = new MaterialButton("Create PR");
+        this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
+
+        this.pullBtn = createIconButton(Icons.DOWNLOAD, "Pull changes from the remote repository");
+        this.pushBtn = createIconButton(Icons.PUBLISH, "Push your commits to the remote repository");
+        this.prBtn = createIconButton(Icons.ADD_DIAMOND, "Create a pull request for the current branch");
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
-        this.pasteBtn = new MaterialButton("Paste Review");
+        this.guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
+
+        this.pasteBtn = createIconButton(Icons.CONTENT_CAPTURE, "Paste a code review from the clipboard (JSON format)");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -266,10 +270,33 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
         pasteBtn.addActionListener(e -> handlePasteReview());
 
-        SwingUtil.applyPrimaryButtonStyle(commitBtn);
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
         guidedReviewBtn.setIdleAction(this::generateGuidedReview);
         guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
+    }
+
+    private MaterialButton createIconButton(Icon icon, @Nullable String tooltip) {
+        var btn = new MaterialButton("") {
+            @Override
+            public Dimension getPreferredSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMinimumSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(24, 24);
+            }
+        };
+        btn.setIcon(icon);
+        if (tooltip != null) {
+            btn.setToolTipText(tooltip);
+        }
+        return btn;
     }
 
     private DiffDisplayCore createDiffCore(BrokkDiffPanel dummyPanel) {
@@ -648,18 +675,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         boolean canPull = pushPull != null && pushPull.canPull();
         pullBtn.setEnabled(canPull && !hasUncommittedChanges);
         if (hasUncommittedChanges) {
-            pullBtn.setToolTipText("Commit or stash changes before pulling");
+            pullBtn.setToolTipText(
+                    "Commit or stash your uncommitted changes before pulling from the remote repository");
         } else if (!canPull) {
             pullBtn.setToolTipText(
                     pushPull != null && pushPull.hasUpstream()
-                            ? "No changes to pull"
-                            : "No upstream branch configured");
+                            ? "Already up to date - no new changes to pull from the remote repository"
+                            : "No upstream branch configured - set up remote tracking to enable pulling");
         } else {
-            pullBtn.setToolTipText(null);
+            pullBtn.setToolTipText("Pull the latest changes from the remote repository into your local branch");
         }
         pullBtn.setVisible(true);
 
         pushBtn.setEnabled(!hasUncommittedChanges);
+        pushBtn.setToolTipText(
+                hasUncommittedChanges
+                        ? "Commit your uncommitted changes before pushing to the remote repository"
+                        : "Push your local commits to the remote repository");
         pushBtn.setVisible(pushPull != null && pushPull.canPush());
 
         boolean isDefaultBranch = false;
@@ -673,7 +705,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 || (baselineMode == BaselineMode.BRANCH_BASELINE && isDefaultBranch && res.filesChanged() > 0);
 
         boolean prBtnEnabled = !hasUncommittedChanges;
-        String prBtnTooltip = null;
+        String prBtnTooltip = hasUncommittedChanges
+                ? "Commit your uncommitted changes before creating a pull request"
+                : "Create a pull request to merge the current branch into the default branch";
         if (prBtnEnabled && showPR) {
             try {
                 String currentBranch = repo.getCurrentBranch();

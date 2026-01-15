@@ -434,12 +434,12 @@ public class ContextHistoryTest {
         // Group metadata should still be preserved for ctx2
         assertEquals(groupId1, history.getGroupId(ctx2.id()));
         assertEquals("Group 1", history.getGroupLabels().get(groupId1));
-        // ctx3's group info should still exist (it's in redo stack, not deleted)
-        assertEquals(groupId2, history.getGroupId(ctx3.id()));
 
         // Redo back to ctx3
         history.redo(contextManager.getIo(), contextManager.getProject());
         assertEquals(ctx3.id(), history.liveContext().id());
+        // ctx3's group info should still exist
+        assertEquals(groupId2, history.getGroupId(ctx3.id()));
 
         // All group metadata should be intact
         assertEquals(groupId1, history.getGroupId(ctx2.id()));

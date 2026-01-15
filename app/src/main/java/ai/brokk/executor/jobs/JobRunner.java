@@ -888,11 +888,11 @@ public final class JobRunner {
                                                 var suggestion = workflow.suggestPullRequestDetails(
                                                         issueBranchName, targetBranch, cm.getIo());
 
+                                                String prBody = IssueService.buildPrDescription(
+                                                        suggestion.description(), issueNumber);
+
                                                 var prUri = workflow.createPullRequest(
-                                                        issueBranchName,
-                                                        targetBranch,
-                                                        suggestion.title(),
-                                                        suggestion.description());
+                                                        issueBranchName, targetBranch, suggestion.title(), prBody);
 
                                                 logger.info("ISSUE job {} created PR: {}", jobId, prUri);
                                                 if (console != null) {
