@@ -530,7 +530,6 @@ class SearchModeSearchAgentTest {
         cancelJob(jobId);
     }
 
-
     private void cancelJob(String jobId) throws IOException {
         var cancelUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/cancel").toURL();
         var cancelConn = (HttpURLConnection) cancelUrl.openConnection();
