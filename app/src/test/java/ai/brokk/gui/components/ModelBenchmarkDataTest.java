@@ -108,10 +108,7 @@ class ModelBenchmarkDataTest {
             int rate51 = ModelBenchmarkData.getSuccessRate("gpt-5.1", Service.ReasoningLevel.DEFAULT, tokenCount);
             int rate52 = ModelBenchmarkData.getSuccessRate("gpt-5.2", Service.ReasoningLevel.DEFAULT, tokenCount);
 
-            assertEquals(
-                    rate51,
-                    rate52,
-                    "gpt-5.2 should match gpt-5.1 for DEFAULT at %d tokens".formatted(tokenCount));
+            assertEquals(rate51, rate52, "gpt-5.2 should match gpt-5.1 for DEFAULT at %d tokens".formatted(tokenCount));
 
             int rate52Medium = ModelBenchmarkData.getSuccessRate("gpt-5.2", Service.ReasoningLevel.MEDIUM, tokenCount);
             assertEquals(
