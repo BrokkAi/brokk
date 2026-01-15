@@ -6,8 +6,8 @@
     bubble: BubbleState;
   }>();
 
-  let preElem: HTMLPreElement | null = null;
-  let codeElem: HTMLElement | null = null;
+  let preElem: HTMLPreElement | null = $state(null);
+  let codeElem: HTMLElement | null = $state(null);
 
   let renderedLength = 0;
 
