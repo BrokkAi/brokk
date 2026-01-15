@@ -29,7 +29,8 @@ public record JobSpec(
         @JsonProperty("reasoningLevelCode") @Nullable String reasoningLevelCode,
         @JsonProperty("temperature") @Nullable Double temperature) {
 
-    public record ModelOverrides(@Nullable String reasoningLevel, @Nullable String reasoningLevelCode, @Nullable Double temperature) {}
+    public record ModelOverrides(
+            @Nullable String reasoningLevel, @Nullable String reasoningLevelCode, @Nullable Double temperature) {}
 
     /**
      * Tag keys that contain sensitive data and should not be persisted to disk.
@@ -57,7 +58,8 @@ public record JobSpec(
      * <p>This convenience factory uses sensible defaults for optional flags and sets {@code preScan} to {@code false}.</p>
      */
     public static JobSpec of(String taskInput, String plannerModel) {
-        return new JobSpec(taskInput, true, true, plannerModel, null, null, false, Map.of(), null, null, null, null, null);
+        return new JobSpec(
+                taskInput, true, true, plannerModel, null, null, false, Map.of(), null, null, null, null, null);
     }
 
     /**

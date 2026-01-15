@@ -78,7 +78,8 @@ class JobSpecTest {
 
     @Test
     void testGetPrNumber_ReturnsNullForEmptyString() {
-        var spec = JobSpec.of("task", true, true, "model", null, null, false, Map.of("pr_number", ""), null, null, null);
+        var spec =
+                JobSpec.of("task", true, true, "model", null, null, false, Map.of("pr_number", ""), null, null, null);
 
         assertNull(spec.getPrNumber());
     }

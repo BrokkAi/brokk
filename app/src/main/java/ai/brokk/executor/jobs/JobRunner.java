@@ -168,8 +168,7 @@ public final class JobRunner {
                 // default)
                 final StreamingChatModel reviewScanModel = mode == Mode.REVIEW
                         ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? resolveModelOrThrow(
-                                        spec, spec.scanModel().trim(), spec.reasoningLevel())
+                                ? resolveModelOrThrow(spec, spec.scanModel().trim(), spec.reasoningLevel())
                                 : defaultScanModel(spec))
                         : null;
                 final StreamingChatModel askPlannerModel = mode == Mode.ASK || mode == Mode.ISSUE
@@ -178,9 +177,7 @@ public final class JobRunner {
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
                                 ? resolveModelOrThrow(
-                                        spec,
-                                        Objects.requireNonNull(trimmedCodeModelName),
-                                        spec.reasoningLevelCode())
+                                        spec, Objects.requireNonNull(trimmedCodeModelName), spec.reasoningLevelCode())
                                 : defaultCodeModel(spec))
                         : null;
 
@@ -190,8 +187,7 @@ public final class JobRunner {
                 // otherwise project default)
                 final StreamingChatModel searchPlannerModel = mode == Mode.SEARCH
                         ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? resolveModelOrThrow(
-                                        spec, spec.scanModel().trim(), spec.reasoningLevel())
+                                ? resolveModelOrThrow(spec, spec.scanModel().trim(), spec.reasoningLevel())
                                 : defaultScanModel(spec))
                         : null;
 
@@ -528,11 +524,10 @@ public final class JobRunner {
                                             // otherwise use project default
                                             String rawScanModel = spec.scanModel();
                                             String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
-                                            final StreamingChatModel scanModelToUse =
-                                                    (trimmedScanModel != null && !trimmedScanModel.isEmpty())
-                                                            ? resolveModelOrThrow(
-                                                                    spec, trimmedScanModel, spec.reasoningLevel())
-                                                            : defaultScanModel(spec);
+                                            final StreamingChatModel scanModelToUse = (trimmedScanModel != null
+                                                            && !trimmedScanModel.isEmpty())
+                                                    ? resolveModelOrThrow(spec, trimmedScanModel, spec.reasoningLevel())
+                                                    : defaultScanModel(spec);
 
                                             // SearchAgent now handles scanning internally via execute()
                                             var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
@@ -1127,8 +1122,7 @@ public final class JobRunner {
         return new AppliedOverrides(config, parametersOverride);
     }
 
-    private StreamingChatModel resolveModelOrThrow(
-            JobSpec spec, String name, @Nullable String reasoningLevelOverride) {
+    private StreamingChatModel resolveModelOrThrow(JobSpec spec, String name, @Nullable String reasoningLevelOverride) {
         var service = cm.getService();
 
         var applied = applyOverrides(spec, new Service.ModelConfig(name), reasoningLevelOverride);
