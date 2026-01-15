@@ -1478,7 +1478,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         TaskResult result;
         var title = task.title() == null ? task.text() : task.title();
-        try (var scope = beginTask(prompt, true, "Task: " + title)) {
+        try (var scope = beginTask(prompt, true, true, "Task: " + title)) {
             var agent = new ArchitectAgent(this, planningModel, codeModel, prompt, scope);
             result = agent.executeWithScan();
 
@@ -2092,7 +2092,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and optional task description. */
     @Override
-    public TaskScope beginTask(String input, boolean groupAndCompress, @Nullable String taskDescription) {
+    public TaskScope beginTask(String input, boolean group, boolean compress, @Nullable String taskDescription) {
         // prepare MOP
         var history = liveContext().getTaskHistory();
         var messages = List.<ChatMessage>of(new UserMessage(input));
@@ -2115,7 +2115,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             });
         }
 
-        return new TaskScope(groupAndCompress, taskDescription);
+        return new TaskScope(group, compress, taskDescription);
     }
 
     /**
@@ -2125,13 +2125,15 @@ public class ContextManager implements IContextManager, AutoCloseable {
      * without losing important history.
      */
     public class TaskScope implements AutoCloseable {
-        private final boolean groupAndCompress;
+        private final boolean group;
+        private final boolean compress;
         private final AtomicBoolean closed = new AtomicBoolean(false);
         private final UUID groupId = UUID.randomUUID();
         private final String groupLabel;
 
-        private TaskScope(boolean groupAndCompress, @Nullable String taskDescription) {
-            this.groupAndCompress = groupAndCompress;
+        private TaskScope(boolean group, boolean compress, @Nullable String taskDescription) {
+            this.group = group;
+            this.compress = compress;
             this.groupLabel = taskDescription == null ? "Task" : taskDescription;
             io.setTaskInProgress(true);
             taskScopeInProgress.set(true);
@@ -2179,7 +2181,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 return updated.addHistoryEntry(entry, result.output());
             });
 
-            if (groupAndCompress) {
+            if (group) {
                 UUID contextId = updatedContext.id();
                 contextHistory.addContextToGroup(contextId, groupId, groupLabel);
             }
@@ -2220,7 +2222,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
                 io.setTaskInProgress(false);
             });
 
-            if (groupAndCompress) {
+            if (compress) {
                 var finalCtx = contextHistory.replaceTop(ctx -> {
                     try {
                         return compressHistory(ctx);
@@ -2236,7 +2238,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     public class AnonymousScope extends TaskScope {
         private AnonymousScope() {
-            super(false, "");
+            super(false, false, "");
         }
 
         @Override

@@ -131,7 +131,7 @@ public class ReviewAgent {
         var diffFragment = new ContextFragments.StringFragment(
                 cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
 
-        try (var scope = cm.beginTask("Code Review", true, "Performing code review")) {
+        try (var scope = cm.beginTask("Code Review", true, false, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
             Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
             var instructionsOpt = extractInstructionsFragment(sessionIds);
@@ -871,7 +871,8 @@ public class ReviewAgent {
         var sessionManager = cm.getProject().getSessionManager();
 
         // Extract instructions from all matching histories
-        List<String> instructions = sessionIds.stream().parallel()
+        List<String> instructions = sessionIds.stream()
+                .parallel()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
                 .filter(Objects::nonNull)
                 .flatMap(h -> h.getHistory().stream()) // Stream<Context>

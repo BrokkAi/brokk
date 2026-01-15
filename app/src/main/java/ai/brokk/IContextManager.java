@@ -240,13 +240,18 @@ public interface IContextManager {
     }
 
     default ContextManager.TaskScope beginTask(
-            String input, boolean groupAndCompress, @Nullable String taskDescription) {
+            String input, boolean group, boolean compress, @Nullable String taskDescription) {
         throw new UnsupportedOperationException();
+    }
+
+    default ContextManager.TaskScope beginTask(
+            String input, boolean groupAndCompress, @Nullable String taskDescription) {
+        return beginTask(input, groupAndCompress, groupAndCompress, taskDescription);
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
     default ContextManager.TaskScope beginTaskUngrouped(String input) {
-        return beginTask(input, false, null);
+        return beginTask(input, false, false, null);
     }
 
     default ContextManager.TaskScope anonymousScope() {
