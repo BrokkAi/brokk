@@ -190,7 +190,9 @@
     </span>
   </div>
 
-  <slot {preId} {registerPre} {handleWheel}></slot>
+  {#if showCode}
+    <slot {preId} {registerPre} {handleWheel}></slot>
+  {/if}
 </div>
 
 <style>
