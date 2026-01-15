@@ -7,6 +7,8 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import javax.swing.*;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -80,17 +82,17 @@ public class FuzzyComboBox<T> extends JPanel {
             panel.setSelectedItem(selectedItem);
         }
 
-        menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener() {
+        menu.addPopupMenuListener(new PopupMenuListener() {
             @Override
-            public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e) {
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
                 SwingUtilities.invokeLater(panel::focusSearchField);
             }
 
             @Override
-            public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e) {}
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {}
 
             @Override
-            public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e) {}
+            public void popupMenuCanceled(PopupMenuEvent e) {}
         });
 
         menu.show(button, 0, button.getHeight());

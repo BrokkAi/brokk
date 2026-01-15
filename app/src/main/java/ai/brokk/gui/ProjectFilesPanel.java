@@ -5,6 +5,7 @@ import static ai.brokk.project.FileFilteringService.toUnixPath;
 import ai.brokk.Completions;
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.OverlayPanel;
 import ai.brokk.gui.dependencies.DependenciesPanel;
@@ -21,7 +22,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -240,7 +240,7 @@ public class ProjectFilesPanel extends JPanel {
                 String typedLower = currentText.toLowerCase(Locale.ROOT);
 
                 // Move file matching off EDT to avoid lag in large repos
-                CompletableFuture.supplyAsync(() -> {
+                LoggingFuture.supplyAsync(() -> {
                             Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
                             return trackedFiles.stream()
                                     .filter(pf -> matchesSearch(pf, typedLower))
@@ -330,7 +330,7 @@ public class ProjectFilesPanel extends JPanel {
         String typedLower = searchText.toLowerCase(Locale.ROOT);
 
         // Move file matching off EDT
-        CompletableFuture.supplyAsync(() -> {
+        LoggingFuture.supplyAsync(() -> {
                     Set<ProjectFile> trackedFiles = project.getRepo().getTrackedFiles();
 
                     // First try exact path match (normalize separators and case)

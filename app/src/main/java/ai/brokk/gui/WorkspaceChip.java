@@ -8,12 +8,14 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.SpecialTextType;
 import ai.brokk.gui.ChipColorUtils.ChipKind;
 import ai.brokk.gui.components.MaterialChip;
+import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.Messages;
 import ai.brokk.util.ProjectGuideResolver;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Graphics;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
@@ -190,7 +192,7 @@ public class WorkspaceChip extends JPanel {
     }
 
     @Override
-    public void paint(java.awt.Graphics g) {
+    public void paint(Graphics g) {
         float desiredAlpha = 1.0f;
         if (getParent() instanceof WorkspaceItemsChipPanel parentPanel) {
             if (parentPanel.isReadOnlyMode()) {
@@ -236,9 +238,9 @@ public class WorkspaceChip extends JPanel {
         ContextFragment fragment = getPrimaryFragment();
         if (fragment instanceof ContextFragments.StringFragment sf) {
             if (SpecialTextType.TASK_LIST.description().equals(sf.description().renderNowOrNull())) {
-                bg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_TASKLIST_BACKGROUND);
-                fg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_TASKLIST_FOREGROUND);
-                border = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_TASKLIST_BORDER);
+                bg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BACKGROUND);
+                fg = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_FOREGROUND);
+                border = ThemeColors.getColor(ThemeColors.CHIP_TASKLIST_BORDER);
             }
         }
 
@@ -343,7 +345,7 @@ public class WorkspaceChip extends JPanel {
 
     protected void safeAddSeparator(JPopupMenu menu) {
         int count = menu.getComponentCount();
-        if (count > 0 && !(menu.getComponent(count - 1) instanceof javax.swing.JSeparator)) {
+        if (count > 0 && !(menu.getComponent(count - 1) instanceof JSeparator)) {
             menu.addSeparator();
         }
     }
@@ -542,9 +544,7 @@ public class WorkspaceChip extends JPanel {
             }
 
             if (validityState == ValidityState.MIXED) {
-                materialChip.setSplitPainting(
-                        true,
-                        ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_INVALID_BACKGROUND));
+                materialChip.setSplitPainting(true, ThemeColors.getColor(ThemeColors.CHIP_INVALID_BACKGROUND));
             } else {
                 materialChip.setSplitPainting(false, null);
             }
@@ -553,9 +553,9 @@ public class WorkspaceChip extends JPanel {
         @Override
         public void applyTheme() {
             if (validityState == ValidityState.ALL_INVALID && !summaryFragments.isEmpty()) {
-                Color bg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_INVALID_BACKGROUND);
-                Color fg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_INVALID_FOREGROUND);
-                Color border = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.CHIP_INVALID_BORDER);
+                Color bg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BACKGROUND);
+                Color fg = ThemeColors.getColor(ThemeColors.CHIP_INVALID_FOREGROUND);
+                Color border = ThemeColors.getColor(ThemeColors.CHIP_INVALID_BORDER);
                 materialChip.setChipColors(bg, fg, border);
             } else {
                 super.applyTheme();
@@ -755,9 +755,9 @@ public class WorkspaceChip extends JPanel {
 
         @Override
         public void applyTheme() {
-            Color bg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.NOTIF_INFO_BG);
-            Color fg = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.NOTIF_INFO_FG);
-            Color border = ai.brokk.gui.mop.ThemeColors.getColor(ai.brokk.gui.mop.ThemeColors.NOTIF_INFO_BORDER);
+            Color bg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BG);
+            Color fg = ThemeColors.getColor(ThemeColors.NOTIF_INFO_FG);
+            Color border = ThemeColors.getColor(ThemeColors.NOTIF_INFO_BORDER);
             materialChip.setChipColors(bg, fg, border);
         }
 

@@ -1,6 +1,6 @@
 package ai.brokk.gui.tests;
 
-import ai.brokk.util.AtomicWrites;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.util.Json;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;

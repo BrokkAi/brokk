@@ -285,7 +285,7 @@ public class TokenUsageBar extends JComponent implements ThemeAware {
 
     public void applyGlobalStyling(Set<ContextFragment> targets) {
         this.hoveredFragmentIds =
-                Set.copyOf(targets.stream().map(ContextFragment::id).collect(java.util.stream.Collectors.toSet()));
+                Set.copyOf(targets.stream().map(ContextFragment::id).collect(Collectors.toSet()));
         repaint();
     }
 

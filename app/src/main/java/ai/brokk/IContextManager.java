@@ -160,12 +160,26 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default <T> Future<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+    default <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
         try {
             return CompletableFuture.completedFuture(task.call());
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Submits a background task that doesn't return a result.
+     *
+     * @param taskDescription a description of the task
+     * @param task the task to execute
+     * @return a {@link Future} representing pending completion of the task
+     */
+    default CompletableFuture<Void> submitBackgroundTask(String taskDescription, Runnable task) {
+        return submitBackgroundTask(taskDescription, () -> {
+            task.run();
+            return null;
+        });
     }
 
     default Set<ProjectFile> getTestFiles() {
@@ -226,13 +240,18 @@ public interface IContextManager {
     }
 
     default ContextManager.TaskScope beginTask(
-            String input, boolean groupAndCompress, @Nullable String taskDescription) {
+            String input, boolean group, boolean compress, @Nullable String taskDescription) {
         throw new UnsupportedOperationException();
+    }
+
+    default ContextManager.TaskScope beginTask(
+            String input, boolean groupAndCompress, @Nullable String taskDescription) {
+        return beginTask(input, groupAndCompress, groupAndCompress, taskDescription);
     }
 
     /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
     default ContextManager.TaskScope beginTaskUngrouped(String input) {
-        return beginTask(input, false, null);
+        return beginTask(input, false, false, null);
     }
 
     default ContextManager.TaskScope anonymousScope() {

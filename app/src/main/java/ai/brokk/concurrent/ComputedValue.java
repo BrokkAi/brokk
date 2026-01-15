@@ -1,4 +1,4 @@
-package ai.brokk.util;
+package ai.brokk.concurrent;
 
 import java.time.Duration;
 import java.util.ArrayList;

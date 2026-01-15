@@ -7,6 +7,7 @@ import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.IProject;
 import ai.brokk.util.FileUtil;
 import com.fasterxml.jackson.annotation.JsonInclude;
@@ -25,7 +26,6 @@ import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -313,7 +313,7 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         // Ensure the base directory exists
         Files.createDirectories(projectsBaseDir);
 
-        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        ExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(threads, "TSRR-");
         AtomicInteger successCount = new AtomicInteger(0);
         List<Callable<Void>> tasks = new ArrayList<>();
 
@@ -1926,10 +1926,10 @@ public class TreeSitterRepoRunner implements Callable<Integer> {
         } finally {
             // Clean up
             try (var stream = Files.walk(remoteRoot)) {
-                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
             }
             try (var stream = Files.walk(localRoot)) {
-                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(java.io.File::delete);
+                stream.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
             }
         }
     }

@@ -43,7 +43,11 @@ public class GlobalExceptionHandler implements UncaughtExceptionHandler {
 
         // Prevent recursive handling: abort if this method is already on the call stack.
         var currentStack = Thread.currentThread().getStackTrace();
-        for (var element : currentStack) {
+        // 0 -> getStacktrace()
+        // 1 -> handle()
+        // 2 -> start of caller
+        for (int i = 2; i < currentStack.length; i++) {
+            var element = currentStack[i];
             if (element.getClassName().equals(GlobalExceptionHandler.class.getName())
                     && element.getMethodName().equals("handle")) {
                 logger.warn("Recursive exception handling detected; aborting further handling.");
