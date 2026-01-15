@@ -171,42 +171,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
         });
 
-        this.commitBtn = new MaterialButton("Changes to Commit");
-        this.commitBtn.setIcon(Icons.COMMIT);
+        this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
 
-        this.pullBtn = new MaterialButton("");
-        this.pushBtn = new MaterialButton("");
-        this.prBtn = new MaterialButton("");
-
+        this.pullBtn = createIconButton(Icons.DOWNLOAD, null);
+        this.pushBtn = createIconButton(Icons.PUBLISH, null);
+        this.prBtn = createIconButton(Icons.ADD_DIAMOND, "Create PR");
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
-        this.guidedReviewBtn.setIcon(Icons.CHECK);
 
-        this.pasteBtn = new MaterialButton("");
-
-        // Set icons and size constraints after component is displayable
-        SwingUtilities.invokeLater(() -> {
-            pullBtn.setIcon(Icons.DOWNLOAD);
-            pullBtn.setPreferredSize(new Dimension(24, 24));
-            pullBtn.setMinimumSize(new Dimension(24, 24));
-            pullBtn.setMaximumSize(new Dimension(24, 24));
-
-            pushBtn.setIcon(Icons.PUBLISH);
-            pushBtn.setPreferredSize(new Dimension(24, 24));
-            pushBtn.setMinimumSize(new Dimension(24, 24));
-            pushBtn.setMaximumSize(new Dimension(24, 24));
-
-            prBtn.setIcon(Icons.ADD_DIAMOND);
-            prBtn.setToolTipText("Create PR");
-            prBtn.setPreferredSize(new Dimension(24, 24));
-            prBtn.setMinimumSize(new Dimension(24, 24));
-            prBtn.setMaximumSize(new Dimension(24, 24));
-
-            pasteBtn.setIcon(Icons.CONTENT_CAPTURE);
-            pasteBtn.setToolTipText("Paste Review");
-            pasteBtn.setPreferredSize(new Dimension(24, 24));
-            pasteBtn.setMinimumSize(new Dimension(24, 24));
-            pasteBtn.setMaximumSize(new Dimension(24, 24));
-        });
+        this.pasteBtn = createIconButton(Icons.CONTENT_CAPTURE, "Paste Review");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
@@ -297,10 +269,33 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         prBtn.addActionListener(e -> CreatePullRequestDialog.show(chrome.getFrame(), chrome, contextManager));
         pasteBtn.addActionListener(e -> handlePasteReview());
 
-        SwingUtil.applyPrimaryButtonStyle(commitBtn);
         SwingUtil.applyPrimaryButtonStyle(guidedReviewBtn);
         guidedReviewBtn.setIdleAction(this::generateGuidedReview);
         guidedReviewBtn.setCancelAction(() -> contextManager.interruptLlmAction());
+    }
+
+    private MaterialButton createIconButton(Icon icon, @Nullable String tooltip) {
+        var btn = new MaterialButton("") {
+            @Override
+            public Dimension getPreferredSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMinimumSize() {
+                return new Dimension(24, 24);
+            }
+
+            @Override
+            public Dimension getMaximumSize() {
+                return new Dimension(24, 24);
+            }
+        };
+        btn.setIcon(icon);
+        if (tooltip != null) {
+            btn.setToolTipText(tooltip);
+        }
+        return btn;
     }
 
     private DiffDisplayCore createDiffCore(BrokkDiffPanel dummyPanel) {
