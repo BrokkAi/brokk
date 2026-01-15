@@ -98,7 +98,8 @@ public class DiffToolbarPanel extends JToolBar {
         }
 
         // File navigation buttons (larger arrows for coarse navigation)
-        if (features.contains(ToolbarFeature.FILE_NAVIGATION) && callbacks.isMultiFile()) {
+        // Always create if feature enabled; visibility controlled by updateButtonStates()
+        if (features.contains(ToolbarFeature.FILE_NAVIGATION)) {
             btnPreviousFile = new MaterialButton();
             btnPreviousFile.setIcon(Icons.NAVIGATE_BEFORE);
             btnPreviousFile.setToolTipText("Previous File");
@@ -251,11 +252,14 @@ public class DiffToolbarPanel extends JToolBar {
             btnNext.setEnabled(callbacks.canNavigateToNextChange());
         }
 
-        // File navigation
+        // File navigation - visibility based on multi-file state
+        boolean multiFile = callbacks.isMultiFile();
         if (btnPreviousFile != null) {
+            btnPreviousFile.setVisible(multiFile);
             btnPreviousFile.setEnabled(callbacks.canNavigateToPreviousFile());
         }
         if (btnNextFile != null) {
+            btnNextFile.setVisible(multiFile);
             btnNextFile.setEnabled(callbacks.canNavigateToNextFile());
         }
 

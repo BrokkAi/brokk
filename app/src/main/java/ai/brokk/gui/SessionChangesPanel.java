@@ -29,7 +29,6 @@ import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
-import ai.brokk.gui.components.EditorFontSizeControl;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.MaterialProgressButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -750,6 +749,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.fileComparisons = nextComparisons;
         this.diffCore.updateFileComparisons(this.fileComparisons, 0);
+        diffToolbar.updateButtonStates();
 
         fileTreePanel.updateData(fileComparisons, root, projectName);
 
