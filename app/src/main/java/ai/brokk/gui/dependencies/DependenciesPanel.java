@@ -567,6 +567,14 @@ public final class DependenciesPanel extends JPanel {
         tableModel.addRow(new Object[] {LiveState.ENABLING, name, 0L});
     }
 
+    /**
+     * Reloads the dependencies list from disk. Call this after programmatic changes
+     * to live dependencies (e.g., from DependencyTools import).
+     */
+    public void reloadDependencies() {
+        SwingUtilities.invokeLater(this::loadDependenciesAsync);
+    }
+
     private void loadDependenciesAsync() {
         new DependenciesLoaderWorker().execute();
     }

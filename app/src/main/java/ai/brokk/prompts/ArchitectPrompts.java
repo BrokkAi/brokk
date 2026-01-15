@@ -47,6 +47,8 @@ public class ArchitectPrompts {
           (e.g., search for `ZipArchiveOutputStream` if using Commons Compress). If the classes are not found,
           IMMEDIATELY use `importMavenDependency` to import the library - do not ask clarifying questions first.
           Once imported, examine the library's API to understand how to use it, then proceed with implementation.
+          Even if you know a library from training, importing it into Code Intelligence lets you add key classes
+          to the Workspace so Code Agent can see the actual API signatures and write more accurate code.
         - Identify the root cause of the problem.
         - Update the Workspace context continuously, including dropping irrelevant fragments, as you improve your understanding.
 

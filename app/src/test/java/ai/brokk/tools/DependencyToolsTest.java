@@ -19,7 +19,7 @@ public class DependencyToolsTest {
     Path tempDir;
 
     @Test
-    void importMavenDependency_InvalidCoordinates_ReturnsErrorMessage() {
+    void importMavenDependency_InvalidCoordinates_ReturnsErrorMessage() throws InterruptedException {
         var cm = new TestContextManager(new TestProject(tempDir));
         var tools = new DependencyTools(cm);
 
@@ -37,7 +37,7 @@ public class DependencyToolsTest {
     }
 
     @Test
-    void importMavenDependency_ThreeParts_SkipsVersionResolution() {
+    void importMavenDependency_ThreeParts_SkipsVersionResolution() throws InterruptedException {
         var cm = new TestContextManager(new TestProject(tempDir));
         var recordedCoords = new AtomicReference<String>();
         var mockFetcher = new MavenArtifactFetcher() {
@@ -63,7 +63,7 @@ public class DependencyToolsTest {
     }
 
     @Test
-    void importMavenDependency_TwoParts_TriggersVersionResolution() {
+    void importMavenDependency_TwoParts_TriggersVersionResolution() throws InterruptedException {
         var cm = new TestContextManager(new TestProject(tempDir));
         var recordedCoords = new AtomicReference<String>();
         var resolveCount = new AtomicInteger(0);
@@ -94,7 +94,7 @@ public class DependencyToolsTest {
     }
 
     @Test
-    void importMavenDependency_VersionResolutionFails_ReturnsErrorMessage() {
+    void importMavenDependency_VersionResolutionFails_ReturnsErrorMessage() throws InterruptedException {
         var cm = new TestContextManager(new TestProject(tempDir));
         var mockFetcher = new MavenArtifactFetcher() {
             @Override

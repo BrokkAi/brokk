@@ -11,7 +11,6 @@ import ai.brokk.Llm;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
-import ai.brokk.analyzer.Languages;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextDelta;
 import ai.brokk.context.SpecialTextType;
@@ -539,7 +538,6 @@ public class ArchitectAgent {
             var messages = buildPrompt(workspaceTokenSize, maxInputTokens, workspaceContentMessages);
 
             // Create a local registry for this planning turn
-            System.out.println("[ArchitectAgent] Creating tool registry...");
             var wst = new WorkspaceTools(this.context);
             var depTools = new DependencyTools(cm);
             var tr = cm.getToolRegistry()
@@ -548,7 +546,6 @@ public class ArchitectAgent {
                     .register(wst)
                     .register(depTools)
                     .build();
-            System.out.println("[ArchitectAgent] Tool registry created with DependencyTools");
 
             // Decide tool availability for this step
             var toolSpecs = new ArrayList<ToolSpecification>();
@@ -576,12 +573,9 @@ public class ArchitectAgent {
                 allowed.add("setBuildDetails");
                 allowed.add("verifyBuildCommand");
 
-                // Dependency tools (Java only)
-                var isJava = hasJavaLanguage();
-                System.out.println("[ArchitectAgent] hasJavaLanguage() = " + isJava);
-                if (isJava) {
+                // Dependency tools (language-scoped)
+                if (depTools.isSupported(cm.getProject())) {
                     allowed.add("importMavenDependency");
-                    System.out.println("[ArchitectAgent] Added importMavenDependency to allowed tools");
                 }
 
                 if (this.offerUndoToolNext) {
@@ -979,13 +973,6 @@ public class ArchitectAgent {
                     + mergeSummary;
         }
         io.llmOutput(summaryMessage, ChatMessageType.AI, true, false);
-    }
-
-    /**
-     * Returns true if the project language includes Java.
-     */
-    private boolean hasJavaLanguage() {
-        return cm.getProject().getAnalyzerLanguages().contains(Languages.JAVA);
     }
 
     /**

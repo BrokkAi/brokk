@@ -9,6 +9,7 @@ import ai.brokk.gui.Chrome;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.prompts.SearchPrompts.Terminal;
+import ai.brokk.tools.DependencyTools;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
@@ -67,7 +68,13 @@ public class LutzAgent extends SearchAgent {
 
     @Override
     protected ToolRegistry createToolRegistry(WorkspaceTools wst) {
-        return cm.getToolRegistry().builder().register(wst).register(this).build();
+        var builder = cm.getToolRegistry().builder().register(wst).register(this);
+        // Add dependency tools if supported for this project
+        var depTools = new DependencyTools(cm);
+        if (depTools.isSupported(cm.getProject())) {
+            builder.register(depTools);
+        }
+        return builder.build();
     }
 
     @Override
@@ -165,6 +172,10 @@ public class LutzAgent extends SearchAgent {
             if (!names.contains("askHuman")) {
                 names.add("askHuman");
             }
+        }
+        // Add dependency import tool if supported for this project
+        if (new DependencyTools(cm).isSupported(cm.getProject())) {
+            names.add("importMavenDependency");
         }
         return names;
     }

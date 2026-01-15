@@ -40,8 +40,12 @@ public class MavenArtifactFetcher {
     private final List<RemoteRepository> repositories;
 
     public MavenArtifactFetcher() {
+        this(null);
+    }
+
+    public MavenArtifactFetcher(@Nullable DownloadProgressListener progressListener) {
         this.system = newRepositorySystem();
-        this.session = newRepositorySystemSession(system);
+        this.session = newRepositorySystemSession(system, progressListener);
         this.repositories = List.of(
                 new RemoteRepository.Builder("central", "default", "https://repo.maven.apache.org/maven2/").build());
     }
@@ -61,12 +65,13 @@ public class MavenArtifactFetcher {
     }
 
     @SuppressWarnings("deprecation")
-    private static RepositorySystemSession newRepositorySystemSession(RepositorySystem system) {
+    private static RepositorySystemSession newRepositorySystemSession(RepositorySystem system,
+                                                                       @Nullable DownloadProgressListener progressListener) {
         var session = MavenRepositorySystemUtils.newSession();
         var localRepoPath = Path.of(System.getProperty("user.home"), ".m2", "repository");
         var localRepo = new LocalRepository(localRepoPath.toFile());
         session.setLocalRepositoryManager(system.newLocalRepositoryManager(session, localRepo));
-        session.setTransferListener(new LoggingTransferListener());
+        session.setTransferListener(new ProgressReportingTransferListener(progressListener));
         return session;
     }
 
@@ -161,27 +166,60 @@ public class MavenArtifactFetcher {
         }
     }
 
-    private static class LoggingTransferListener extends AbstractTransferListener {
+    private static class ProgressReportingTransferListener extends AbstractTransferListener {
+        private static final long THROTTLE_MS = 250;
+
+        private final @Nullable DownloadProgressListener progressListener;
+        private long lastUpdateTime = 0;
+
+        ProgressReportingTransferListener(@Nullable DownloadProgressListener progressListener) {
+            this.progressListener = progressListener;
+        }
+
         @Override
         public void transferInitiated(TransferEvent event) {
             var resource = event.getResource();
             logger.info("Downloading {}{}", resource.getRepositoryUrl(), resource.getResourceName());
+            if (progressListener != null) {
+                progressListener.onProgress(resource.getResourceName(), 0, resource.getContentLength());
+            }
+        }
+
+        @Override
+        public void transferProgressed(TransferEvent event) {
+            if (progressListener == null) {
+                return;
+            }
+            long now = System.currentTimeMillis();
+            if (now - lastUpdateTime < THROTTLE_MS) {
+                return;
+            }
+            lastUpdateTime = now;
+
+            var resource = event.getResource();
+            progressListener.onProgress(resource.getResourceName(),
+                                        event.getTransferredBytes(),
+                                        resource.getContentLength());
         }
 
         @Override
         public void transferSucceeded(TransferEvent event) {
             var resource = event.getResource();
             logger.info("Download complete for {}{}", resource.getRepositoryUrl(), resource.getResourceName());
+            if (progressListener != null) {
+                progressListener.onProgress(resource.getResourceName(),
+                                            event.getTransferredBytes(),
+                                            event.getTransferredBytes());
+            }
         }
 
         @Override
         public void transferFailed(TransferEvent event) {
             var resource = event.getResource();
-            logger.warn(
-                    "Download failed for {}{}",
-                    resource.getRepositoryUrl(),
-                    resource.getResourceName(),
-                    event.getException());
+            logger.warn("Download failed for {}{}",
+                        resource.getRepositoryUrl(),
+                        resource.getResourceName(),
+                        event.getException());
         }
     }
 }

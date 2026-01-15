@@ -148,6 +148,14 @@ public class SearchPrompts {
                     fragments should always be done in conjunction with other tools, since you will gain
                     no new information from the drop result.
                   - If you already know what to add, use Workspace tools directly; do not search redundantly.
+
+                External library discovery (Java projects only):
+                  - When the goal requires using an external Java library, search for its key classes first
+                    (e.g., search for `ObjectMapper` if using Jackson).
+                  - If the library classes are NOT found in Code Intelligence, use `importMavenDependency`
+                    to import the library. Example: `importMavenDependency("com.fasterxml.jackson.core:jackson-databind")`
+                  - Once imported, the library's classes become searchable and can be added to the Workspace.
+                  - This helps Code Agent see actual API signatures and write more accurate code.
                 </instructions>
                 """
                         .formatted(searchAgentIdentity(), supportedTypes));

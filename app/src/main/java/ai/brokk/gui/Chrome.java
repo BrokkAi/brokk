@@ -1543,6 +1543,11 @@ public class Chrome
         return dependenciesPanel;
     }
 
+    @Override
+    public void reloadDependencies() {
+        dependenciesPanel.reloadDependencies();
+    }
+
     public TestRunnerPanel getTestRunnerPanel() {
         return testRunnerPanel;
     }

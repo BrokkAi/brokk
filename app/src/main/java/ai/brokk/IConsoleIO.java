@@ -12,6 +12,14 @@ import org.jetbrains.annotations.Nullable;
 public interface IConsoleIO {
     default void actionComplete() {}
 
+    /**
+     * Triggers a reload of the Dependencies panel UI.
+     * Called after programmatic dependency imports to refresh the displayed list.
+     */
+    default void reloadDependencies() {
+        // no-op by default; GUI consoles override to refresh the Dependencies panel
+    }
+
     void toolError(String msg, String title);
 
     default void toolError(String msg) {

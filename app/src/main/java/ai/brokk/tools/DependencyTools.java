@@ -1,7 +1,11 @@
 package ai.brokk.tools;
 
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
+import ai.brokk.analyzer.Languages;
+import ai.brokk.project.IProject;
 import ai.brokk.util.Decompiler;
+import ai.brokk.util.DownloadProgressListener;
 import ai.brokk.util.MavenArtifactFetcher;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -20,12 +24,33 @@ public class DependencyTools {
     private final MavenArtifactFetcher fetcher;
 
     public DependencyTools(IContextManager cm) {
-        this(cm, new MavenArtifactFetcher());
+        this(cm, new MavenArtifactFetcher(createProgressListener(cm.getIo())));
     }
 
     public DependencyTools(IContextManager cm, MavenArtifactFetcher fetcher) {
         this.contextManager = cm;
         this.fetcher = fetcher;
+    }
+
+    private static DownloadProgressListener createProgressListener(IConsoleIO io) {
+        return (artifactName, transferred, total) -> {
+            String message;
+            if (total > 0) {
+                int percent = (int) (100 * transferred / total);
+                message = "Downloading %s... %d%%".formatted(artifactName, percent);
+            } else {
+                message = "Downloading %s... %.1f MB".formatted(artifactName, transferred / 1_048_576.0);
+            }
+            io.showNotification(IConsoleIO.NotificationRole.INFO, message);
+        };
+    }
+
+    /**
+     * Returns true if this tool is supported for the given project.
+     * Maven dependency import is only supported for Java projects.
+     */
+    public boolean isSupported(IProject project) {
+        return project.getAnalyzerLanguages().contains(Languages.JAVA);
     }
 
     @Blocking
@@ -36,14 +61,19 @@ public class DependencyTools {
             @P(
                             "Maven coordinates: 'groupId:artifactId:version' or 'groupId:artifactId' for latest. "
                                     + "Examples: 'com.google.guava:guava:32.1.2-jre', 'com.fasterxml.jackson.core:jackson-databind'")
-                    String coordinates) {
+                    String coordinates)
+            throws InterruptedException {
 
-        System.out.println("[DependencyTools] importMavenDependency called with: " + coordinates);
+        logger.info("importMavenDependency called with: {}", coordinates);
+        var io = contextManager.getIo();
+
+        // Check for early cancellation
+        checkInterrupted();
 
         // Parse coordinates
         var parts = coordinates.split(":");
         if (parts.length < 2 || parts.length > 3) {
-            System.out.println("[DependencyTools] ERROR: Invalid coordinates format");
+            logger.warn("Invalid coordinates format: {}", coordinates);
             return "Invalid coordinates format. Expected 'groupId:artifactId' or 'groupId:artifactId:version'. "
                     + "Examples: 'com.google.guava:guava' or 'com.google.guava:guava:32.1.2-jre'";
         }
@@ -54,68 +84,88 @@ public class DependencyTools {
 
         if (parts.length == 3) {
             version = parts[2].trim();
-            System.out.println("[DependencyTools] Using provided version: " + version);
+            logger.debug("Using provided version: {}", version);
         } else {
             // Resolve latest version from Maven Central
-            System.out.println("[DependencyTools] No version specified, resolving latest from Maven Central...");
-            logger.info("No version specified for {}:{}, resolving latest from Maven Central", groupId, artifactId);
+            io.showNotification(IConsoleIO.NotificationRole.INFO,
+                                "Resolving latest version for " + groupId + ":" + artifactId + "...");
+            logger.info("Resolving latest version for {}:{} from Maven Central", groupId, artifactId);
             var latestOpt = fetcher.resolveLatestVersion(groupId, artifactId);
             if (latestOpt.isEmpty()) {
-                System.out.println("[DependencyTools] ERROR: Could not resolve latest version");
+                logger.warn("Could not resolve latest version for {}:{}", groupId, artifactId);
                 return "Could not resolve latest version for %s:%s from Maven Central. "
                         + "Try specifying an explicit version.".formatted(groupId, artifactId);
             }
             version = latestOpt.get();
-            System.out.println("[DependencyTools] Resolved latest version: " + version);
             logger.info("Resolved latest version: {}", version);
         }
 
         var fullCoordinates = "%s:%s:%s".formatted(groupId, artifactId, version);
-        System.out.println("[DependencyTools] Full coordinates: " + fullCoordinates);
+
+        // Check for cancellation after version resolution
+        checkInterrupted();
 
         // Download JAR
-        System.out.println("[DependencyTools] Fetching JAR from Maven Central...");
+        io.showNotification(IConsoleIO.NotificationRole.INFO, "Downloading " + fullCoordinates + "...");
         logger.info("Fetching artifact: {}", fullCoordinates);
         var jarPathOpt = fetcher.fetch(fullCoordinates, null);
         if (jarPathOpt.isEmpty()) {
-            System.out.println("[DependencyTools] ERROR: Could not find artifact on Maven Central");
+            logger.warn("Artifact not found on Maven Central: {}", fullCoordinates);
             return "Could not find artifact %s on Maven Central. Check the coordinates and try again."
                     .formatted(fullCoordinates);
         }
 
         var jarPath = jarPathOpt.get();
-        System.out.println("[DependencyTools] JAR downloaded to: " + jarPath);
-        var projectRoot = contextManager.getProject().getRoot();
+        logger.debug("JAR downloaded to: {}", jarPath);
+        // Use getMasterRootPathForConfig() for worktree compatibility - dependencies are shared
+        var projectRoot = contextManager.getProject().getMasterRootPathForConfig();
+
+        // Check for cancellation before decompilation (longest phase)
+        checkInterrupted();
 
         // Decompile/extract to .brokk/dependencies/
-        System.out.println("[DependencyTools] Starting decompile/extract to .brokk/dependencies/...");
-        logger.info("Importing JAR: {}", jarPath);
+        io.showNotification(IConsoleIO.NotificationRole.INFO,
+                            "Importing " + artifactId + " (this may take a moment for large libraries)...");
+        logger.info("Importing JAR to {}", projectRoot.resolve(".brokk/dependencies"));
         var resultOpt = Decompiler.decompileJarBlocking(jarPath, projectRoot, false);
         if (resultOpt.isEmpty()) {
-            System.out.println("[DependencyTools] ERROR: Decompile failed");
+            logger.error("Decompile failed for {}", fullCoordinates);
             return "Failed to import %s. Check logs for details.".formatted(fullCoordinates);
         }
 
         var result = resultOpt.get();
-        System.out.println("[DependencyTools] Decompile complete: " + result.filesExtracted() + " files");
+        logger.info("Import complete: {} files extracted", result.filesExtracted());
         var relativeOutput = projectRoot.relativize(result.outputDir());
         var sourceInfo = result.usedSources() ? " (from sources JAR)" : " (decompiled)";
+
+        // Check for cancellation before analyzer registration
+        checkInterrupted();
 
         // Register the dependency with the project so the analyzer indexes it
         String depName = result.outputDir().getFileName().toString();
         String intelligenceStatus;
         try {
-            System.out.println("[DependencyTools] Adding " + depName + " to live dependencies...");
-            contextManager.getProject().addLiveDependency(depName, contextManager.getAnalyzerWrapper()).join();
+            io.showNotification(IConsoleIO.NotificationRole.INFO, "Adding " + depName + " to Code Intelligence...");
+            logger.debug("Adding {} to live dependencies...", depName);
+            var analyzerWrapper = contextManager.getAnalyzerWrapper();
+            contextManager.getProject().addLiveDependency(depName, analyzerWrapper).join();
+            logger.info("Successfully added {} to live dependencies", depName);
+            // Refresh the Dependencies panel UI
+            contextManager.getIo().reloadDependencies();
             intelligenceStatus = "The library has been added to live dependencies and Code Intelligence is updating.";
         } catch (Exception e) {
             logger.error("Failed to add live dependency: {}", depName, e);
-            System.out.println("[DependencyTools] ERROR: Failed to add live dependency, requesting rebuild fallback");
             contextManager.requestRebuild();
             intelligenceStatus = "A Code Intelligence rebuild was requested and will update shortly.";
         }
 
         return "Successfully imported %s to %s (%d Java files%s). %s"
                 .formatted(fullCoordinates, relativeOutput, result.filesExtracted(), sourceInfo, intelligenceStatus);
+    }
+
+    private static void checkInterrupted() throws InterruptedException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedException("Import cancelled");
+        }
     }
 }
