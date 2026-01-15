@@ -546,12 +546,12 @@ public class DtoMapper {
                 reasoningContentId = writer.writeContent(reasoning, null);
             }
         } else if (message instanceof CustomMessage customMessage) {
-            Object rawContent = customMessage.attributes().get("content");
-            String content = rawContent instanceof String s ? s : "";
-            contentId = writer.writeContent(content, null);
+            Object rawText = customMessage.attributes().get("text");
+            String text = rawText instanceof String s ? s : "";
+            contentId = writer.writeContent(text, null);
 
             attributes = customMessage.attributes().entrySet().stream()
-                    .filter(e -> !e.getKey().equals("content"))
+                    .filter(e -> !e.getKey().equals("text"))
                     .filter(e -> e.getValue() instanceof String)
                     .collect(Collectors.toMap(Map.Entry::getKey, e -> (String) e.getValue()));
         } else {
@@ -589,11 +589,11 @@ public class DtoMapper {
             case "system" -> SystemMessage.from(content);
             case "custom" -> {
                 Map<String, Object> attrs = new java.util.HashMap<>();
+                attrs.put("text", content);
                 if (dto.attributes() != null) {
                     attrs.putAll(dto.attributes());
                 }
-                attrs.put("content", content);
-                yield new CustomMessage(attrs);
+                yield CustomMessage.from(attrs);
             }
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());
         };
