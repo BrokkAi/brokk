@@ -85,7 +85,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
                     CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE,
-                    CaptureNames.MODULE_DEFINITION, SkeletonType.MODULE_STATEMENT),
+                    CaptureNames.PACKAGE_DEFINITION, SkeletonType.MODULE_STATEMENT),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
             );
@@ -140,7 +140,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
 
         return new CodeUnit(file, type, packageName, shortName);
     }
-
 
     @Override
     protected String determinePackageName(

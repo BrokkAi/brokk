@@ -1,14 +1,11 @@
 ; Package declaration
-; When a package declaration is present, we capture the entire program as the module definition.
-; This allows Tree-sitter's nested traversal to see classes as children of the module.
-; The @module.name capture extracts the package identifier from the package_declaration.
-(program
-  (package_declaration
-    [
-      (identifier)
-      (scoped_identifier)
-    ] @module.name)
-) @module.definition
+; Captures the package_declaration as a module definition.
+; The @module.name captures only the package identifier (not annotations).
+(package_declaration
+  [
+    (identifier)
+    (scoped_identifier)
+  ] @package.name) @package.definition
 
 ; Import declarations
 (import_declaration) @import.declaration
