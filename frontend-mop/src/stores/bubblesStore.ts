@@ -47,7 +47,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
 
                 // If the last message was a terminal bubble and a new message is starting,
                 // mark the terminal as complete, immutably.
-                if (lastBubble?.terminalState && !lastBubble.terminalState.complete && evt.meta.isNewMessage) {
+                if (lastBubble?.isTerminal && !lastBubble.terminalComplete && evt.meta.isNewMessage) {
                     const updatedBubble = finalizeTerminalBubble(lastBubble);
                     list = [...list.slice(0, -1), updatedBubble];
                 }
@@ -70,7 +70,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         markdown: chunkText,
                         epoch: evt.epoch,
                         streaming: isStreaming,
-                        terminalState: isTerminal ? { complete: false } : undefined,
+                        isTerminal: isTerminal || false,
                         hast: undefined,
                         reasoningState: evt.meta.isReasoning ? {
                             startTime: Date.now(),
@@ -97,7 +97,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                 }
 
                 // Terminal bubbles bypass markdown parsing entirely.
-                if (bubble.terminalState) {
+                if (bubble.isTerminal) {
                     return list;
                 }
 
@@ -180,14 +180,11 @@ export function toggleBubbleCollapsed(seq: number): void {
 
 /* ─── helpers ─────────────────────────────────────────── */
 function finalizeTerminalBubble(b: BubbleState): BubbleState {
-    if (!b.terminalState) return b;
+    if (!b.isTerminal) return b;
     return {
         ...b,
         streaming: false,
-        terminalState: {
-            ...b.terminalState,
-            complete: true,
-        },
+        terminalComplete: true,
     };
 }
 
@@ -232,7 +229,7 @@ export function setLiveTaskInProgress(inProgress: boolean): void {
             if (b.reasoningState && !b.reasoningState.complete) {
                 updated = finalizeReasoningBubble(updated);
             }
-            if (b.terminalState && !b.terminalState.complete) {
+            if (b.isTerminal && !b.terminalComplete) {
                 updated = finalizeTerminalBubble(updated);
             }
             return updated;
