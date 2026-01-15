@@ -927,7 +927,7 @@ public final class HeadlessExecutorMain {
             @Nullable Double temperature = null;
             var tempRaw = jobSpecRequest.temperature();
             if (tempRaw != null) {
-                if (tempRaw < 0.0 || tempRaw > 2.0) {
+                if (tempRaw.isNaN() || tempRaw < 0.0 || tempRaw > 2.0) {
                     sendValidationError(exchange, "temperature must be between 0.0 and 2.0");
                     return;
                 }
