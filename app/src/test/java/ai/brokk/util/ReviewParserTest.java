@@ -962,7 +962,8 @@ class ReviewParserTest {
 
     @Test
     void testMatchExcerptInFile() {
-        ProjectFile file = new ProjectFile(Path.of("."), "test.java");
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        ProjectFile file = new ProjectFile(root, "test.java");
         var diff = new FileDiff(file, file, "line1\nline2\nline3", "line1\nline2-new\nline3");
 
         // Match in NEW
@@ -990,7 +991,7 @@ class ReviewParserTest {
         assertNull(ReviewParser.matchExcerptInFile(excerptNone, diff));
 
         // Multi-line match
-        ProjectFile multiFile = new ProjectFile(Path.of("."), "multi.java");
+        ProjectFile multiFile = new ProjectFile(root, "multi.java");
         var multiDiff = new FileDiff(multiFile, multiFile, "a\nb\nc\nd\ne", "a\nb\nc\nd\ne");
         var multiExcerpt = new ReviewParser.RawExcerpt("multi.java", 3, "b\nc\nd");
         ReviewParser.ExcerptMatch multiMatch = ReviewParser.matchExcerptInFile(multiExcerpt, multiDiff);
@@ -1001,7 +1002,8 @@ class ReviewParserTest {
 
     @Test
     void testMatchExcerptInFile_emptyAndFull() {
-        ProjectFile file = new ProjectFile(Path.of("."), "empty.java");
+        Path root = Path.of(".").toAbsolutePath().normalize();
+        ProjectFile file = new ProjectFile(root, "empty.java");
         var diff = new FileDiff(file, file, "", "");
         var excerpt = new ReviewParser.RawExcerpt("empty.java", 1, "content");
 
@@ -1009,7 +1011,7 @@ class ReviewParserTest {
 
         // Excerpt spans entire file
         var content = "line1\nline2";
-        ProjectFile fullFile = new ProjectFile(Path.of("."), "full.java");
+        ProjectFile fullFile = new ProjectFile(root, "full.java");
         var fullDiff = new FileDiff(fullFile, fullFile, content, content);
         var fullExcerpt = new ReviewParser.RawExcerpt("full.java", 1, content);
 

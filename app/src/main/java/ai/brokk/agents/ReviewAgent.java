@@ -7,6 +7,7 @@ import static java.util.Objects.requireNonNullElse;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.SessionManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
@@ -14,9 +15,14 @@ import ai.brokk.cli.MemoryConsole;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
+import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
+import ai.brokk.context.DiffService.CumulativeChanges;
 import ai.brokk.context.SpecialTextType;
+import ai.brokk.git.CommitInfo;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoData.FileDiff;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.WorkspaceTools;
@@ -34,6 +40,7 @@ import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.request.ToolChoice;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
@@ -43,6 +50,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,6 +60,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
@@ -66,7 +75,7 @@ import org.jspecify.annotations.NullMarked;
 public class ReviewAgent {
     private static final Logger logger = LogManager.getLogger(ReviewAgent.class);
 
-    private final DiffService.CumulativeChanges changes;
+    private final CumulativeChanges changes;
     private final List<UUID> sessionIds;
 
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
@@ -90,17 +99,98 @@ public class ReviewAgent {
 
     private record ContextSetupResult(Context context, boolean isComplex) {}
 
-    public ReviewAgent(
-            DiffService.CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm, IConsoleIO io) {
+    public ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm, IConsoleIO io) {
         this.changes = changes;
         this.sessionIds = sessionIds;
         this.cm = cm;
         this.io = io;
     }
 
+    public record ReviewContext(CumulativeChanges changes, List<UUID> sessionIds) {
+        /**
+         * returns a ReviewContext for changes from ($leftRef..HEAD]
+         */
+        @Blocking
+        public static ReviewContext fromBaseline(IContextManager cm, String leftRef) {
+            var repo = (GitRepo) cm.getProject().getRepo();
+
+            List<CommitInfo> commits = List.of();
+            try {
+                if (!"HEAD".equals(leftRef)) {
+                    commits = repo.listCommitsBetweenBranches(leftRef, "HEAD", false);
+                }
+            } catch (GitAPIException e) {
+                throw new RuntimeException(e);
+            }
+            var summarizedChanges = DiffService.computeCumulativeDiff(repo, leftRef, "WORKING", commits);
+
+            GitWorkflow.PushPullState pushPullState = null;
+            try {
+                String currentBranch = repo.getCurrentBranch();
+                boolean hasUpstream = repo.hasUpstreamBranch(currentBranch);
+                boolean canPush;
+                java.util.Set<String> unpushedCommitIds = new java.util.HashSet<>();
+                if (hasUpstream) {
+                    unpushedCommitIds.addAll(repo.remote().getUnpushedCommitIds(currentBranch));
+                    canPush = !unpushedCommitIds.isEmpty();
+                } else {
+                    canPush = true;
+                }
+                pushPullState = new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
+            } catch (Exception e) {
+                logger.debug("Failed to evaluate push/pull state", e);
+            }
+
+            var cumulativeChanges = new CumulativeChanges(
+                    summarizedChanges.filesChanged(),
+                    summarizedChanges.totalAdded(),
+                    summarizedChanges.totalDeleted(),
+                    summarizedChanges.perFileChanges(),
+                    commits,
+                    pushPullState);
+
+            List<UUID> overlappingSessions = findOverlappingSessions(cm, commits);
+
+            return new ReviewContext(cumulativeChanges, overlappingSessions);
+        }
+
+        @Blocking
+        public static List<UUID> findOverlappingSessions(IContextManager cm, List<CommitInfo> commits) {
+            if (commits.isEmpty()) {
+                return List.of();
+            }
+
+            var sessionManager = cm.getProject().getSessionManager();
+            Instant minBound = commits.stream()
+                    .map(CommitInfo::date)
+                    .min(Comparator.naturalOrder())
+                    .orElse(Instant.now());
+            Instant maxBound = commits.stream()
+                    .map(CommitInfo::date)
+                    .max(Comparator.naturalOrder())
+                    .orElse(Instant.now());
+
+            Set<String> changeCommitIds = commits.stream().map(CommitInfo::id).collect(Collectors.toSet());
+
+            return sessionManager.listSessions().stream()
+                    .parallel()
+                    .filter(s ->
+                            s.lastModified().isAfter(minBound) && s.createdAt().isBefore(maxBound))
+                    .map(SessionManager.SessionInfo::id)
+                    .filter(id -> {
+                        var history = sessionManager.loadHistory(id, cm);
+                        return history != null
+                                && history.getGitStates().values().stream()
+                                        .map(ContextHistory.GitState::commitHash)
+                                        .anyMatch(changeCommitIds::contains);
+                    })
+                    .toList();
+        }
+    }
+
     @TestOnly
     ReviewAgent(IContextManager cm, IConsoleIO io, List<FileDiff> fileDiffs) {
-        this(new DiffService.CumulativeChanges(0, 0, 0, fileDiffs, List.of()), List.of(), cm, io);
+        this(new CumulativeChanges(0, 0, 0, fileDiffs, List.of()), List.of(), cm, io);
     }
 
     private @Nullable ProgressUpdater progressUpdater;

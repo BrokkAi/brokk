@@ -16,12 +16,9 @@ import ai.brokk.util.ContentDiffUtils;
 import com.github.benmanes.caffeine.cache.AsyncCache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -326,16 +323,6 @@ public final class DiffService {
         return new FragmentDiff(thisFragment, diff, 1, 1, "[image]", "[image]");
     }
 
-    /**
-     * Summarizes cumulative changes between two Git references.
-     * Uses JGit's structured diff for proper rename and copy detection.
-     *
-     * @param repo the Git repository
-     * @param leftRef the baseline commit/branch reference (left/old side)
-     * @param rightRef the target commit/branch reference (right/new side)
-     * @param commits the list of commits in the range
-     * @return CumulativeChanges with per-file diffs and aggregated statistics
-     */
     @Blocking
     public static CumulativeChanges computeCumulativeDiff(
             IGitRepo repo, String leftRef, String rightRef, List<CommitInfo> commits) {
@@ -406,50 +393,6 @@ public final class DiffService {
                 List<FileDiff> perFileChanges,
                 List<CommitInfo> commits) {
             this(filesChanged, totalAdded, totalDeleted, perFileChanges, commits, null);
-        }
-
-        /**
-         * Identifies session IDs that overlap with the commits in this cumulative change.
-         */
-        @Blocking
-        public static List<UUID> findOverlappingSessions(IContextManager cm, List<CommitInfo> commits) {
-            if (commits.isEmpty()) {
-                return List.of();
-            }
-
-            var sessionManager = cm.getProject().getSessionManager();
-            Instant minCommit = commits.stream()
-                    .map(CommitInfo::date)
-                    .min(Comparator.naturalOrder())
-                    .orElse(Instant.now());
-            Instant maxCommit = commits.stream()
-                    .map(CommitInfo::date)
-                    .max(Comparator.naturalOrder())
-                    .orElse(Instant.now());
-            Instant minBound = minCommit.minus(ChronoUnit.DAYS.getDuration());
-            Instant maxBound = maxCommit.minus(ChronoUnit.DAYS.getDuration());
-
-            var shortlisted = sessionManager.listSessions().stream()
-                    .filter(s ->
-                            s.lastModified().isAfter(minBound) && s.createdAt().isBefore(maxBound))
-                    .toList();
-
-            Set<String> changeCommitIds = commits.stream().map(CommitInfo::id).collect(Collectors.toSet());
-            List<UUID> overlappingIds = new ArrayList<>();
-
-            for (var session : shortlisted) {
-                var history = sessionManager.loadHistory(session.id(), cm);
-                if (history == null) continue;
-
-                boolean hasOverlap = history.getGitStates().values().stream()
-                        .map(ContextHistory.GitState::commitHash)
-                        .anyMatch(changeCommitIds::contains);
-
-                if (hasOverlap) {
-                    overlappingIds.add(session.id());
-                }
-            }
-            return overlappingIds;
         }
     }
 
