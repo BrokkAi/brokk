@@ -49,7 +49,7 @@ public class DependencyTools {
      * Returns true if this tool is supported for the given project.
      * Maven dependency import is only supported for Java projects.
      */
-    public boolean isSupported(IProject project) {
+    public static boolean isSupported(IProject project) {
         return project.getAnalyzerLanguages().contains(Languages.JAVA);
     }
 
@@ -80,6 +80,13 @@ public class DependencyTools {
 
         var groupId = parts[0].trim();
         var artifactId = parts[1].trim();
+
+        if (groupId.isEmpty() || artifactId.isEmpty()) {
+            logger.warn("Invalid coordinates (empty groupId or artifactId): {}", coordinates);
+            return "Invalid coordinates format. Expected 'groupId:artifactId' or 'groupId:artifactId:version'. "
+                    + "Examples: 'com.google.guava:guava' or 'com.google.guava:guava:32.1.2-jre'";
+        }
+
         String version;
 
         if (parts.length == 3) {

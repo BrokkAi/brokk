@@ -26,6 +26,7 @@ import java.util.List;
 public class LutzAgent extends SearchAgent {
 
     private final SearchPrompts.Objective objective;
+    private final DependencyTools depTools;
 
     /**
      * Primary constructor with explicit IO and ScanConfig.
@@ -40,6 +41,7 @@ public class LutzAgent extends SearchAgent {
             ScanConfig scanConfig) {
         super(initialContext, goal, model, scope, io, scanConfig);
         this.objective = objective;
+        this.depTools = new DependencyTools(cm);
     }
 
     /**
@@ -70,8 +72,7 @@ public class LutzAgent extends SearchAgent {
     protected ToolRegistry createToolRegistry(WorkspaceTools wst) {
         var builder = cm.getToolRegistry().builder().register(wst).register(this);
         // Add dependency tools if supported for this project
-        var depTools = new DependencyTools(cm);
-        if (depTools.isSupported(cm.getProject())) {
+        if (DependencyTools.isSupported(cm.getProject())) {
             builder.register(depTools);
         }
         return builder.build();
@@ -174,7 +175,7 @@ public class LutzAgent extends SearchAgent {
             }
         }
         // Add dependency import tool if supported for this project
-        if (new DependencyTools(cm).isSupported(cm.getProject())) {
+        if (DependencyTools.isSupported(cm.getProject())) {
             names.add("importMavenDependency");
         }
         return names;
