@@ -6,11 +6,15 @@
     bubble: BubbleState;
   }>();
 
+  // Svelte 5: bind:this targets should be reactive so effects re-run when the DOM node is bound/unbound.
   let preElem: HTMLPreElement | null = $state(null);
   let codeElem: HTMLElement | null = $state(null);
 
+  // Tracks how much of bubble.markdown has been appended to the <code> node.
+  // Kept as plain instance-local state (not template state).
   let renderedLength = 0;
 
+  // Auto-scroll only while the user is near the bottom, so manual scrollback is not disrupted.
   let shouldAutoScroll = true;
   const bottomThresholdPx = 24;
 
@@ -30,18 +34,19 @@
     if (!preElem || !codeElem) return;
 
     if (text.length > renderedLength) {
-      // Append only the new portion (delta)
+      // Streaming case: append only the delta to avoid re-rendering large terminal output.
       const delta = text.slice(renderedLength);
       codeElem.appendChild(document.createTextNode(delta));
       renderedLength = text.length;
 
       if (shouldAutoScroll) {
+        // Defer until after layout so scrollHeight reflects the appended text.
         queueMicrotask(() => {
           if (preElem) scrollToBottom();
         });
       }
     } else if (text.length < renderedLength) {
-      // Content was cleared or replaced - full re-render
+      // Reset case: content was cleared/replaced, so rebuild the full text.
       codeElem.textContent = text;
       renderedLength = text.length;
     }

@@ -10,7 +10,7 @@
     export let hlVar: string;
     export let bgVar: string;
 
-    // When true, hides the message body
+    // When true, unmounts the message body (preserves header only).
     export let collapsed: boolean = false;
 
     // Optional handler for symbol-clicks (mousedown). Used by MessageBubble only.
