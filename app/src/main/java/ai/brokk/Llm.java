@@ -147,7 +147,6 @@ public class Llm {
     private final boolean forceReasoningEcho;
     private final boolean tagRetain;
     private final boolean echo;
-    private volatile @Nullable String previousResponseId;
 
     // Monotonically increasing sequence for emulated tool request IDs
     private final AtomicInteger toolRequestIdSeq = new AtomicInteger();
@@ -416,12 +415,6 @@ public class Llm {
                         errorRef.set(ex);
                     } else {
                         completedChatResponse.set(response);
-                        var id = response.id();
-                        if (id != null) {
-                            logger.trace("response_id={}", id);
-                            assert !id.isBlank();
-                            previousResponseId = id;
-                        }
                         String tokens =
                                 response.tokenUsage() == null ? "null token usage!?" : formatTokensUsage(response);
                         logger.debug("Request complete ({}) with {}", response.finishReason(), tokens);
@@ -824,10 +817,6 @@ public class Llm {
             Map<String, String> newMetadata = new HashMap<>();
             newMetadata.put("tags", "retain");
             builder.metadata(newMetadata);
-        }
-
-        if (previousResponseId != null) {
-            builder.previousResponseId(previousResponseId);
         }
 
         return builder;
@@ -1786,10 +1775,6 @@ public class Llm {
 
     public void setModel(StreamingChatModel model) {
         this.model = model;
-    }
-
-    public void resetTurn() {
-        previousResponseId = null;
     }
 
     @Override

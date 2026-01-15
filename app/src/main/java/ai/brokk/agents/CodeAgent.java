@@ -243,7 +243,6 @@ public class CodeAgent {
                         suppressed,
                         userInput.trim());
                 var llmStartNanos = System.nanoTime();
-                coder.resetTurn();
                 streamingResult = coder.sendRequest(allMessagesForLlm);
                 if (metrics != null) {
                     metrics.llmWaitNanos += System.nanoTime() - llmStartNanos;
