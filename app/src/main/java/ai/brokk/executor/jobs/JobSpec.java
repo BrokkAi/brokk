@@ -24,7 +24,11 @@ public record JobSpec(
         @JsonProperty("preScan") boolean preScan,
         @JsonProperty("tags") Map<String, String> tags,
         @JsonProperty("sourceBranch") @Nullable String sourceBranch,
-        @JsonProperty("targetBranch") @Nullable String targetBranch) {
+        @JsonProperty("targetBranch") @Nullable String targetBranch,
+        @JsonProperty("reasoningLevel") @Nullable String reasoningLevel,
+        @JsonProperty("temperature") @Nullable Double temperature) {
+
+    public record ModelOverrides(@Nullable String reasoningLevel, @Nullable Double temperature) {}
 
     /**
      * Tag keys that contain sensitive data and should not be persisted to disk.
@@ -52,7 +56,7 @@ public record JobSpec(
      * <p>This convenience factory uses sensible defaults for optional flags and sets {@code preScan} to {@code false}.</p>
      */
     public static JobSpec of(String taskInput, String plannerModel) {
-        return new JobSpec(taskInput, true, true, plannerModel, null, null, false, Map.of(), null, null);
+        return new JobSpec(taskInput, true, true, plannerModel, null, null, false, Map.of(), null, null, null, null);
     }
 
     /**
@@ -75,6 +79,8 @@ public record JobSpec(
                         "repo_owner", owner,
                         "repo_name", repo,
                         "pr_number", String.valueOf(prNumber)),
+                null,
+                null,
                 null,
                 null);
     }
@@ -109,6 +115,8 @@ public record JobSpec(
                         "issue_number", String.valueOf(issueNumber),
                         "build_settings", buildSettingsJson),
                 null,
+                null,
+                null,
                 null);
     }
 
@@ -125,7 +133,46 @@ public record JobSpec(
             boolean preScan,
             Map<String, String> tags) {
         return new JobSpec(
-                taskInput, autoCommit, autoCompress, plannerModel, scanModel, codeModel, preScan, tags, null, null);
+                taskInput,
+                autoCommit,
+                autoCompress,
+                plannerModel,
+                scanModel,
+                codeModel,
+                preScan,
+                tags,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    /**
+     * Creates a JobSpec with job-level overrides for reasoningLevel and temperature.
+     */
+    public static JobSpec of(
+            String taskInput,
+            boolean autoCommit,
+            boolean autoCompress,
+            String plannerModel,
+            @Nullable String scanModel,
+            @Nullable String codeModel,
+            boolean preScan,
+            Map<String, String> tags,
+            @Nullable ModelOverrides overrides) {
+        return new JobSpec(
+                taskInput,
+                autoCommit,
+                autoCompress,
+                plannerModel,
+                scanModel,
+                codeModel,
+                preScan,
+                tags,
+                null,
+                null,
+                overrides != null ? overrides.reasoningLevel() : null,
+                overrides != null ? overrides.temperature() : null);
     }
 
     /**
@@ -152,7 +199,9 @@ public record JobSpec(
                 preScan,
                 tags,
                 sourceBranch,
-                targetBranch);
+                targetBranch,
+                null,
+                null);
     }
 
     @JsonIgnore

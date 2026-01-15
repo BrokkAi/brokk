@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -48,6 +49,15 @@ public final class HeadlessExecutorMain {
     // Valid argument keys that the application accepts
     private static final Set<String> VALID_ARGS =
             Set.of("exec-id", "listen-addr", "auth-token", "workspace-dir", "brokk-api-key", "proxy-setting", "help");
+
+    private static final ai.brokk.AbstractService.ReasoningLevel[] REASONING_LEVEL_VALUES =
+            ai.brokk.AbstractService.ReasoningLevel.values();
+
+    private static final Set<String> ALLOWED_REASONING_LEVELS =
+            Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.toUnmodifiableSet());
+
+    private static final String ALLOWED_REASONING_LEVELS_LIST =
+            Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.joining(", "));
 
     private final UUID execId;
     private final SimpleHttpServer server;
@@ -904,6 +914,29 @@ public final class HeadlessExecutorMain {
             Map<String, String> safeTags = tags != null ? Map.copyOf(tags) : Map.of();
             boolean preScanFlag = Objects.requireNonNullElse(jobSpecRequest.preScan(), false);
 
+            @Nullable String reasoningLevel = null;
+            var reasoningLevelRaw = jobSpecRequest.reasoningLevel();
+            if (reasoningLevelRaw != null && !reasoningLevelRaw.isBlank()) {
+                var normalized = reasoningLevelRaw.strip().toUpperCase(Locale.ROOT);
+
+                if (!ALLOWED_REASONING_LEVELS.contains(normalized)) {
+                    sendValidationError(exchange, "reasoningLevel must be one of: " + ALLOWED_REASONING_LEVELS_LIST);
+                    return;
+                }
+
+                reasoningLevel = normalized;
+            }
+
+            @Nullable Double temperature = null;
+            var tempRaw = jobSpecRequest.temperature();
+            if (tempRaw != null) {
+                if (tempRaw.isNaN() || tempRaw < 0.0 || tempRaw > 2.0) {
+                    sendValidationError(exchange, "temperature must be between 0.0 and 2.0");
+                    return;
+                }
+                temperature = tempRaw;
+            }
+
             // Optional job-scoped context text: accept from either top-level contextText or nested context.text
             var requestedJobContextTexts = new ArrayList<String>();
             var topLevelTexts = jobSpecRequest.contextText();
@@ -966,7 +999,8 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.scanModel(),
                     jobSpecRequest.codeModel(),
                     preScanFlag,
-                    safeTags);
+                    safeTags,
+                    new JobSpec.ModelOverrides(reasoningLevel, temperature));
 
             // Create or get job (idempotent)
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
@@ -1478,7 +1512,9 @@ public final class HeadlessExecutorMain {
             @Nullable Boolean preScan,
             @Nullable Map<String, String> tags,
             @Nullable List<String> contextText,
-            @Nullable ContextPayload context) {}
+            @Nullable ContextPayload context,
+            @Nullable String reasoningLevel,
+            @Nullable Double temperature) {}
 
     private record ContextPayload(@Nullable List<String> text) {}
 

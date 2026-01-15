@@ -646,6 +646,24 @@ public abstract class AbstractService implements ExceptionReporter.ReportingServ
         };
     }
 
+    public boolean supportsTemperature(String modelName) {
+        var location = modelLocations.get(modelName);
+        if (location == null) {
+            logger.warn("Location not found for model name {}, assuming no temperature support.", modelName);
+            return false;
+        }
+        var info = getModelInfo(location);
+        if (info.isEmpty()) {
+            logger.warn("Model info not found for location {}, assuming no temperature support.", location);
+            return false;
+        }
+
+        return switch (info.get("supported_openai_params")) {
+            case List<?> list -> list.stream().map(Object::toString).anyMatch("temperature"::equals);
+            case null, default -> false;
+        };
+    }
+
     public boolean isReasoning(StreamingChatModel model) {
         var location = model.defaultRequestParameters().modelName();
         var supportsReasoning = supportsReasoning(location);

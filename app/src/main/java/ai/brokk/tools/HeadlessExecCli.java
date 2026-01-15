@@ -48,6 +48,8 @@ public class HeadlessExecCli {
     private boolean autoCommit = false;
     private boolean autoCompress = false;
     private boolean preScan = false;
+    private String reasoningLevel = "";
+    private @Nullable Double temperature = null;
     private String prompt = "";
 
     private HeadlessExecutorMain executor;
@@ -199,6 +201,13 @@ public class HeadlessExecCli {
         jobSpec.put("autoCommit", autoCommit);
         jobSpec.put("autoCompress", autoCompress);
         jobSpec.put("plannerModel", plannerModel);
+
+        if (!reasoningLevel.isBlank()) {
+            jobSpec.put("reasoningLevel", reasoningLevel);
+        }
+        if (temperature != null) {
+            jobSpec.put("temperature", temperature.doubleValue());
+        }
 
         // Normalize mode early so we can correctly decide when to include scanModel / preScan
         if (mode.isBlank()) {
@@ -431,6 +440,8 @@ public class HeadlessExecCli {
         System.out.println("  --code-model MODEL       Code model name (optional)");
         System.out.println(
                 "  --pre-scan               Enable repository prescan before ASK (uses --scan-model if provided)");
+        System.out.println("  --reasoning-level LEVEL  Job-level reasoning level override (optional)");
+        System.out.println("  --temperature VALUE      Job-level temperature override (optional)");
         System.out.println("  --token TOKEN            Auth token (default: random UUID)");
         System.out.println("  --auto-commit            Enable auto-commit of changes");
         System.out.println("  --auto-compress          Enable auto-compress of context");
@@ -441,7 +452,7 @@ public class HeadlessExecCli {
         System.out.println();
         System.out.println("Example:");
         System.out.println(
-                "  java HeadlessExecCli --planner-model gpt-5 --mode SEARCH --scan-model gpt-5-mini 'Describe the project layout'");
+                "  java HeadlessExecCli --planner-model gpt-5 --mode SEARCH --scan-model gpt-5-mini --reasoning-level medium --temperature 0.2 'Describe the project layout'");
     }
 
     private boolean parseArgs(String[] args) {
@@ -513,6 +524,19 @@ public class HeadlessExecCli {
             case "planner-model" -> plannerModel = value;
             case "scan-model" -> scanModel = value;
             case "code-model" -> codeModel = value;
+            case "reasoning-level" -> reasoningLevel = value;
+            case "temperature" -> {
+                if (value.isBlank()) {
+                    System.err.println("ERROR: --temperature requires a value");
+                    return false;
+                }
+                try {
+                    temperature = Double.parseDouble(value);
+                } catch (NumberFormatException e) {
+                    System.err.println("ERROR: Invalid --temperature value: " + value);
+                    return false;
+                }
+            }
             case "token" -> authToken = value;
             case "auto-commit" -> autoCommit = true;
             case "auto-compress" -> autoCompress = true;

@@ -99,7 +99,9 @@ public final class JobStore {
                 spec.preScan(),
                 spec.redactedTags(),
                 spec.sourceBranch(),
-                spec.targetBranch());
+                spec.targetBranch(),
+                spec.reasoningLevel(),
+                spec.temperature());
         objectMapper.writeValue(tempMetaFile.toFile(), specForPersistence);
         Files.move(tempMetaFile, metaFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 
