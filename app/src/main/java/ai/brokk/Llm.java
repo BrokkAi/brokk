@@ -6,7 +6,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.project.AbstractProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.tools.ToolRegistry;
-import ai.brokk.util.Exceptions;
 import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.LogDescription;
 import ai.brokk.util.Messages;
@@ -1721,7 +1720,7 @@ public class Llm {
                        [Error: %s]
                        %s
                        """
-                        .formatted(Exceptions.formatThrowable(error), contentToShow);
+                        .formatted(ExceptionReporter.formatStackTrace(error), contentToShow);
             }
 
             AiMessage ai = aiMessage();
