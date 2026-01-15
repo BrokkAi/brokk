@@ -133,7 +133,7 @@ public class ReviewAgent {
                     canPush = true;
                 }
                 pushPullState = new GitWorkflow.PushPullState(hasUpstream, hasUpstream, canPush, unpushedCommitIds);
-            } catch (Exception e) {
+            } catch (GitAPIException e) {
                 logger.debug("Failed to evaluate push/pull state", e);
             }
 
@@ -349,10 +349,10 @@ public class ReviewAgent {
                         """
                 Examine the proposed diff and identify additional context needed for a thorough code review.
 
-                Examine the proposed diff and determine:
-                1. Is this a complex change requiring deep architectural analysis, or a straightforward change?
-                   - Complex: changes spanning multiple subsystems, introducing new abstractions, or with subtle correctness concerns
-                   - Straightforward: localized changes, simple refactors, or changes with obvious correctness
+                Examine the proposed diff and determine the complexity level:
+                1. TRIVIAL: very small changes, documentation updates, or simple boilerplate with no logic risk.
+                2. STRAIGHTFORWARD: localized changes, simple refactors, easy to see if bugs were introduced.
+                3. COMPLEX: changes spanning multiple subsystems, introducing new abstractions, or with subtle correctness concerns.
 
                 Then identify additional context needed for a thorough code review. You will have access to the full
                 diff during the review, so only add code that you need to perform the review, that you cannot infer from the diff alone.
@@ -399,7 +399,7 @@ public class ReviewAgent {
                 .collect(Collectors.toList());
         var ctx = initialContext.addFragments(filesToContext);
         ctx = ctx.addFragments(ctx.buildAutoContext(10));
-        return new ContextSetupResult(ctx, false);
+        return new ContextSetupResult(ctx, true);
     }
 
     private void updateProgress(String stage, int progress) {
@@ -907,9 +907,7 @@ public class ReviewAgent {
     @Tool(
             "Add context fragments to help perform a thorough code review. Call this once with all the files, summaries, classes, and methods needed.")
     public String addFragments(
-            @P(
-                            "True if this is a complex change requiring deep architectural analysis; false for straightforward changes")
-                    boolean isComplex,
+            @P("The categorized complexity of the change: TRIVIAL, STRAIGHTFORWARD, or COMPLEX") String complexity,
             @P("Full project paths for files where you need to see complete implementation details")
                     List<String> filesForFullSource,
             @P("Full project paths for files where you only need to see API signatures/skeletons")
@@ -920,7 +918,7 @@ public class ReviewAgent {
             @P(
                             "Fully qualified method names (e.g., 'com.example.MyClass.myMethod') for specific methods you need to examine")
                     List<String> methodNames) {
-        this.isComplex = isComplex;
+        this.isComplex = complexity.equalsIgnoreCase("COMPLEX");
         var wst = new WorkspaceTools(requireNonNull(contextBeingBuilt));
         wst.addFilesToWorkspace(filesForFullSource);
         wst.addFileSummariesToWorkspace(filesForSummaries);
