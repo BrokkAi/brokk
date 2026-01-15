@@ -84,7 +84,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     CaptureNames.METHOD_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.CONSTRUCTOR_DEFINITION, SkeletonType.FUNCTION_LIKE,
                     CaptureNames.FIELD_DEFINITION, SkeletonType.FIELD_LIKE,
-                    CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE),
+                    CaptureNames.LAMBDA_DEFINITION, SkeletonType.FUNCTION_LIKE,
+                    CaptureNames.MODULE_DEFINITION, SkeletonType.MODULE_STATEMENT),
             "", // async keyword node type
             Set.of("modifiers") // modifier node types
             );
@@ -104,6 +105,16 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             List<ScopeSegment> scopeChain,
             @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
+        if (skeletonType == SkeletonType.MODULE_STATEMENT) {
+            // For Java packages, the FQN is just the package name.
+            // TreeSitterAnalyzer expects us to return a CodeUnit where
+            // packageName + "." + shortName equals the module FQN.
+            int idx = simpleName.lastIndexOf('.');
+            String parentPkg = idx >= 0 ? simpleName.substring(0, idx) : "";
+            String moduleShortName = idx >= 0 ? simpleName.substring(idx + 1) : simpleName;
+            return CodeUnit.module(file, parentPkg, moduleShortName);
+        }
+
         final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
         var type =
@@ -111,7 +122,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     case CLASS_LIKE -> CodeUnitType.CLASS;
                     case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
                     case FIELD_LIKE -> CodeUnitType.FIELD;
-                    case MODULE_STATEMENT -> CodeUnitType.MODULE;
                     default -> {
                         // This shouldn't be reached if captureConfiguration is exhaustive
                         log.warn("Unhandled CodeUnitType for '{}'", skeletonType);
@@ -557,54 +567,22 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
             Map<CodeUnit, List<CodeUnit>> localChildren) {
-        // Create a MODULE CodeUnit for the current file's package and attach the file's top-level classes as children.
+        // Module creation is now handled by TreeSitterAnalyzer via java.scm captures.
+        // We only need to wire up the top-level classes as children of the package module.
         if (modulePackageName.isBlank()) {
-            return; // default package: no module CU
+            return;
         }
 
-        // Locate the package_declaration node to compute a precise range for the module signature
-        TSNode packageNode = null;
-        for (int i = 0; i < rootNode.getChildCount(); i++) {
-            TSNode child = rootNode.getChild(i);
-            if (child != null && !child.isNull() && PACKAGE_DECLARATION.equals(child.getType())) {
-                packageNode = child;
-                break;
+        CodeUnit moduleCu = localCuByFqName.get(modulePackageName);
+        if (moduleCu != null && moduleCu.isModule()) {
+            List<CodeUnit> classesInThisFileAndPackage = new ArrayList<>();
+            for (CodeUnit cu : localTopLevelCUs) {
+                if (cu.isClass() && modulePackageName.equals(cu.packageName())) {
+                    classesInThisFileAndPackage.add(cu);
+                }
             }
+            localChildren.put(moduleCu, classesInThisFileAndPackage);
         }
-
-        // Determine parent package and simple name, so that fqName(parent + "." + short) == modulePackageName
-        int idx = modulePackageName.lastIndexOf('.');
-        String parentPkg = idx >= 0 ? modulePackageName.substring(0, idx) : "";
-        String simpleName = idx >= 0 ? modulePackageName.substring(idx + 1) : modulePackageName;
-
-        CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
-
-        // Signature for a Java package module
-        String signature = "package " + modulePackageName + ";";
-        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(signature);
-
-        // Range covering the package declaration (when available)
-        if (packageNode != null) {
-            Range r = new Range(
-                    packageNode.getStartByte(),
-                    packageNode.getEndByte(),
-                    packageNode.getStartPoint().getRow(),
-                    packageNode.getEndPoint().getRow(),
-                    packageNode.getStartByte());
-            localSourceRanges.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(r);
-        }
-
-        // Children: include only top-level classes declared in this exact package
-        List<CodeUnit> classesInThisFileAndPackage = new ArrayList<>();
-        for (CodeUnit cu : localTopLevelCUs) {
-            if (cu.isClass() && modulePackageName.equals(cu.packageName())) {
-                classesInThisFileAndPackage.add(cu);
-            }
-        }
-        localChildren.put(moduleCu, classesInThisFileAndPackage);
-
-        // Register in local lookup for potential parent-child bindings (not added as a top-level CU)
-        localCuByFqName.put(moduleCu.fqName(), moduleCu);
     }
 
     @Override

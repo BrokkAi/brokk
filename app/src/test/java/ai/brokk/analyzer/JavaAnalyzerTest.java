@@ -327,6 +327,8 @@ public class JavaAnalyzerTest {
         final var file = new ProjectFile(testProject.getRoot(), "Packaged.java");
         final var declarations = analyzer.getDeclarations(file);
         final var expected = Set.of(
+                // Module
+                CodeUnit.module(file, "io.github.jbellis", "brokk"),
                 // Class
                 CodeUnit.cls(file, "io.github.jbellis.brokk", "Foo"),
                 // Method
@@ -719,10 +721,14 @@ public class JavaAnalyzerTest {
 
         var topLevelUnits = analyzer.getTopLevelDeclarations(file);
 
-        assertEquals(1, topLevelUnits.size(), "Should return only the top-level class Foo");
-        var topLevelClass = topLevelUnits.get(0);
-        assertEquals("io.github.jbellis.brokk.Foo", topLevelClass.fqName());
-        assertTrue(topLevelClass.isClass());
+        // Now includes the Package Module definition
+        assertEquals(2, topLevelUnits.size(), "Should return top-level class Foo and Module p1");
+
+        boolean foundModule = topLevelUnits.stream().anyMatch(cu -> cu.isModule() && "io.github.jbellis.brokk".equals(cu.fqName()));
+        boolean foundClass = topLevelUnits.stream().anyMatch(cu -> cu.isClass() && "io.github.jbellis.brokk.Foo".equals(cu.fqName()));
+
+        assertTrue(foundModule, "Should find module definition");
+        assertTrue(foundClass, "Should find class definition");
     }
 
     @Test

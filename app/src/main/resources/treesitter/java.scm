@@ -3,8 +3,7 @@
   [
     (identifier)
     (scoped_identifier)
-  ] @package.name
-) @package.declaration
+  ] @module.name) @module.definition
 
 ; Import declarations
 (import_declaration) @import.declaration
