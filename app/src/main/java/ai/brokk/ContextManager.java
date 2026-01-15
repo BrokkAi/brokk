@@ -1,6 +1,7 @@
 package ai.brokk;
 
 import static ai.brokk.SessionManager.SessionInfo;
+import static ai.brokk.context.ContextHistory.SNAPSHOT_AWAIT_TIMEOUT;
 import static java.lang.Math.max;
 import static java.util.Objects.requireNonNull;
 
@@ -903,12 +904,14 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Nothing to undo");
             }
+            return null;
         });
     }
 
     @Override
-    public boolean undoContext() {
-        return withFileChangeNotificationsPaused(() -> {
+    @Blocking
+    public boolean undoContext() throws InterruptedException {
+        return withContextResolvedAndWatcherPaused(() -> {
             UndoResult result = contextHistory.undo(1, io, project);
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
@@ -926,8 +929,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
     /** undo changes until we reach the target FROZEN context */
     public Future<?> undoContextUntilAsync(Context targetFrozenContext) {
         return submitExclusiveAction(() -> {
-            UndoResult result =
-                    withFileChangeNotificationsPaused(() -> contextHistory.undoUntil(targetFrozenContext, io, project));
+            UndoResult result = withContextResolvedAndWatcherPaused(
+                    () -> contextHistory.undoUntil(targetFrozenContext, io, project));
             if (result.wasUndone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -939,6 +942,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "Context not found or already at that point");
             }
+            return null;
         });
     }
 
@@ -946,7 +950,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     public Future<?> redoContextAsync() {
         return submitExclusiveAction(() -> {
             ContextHistory.RedoResult redoResult =
-                    withFileChangeNotificationsPaused(() -> contextHistory.redo(io, project));
+                    withContextResolvedAndWatcherPaused(() -> contextHistory.redo(io, project));
             if (redoResult.wasRedone()) {
                 notifyContextListeners(liveContext());
                 project.getSessionManager().saveHistory(contextHistory, currentSessionId);
@@ -957,6 +961,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             } else {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, "no redo state available");
             }
+            return null;
         });
     }
 
@@ -1566,8 +1571,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
         Set<ProjectFile> allReferenced = new HashSet<>();
         for (var f : fragments) {
             try {
-                var files =
-                        f.files().await(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
+                var files = f.files().await(SNAPSHOT_AWAIT_TIMEOUT).orElseThrow(TimeoutException::new);
                 allReferenced.addAll(files);
             } catch (TimeoutException te) {
                 logger.warn("Timed out waiting for files() of fragment {}", f.id());
@@ -1832,6 +1836,21 @@ public class ContextManager implements IContextManager, AutoCloseable {
         requireNonNull(analyzerWrapper).pause();
         try {
             return callable.call();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        } finally {
+            requireNonNull(analyzerWrapper).resume();
+        }
+    }
+
+    @Blocking
+    public <T> T withContextResolvedAndWatcherPaused(Callable<T> callable) throws InterruptedException {
+        requireNonNull(analyzerWrapper).pause();
+        liveContext().awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+        try {
+            return callable.call();
+        } catch (InterruptedException e) {
+            throw e;
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {
