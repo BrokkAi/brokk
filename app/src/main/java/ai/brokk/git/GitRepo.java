@@ -36,6 +36,7 @@ import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.TreeWalk;
+import org.eclipse.jgit.util.FS;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
@@ -246,6 +247,68 @@ public class GitRepo implements Closeable, IGitRepo {
     @Override
     public Path getWorkTreeRoot() {
         return repository.getWorkTree().toPath().normalize();
+    }
+
+    @Override
+    public List<Map.Entry<Path, Path>> getFixedGitignoreFiles() {
+        var fixedPairs = new ArrayList<Map.Entry<Path, Path>>();
+
+        getGlobalGitignorePath().ifPresent(globalIgnore -> {
+            fixedPairs.add(Map.entry(Path.of(""), globalIgnore));
+        });
+
+        // .git/info/exclude is in the main repo's .git directory, shared across worktrees
+        var gitInfoExclude = gitTopLevel.resolve(".git/info/exclude");
+        if (Files.exists(gitInfoExclude)) {
+            fixedPairs.add(Map.entry(Path.of(""), gitInfoExclude));
+        }
+
+        // Root .gitignore is in the working tree, which differs for worktrees
+        var workTreeRoot = getWorkTreeRoot();
+        var rootGitignore = workTreeRoot.resolve(".gitignore");
+        if (Files.exists(rootGitignore)) {
+            fixedPairs.add(Map.entry(Path.of(""), rootGitignore));
+        }
+
+        return fixedPairs;
+    }
+
+    @Override
+    public Optional<Path> getGlobalGitignorePath() {
+        var config = repository.getConfig();
+
+        String configPath = config.getString("core", null, "excludesfile");
+        if (configPath != null && !configPath.isEmpty()) {
+            var fs = FS.DETECTED;
+            Path globalIgnore;
+
+            if (configPath.startsWith("~/")) {
+                File resolved = fs.resolve(fs.userHome(), configPath.substring(2));
+                globalIgnore = resolved.toPath();
+            } else {
+                globalIgnore = Path.of(configPath);
+            }
+
+            if (Files.exists(globalIgnore)) {
+                logger.trace("Using global gitignore from core.excludesfile: {}", globalIgnore);
+                return Optional.of(globalIgnore);
+            }
+        }
+
+        File userHome = FS.DETECTED.userHome();
+        Path xdgIgnore = userHome.toPath().resolve(".config/git/ignore");
+        if (Files.exists(xdgIgnore)) {
+            logger.trace("Using global gitignore from XDG location: {}", xdgIgnore);
+            return Optional.of(xdgIgnore);
+        }
+
+        Path legacyIgnore = userHome.toPath().resolve(".gitignore_global");
+        if (Files.exists(legacyIgnore)) {
+            logger.trace("Using global gitignore from legacy location: {}", legacyIgnore);
+            return Optional.of(legacyIgnore);
+        }
+
+        return Optional.empty();
     }
 
     /**
