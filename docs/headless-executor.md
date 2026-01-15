@@ -522,7 +522,8 @@ You can optionally override model behaviors per job:
 
 - `reasoningLevel` (string, optional): Controls how much explicit reasoning effort the planner model should use.
 - `reasoningLevelCode` (string, optional): Controls how much explicit reasoning effort the code model should use. Applies to CODE and ARCHITECT modes.
-- `temperature` (number, optional): Controls sampling randomness for supported models.
+- `temperature` (number, optional): Controls sampling randomness for the planner model.
+- `temperatureCode` (number, optional): Controls sampling randomness for the code model. Applies to CODE and ARCHITECT modes.
 
 These fields are accepted in the top-level job payload alongside `plannerModel` / `codeModel` / `scanModel`.
 
@@ -541,7 +542,12 @@ These fields are accepted in the top-level job payload alongside `plannerModel` 
 - `temperature`:
   - If provided, must be a JSON number.
   - Must be between `0.0` and `2.0` (inclusive).
-  - If omitted or null, the executor uses the model/service default temperature.
+  - If omitted or null, the executor uses the model/service default temperature for the planner model.
+
+- `temperatureCode`:
+  - If provided, must be a JSON number.
+  - Must be between `0.0` and `2.0` (inclusive).
+  - If omitted or null, the executor uses the model/service default temperature for the code model.
 
 ##### Example: ARCHITECT with reasoningLevel + temperature
 
@@ -561,6 +567,7 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   "reasoningLevel": "HIGH",
   "reasoningLevelCode": "MEDIUM",
   "temperature": 0.2,
+  "temperatureCode": 0.0,
   "tags": {
     "mode": "ARCHITECT"
   }

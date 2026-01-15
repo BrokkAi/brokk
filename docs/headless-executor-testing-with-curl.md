@@ -836,7 +836,8 @@ You can pass these optional top-level fields in any `POST /v1/jobs` payload:
 
 - `reasoningLevel` (string): `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"` — applies to the planner model.
 - `reasoningLevelCode` (string): `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"` — applies to the code model (CODE and ARCHITECT modes).
-- `temperature` (number): `0.0` to `2.0` inclusive.
+- `temperature` (number): `0.0` to `2.0` inclusive — applies to the planner model.
+- `temperatureCode` (number): `0.0` to `2.0` inclusive — applies to the code model (CODE and ARCHITECT modes).
 
 If omitted, the executor uses the model/service defaults.
 
@@ -858,6 +859,7 @@ curl -sS -X POST "${BASE}/v1/jobs" \
   "reasoningLevel": "MEDIUM",
   "reasoningLevelCode": "LOW",
   "temperature": 0.0,
+  "temperatureCode": 0.2,
   "tags": {
     "mode": "CODE"
   }
@@ -871,6 +873,7 @@ JSON
 - Providing an unknown `plannerModel` yields a job that transitions to `FAILED` with an error containing `MODEL_UNAVAILABLE`.
 - In CODE mode, changing `plannerModel` does not alter execution, but it must still be supplied; `codeModel` selects the LLM used for code actions.
 - `reasoningLevel` must be one of `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`; invalid values trigger `HTTP 400`.
-- `temperature` must be a number between `0.0` and `2.0` inclusive; invalid values trigger `HTTP 400`.
+- `temperature` (planner model) must be a number between `0.0` and `2.0` inclusive; invalid values trigger `HTTP 400`.
+- `temperatureCode` (code model) must be a number between `0.0` and `2.0` inclusive; invalid values trigger `HTTP 400`.
 - Free-form text that exceeds 1 MiB (UTF-8 bytes) is rejected with `HTTP 400`.
 - Blank free-form text is rejected with `HTTP 400`.
