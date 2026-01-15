@@ -10,6 +10,7 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -91,6 +92,68 @@ public class CodeFragmentTest {
 
         assertEquals(Set.of(method), fragment.sources().join());
         assertEquals(Set.of(file), fragment.files().join());
+    }
+
+    @Test
+    void testCodeFragmentExcludesInnerClassAncestorSkeletons() {
+        ProjectFile file = new ProjectFile(tempDir, "Outer.java");
+        ProjectFile outerBaseFile = new ProjectFile(tempDir, "OuterBase.java");
+        ProjectFile innerBaseFile = new ProjectFile(tempDir, "InnerBase.java");
+
+        CodeUnit outer = CodeUnit.cls(file, "com.example", "Outer");
+        CodeUnit inner = CodeUnit.cls(file, "com.example", "Inner");
+        CodeUnit outerBase = CodeUnit.cls(outerBaseFile, "com.example", "OuterBase");
+        CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "InnerBase");
+
+        // Custom analyzer to simulate specific file structure and definition resolution
+        var customAnalyzer = new TestAnalyzer() {
+            @Override
+            public List<CodeUnit> getTopLevelDeclarations(ProjectFile f) {
+                if (f.equals(file)) return List.of(outer);
+                return List.of();
+            }
+
+            @Override
+            public Set<CodeUnit> getDeclarations(ProjectFile f) {
+                if (f.equals(file)) return Set.of(outer, inner);
+                return Set.of();
+            }
+
+            @Override
+            public java.util.SequencedSet<CodeUnit> getDefinitions(String fqName) {
+                if ("com.example.Outer".equals(fqName)) {
+                    return new java.util.LinkedHashSet<>(List.of(outer));
+                }
+                return super.getDefinitions(fqName);
+            }
+        };
+
+        customAnalyzer.addDeclaration(outer);
+        customAnalyzer.addDeclaration(inner);
+        customAnalyzer.addDeclaration(outerBase);
+        customAnalyzer.addDeclaration(innerBase);
+        customAnalyzer.setDirectAncestors(outer, List.of(outerBase));
+        customAnalyzer.setDirectAncestors(inner, List.of(innerBase));
+        customAnalyzer.setSource(outer, "class Outer extends OuterBase { class Inner extends InnerBase {} }");
+
+        TestContextManager customManager = new TestContextManager(tempDir, new TestConsoleIO(), customAnalyzer);
+        var fragment = new ContextFragments.CodeFragment(customManager, "com.example.Outer");
+
+        var supporting = fragment.supportingFragments();
+
+        // Should contain OuterBase but NOT InnerBase
+        boolean hasOuterBase = supporting.stream()
+                .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                .map(f -> (ContextFragments.SummaryFragment) f)
+                .anyMatch(sf -> sf.getTargetIdentifier().equals("com.example.OuterBase"));
+
+        boolean hasInnerBase = supporting.stream()
+                .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                .map(f -> (ContextFragments.SummaryFragment) f)
+                .anyMatch(sf -> sf.getTargetIdentifier().equals("com.example.InnerBase"));
+
+        assertTrue(hasOuterBase, "Should include ancestor of targeted class");
+        assertTrue(!hasInnerBase, "Should NOT include ancestor of non-targeted inner class");
     }
 
     @Test
