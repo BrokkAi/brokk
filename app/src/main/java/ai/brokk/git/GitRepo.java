@@ -257,24 +257,26 @@ public class GitRepo implements Closeable, IGitRepo {
             fixedPairs.add(Map.entry(Path.of(""), globalIgnore));
         });
 
-        // info/exclude: check both the private git directory (per-worktree)
-        // and the common directory (shared). Standard git uses the common one.
+        // info/exclude: check the private git directory first
         Path gitDir = repository.getDirectory().toPath();
         Path infoExclude = gitDir.resolve("info/exclude");
         if (Files.exists(infoExclude)) {
             fixedPairs.add(Map.entry(Path.of(""), infoExclude));
-        } else {
-            // Check common directory if different (e.g. in worktrees)
+        }
+
+        // For worktrees, also check the common directory (shared info/exclude)
+        // The commondir file points to the shared git directory
+        Path commondirFile = gitDir.resolve("commondir");
+        if (Files.exists(commondirFile)) {
             try {
-                // JGit's Repository doesn't expose getCommonDir directly in all versions
-                // but usually info/exclude is expected in the administrative dir provided by JGit.
-                // If it's not in the private dir, we check the gitTopLevel/.git (main repo)
-                Path commonInfoExclude = gitTopLevel.resolve(".git/info/exclude");
+                var commonDirContent = Files.readString(commondirFile, StandardCharsets.UTF_8).trim();
+                var commonDir = gitDir.resolve(commonDirContent).normalize();
+                var commonInfoExclude = commonDir.resolve("info/exclude");
                 if (!commonInfoExclude.equals(infoExclude) && Files.exists(commonInfoExclude)) {
                     fixedPairs.add(Map.entry(Path.of(""), commonInfoExclude));
                 }
-            } catch (Exception e) {
-                logger.debug("Could not resolve common info/exclude: {}", e.getMessage());
+            } catch (IOException e) {
+                logger.debug("Could not read commondir file: {}", e.getMessage());
             }
         }
 

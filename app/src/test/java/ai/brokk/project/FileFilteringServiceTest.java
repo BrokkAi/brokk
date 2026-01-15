@@ -194,4 +194,36 @@ public class FileFilteringServiceTest {
                 hasWorktreeGitignore,
                 "Fixed gitignore files should include worktree's root .gitignore at: " + worktreeGitignore);
     }
+
+    @Test
+    void testWorktreeIncludesSharedInfoExclude() throws Exception {
+        assumeTrue(mainRepo.supportsWorktrees(), "Worktrees not supported, skipping test");
+
+        // Create .git/info/exclude in the main repo (shared across worktrees)
+        Path mainInfoExclude = mainRepoPath.resolve(".git/info/exclude");
+        Files.createDirectories(mainInfoExclude.getParent());
+        Files.writeString(mainInfoExclude, "*.local\n");
+
+        // Create worktree
+        worktreePath = tempDir.resolve("info-exclude-worktree");
+        mainRepo.addWorktree("info-exclude-branch", worktreePath);
+        worktreeRepo = new GitRepo(worktreePath);
+
+        // Get fixed gitignore files from the worktree repo
+        var fixedFiles = worktreeRepo.getFixedGitignoreFiles();
+
+        // Should include the main repo's shared info/exclude
+        boolean hasSharedInfoExclude = fixedFiles.stream()
+                .anyMatch(entry -> entry.getValue().toString().contains("info/exclude"));
+
+        assertTrue(hasSharedInfoExclude,
+                "Worktree should include main repo's shared .git/info/exclude");
+
+        // Verify the pattern is actually applied
+        Files.writeString(worktreePath.resolve("test.local"), "content");
+        var filteringService = new FileFilteringService(worktreePath, worktreeRepo);
+
+        assertTrue(filteringService.isGitignored(Path.of("test.local")),
+                "*.local pattern from shared info/exclude should be honored in worktree");
+    }
 }
