@@ -811,12 +811,13 @@ public class Llm {
         }
         var tr = toolContext.toolRegistry();
 
+        // we need an empty line before each tool call render (needed for rehype-plugin to render correctly)
         var rendered = requests.stream()
                 .map(tr::getExplanationForToolRequest)
                 .filter(s -> !s.isBlank())
-                .collect(Collectors.joining("\n"));
+                .collect(Collectors.joining("\n\n"));
         if (!rendered.isBlank()) {
-            io.llmOutput("\n" + rendered, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+            io.llmOutput("\n\n" + rendered, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
         }
     }
 
