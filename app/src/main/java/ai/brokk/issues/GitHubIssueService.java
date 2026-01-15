@@ -282,7 +282,7 @@ public class GitHubIssueService implements IssueService {
             Request.Builder requestBuilder = new Request.Builder()
                     .url("https://api.github.com/graphql")
                     .post(RequestBody.create(
-                            objectMapper.writeValueAsString(requestBody), MediaType.parse("application/json")));
+                            objectMapper.writeValueAsString(requestBody), MediaType.get("application/json")));
 
             try (Response response = httpClient().newCall(requestBuilder.build()).execute()) {
                 if (!response.isSuccessful()) {
