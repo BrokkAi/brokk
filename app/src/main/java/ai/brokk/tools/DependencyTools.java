@@ -35,12 +35,18 @@ public class DependencyTools {
 
     private static DownloadProgressListener createProgressListener(IConsoleIO io) {
         return (artifactName, transferred, total) -> {
+            String filename = artifactName;
+            int lastSlash = artifactName.lastIndexOf('/');
+            if (lastSlash != -1 && lastSlash < artifactName.length() - 1) {
+                filename = artifactName.substring(lastSlash + 1);
+            }
+
             String message;
             if (total > 0) {
                 int percent = (int) (100 * transferred / total);
-                message = "Downloading %s... %d%%".formatted(artifactName, percent);
+                message = "Downloading %s... %d%%".formatted(filename, percent);
             } else {
-                message = "Downloading %s... %.1f MB".formatted(artifactName, transferred / 1_048_576.0);
+                message = "Downloading %s... %.1f MB".formatted(filename, transferred / 1_048_576.0);
             }
             io.showNotification(IConsoleIO.NotificationRole.INFO, message);
         };

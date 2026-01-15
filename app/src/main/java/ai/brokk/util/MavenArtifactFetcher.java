@@ -170,7 +170,7 @@ public class MavenArtifactFetcher {
         private static final long THROTTLE_MS = 250;
 
         private final @Nullable DownloadProgressListener progressListener;
-        private long lastUpdateTime = 0;
+        private volatile long lastUpdateTime = 0;
 
         ProgressReportingTransferListener(@Nullable DownloadProgressListener progressListener) {
             this.progressListener = progressListener;
