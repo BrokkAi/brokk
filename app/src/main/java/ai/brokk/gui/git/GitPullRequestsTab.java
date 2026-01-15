@@ -19,6 +19,8 @@ import ai.brokk.gui.components.GitHubTokenMissingPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
+import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.GitRepoIdUtil;
@@ -60,7 +62,7 @@ import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHUser;
 
-public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
+public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
     private static final int DEFAULT_ROW_HEIGHT = 48;
@@ -524,7 +526,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     }
 
     @Override
-    public void applyTheme(ai.brokk.gui.theme.GuiTheme guiTheme) {
+    public void applyTheme(GuiTheme guiTheme) {
         // Refresh the entire component tree to apply theme changes
         SwingUtilities.updateComponentTreeUI(this);
     }

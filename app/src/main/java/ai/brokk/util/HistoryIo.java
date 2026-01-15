@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.context.ContentDtos.ContentMetadataDto;
 import ai.brokk.context.ContentDtos.DiffContentMetadataDto;
 import ai.brokk.context.ContentDtos.FullContentMetadataDto;

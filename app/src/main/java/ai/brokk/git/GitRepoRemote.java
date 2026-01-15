@@ -16,6 +16,7 @@ import org.eclipse.jgit.transport.PushResult;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.RemoteRefUpdate;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.VisibleForTesting;
 
@@ -235,7 +236,7 @@ public class GitRepoRemote {
      * @param remoteName The name of the remote (e.g., "origin").
      * @throws GitAPIException if a Git error occurs.
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public void fetchPrRef(int prNumber, String remoteName) throws GitAPIException {
         fetchPrRef(prNumber, remoteName, null);
     }
@@ -248,7 +249,7 @@ public class GitRepoRemote {
      * @param token The GitHub token to use for authentication, or null to use the default.
      * @throws GitAPIException if a Git error occurs.
      */
-    @org.jetbrains.annotations.Blocking
+    @Blocking
     public void fetchPrRef(int prNumber, String remoteName, @Nullable String token) throws GitAPIException {
         var refSpec = new RefSpec("+refs/pull/" + prNumber + "/head:refs/remotes/" + remoteName + "/pr/" + prNumber);
         var fetchCommand = git.fetch().setRemote(remoteName).setRefSpecs(refSpec);

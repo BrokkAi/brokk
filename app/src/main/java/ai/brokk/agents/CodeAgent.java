@@ -857,6 +857,14 @@ public class CodeAgent {
             return new Step.Continue(cs, es, blocksToApply);
         }
 
+        // If any fragments need to be computed, we'll wait a bit
+        try {
+            context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.debug("Interrupted while waiting for contexts to be computed", e);
+        }
+
         // Guardrail: block edits to files designated read-only in the current context
         var readOnlyPaths = computeReadOnlyPaths(context);
         var violating = blocksToApply.stream()
@@ -1763,12 +1771,6 @@ public class CodeAgent {
         // 2. Files referred to by other editable Fragments should not be in our Set.
         // 3. Files referred to by other read-only Fragments should be in our Set.
 
-        // If any fragments need to be computed, we'll wait a bit
-        try {
-            ctx.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
-        } catch (InterruptedException e) {
-            logger.warn("Interrupted while waiting for contexts to be computed", e);
-        }
         var readonlyPaths = ctx.getMarkedReadonlyFragments()
                 .filter(cf -> cf instanceof ContextFragments.ProjectPathFragment)
                 .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())

@@ -1,7 +1,9 @@
 package ai.brokk.gui;
 
+import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -11,12 +13,14 @@ import ai.brokk.gui.util.KeyboardShortcutUtil;
 import java.awt.*;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
 
 public class CommitDialog extends BaseThemedDialog {
@@ -36,24 +40,22 @@ public class CommitDialog extends BaseThemedDialog {
             @Nullable Window owner,
             Chrome chrome,
             IContextManager contextManager,
-            GitWorkflow workflowService,
             List<ProjectFile> filesToCommit,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
-        this(owner, chrome, contextManager, workflowService, filesToCommit, null, onCommitSuccessCallback);
+        this(owner, chrome, contextManager, filesToCommit, null, onCommitSuccessCallback);
     }
 
     public CommitDialog(
             @Nullable Window owner,
             Chrome chrome,
             IContextManager contextManager,
-            GitWorkflow workflowService,
             List<ProjectFile> filesToCommit,
             @Nullable String prefilledMessage,
             Consumer<GitWorkflow.CommitResult> onCommitSuccessCallback) {
         super(owner, "Commit Changes");
         this.chrome = chrome;
         this.contextManager = contextManager;
-        this.workflowService = workflowService;
+        this.workflowService = new GitWorkflow(contextManager);
         this.filesToCommit = filesToCommit;
         this.onCommitSuccessCallback = onCommitSuccessCallback;
 
@@ -191,7 +193,7 @@ public class CommitDialog extends BaseThemedDialog {
                         commitMessageArea.setCaretPosition(0);
                         checkCommitButtonState();
                     });
-                } catch (InterruptedException | java.util.concurrent.ExecutionException ignored) {
+                } catch (InterruptedException | ExecutionException ignored) {
                     // ExceptionAwareSwingWorker.done() already handled logging/notifications
                     // Ensure text area is usable so user can type manually
                     SwingUtilities.invokeLater(() -> {
@@ -228,12 +230,16 @@ public class CommitDialog extends BaseThemedDialog {
         contextManager.submitBackgroundTask("Committing changes", () -> {
             try {
                 GitWorkflow.CommitResult result = workflowService.commit(filesToCommit, msg);
+                var repo = (GitRepo) chrome.contextManager.getRepo();
                 SwingUtilities.invokeLater(() -> {
+                    String shortHash = repo.shortHash(result.commitId());
+                    chrome.showNotification(
+                            IConsoleIO.NotificationRole.INFO, "Committed " + shortHash + ": " + result.firstLine());
                     onCommitSuccessCallback.accept(result);
                     dispose();
                 });
-            } catch (Exception ex) {
-                logger.error("Error committing files from dialog:", ex);
+            } catch (GitAPIException ex) {
+                logger.warn("Error committing files from dialog:", ex);
                 SwingUtilities.invokeLater(() -> {
                     chrome.toolError("Error committing files: " + ex.getMessage(), "Commit Error");
                     // Re-enable UI for retry or cancel
@@ -242,7 +248,6 @@ public class CommitDialog extends BaseThemedDialog {
                     checkCommitButtonState(); // Re-check commit button state
                 });
             }
-            return null;
         });
     }
 

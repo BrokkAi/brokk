@@ -5,8 +5,9 @@ import static java.util.Objects.requireNonNull;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
-import ai.brokk.util.ComputedValue;
-import ai.brokk.util.ExecutorServiceUtil;
+import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingFuture;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -15,7 +16,6 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import org.jetbrains.annotations.Blocking;
 
@@ -66,10 +66,10 @@ public record ContextDelta(
      * @return a ContextDelta describing the changes
      */
     public static ComputedValue<ContextDelta> between(Context from, Context to) {
-        var executor = ExecutorServiceUtil.newVirtualThreadExecutor("delta-between-", 1);
+        var executor = ExecutorsUtil.newVirtualThreadExecutor("delta-between-", 1);
         return new ComputedValue<>(
                 "delta",
-                CompletableFuture.supplyAsync(() -> betweenInternal(from, to), executor)
+                LoggingFuture.supplyAsync(() -> betweenInternal(from, to), executor)
                         .whenComplete((r, e) -> executor.shutdown()));
     }
 
@@ -165,8 +165,8 @@ public record ContextDelta(
             return ComputedValue.completed("(No changes)");
         }
 
-        var executor = ExecutorServiceUtil.newVirtualThreadExecutor("delta-desc-", 1);
-        return new ComputedValue<>(CompletableFuture.supplyAsync(() -> descriptionInternal(icm), executor)
+        var executor = ExecutorsUtil.newVirtualThreadExecutor("delta-desc-", 1);
+        return new ComputedValue<>(LoggingFuture.supplyAsync(() -> descriptionInternal(icm), executor)
                 .whenComplete((r, e) -> executor.shutdown()));
     }
 
