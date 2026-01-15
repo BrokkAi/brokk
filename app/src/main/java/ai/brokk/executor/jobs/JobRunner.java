@@ -1110,8 +1110,7 @@ public final class JobRunner {
             if (cm.getService().supportsTemperature(baseConfig.name())) {
                 parametersOverride = OpenAiChatRequestParameters.builder().temperature(spec.temperature());
             } else {
-                logger.debug(
-                        "Skipping temperature override for model {} as it is not supported.", baseConfig.name());
+                logger.debug("Skipping temperature override for model {} as it is not supported.", baseConfig.name());
             }
         }
 

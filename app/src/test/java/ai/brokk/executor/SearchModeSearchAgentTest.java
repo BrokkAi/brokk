@@ -124,12 +124,14 @@ class SearchModeSearchAgentTest {
         }
 
         @Override
-        public JsonNode reportClientException(String stacktrace, String clientVersion, Map<String, String> optionalFields) {
+        public JsonNode reportClientException(
+                String stacktrace, String clientVersion, Map<String, String> optionalFields) {
             return objectMapper.createObjectNode();
         }
 
         @Override
-        public void sendFeedback(String category, String feedbackText, boolean includeDebugLog, java.io.File screenshotFile) {
+        public void sendFeedback(
+                String category, String feedbackText, boolean includeDebugLog, java.io.File screenshotFile) {
             throw new UnsupportedOperationException();
         }
     }

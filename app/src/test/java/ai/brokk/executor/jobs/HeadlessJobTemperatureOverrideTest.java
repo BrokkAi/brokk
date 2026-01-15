@@ -1,5 +1,8 @@
 package ai.brokk.executor.jobs;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
 import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.Service;
@@ -7,8 +10,6 @@ import ai.brokk.concurrent.UserActionManager;
 import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestService;
-import dev.langchain4j.data.message.AiMessage;
-import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
@@ -26,9 +27,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 class HeadlessJobTemperatureOverrideTest {
 
@@ -48,10 +46,17 @@ class HeadlessJobTemperatureOverrideTest {
 
         MainProject project = new MainProject(workspaceDir);
         spyService = new SpyService(project);
-        
+
         Service.Provider provider = new Service.Provider() {
-            @Override public AbstractService get() { return spyService; }
-            @Override public void reinit(IProject p) { /* no-op */ }
+            @Override
+            public AbstractService get() {
+                return spyService;
+            }
+
+            @Override
+            public void reinit(IProject p) {
+                /* no-op */
+            }
         };
 
         cm = new NoOpContextManager(project, provider);
@@ -72,7 +77,8 @@ class HeadlessJobTemperatureOverrideTest {
         spyService.setExposedModelLocations(Map.of("modelA", "locA"));
         spyService.setExposedModelInfoMap(Map.of("locA", Map.of("supported_openai_params", List.of("top_p"))));
 
-        JobSpec spec = new JobSpec("test task", false, false, "modelA", null, null, false, Map.of("mode", "ASK"), null, null, null, 0.7);
+        JobSpec spec = new JobSpec(
+                "test task", false, false, "modelA", null, null, false, Map.of("mode", "ASK"), null, null, null, 0.7);
 
         runner.runAsync("job-unsupported", spec).get(5, TimeUnit.SECONDS);
 
@@ -85,15 +91,18 @@ class HeadlessJobTemperatureOverrideTest {
         spyService.setExposedModelLocations(Map.of("modelA", "locA"));
         spyService.setExposedModelInfoMap(Map.of("locA", Map.of("supported_openai_params", List.of("temperature"))));
 
-        JobSpec spec = new JobSpec("test task", false, false, "modelA", null, null, false, Map.of("mode", "ASK"), null, null, null, 0.7);
+        JobSpec spec = new JobSpec(
+                "test task", false, false, "modelA", null, null, false, Map.of("mode", "ASK"), null, null, null, 0.7);
 
         runner.runAsync("job-supported", spec).get(5, TimeUnit.SECONDS);
 
-        assertEquals(0.7, spyService.lastTemperatureSeen, 0.001, "Temperature SHOULD be passed to getModel if supported");
+        assertEquals(
+                0.7, spyService.lastTemperatureSeen, 0.001, "Temperature SHOULD be passed to getModel if supported");
     }
 
     private static class SpyService extends TestService {
-        @Nullable Double lastTemperatureSeen;
+        @Nullable
+        Double lastTemperatureSeen;
 
         SpyService(IProject project) {
             super(project);
@@ -108,7 +117,8 @@ class HeadlessJobTemperatureOverrideTest {
         }
 
         @Override
-        public @Nullable StreamingChatModel getModel(ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
+        public @Nullable StreamingChatModel getModel(
+                ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {
             if (parametersOverride != null) {
                 this.lastTemperatureSeen = parametersOverride.build().temperature();
             } else {
