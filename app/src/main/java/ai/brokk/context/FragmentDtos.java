@@ -131,6 +131,10 @@ public class FragmentDtos {
                 attributes = Map.copyOf(attributes);
             }
         }
+
+        public ChatMessageDto(String role, String contentId) {
+            this(role, contentId, null, null);
+        }
     }
 
     /** DTO for StringFragment - contains text content with description and syntax style. */
