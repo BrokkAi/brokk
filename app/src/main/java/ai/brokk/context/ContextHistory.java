@@ -488,6 +488,8 @@ public class ContextHistory {
         if (ac != null) {
             ac.groupId = groupId;
             ac.groupLabel = groupLabel;
+        } else {
+            throw new IllegalStateException("Context not found: " + contextId);
         }
     }
 
@@ -522,6 +524,8 @@ public class ContextHistory {
         var ac = findAnnotatedContext(contextId);
         if (ac != null) {
             ac.gitState = gitState;
+        } else {
+            throw new IllegalStateException("Context not found: " + contextId);
         }
     }
 
@@ -551,6 +555,8 @@ public class ContextHistory {
         var ac = findAnnotatedContext(contextId);
         if (ac != null) {
             ac.entryInfo = info;
+        } else {
+            throw new IllegalStateException("Context not found: " + contextId);
         }
     }
 
