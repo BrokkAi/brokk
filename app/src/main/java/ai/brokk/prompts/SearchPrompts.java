@@ -331,7 +331,7 @@ public class SearchPrompts {
         }
         if (objective.terminals().contains(Terminal.CODE)) {
             finals.add(
-                    "- Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
+                    "- Use callCodeAgent(String instructions) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
         }
         finals.add(
                 "- If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.");
@@ -487,7 +487,7 @@ public class SearchPrompts {
                     Either deliver a written answer, solve the problem by invoking Code Agent, or decompose the problem into a task list.
                     In all cases, find and add appropriate source context to the Workspace so that you do not have to guess. Then,
                       - Prefer answer(String) when no code changes are needed.
-                      - Prefer callCodeAgent(String, boolean) if the requested change is small.
+                      - Prefer callCodeAgent(String) if the requested change is small.
                       - Otherwise, decompose the problem with createOrReplaceTaskList(String explanation, List<String> tasks); do not attempt to write code yet.
                     """);
         };
