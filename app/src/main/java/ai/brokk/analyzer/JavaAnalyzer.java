@@ -161,15 +161,15 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 final TSNode nameNode = maybeDeclaration.getNamedChild(i);
                 if (nameNode != null && !nameNode.isNull()) {
                     String type = nameNode.getType();
-                    if ("annotation".equals(type) || "marker_annotation".equals(type)) {
-                        continue;
+                    // In Java, the package name is an identifier or a scoped_identifier.
+                    // Annotations may also be present in the package_declaration (e.g. package-info.java).
+                    if ("identifier".equals(type) || "scoped_identifier".equals(type)) {
+                        String nsPart = textSlice.apply(nameNode, sourceContent);
+                        namespaceParts.add(nsPart);
                     }
-                    String nsPart = textSlice.apply(nameNode, sourceContent);
-                    namespaceParts.add(nsPart);
                 }
             }
         }
-        Collections.reverse(namespaceParts);
         return String.join(".", namespaceParts);
     }
 
