@@ -98,31 +98,31 @@ class DtoMapperChatMessageDtoTest {
     }
 
     @Test
-    void testCustomMessage_ToDto_And_FromDto_RoundTrip_PreservesAttributes() {
-        Map<String, Object> attrs = new HashMap<>();
-        attrs.put("terminal", "true");
-        attrs.put("content", "Hello from custom");
-        CustomMessage original = new CustomMessage(attrs);
+        void testCustomMessage_ToDto_And_FromDto_RoundTrip_PreservesAttributes() {
+            Map<String, Object> attrs = new HashMap<>();
+            attrs.put("terminal", true);  // Boolean, not String
+            attrs.put("content", "Hello from custom");
+            CustomMessage original = new CustomMessage(attrs);
 
-        ContentWriter writer = new ContentWriter();
-        ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
+            ContentWriter writer = new ContentWriter();
+            ChatMessageDto dto = DtoMapper.toChatMessageDto(original, writer);
 
-        assertEquals("custom", dto.role());
-        assertNotNull(dto.contentId());
-        assertNull(dto.reasoningContentId());
-        assertEquals(Map.of("terminal", "true"), dto.attributes());
+            assertEquals("custom", dto.role());
+            assertNotNull(dto.contentId());
+            assertNull(dto.reasoningContentId());
+            assertEquals(Map.of("terminal", true, "content", "Hello from custom"), dto.attributes());
 
-        ContentReader reader = createReaderFromWriter(writer);
-        ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
+            ContentReader reader = createReaderFromWriter(writer);
+            ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
 
-        assertInstanceOf(CustomMessage.class, reconstructed);
-        CustomMessage custom = (CustomMessage) reconstructed;
+            assertInstanceOf(CustomMessage.class, reconstructed);
+            CustomMessage custom = (CustomMessage) reconstructed;
 
-        assertEquals("Hello from custom", reader.readContent(dto.contentId()));
+            assertEquals("Hello from custom", reader.readContent(dto.contentId()));
 
-        assertEquals("true", custom.attributes().get("terminal"));
-        assertEquals("Hello from custom", custom.attributes().get("content"));
-    }
+            assertEquals(true, custom.attributes().get("terminal"));
+            assertEquals("Hello from custom", custom.attributes().get("content"));
+        }
 
     // ===== Helper Methods =====
 
