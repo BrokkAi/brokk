@@ -627,7 +627,7 @@ Build the shadow JAR:
 Run the JAR:
 
 ```bash
-java -co app/build/libs/brokk-<version>.jar \
+java -cp app/build/libs/brokk-<version>.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \
