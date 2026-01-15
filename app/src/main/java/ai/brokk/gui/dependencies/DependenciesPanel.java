@@ -2,6 +2,7 @@ package ai.brokk.gui.dependencies;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.IContextManager;
 import ai.brokk.analyzer.NodeJsDependencyHelper;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.BorderUtils;
@@ -50,7 +51,7 @@ import org.jetbrains.annotations.Nullable;
  * Reusable panel for viewing and managing project dependencies. This is a refactoring of the ManageDependenciesDialog
  * content into a JPanel.
  */
-public final class DependenciesPanel extends JPanel {
+public final class DependenciesPanel extends JPanel implements IContextManager.AnalyzerCallback {
 
     public static interface DependencyLifecycleListener {
         void dependencyImportStarted(String name);
@@ -560,7 +561,21 @@ public final class DependenciesPanel extends JPanel {
     @Override
     public void addNotify() {
         super.addNotify();
+        chrome.getContextManager().addAnalyzerCallback(this);
         ensureInitialized();
+    }
+
+    @Override
+    public void removeNotify() {
+        chrome.getContextManager().removeAnalyzerCallback(this);
+        super.removeNotify();
+    }
+
+    @Override
+    public void afterEachBuild(boolean externalRequest) {
+        if (externalRequest) {
+            reloadDependencies();
+        }
     }
 
     private void addPendingDependencyRow(String name) {

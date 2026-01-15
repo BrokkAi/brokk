@@ -150,8 +150,6 @@ public class DependencyTools {
             var analyzerWrapper = contextManager.getAnalyzerWrapper();
             contextManager.getProject().addLiveDependency(depName, analyzerWrapper).join();
             logger.info("Successfully added {} to live dependencies", depName);
-            // Refresh the Dependencies panel UI
-            contextManager.getIo().reloadDependencies();
             intelligenceStatus = "The library has been added to live dependencies and Code Intelligence is updating.";
         } catch (Exception e) {
             logger.error("Failed to add live dependency: {}", depName, e);
