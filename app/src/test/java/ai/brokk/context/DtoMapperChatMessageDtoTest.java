@@ -100,7 +100,7 @@ class DtoMapperChatMessageDtoTest {
     @Test
     void testCustomMessage_ToDto_And_FromDto_RoundTrip_PreservesAttributes() {
         Map<String, Object> attrs = new HashMap<>();
-        attrs.put("terminal", true); // Boolean, not String
+        attrs.put("customFlag", true); // Boolean, not String
         attrs.put("text", "Hello from custom"); // Use "text" key - this is extracted to contentId
         CustomMessage original = new CustomMessage(attrs);
 
@@ -111,7 +111,7 @@ class DtoMapperChatMessageDtoTest {
         assertNotNull(dto.contentId());
         assertNull(dto.reasoningContentId());
         // "text" should NOT be in attributes - it's stored via contentId
-        assertEquals(Map.of("terminal", true), dto.attributes());
+        assertEquals(Map.of("customFlag", true), dto.attributes());
 
         ContentReader reader = createReaderFromWriter(writer);
         ChatMessage reconstructed = DtoMapper.fromChatMessageDto(dto, reader);
@@ -124,7 +124,7 @@ class DtoMapperChatMessageDtoTest {
 
         // Verify "text" is restored into the reconstructed CustomMessage
         assertEquals("Hello from custom", custom.attributes().get("text"));
-        assertEquals(true, custom.attributes().get("terminal"));
+        assertEquals(true, custom.attributes().get("customFlag"));
     }
 
     // ===== Helper Methods =====
