@@ -154,27 +154,33 @@ public final class JobRunner {
                 var hasCodeModelOverride = trimmedCodeModelName != null;
 
                 final StreamingChatModel architectPlannerModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
-                        ? resolveModelOrThrow(spec, spec.plannerModel())
+                        ? resolveModelOrThrow(spec, spec.plannerModel(), spec.reasoningLevel())
                         : null;
                 final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
                         ? (trimmedCodeModelName != null
-                                ? resolveModelOrThrow(spec, trimmedCodeModelName)
+                                ? resolveModelOrThrow(spec, trimmedCodeModelName, spec.reasoningLevelCode())
                                 : defaultCodeModel(spec))
                         : null;
-                final StreamingChatModel reviewPlannerModel =
-                        mode == Mode.REVIEW ? resolveModelOrThrow(spec, spec.plannerModel()) : null;
+                final StreamingChatModel reviewPlannerModel = mode == Mode.REVIEW
+                        ? resolveModelOrThrow(spec, spec.plannerModel(), spec.reasoningLevel())
+                        : null;
                 // Resolve scan model for REVIEW mode (prefer explicit spec.scanModel() if provided; otherwise project
                 // default)
                 final StreamingChatModel reviewScanModel = mode == Mode.REVIEW
                         ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? resolveModelOrThrow(spec, spec.scanModel().trim())
+                                ? resolveModelOrThrow(
+                                        spec, spec.scanModel().trim(), spec.reasoningLevel())
                                 : defaultScanModel(spec))
                         : null;
-                final StreamingChatModel askPlannerModel =
-                        mode == Mode.ASK || mode == Mode.ISSUE ? resolveModelOrThrow(spec, spec.plannerModel()) : null;
+                final StreamingChatModel askPlannerModel = mode == Mode.ASK || mode == Mode.ISSUE
+                        ? resolveModelOrThrow(spec, spec.plannerModel(), spec.reasoningLevel())
+                        : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
-                                ? resolveModelOrThrow(spec, Objects.requireNonNull(trimmedCodeModelName))
+                                ? resolveModelOrThrow(
+                                        spec,
+                                        Objects.requireNonNull(trimmedCodeModelName),
+                                        spec.reasoningLevelCode())
                                 : defaultCodeModel(spec))
                         : null;
 
@@ -184,7 +190,8 @@ public final class JobRunner {
                 // otherwise project default)
                 final StreamingChatModel searchPlannerModel = mode == Mode.SEARCH
                         ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? resolveModelOrThrow(spec, spec.scanModel().trim())
+                                ? resolveModelOrThrow(
+                                        spec, spec.scanModel().trim(), spec.reasoningLevel())
                                 : defaultScanModel(spec))
                         : null;
 
@@ -373,7 +380,8 @@ public final class JobRunner {
                                                 StreamingChatModel scanModelToUse = null;
                                                 try {
                                                     scanModelToUse = !trimmedScanModel.isEmpty()
-                                                            ? resolveModelOrThrow(spec, trimmedScanModel)
+                                                            ? resolveModelOrThrow(
+                                                                    spec, trimmedScanModel, spec.reasoningLevel())
                                                             : defaultScanModel(spec);
                                                 } catch (IllegalArgumentException iae) {
                                                     // resolveModelOrThrow may throw; log and continue without
@@ -522,7 +530,8 @@ public final class JobRunner {
                                             String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
                                             final StreamingChatModel scanModelToUse =
                                                     (trimmedScanModel != null && !trimmedScanModel.isEmpty())
-                                                            ? resolveModelOrThrow(spec, trimmedScanModel)
+                                                            ? resolveModelOrThrow(
+                                                                    spec, trimmedScanModel, spec.reasoningLevel())
                                                             : defaultScanModel(spec);
 
                                             // SearchAgent now handles scanning internally via execute()
@@ -1097,9 +1106,10 @@ public final class JobRunner {
     private record AppliedOverrides(
             Service.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {}
 
-    private AppliedOverrides applyOverrides(JobSpec spec, Service.ModelConfig baseConfig) {
+    private AppliedOverrides applyOverrides(
+            JobSpec spec, Service.ModelConfig baseConfig, @Nullable String reasoningLevelOverride) {
         Service.ReasoningLevel reasoning =
-                Service.ReasoningLevel.fromString(spec.reasoningLevel(), baseConfig.reasoning());
+                Service.ReasoningLevel.fromString(reasoningLevelOverride, baseConfig.reasoning());
 
         var config = reasoning == baseConfig.reasoning()
                 ? baseConfig
@@ -1117,10 +1127,11 @@ public final class JobRunner {
         return new AppliedOverrides(config, parametersOverride);
     }
 
-    private StreamingChatModel resolveModelOrThrow(JobSpec spec, String name) {
+    private StreamingChatModel resolveModelOrThrow(
+            JobSpec spec, String name, @Nullable String reasoningLevelOverride) {
         var service = cm.getService();
 
-        var applied = applyOverrides(spec, new Service.ModelConfig(name));
+        var applied = applyOverrides(spec, new Service.ModelConfig(name), reasoningLevelOverride);
         var model = service.getModel(applied.config(), applied.parametersOverride());
         if (model == null) {
             throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
@@ -1128,10 +1139,11 @@ public final class JobRunner {
         return model;
     }
 
-    private StreamingChatModel resolveModelOrThrow(JobSpec spec, Service.ModelConfig baseConfig) {
+    private StreamingChatModel resolveModelOrThrow(
+            JobSpec spec, Service.ModelConfig baseConfig, @Nullable String reasoningLevelOverride) {
         var service = cm.getService();
 
-        var applied = applyOverrides(spec, baseConfig);
+        var applied = applyOverrides(spec, baseConfig, reasoningLevelOverride);
         var model = service.getModel(applied.config(), applied.parametersOverride());
         if (model == null) {
             throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + baseConfig.name());
@@ -1142,13 +1154,13 @@ public final class JobRunner {
     private StreamingChatModel defaultCodeModel(JobSpec spec) {
         var service = cm.getService();
         var baseConfig = Service.ModelConfig.from(cm.getCodeModel(), service);
-        return resolveModelOrThrow(spec, baseConfig);
+        return resolveModelOrThrow(spec, baseConfig, spec.reasoningLevelCode());
     }
 
     private StreamingChatModel defaultScanModel(JobSpec spec) {
         var service = cm.getService();
         var baseConfig = Service.ModelConfig.from(service.getScanModel(), service);
-        return resolveModelOrThrow(spec, baseConfig);
+        return resolveModelOrThrow(spec, baseConfig, spec.reasoningLevel());
     }
 
     /**
