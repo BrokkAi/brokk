@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "@iconify/svelte";
   import CodeBlockShell from "./CodeBlockShell.svelte";
   import type { BubbleState } from "../types";
 
@@ -65,6 +66,11 @@
     >
       <code class="terminal" bind:this={codeElem}></code>
     </pre>
+    {#if bubble.streaming}
+      <div class="terminal-status">
+        <Icon icon="mdi:loading" class="spin-icon" />
+      </div>
+    {/if}
   </svelte:fragment>
 </CodeBlockShell>
 
@@ -87,5 +93,29 @@
   .terminal {
     white-space: pre;
     display: inline;
+  }
+
+  .terminal-status {
+    position: absolute;
+    bottom: 8px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    color: var(--shiki-foreground);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+
+  :global(.spin-icon) {
+    animation: spin 1.5s linear infinite;
+  }
+
+  @keyframes spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>
