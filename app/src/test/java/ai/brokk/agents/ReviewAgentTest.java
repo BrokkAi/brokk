@@ -111,7 +111,7 @@ class ReviewAgentTest {
         IContextManager cm = new TestContextManager(project);
 
         // Smoke test: should handle "HEAD" ref without crashing
-        var ctx = ReviewAgent.ReviewContext.fromBaseline(cm, "HEAD");
+        var ctx = ReviewScope.fromBaseline(cm, "HEAD");
         assertNotNull(ctx);
         assertTrue(ctx.changes().perFileChanges().isEmpty());
         project.close();
@@ -123,7 +123,7 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
 
-        var overlapping = ReviewAgent.ReviewContext.findOverlappingSessions(cm, List.of());
+        var overlapping = ReviewScope.findOverlappingSessions(cm, List.of());
 
         assertTrue(overlapping.isEmpty(), "Empty commits list should return empty overlapping sessions");
     }

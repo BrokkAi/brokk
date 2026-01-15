@@ -7,6 +7,7 @@ import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.agents.ReviewAgent;
 import ai.brokk.agents.ReviewGenerationException;
+import ai.brokk.agents.ReviewScope;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
@@ -363,7 +364,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // Kick off async computation
         LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState();
-                    var reviewCtx = ReviewAgent.ReviewContext.fromBaseline(contextManager, state.resolvedLeftRef());
+                    var reviewCtx = ReviewScope.fromBaseline(contextManager, state.resolvedLeftRef());
                     return new ComputedUpdate(state, reviewCtx);
                 })
                 .thenAccept(computed -> {
@@ -396,7 +397,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 });
     }
 
-    private record ComputedUpdate(BaselineState state, ReviewAgent.ReviewContext ctx) {}
+    private record ComputedUpdate(BaselineState state, ReviewScope ctx) {}
 
     private record BaselineState(BaselineMode baselineMode, String baselineLabel, String resolvedLeftRef) {}
 
@@ -852,7 +853,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     @Blocking
-    private void ensureReviewSession(ReviewAgent.ReviewContext reviewCtx) {
+    private void ensureReviewSession(ReviewScope reviewCtx) {
         // Check if any overlapping session is already active
         UUID currentId = contextManager.getCurrentSessionId();
         if (reviewCtx.sessionIds().contains(currentId)) {
@@ -895,7 +896,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // We use the same resolution logic as requestUpdate to get the correct resolved ref
         LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState();
-                    return ReviewAgent.ReviewContext.fromBaseline(contextManager, state.resolvedLeftRef());
+                    return ReviewScope.fromBaseline(contextManager, state.resolvedLeftRef());
                 })
                 .thenAccept(this::generateGuidedReviewAsync);
     }
@@ -904,18 +905,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      * Core review generation logic that accepts explicit parameters.
      * This allows callers to provide their own computed data rather than relying on cached state.
      */
-    private void generateGuidedReviewAsync(ReviewAgent.ReviewContext reviewCtx) {
+    private void generateGuidedReviewAsync(ReviewScope scope) {
         LoggingFuture.supplyAsync(() -> {
             // these are broken out separately to avoid deadlock (they both want to run on the exclusive UAM thread)
-            ensureReviewSession(reviewCtx);
-            generateGuidedReviewInternal(reviewCtx);
+            ensureReviewSession(scope);
+            generateGuidedReviewInternal(scope);
         });
     }
 
-    private void generateGuidedReviewInternal(ReviewAgent.ReviewContext reviewCtx) {
+    private void generateGuidedReviewInternal(ReviewScope scope) {
         contextManager.submitLlmAction(() -> {
             try {
-                var agent = new ReviewAgent(reviewCtx.changes(), reviewCtx.sessionIds(), contextManager);
+                var agent = new ReviewAgent(scope, contextManager);
 
                 agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
                     guidedReviewBtn.setProgress(p);
@@ -1081,7 +1082,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         guidedReviewBtn.setProgress(0);
 
         // Run the review with the explicitly computed data
-        LoggingFuture.supplyCallableAsync(() -> ReviewAgent.ReviewContext.fromBaseline(contextManager, parentId))
+        LoggingFuture.supplyCallableAsync(() -> ReviewScope.fromBaseline(contextManager, parentId))
                 .thenAccept(this::generateGuidedReviewAsync)
                 .exceptionally(ex -> {
                     logger.error("Failed to prepare commit range review", ex);
