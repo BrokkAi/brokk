@@ -240,14 +240,14 @@ public class ContextHistoryTest {
         var history = new ContextHistory(ctx1);
 
         // 2. Second state: file with "version 2"
-        history.liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+        history.liveContext().awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         Files.writeString(pf.absPath(), "version 2");
         var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null);
         history.pushContext(ctx2); // This should trigger snapshot of ctx1
 
         // 3. External change: file is now "version 3"
-        history.liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+        history.liveContext().awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         Files.writeString(pf.absPath(), "version 3");
         assertEquals("version 3", Files.readString(pf.absPath()), "File should have external changes before undo");
 

@@ -1846,7 +1846,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     @Blocking
     public <T> T withContextResolvedAndWatcherPaused(Callable<T> callable) throws InterruptedException {
         requireNonNull(analyzerWrapper).pause();
-        liveContext().awaitContextsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+        liveContext().awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         try {
             return callable.call();
         } catch (InterruptedException e) {
