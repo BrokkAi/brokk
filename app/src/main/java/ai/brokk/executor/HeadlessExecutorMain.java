@@ -26,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -48,6 +49,16 @@ public final class HeadlessExecutorMain {
     // Valid argument keys that the application accepts
     private static final Set<String> VALID_ARGS =
             Set.of("exec-id", "listen-addr", "auth-token", "workspace-dir", "brokk-api-key", "proxy-setting", "help");
+
+    private static final ai.brokk.AbstractService.ReasoningLevel[] REASONING_LEVEL_VALUES =
+            ai.brokk.AbstractService.ReasoningLevel.values();
+
+    private static final Set<String> ALLOWED_REASONING_LEVELS = Arrays.stream(REASONING_LEVEL_VALUES)
+            .map(Enum::name)
+            .collect(Collectors.toUnmodifiableSet());
+
+    private static final String ALLOWED_REASONING_LEVELS_LIST =
+            Arrays.stream(REASONING_LEVEL_VALUES).map(Enum::name).collect(Collectors.joining(", "));
 
     private final UUID execId;
     private final SimpleHttpServer server;
@@ -909,15 +920,8 @@ public final class HeadlessExecutorMain {
             if (reasoningLevelRaw != null && !reasoningLevelRaw.isBlank()) {
                 var normalized = reasoningLevelRaw.strip().toUpperCase(Locale.ROOT);
 
-                var allowed = java.util.Arrays.stream(ai.brokk.AbstractService.ReasoningLevel.values())
-                        .map(Enum::name)
-                        .collect(java.util.stream.Collectors.toSet());
-
-                if (!allowed.contains(normalized)) {
-                    var allowedList = java.util.Arrays.stream(ai.brokk.AbstractService.ReasoningLevel.values())
-                            .map(Enum::name)
-                            .collect(java.util.stream.Collectors.joining(", "));
-                    sendValidationError(exchange, "reasoningLevel must be one of: " + allowedList);
+                if (!ALLOWED_REASONING_LEVELS.contains(normalized)) {
+                    sendValidationError(exchange, "reasoningLevel must be one of: " + ALLOWED_REASONING_LEVELS_LIST);
                     return;
                 }
 
