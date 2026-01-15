@@ -4,7 +4,6 @@ import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
-import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.SessionManager;
@@ -65,7 +64,6 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 import org.jspecify.annotations.NullMarked;
 
 /**
@@ -93,17 +91,15 @@ public class ReviewAgent {
     }
 
     private final IContextManager cm;
-    private final IConsoleIO io;
     private @Nullable Context contextBeingBuilt;
     private boolean isComplex = false;
 
     private record ContextSetupResult(Context context, boolean isComplex) {}
 
-    public ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm, IConsoleIO io) {
+    public ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm) {
         this.changes = changes;
         this.sessionIds = sessionIds;
         this.cm = cm;
-        this.io = io;
     }
 
     public record ReviewContext(CumulativeChanges changes, List<UUID> sessionIds) {
@@ -188,11 +184,6 @@ public class ReviewAgent {
         }
     }
 
-    @TestOnly
-    ReviewAgent(IContextManager cm, IConsoleIO io, List<FileDiff> fileDiffs) {
-        this(new CumulativeChanges(0, 0, 0, fileDiffs, List.of()), List.of(), cm, io);
-    }
-
     private @Nullable ProgressUpdater progressUpdater;
 
     public void setProgressUpdater(@Nullable ProgressUpdater updater) {
@@ -239,7 +230,6 @@ public class ReviewAgent {
                     setupResult.isComplex() ? ModelType.ARCHITECT.defaultConfig() : ModelType.SCAN.defaultConfig();
             var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
-            turn1Llm.setOutput(io);
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
             long turn1Start = System.currentTimeMillis();
@@ -267,8 +257,8 @@ public class ReviewAgent {
                         }
                     }
                 };
-
                 turn1Llm.setOutput(progressConsole);
+
                 turn1Result = turn1Llm.sendRequest(turn1Messages);
                 if (turn1Result.error() == null) {
                     break;
@@ -349,7 +339,6 @@ public class ReviewAgent {
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
         var scanModel = cm.getService().getModel(ModelType.SCAN);
         var llm = cm.getLlm(scanModel, "Review Context Selection");
-        llm.setOutput(io);
 
         var messages = new ArrayList<ChatMessage>();
         messages.add(buildSystemMessage());
@@ -506,7 +495,6 @@ public class ReviewAgent {
                     """
                             .formatted(errorList)));
 
-            llm.setOutput(io);
             currentResult = llm.sendRequest(retryFileMessages);
             totalRetries++;
             if (currentResult.error() != null) {
@@ -614,7 +602,6 @@ public class ReviewAgent {
                     """
                             .formatted(errorList)));
 
-            llm.setOutput(io);
             Llm.StreamingResult textResult = llm.sendRequest(retryTextMessages);
             totalRetries++;
             if (textResult.error() != null) {
@@ -668,8 +655,7 @@ public class ReviewAgent {
         return new RetryResult(matchedExcerpts, totalRetries, mergedResponseText);
     }
 
-    private String correctFailedNotes(Llm llm, String responseText, List<ReviewParser.NoteValidationError> errors)
-            throws InterruptedException {
+    private String correctFailedNotes(Llm llm, String responseText, List<ReviewParser.NoteValidationError> errors) {
         Map<String, List<String>> errorsByNote = errors.stream()
                 .collect(Collectors.groupingBy(
                         ReviewParser.NoteValidationError::title,
@@ -693,7 +679,6 @@ public class ReviewAgent {
                         LoggingFuture.supplyAsync(
                                 () -> {
                                     Llm correctionLlm = cm.getLlm(llm.getModel(), "Note Correction");
-                                    correctionLlm.setOutput(io);
                                     String currentNote = noteSection;
                                     List<String> currentIssues = initialIssues;
 

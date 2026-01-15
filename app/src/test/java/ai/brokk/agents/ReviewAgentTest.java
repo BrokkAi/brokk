@@ -142,7 +142,7 @@ class ReviewAgentTest {
         var d2 = new FileDiff(f2, f2, "content2", "content2");
 
         var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
-        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm, cm.getIo());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Turn 1: Excerpt for file1 is good (index 0), Excerpt for wrong.java is bad (index 1)
         String resp1 =
@@ -189,7 +189,7 @@ class ReviewAgentTest {
         TestProject project = new TestProject(tempDir);
         IContextManager cm = new TestContextManager(project);
         var changes = new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of());
-        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm, cm.getIo());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Always return the same bad excerpt
         String badResp =
@@ -236,7 +236,7 @@ class ReviewAgentTest {
         var d1 = new FileDiff(f1, f1, "content1", "content1");
 
         var changes = new DiffService.CumulativeChanges(1, 0, 0, List.of(d1), List.of());
-        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm, cm.getIo());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Path is bad initially
         String resp1 = "At `bad.java` line 1:\n```\nc1\n```";
@@ -266,7 +266,7 @@ class ReviewAgentTest {
         ProjectFile f = new ProjectFile(tempDir, "file.java");
         var diff = new FileDiff(f, f, "line1\nline2\nline3\nline4", "line1\nline2-new\nline3\nline4");
         var changes = new DiffService.CumulativeChanges(1, 1, 1, List.of(diff), List.of());
-        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm, cm.getIo());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // 1. Content normalization (excerpt has \r\n, file has \n - WhitespaceMatch handles this)
         String resp1 =
@@ -335,7 +335,7 @@ class ReviewAgentTest {
         var d2 = new FileDiff(f2, f2, "public class Fixed {}", "public class Fixed {}");
 
         var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
-        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm, cm.getIo());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Initial response: good.java is good, bad.java has bad path
         String resp1 =
@@ -387,7 +387,7 @@ class ReviewAgentTest {
         var d2 = new FileDiff(f2, f2, "content2", "content2");
 
         var changes = new DiffService.CumulativeChanges(2, 0, 0, List.of(d1, d2), List.of());
-        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm, cm.getIo());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Scenario: Text, Excerpt for file1 (Good), Text, Excerpt for missing.java (Bad Path), Text
         String resp1 =
@@ -444,7 +444,7 @@ class ReviewAgentTest {
         ProjectFile f = new ProjectFile(tempDir, "file.java");
         var diff = new FileDiff(f, f, "line1\nline2", "line1\nline2");
         var changes = new DiffService.CumulativeChanges(1, 0, 0, List.of(diff), List.of());
-        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm, cm.getIo());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Valid response with proper recommendation
         String resp1 = "## Overview\n" + "Some overview.\n"
@@ -478,7 +478,7 @@ class ReviewAgentTest {
         ProjectFile f = new ProjectFile(tempDir, "file.java");
         var diff = new FileDiff(f, f, "line1\nline2\nline3", "line1\nline2\nline3");
         var changes = new DiffService.CumulativeChanges(1, 0, 0, List.of(diff), List.of());
-        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm, cm.getIo());
+        ReviewAgent agent = new ReviewAgent(changes, List.of(), cm);
 
         // Turn 1: badpath.java doesn't exist
         String resp1 =
