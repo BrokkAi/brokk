@@ -1,9 +1,11 @@
 package ai.brokk.gui.mop.webview;
 
 import ai.brokk.util.Environment;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.logging.log4j.LogManager;
@@ -35,6 +37,17 @@ public class JCefSetup {
         // Dark background to reduce flash while loading
         settings.background_color = settings.new ColorType(0xFF, 37, 37, 37);
 
+        // Set a unique cache path to prevent conflicts with other CEF apps
+        // This avoids "unintended process singleton behavior" warnings/crashes
+        String userHome = System.getProperty("user.home");
+        if (userHome != null) {
+            // Use a hash of the app path to keep different installations separate
+            String appPathHash = getAppPathHash();
+            Path cacheDir = Paths.get(userHome, ".brokk", "cef-cache", appPathHash);
+            settings.cache_path = cacheDir.toString();
+            logger.info("Set CEF cache path to: {}", cacheDir);
+        }
+
         // Build command-line arguments for CEF
         List<String> args = new ArrayList<>();
 
@@ -65,6 +78,36 @@ public class JCefSetup {
      */
     public static CefApp createCefApp() {
         return createCefApp(null);
+    }
+
+    /**
+     * Generates a short hash from the jdeploy.app.path system property to create
+     * unique cache directories for different app installations.
+     *
+     * @return a short hash string, or "default" if no app path is set
+     */
+    private static String getAppPathHash() {
+        String appPath = System.getProperty("jdeploy.app.path");
+        if (appPath == null || appPath.isEmpty()) {
+            logger.debug("jdeploy.app.path not set, using default cache path");
+            return "default";
+        }
+
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(appPath.getBytes(StandardCharsets.UTF_8));
+            // Use first 8 bytes (16 hex chars) for a reasonably unique but short hash
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < 8; i++) {
+                sb.append(String.format("%02x", hash[i]));
+            }
+            String hashStr = sb.toString();
+            logger.debug("Generated cache hash {} for app path: {}", hashStr, appPath);
+            return hashStr;
+        } catch (Exception e) {
+            logger.warn("Failed to generate hash for app path, using default", e);
+            return "default";
+        }
     }
 
     /**
