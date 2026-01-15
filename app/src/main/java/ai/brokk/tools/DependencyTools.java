@@ -91,6 +91,9 @@ public class DependencyTools {
 
         if (parts.length == 3) {
             version = parts[2].trim();
+            if (version.isEmpty()) {
+                return "Invalid coordinates: version cannot be empty";
+            }
             logger.debug("Using provided version: {}", version);
         } else {
             // Resolve latest version from Maven Central
