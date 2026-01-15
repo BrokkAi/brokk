@@ -41,13 +41,29 @@ public class ContextHistory {
 
     public record ContextHistoryEntryInfo(List<DeletedFile> deletedFiles) {}
 
-    private final Deque<Context> history = new ArrayDeque<>();
-    private final Deque<Context> redo = new ArrayDeque<>();
+    private static class AnnotatedContext {
+        final Context context;
+
+        @Nullable
+        GitState gitState;
+
+        @Nullable
+        ContextHistoryEntryInfo entryInfo;
+
+        @Nullable
+        UUID groupId;
+
+        @Nullable
+        String groupLabel;
+
+        AnnotatedContext(Context context) {
+            this.context = context;
+        }
+    }
+
+    private final Deque<AnnotatedContext> history = new ArrayDeque<>();
+    private final Deque<AnnotatedContext> redo = new ArrayDeque<>();
     private final List<ResetEdge> resetEdges = new ArrayList<>();
-    private final Map<UUID, GitState> gitStates = new HashMap<>();
-    private final Map<UUID, ContextHistoryEntryInfo> entryInfos = new HashMap<>();
-    private final Map<UUID, UUID> contextToGroupId = new HashMap<>();
-    private final Map<UUID, String> groupLabels = new HashMap<>();
 
     /**
      * Tracks the ID of the last context created by an external file change to handle continuations.
@@ -94,20 +110,28 @@ public class ContextHistory {
         if (contexts.isEmpty()) {
             throw new IllegalArgumentException("Cannot initialize ContextHistory from empty list of contexts");
         }
-        history.addAll(contexts);
+        for (Context ctx : contexts) {
+            AnnotatedContext ac = new AnnotatedContext(ctx);
+            ac.gitState = gitStates.get(ctx.id());
+            ac.entryInfo = entryInfos.get(ctx.id());
+            ac.groupId = contextToGroupId.get(ctx.id());
+            if (ac.groupId != null) {
+                ac.groupLabel = groupLabels.get(ac.groupId);
+            }
+            history.add(ac);
+        }
         this.resetEdges.addAll(resetEdges);
-        this.gitStates.putAll(gitStates);
-        this.entryInfos.putAll(entryInfos);
-        this.contextToGroupId.putAll(contextToGroupId);
-        this.groupLabels.putAll(groupLabels);
-        selected = history.peekLast();
+
+        AnnotatedContext last = history.peekLast();
+        selected = last != null ? last.context : null;
+
         this.diffService = new DiffService(this);
     }
 
     private synchronized Context replaceTopInternal(Context newLive) {
         assert !history.isEmpty() : "Cannot replace top context in empty history";
         history.removeLast();
-        history.addLast(newLive);
+        history.addLast(new AnnotatedContext(newLive));
         redo.clear();
         selected = newLive;
         return newLive;
@@ -119,14 +143,14 @@ public class ContextHistory {
      * Immutable view (oldest → newest).
      */
     public synchronized List<Context> getHistory() {
-        return List.copyOf(history);
+        return history.stream().map(ac -> ac.context).toList();
     }
 
     /**
      * Latest context or {@code null} when uninitialised.
      */
     public synchronized Context liveContext() {
-        return castNonNull(history.peekLast());
+        return castNonNull(history.peekLast()).context;
     }
 
     public synchronized boolean hasUndoStates() {
@@ -162,7 +186,7 @@ public class ContextHistory {
                     "Attempted to select context {} not present in history (history size: {}, available contexts: {})",
                     ctx == null ? "null" : ctx,
                     history.size(),
-                    history.stream().map(Context::toString).collect(Collectors.joining(", ")));
+                    history.stream().map(ac -> ac.context.toString()).collect(Collectors.joining(", ")));
         }
         return false;
     }
@@ -246,11 +270,11 @@ public class ContextHistory {
      */
     public synchronized @Nullable Context previousOf(Context curr) {
         Context prev = null;
-        for (var c : history) {
-            if (c.equals(curr)) {
+        for (var ac : history) {
+            if (ac.context.equals(curr)) {
                 return prev;
             }
-            prev = c;
+            prev = ac.context;
         }
         return null;
     }
@@ -285,11 +309,11 @@ public class ContextHistory {
             // Snapshot the context before moving it to redo stack, as it was the live context
             // and its content might not be cached yet.
             try {
-                popped.awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
+                popped.context.awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
             } catch (InterruptedException e) {
                 logger.warn("Interrupted while waiting for undo state to complete.");
             }
-            resetEdges.removeIf(edge -> edge.targetId().equals(popped.id()));
+            resetEdges.removeIf(edge -> edge.targetId().equals(popped.context.id()));
             undoFileDeletions(io, project, popped);
             redo.addLast(popped);
         }
@@ -300,44 +324,42 @@ public class ContextHistory {
         return UndoResult.success(toUndo, changedFiles);
     }
 
-    private void undoFileDeletions(IConsoleIO io, IProject project, Context popped) {
-        getEntryInfo(popped.id()).ifPresent(info -> {
-            if (info.deletedFiles().isEmpty()) {
-                return;
-            }
+    private void undoFileDeletions(IConsoleIO io, IProject project, AnnotatedContext popped) {
+        if (popped.entryInfo == null) return;
+        var info = popped.entryInfo;
+        if (info.deletedFiles().isEmpty()) {
+            return;
+        }
 
-            var trackedToStage = new ArrayList<ProjectFile>();
+        var trackedToStage = new ArrayList<ProjectFile>();
 
-            for (var deletedFile : info.deletedFiles()) {
-                var pf = deletedFile.file();
-                try {
-                    pf.write(deletedFile.content());
-                    if (deletedFile.wasTracked()) {
-                        trackedToStage.add(pf);
-                    }
-                } catch (IOException e) {
-                    var msg = "Failed to restore deleted file during undo: " + pf;
-                    io.toolError(msg, "Undo Error");
-                    logger.error(msg, e);
+        for (var deletedFile : info.deletedFiles()) {
+            var pf = deletedFile.file();
+            try {
+                pf.write(deletedFile.content());
+                if (deletedFile.wasTracked()) {
+                    trackedToStage.add(pf);
                 }
+            } catch (IOException e) {
+                var msg = "Failed to restore deleted file during undo: " + pf;
+                io.toolError(msg, "Undo Error");
+                logger.error(msg, e);
             }
+        }
 
-            if (!trackedToStage.isEmpty() && project.hasGit()) {
-                try {
-                    project.getRepo().add(trackedToStage);
-                    io.showNotification(
-                            IConsoleIO.NotificationRole.INFO,
-                            "Restored and staged files: "
-                                    + trackedToStage.stream()
-                                            .map(Object::toString)
-                                            .collect(Collectors.joining(", ")));
-                } catch (Exception e) {
-                    var msg = "Failed to stage restored files during undo: " + e.getMessage();
-                    io.toolError(msg, "Undo Error");
-                    logger.error(msg, e);
-                }
+        if (!trackedToStage.isEmpty() && project.hasGit()) {
+            try {
+                project.getRepo().add(trackedToStage);
+                io.showNotification(
+                        IConsoleIO.NotificationRole.INFO,
+                        "Restored and staged files: "
+                                + trackedToStage.stream().map(Object::toString).collect(Collectors.joining(", ")));
+            } catch (Exception e) {
+                var msg = "Failed to stage restored files during undo: " + e.getMessage();
+                io.toolError(msg, "Undo Error");
+                logger.error(msg, e);
             }
-        });
+        }
     }
 
     public synchronized UndoResult undoUntil(@Nullable Context target, IConsoleIO io, IProject project) {
@@ -372,15 +394,16 @@ public class ContextHistory {
         history.addLast(popped);
         truncateHistory();
         selected = liveContext();
-        var changedFiles = applySnapshotToWorkspace(castNonNull(history.peekLast()), io);
+        var changedFiles = applySnapshotToWorkspace(liveContext(), io);
         // Start computing diffs for the live context post-redo
         diffService.diff(selected);
         redoFileDeletions(io, project, popped);
         return RedoResult.success(changedFiles);
     }
 
-    private void redoFileDeletions(IConsoleIO io, IProject project, Context popped) {
-        getEntryInfo(popped.id()).ifPresent(info -> {
+    private void redoFileDeletions(IConsoleIO io, IProject project, AnnotatedContext popped) {
+        if (popped.entryInfo != null) {
+            var info = popped.entryInfo;
             var filesToDelete =
                     info.deletedFiles().stream().map(DeletedFile::file).toList();
             if (!filesToDelete.isEmpty()) {
@@ -403,7 +426,7 @@ public class ContextHistory {
                     logger.error("Failed to delete files during redo", e);
                 }
             }
-        });
+        }
     }
 
     /* ────────────────────────── private helpers ─────────────────────────── */
@@ -411,41 +434,42 @@ public class ContextHistory {
     private void truncateHistory() {
         while (history.size() > MAX_DEPTH) {
             var removed = history.removeFirst();
-            gitStates.remove(removed.id());
-            entryInfos.remove(removed.id());
-            contextToGroupId.remove(removed.id());
             var historyIds = getContextIds();
             resetEdges.removeIf(edge -> !historyIds.contains(edge.sourceId()) || !historyIds.contains(edge.targetId()));
             if (logger.isDebugEnabled()) {
-                logger.debug("Truncated history (removed oldest context: {})", removed);
+                logger.debug("Truncated history (removed oldest context: {})", removed.context);
             }
         }
-        // Clean up orphaned group labels (groups no longer referenced by any context)
-        var referencedGroupIds = new HashSet<>(contextToGroupId.values());
-        groupLabels.keySet().removeIf(groupId -> !referencedGroupIds.contains(groupId));
     }
 
     /**
      * Internal helper to push a context with control over whether to capture a snapshot immediately.
      */
     private synchronized void pushContextInternal(Context ctx) {
-        history.addLast(ctx);
+        history.addLast(new AnnotatedContext(ctx));
         truncateHistory();
         redo.clear();
         selected = ctx;
     }
 
     private Set<UUID> getContextIds() {
-        return history.stream().map(Context::id).collect(Collectors.toSet());
+        return history.stream().map(ac -> ac.context.id()).collect(Collectors.toSet());
     }
 
     private int indexOf(Context ctx) {
         var i = 0;
         for (var c : history) {
-            if (c.equals(ctx)) return i;
+            if (c.context.equals(ctx)) return i;
             i++;
         }
         return -1;
+    }
+
+    private @Nullable AnnotatedContext findAnnotatedContext(UUID id) {
+        for (AnnotatedContext ac : history) {
+            if (ac.context.id().equals(id)) return ac;
+        }
+        return null;
     }
 
     public synchronized void addResetEdge(Context source, Context target) {
@@ -460,57 +484,87 @@ public class ContextHistory {
      * Registers a context as belonging to a specific UI group.
      */
     public synchronized void addContextToGroup(UUID contextId, UUID groupId, String groupLabel) {
-        contextToGroupId.put(contextId, groupId);
-        // Store label only on first context added to this group
-        groupLabels.putIfAbsent(groupId, groupLabel);
+        var ac = findAnnotatedContext(contextId);
+        if (ac != null) {
+            ac.groupId = groupId;
+            ac.groupLabel = groupLabel;
+        }
     }
 
     /**
      * Returns the group ID associated with a context, or null if none.
      */
     public synchronized @Nullable UUID getGroupId(UUID contextId) {
-        return contextToGroupId.get(contextId);
+        var ac = findAnnotatedContext(contextId);
+        return ac != null ? ac.groupId : null;
     }
 
     public synchronized Map<UUID, UUID> getContextToGroupId() {
-        return Map.copyOf(contextToGroupId);
+        var map = new HashMap<UUID, UUID>();
+        for (var ac : history) {
+            if (ac.groupId != null) map.put(ac.context.id(), ac.groupId);
+        }
+        return map;
     }
 
     public synchronized Map<UUID, String> getGroupLabels() {
-        return Map.copyOf(groupLabels);
+        var map = new HashMap<UUID, String>();
+        for (var ac : history) {
+            if (ac.groupId != null && ac.groupLabel != null) {
+                // putIfAbsent to preserve the first label defined for a group.
+                map.putIfAbsent(ac.groupId, ac.groupLabel);
+            }
+        }
+        return map;
     }
 
     public synchronized void addGitState(UUID contextId, GitState gitState) {
-        gitStates.put(contextId, gitState);
+        var ac = findAnnotatedContext(contextId);
+        if (ac != null) {
+            ac.gitState = gitState;
+        }
     }
 
     public synchronized Optional<GitState> getGitState(UUID contextId) {
-        return Optional.ofNullable(gitStates.get(contextId));
+        var ac = findAnnotatedContext(contextId);
+        return Optional.ofNullable(ac != null ? ac.gitState : null);
     }
 
     public synchronized Optional<GitState> getFirstGitState() {
-        for (var ctx : history) {
-            if (gitStates.containsKey(ctx.id())) {
-                return Optional.of(gitStates.get(ctx.id()));
+        for (var ac : history) {
+            if (ac.gitState != null) {
+                return Optional.of(ac.gitState);
             }
         }
         return Optional.empty();
     }
 
     public synchronized Map<UUID, GitState> getGitStates() {
-        return Map.copyOf(gitStates);
+        var map = new HashMap<UUID, GitState>();
+        for (var ac : history) {
+            if (ac.gitState != null) map.put(ac.context.id(), ac.gitState);
+        }
+        return map;
     }
 
     public synchronized void addEntryInfo(UUID contextId, ContextHistoryEntryInfo info) {
-        entryInfos.put(contextId, info);
+        var ac = findAnnotatedContext(contextId);
+        if (ac != null) {
+            ac.entryInfo = info;
+        }
     }
 
     public synchronized Optional<ContextHistoryEntryInfo> getEntryInfo(UUID contextId) {
-        return Optional.ofNullable(entryInfos.get(contextId));
+        var ac = findAnnotatedContext(contextId);
+        return Optional.ofNullable(ac != null ? ac.entryInfo : null);
     }
 
     public synchronized Map<UUID, ContextHistoryEntryInfo> getEntryInfos() {
-        return Map.copyOf(entryInfos);
+        var map = new HashMap<UUID, ContextHistoryEntryInfo>();
+        for (var ac : history) {
+            if (ac.entryInfo != null) map.put(ac.context.id(), ac.entryInfo);
+        }
+        return map;
     }
 
     @Blocking
