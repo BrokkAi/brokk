@@ -45,6 +45,13 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                     list = [...list.slice(0, -1), updatedBubble];
                 }
 
+                // If the last message was a terminal bubble and a new message is starting,
+                // mark the terminal as complete, immutably.
+                if (lastBubble?.isTerminal && !lastBubble.terminalComplete && evt.meta.isNewMessage) {
+                    const updatedBubble = finalizeTerminalBubble(lastBubble);
+                    list = [...list.slice(0, -1), updatedBubble];
+                }
+
                 const isStreaming = evt.streaming ?? false;
                 const chunkText = evt.text ?? '';
                 const isTerminal = evt.meta.isTerminal;
@@ -172,6 +179,15 @@ export function toggleBubbleCollapsed(seq: number): void {
 }
 
 /* ─── helpers ─────────────────────────────────────────── */
+function finalizeTerminalBubble(b: BubbleState): BubbleState {
+    if (!b.isTerminal) return b;
+    return {
+        ...b,
+        streaming: false,
+        terminalComplete: true,
+    };
+}
+
 function finalizeReasoningBubble(b: BubbleState): BubbleState {
     if (!b.reasoningState) return b;
 
@@ -212,6 +228,9 @@ export function setLiveTaskInProgress(inProgress: boolean): void {
             }
             if (b.reasoningState && !b.reasoningState.complete) {
                 updated = finalizeReasoningBubble(updated);
+            }
+            if (b.isTerminal && !b.terminalComplete) {
+                updated = finalizeTerminalBubble(updated);
             }
             return updated;
         });

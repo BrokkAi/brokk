@@ -78,6 +78,9 @@ export type BubbleState = Bubble & {
   // If true, this bubble should be treated as terminal output by the UI.
   isTerminal?: boolean;
 
+  // True when terminal output is finalized (new message started or task ended)
+  terminalComplete?: boolean;
+
   // Optional reasoning state - presence indicates this is a reasoning bubble
   reasoningState?: ReasoningState;
 };
