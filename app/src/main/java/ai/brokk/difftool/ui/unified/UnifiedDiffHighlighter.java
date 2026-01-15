@@ -55,46 +55,6 @@ public final class UnifiedDiffHighlighter {
     }
 
     /**
-     * Apply diff highlights to unified diff content in the text area. Parses the unified diff text line by line and
-     * applies appropriate highlights based on prefix characters.
-     *
-     * @param textArea The RSyntaxTextArea containing unified diff content
-     * @param highlighter The JMHighlighter to apply highlights with
-     * @param isDarkTheme Whether to use dark theme colors
-     * @deprecated Use {@link #applyHighlights(RSyntaxTextArea, JMHighlighter, UnifiedDiffDocument, boolean)} instead
-     */
-    @Deprecated
-    public static void applyHighlights(RSyntaxTextArea textArea, JMHighlighter highlighter, boolean isDarkTheme) {
-        try {
-            String content = textArea.getText();
-            if (content == null || content.isEmpty()) {
-                return;
-            }
-
-            String[] lines = content.split("\n", -1); // Include empty trailing strings
-
-            int currentOffset = 0;
-            for (int lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-                String line = lines[lineIndex];
-                int lineLength = line.length();
-
-                // Calculate line bounds for highlighting
-                int lineStart = currentOffset;
-                int lineEnd = currentOffset + lineLength;
-
-                // Apply highlight based on line prefix
-                applyLineHighlight(highlighter, line, lineStart, lineEnd, isDarkTheme);
-
-                // Move to next line (add 1 for newline character, except for last line)
-                currentOffset = lineEnd + (lineIndex < lines.length - 1 ? 1 : 0);
-            }
-
-        } catch (Exception e) {
-            logger.warn("Error applying unified diff highlights: {}", e.getMessage(), e);
-        }
-    }
-
-    /**
      * Apply highlight to a line based on its LineType.
      */
     private static void applyLineHighlightByType(
@@ -127,60 +87,6 @@ public final class UnifiedDiffHighlighter {
         if (painter != null) {
             try {
                 highlighter.addHighlight(JMHighlighter.LAYER0, lineStart, lineEnd, painter);
-            } catch (BadLocationException e) {
-                logger.warn("Failed to add highlight at offset {} to {}: {}", lineStart, lineEnd, e.getMessage());
-            }
-        }
-    }
-
-    /**
-     * Apply highlight to a single line based on its prefix.
-     *
-     * @param highlighter The JMHighlighter to use
-     * @param line The line content
-     * @param lineStart Start offset in the document
-     * @param lineEnd End offset in the document
-     * @param isDarkTheme Whether to use dark theme colors
-     */
-    private static void applyLineHighlight(
-            JMHighlighter highlighter, String line, int lineStart, int lineEnd, boolean isDarkTheme) {
-
-        if (line.isEmpty()) {
-            return; // Skip empty lines
-        }
-
-        char prefix = line.charAt(0);
-        JMHighlightPainter painter = null;
-
-        switch (prefix) {
-            case '+' -> {
-                // Addition line - highlight in green with full line width
-                var addedColor = ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_ADDED);
-                painter = new JMHighlightPainter.JMHighlightFullLinePainter(addedColor);
-                logger.trace("Highlighting addition line: {}", line.substring(0, Math.min(50, line.length())));
-            }
-            case '-' -> {
-                // Deletion line - highlight in red with full line width
-                var deletedColor = ThemeColors.getColor(isDarkTheme, ThemeColors.DIFF_DELETED);
-                painter = new JMHighlightPainter.JMHighlightFullLinePainter(deletedColor);
-                logger.trace("Highlighting deletion line: {}", line.substring(0, Math.min(50, line.length())));
-            }
-            // Note: HEADER lines are now detected via LineType, not prefix character
-            case ' ' -> {
-                // Context line - no highlighting needed, handled by syntax highlighting
-                logger.trace("Context line (no diff highlight): {}", line.substring(0, Math.min(50, line.length())));
-            }
-            default -> {
-                // Unknown prefix - no highlighting
-                logger.trace("Unknown line prefix '{}', no highlighting", prefix);
-            }
-        }
-
-        // Apply the highlight if we determined one is needed
-        if (painter != null) {
-            try {
-                highlighter.addHighlight(JMHighlighter.LAYER0, lineStart, lineEnd, painter);
-                logger.trace("Added highlight from {} to {}", lineStart, lineEnd);
             } catch (BadLocationException e) {
                 logger.warn("Failed to add highlight at offset {} to {}: {}", lineStart, lineEnd, e.getMessage());
             }

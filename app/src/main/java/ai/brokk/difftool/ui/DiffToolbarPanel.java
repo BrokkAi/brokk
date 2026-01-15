@@ -1,6 +1,5 @@
 package ai.brokk.difftool.ui;
 
-import ai.brokk.gui.SwingUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.util.Icons;
 import java.util.Set;
@@ -73,14 +72,13 @@ public class DiffToolbarPanel extends JToolBar {
     private MaterialButton captureAllDiffsButton;
 
     public DiffToolbarPanel(Set<ToolbarFeature> features, DiffToolbarCallbacks callbacks) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be constructed on EDT";
         this.features = features;
         this.callbacks = callbacks;
-        // Marshal toolbar building to EDT if not already there
-        SwingUtil.runOnEdt(this::buildToolbar);
+        buildToolbar();
     }
 
     private void buildToolbar() {
-        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
 
         // Change navigation buttons (chevrons for fine navigation)
         if (features.contains(ToolbarFeature.CHANGE_NAVIGATION)) {
