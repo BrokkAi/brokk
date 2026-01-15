@@ -686,9 +686,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         pullBtn.setVisible(true);
 
         pushBtn.setEnabled(!hasUncommittedChanges);
-        pushBtn.setToolTipText(hasUncommittedChanges
-                ? "Commit your changes before pushing to the remote"
-                : "Push your commits to the remote repository");
+        pushBtn.setToolTipText(
+                hasUncommittedChanges
+                        ? "Commit your changes before pushing to the remote"
+                        : "Push your commits to the remote repository");
         pushBtn.setVisible(pushPull != null && pushPull.canPush());
 
         boolean isDefaultBranch = false;
