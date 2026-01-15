@@ -533,7 +533,7 @@ public class DtoMapper {
         String reasoningContentId = null;
         String contentId;
 
-        Map<String, String> attributes = null;
+        Map<String, Object> attributes = null;
 
         if (message instanceof AiMessage aiMessage) {
             // For AiMessage, store text and reasoning separately
@@ -552,7 +552,6 @@ public class DtoMapper {
 
             attributes = customMessage.attributes().entrySet().stream()
                     .filter(e -> !e.getKey().equals("text"))
-                    .filter(e -> e.getValue() instanceof String)
                     .collect(Collectors.toMap(Map.Entry::getKey, e -> (String) e.getValue()));
         } else {
             // For other message types, use the display representation
@@ -589,10 +588,10 @@ public class DtoMapper {
             case "system" -> SystemMessage.from(content);
             case "custom" -> {
                 Map<String, Object> attrs = new java.util.HashMap<>();
-                attrs.put("text", content);
                 if (dto.attributes() != null) {
                     attrs.putAll(dto.attributes());
                 }
+                attrs.put("text", content);
                 yield CustomMessage.from(attrs);
             }
             default -> throw new IllegalArgumentException("Unsupported message role: " + dto.role());

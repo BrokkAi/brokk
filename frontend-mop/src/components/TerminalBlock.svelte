@@ -25,9 +25,9 @@
   }
 
   $effect(() => {
-    if (!preElem || !codeElem) return;
-
     const text = bubble?.markdown ?? "";
+
+    if (!preElem || !codeElem) return;
 
     if (text.length > renderedLength) {
       // Append only the new portion (delta)
