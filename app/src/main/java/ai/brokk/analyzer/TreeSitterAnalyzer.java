@@ -2629,7 +2629,7 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
 
     /**
      * Preferred variant that also provides access to localChildren so modules can attach their children.
-     * Delegates to the legacy method by default to keep existing overrides functioning.
+     * Links existing modules for the package to the file's top-level declarations.
      */
     protected void createModulesFromImports(
             ProjectFile file,
@@ -2641,6 +2641,32 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
             Map<CodeUnit, List<CodeUnit>> localChildren) {
+
+        if (modulePackageName.isBlank()) {
+            return;
+        }
+
+        // Find the module CodeUnit in the current file.
+        // We look for any MODULE CodeUnit whose fqName matches modulePackageName.
+        Optional<CodeUnit> moduleCuOpt = localTopLevelCUs.stream()
+                .filter(CodeUnit::isModule)
+                .filter(cu -> cu.fqName().equals(modulePackageName))
+                .findFirst();
+
+        if (moduleCuOpt.isPresent()) {
+            CodeUnit moduleCu = moduleCuOpt.get();
+            // Link top-level class-like declarations in this file to the module.
+            // This is critical for Java wildcard resolution where the Module is the parent of classes.
+            List<CodeUnit> children = localTopLevelCUs.stream()
+                    .filter(cu -> !cu.isModule())
+                    .filter(cu -> modulePackageName.equals(cu.packageName()))
+                    .toList();
+
+            if (!children.isEmpty()) {
+                localChildren.computeIfAbsent(moduleCu, k -> new ArrayList<>()).addAll(children);
+            }
+        }
+
         // Delegate to legacy signature for backward compatibility
         createModulesFromImports(
                 file,
