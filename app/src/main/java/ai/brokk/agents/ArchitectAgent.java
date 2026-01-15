@@ -539,13 +539,12 @@ public class ArchitectAgent {
 
             // Create a local registry for this planning turn
             var wst = new WorkspaceTools(this.context);
-            var depTools = new DependencyTools(cm);
-            var tr = cm.getToolRegistry()
-                    .builder()
-                    .register(this)
-                    .register(wst)
-                    .register(depTools)
-                    .build();
+            var builder = cm.getToolRegistry().builder().register(this).register(wst);
+            var depToolsSupported = DependencyTools.isSupported(cm.getProject());
+            if (depToolsSupported) {
+                builder.register(new DependencyTools(cm));
+            }
+            var tr = builder.build();
 
             // Decide tool availability for this step
             var toolSpecs = new ArrayList<ToolSpecification>();
@@ -574,7 +573,7 @@ public class ArchitectAgent {
                 allowed.add("verifyBuildCommand");
 
                 // Dependency tools (language-scoped)
-                if (depTools.isSupported(cm.getProject())) {
+                if (depToolsSupported) {
                     allowed.add("importMavenDependency");
                 }
 
