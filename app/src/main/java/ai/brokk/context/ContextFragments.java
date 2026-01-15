@@ -87,7 +87,8 @@ public class ContextFragments {
             return Set.of();
         }
         return units.stream()
-                .filter(CodeUnit::isClass)
+                .filter(cu -> cu.isClass() || cu.isModule())
+                .filter(cu -> analyzer.getTopLevelDeclarations(cu.source()).contains(cu))
                 .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
                 .filter(anc -> !anc.isAnonymous())
                 .distinct()

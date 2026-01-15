@@ -11,6 +11,7 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
+import java.util.Set;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -88,5 +89,65 @@ public class ProjectPathFragmentTest {
         var files = fragment.files().join();
         assertTrue(files.stream().anyMatch(f -> f.equals(projectFile)), "Should contain primary file");
         assertEquals(1, files.size());
+    }
+
+    @Test
+    void projectPathFragmentExcludesInnerClassAncestorSkeletons() throws IOException {
+        // Define a file with an outer and inner class
+        String relPath = "src/Outer.java";
+        Path filePath = tempDir.resolve(relPath);
+        Files.createDirectories(filePath.getParent());
+        Files.writeString(filePath, "public class Outer extends OuterBase { class Inner extends InnerBase {} }");
+        ProjectFile outerFile = new ProjectFile(tempDir, relPath);
+
+        // Define ancestor files
+        ProjectFile outerBaseFile = new ProjectFile(tempDir, "src/OuterBase.java");
+        ProjectFile innerBaseFile = new ProjectFile(tempDir, "src/InnerBase.java");
+
+        // Setup CodeUnits
+        CodeUnit outerCls = CodeUnit.cls(outerFile, "com.example", "Outer");
+        CodeUnit innerCls = CodeUnit.cls(outerFile, "com.example", "Inner");
+        CodeUnit outerBase = CodeUnit.cls(outerBaseFile, "com.example", "OuterBase");
+        CodeUnit innerBase = CodeUnit.cls(innerBaseFile, "com.example", "InnerBase");
+
+        // Custom analyzer that returns only 'Outer' as a Top Level Declaration for the file
+        TestAnalyzer customAnalyzer = new TestAnalyzer() {
+            @Override
+            public List<CodeUnit> getTopLevelDeclarations(ProjectFile file) {
+                if (file.equals(outerFile)) {
+                    return List.of(outerCls);
+                }
+                return super.getTopLevelDeclarations(file);
+            }
+
+            @Override
+            public Set<CodeUnit> getDeclarations(ProjectFile file) {
+                if (file.equals(outerFile)) {
+                    return Set.of(outerCls, innerCls);
+                }
+                return super.getDeclarations(file);
+            }
+        };
+
+        customAnalyzer.addDeclaration(outerCls);
+        customAnalyzer.addDeclaration(innerCls);
+        customAnalyzer.setDirectAncestors(outerCls, List.of(outerBase));
+        customAnalyzer.setDirectAncestors(innerCls, List.of(innerBase));
+        customAnalyzer.setSkeleton(outerBase, "public class OuterBase {}");
+        customAnalyzer.setSkeleton(innerBase, "public class InnerBase {}");
+
+        TestContextManager cm = new TestContextManager(tempDir, new TestConsoleIO(), customAnalyzer);
+        ProjectPathFragment fragment = new ProjectPathFragment(outerFile, cm);
+
+        var supporting = fragment.supportingFragments();
+
+        // Should contain OuterBase (ancestor of TLD) but NOT InnerBase (ancestor of inner class)
+        var targetIds = supporting.stream()
+                .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
+                .toList();
+
+        assertTrue(targetIds.contains("com.example.OuterBase"), "Should include OuterBase skeleton");
+        assertTrue(!targetIds.contains("com.example.InnerBase"), "Should NOT include InnerBase skeleton");
     }
 }
