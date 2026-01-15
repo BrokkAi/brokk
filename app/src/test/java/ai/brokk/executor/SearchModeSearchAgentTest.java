@@ -483,10 +483,12 @@ class SearchModeSearchAgentTest {
         }
     }
 
-    @Disabled
     @Test
     void testSearchModeIgnoresCodeModel() throws Exception {
         uploadSession();
+
+        String explicitCodeModel = "claude-3-5-sonnet";
+        String expectedScanModel = "stub-model"; // default scan model name in capturingService
 
         // Create SEARCH job with explicit codeModel (should be ignored)
         var jobSpec = Map.<String, Object>of(
@@ -501,28 +503,79 @@ class SearchModeSearchAgentTest {
                 "plannerModel",
                 "gemini-2.0-flash",
                 "codeModel",
-                "gemini-2.0-flash", // Explicitly set, but should be ignored in SEARCH
+                explicitCodeModel,
                 "tags",
                 Map.of("mode", "SEARCH"));
 
         var jobId = createJobWithSpec(jobSpec, "search-test-ignore-code-model");
 
-        // Wait for job to complete
-        awaitJobCompletion(baseUrl, jobId, authToken, Duration.ofSeconds(30));
+        // Wait for the model resolution to occur in JobRunner
+        var deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (capturingService.lastConfig == null && System.nanoTime() < deadlineNanos) {
+            Thread.sleep(50);
+        }
 
-        // Verify job status
-        var statusUrl = URI.create(baseUrl + "/v1/jobs/" + jobId).toURL();
-        var statusConn = (HttpURLConnection) statusUrl.openConnection();
-        statusConn.setRequestMethod("GET");
-        statusConn.setRequestProperty("Authorization", "Bearer " + authToken);
+        var capturedConfig = capturingService.lastConfig;
+        assertNotNull(capturedConfig, "Expected JobRunner to resolve a model via Service.getModel(...)");
 
-        assertEquals(200, statusConn.getResponseCode());
-        try (InputStream is = statusConn.getInputStream()) {
-            var response = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            // Job should exist and have status (RUNNING, COMPLETED, or FAILED)
-            assertTrue(response.contains("state"), "Job status should be present");
+        // Assert that the resolved model is NOT the code model, but the default scan model
+        assertEquals(expectedScanModel, capturedConfig.name());
+
+        cancelJob(jobId);
+    }
+
+    @Test
+    void testSearchModeResolvesScanModelAndIgnoresCodeModel() throws Exception {
+        uploadSession();
+
+        String explicitScanModel = "gpt-4o";
+        String explicitCodeModel = "claude-3-5-sonnet";
+
+        // Create SEARCH job with both scanModel and codeModel
+        var jobSpec = Map.<String, Object>of(
+                "sessionId",
+                UUID.randomUUID().toString(),
+                "taskInput",
+                "Find internal API usages",
+                "autoCommit",
+                false,
+                "autoCompress",
+                false,
+                "plannerModel",
+                "gemini-2.0-flash",
+                "scanModel",
+                explicitScanModel,
+                "codeModel",
+                explicitCodeModel,
+                "tags",
+                Map.of("mode", "SEARCH"));
+
+        var jobId = createJobWithSpec(jobSpec, "search-test-scan-vs-code-model");
+
+        // Wait for the model resolution to occur in JobRunner
+        var deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (capturingService.lastConfig == null && System.nanoTime() < deadlineNanos) {
+            Thread.sleep(50);
+        }
+
+        var capturedConfig = capturingService.lastConfig;
+        assertNotNull(capturedConfig);
+        // Verify explicit scanModel is used
+        assertEquals(explicitScanModel, capturedConfig.name());
+
+        cancelJob(jobId);
+    }
+
+    private void cancelJob(String jobId) throws IOException {
+        var cancelUrl = URI.create(baseUrl + "/v1/jobs/" + jobId + "/cancel").toURL();
+        var cancelConn = (HttpURLConnection) cancelUrl.openConnection();
+        cancelConn.setRequestMethod("POST");
+        cancelConn.setRequestProperty("Authorization", "Bearer " + authToken);
+        try {
+            int status = cancelConn.getResponseCode();
+            assertTrue(status == 200 || status == 202 || status == 409);
         } finally {
-            statusConn.disconnect();
+            cancelConn.disconnect();
         }
     }
 
