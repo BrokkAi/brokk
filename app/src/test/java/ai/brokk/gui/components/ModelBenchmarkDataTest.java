@@ -29,6 +29,18 @@ class ModelBenchmarkDataTest {
     }
 
     @Test
+    void gemini3_flash_preview_ranges() {
+        int r1 = ModelBenchmarkData.getSuccessRate("gemini-3-flash-preview", Service.ReasoningLevel.DEFAULT, 20000);
+        assertEquals(100, r1, "gemini-3-flash-preview DEFAULT @20k should be 100%");
+
+        int r2 = ModelBenchmarkData.getSuccessRate("gemini-3-flash-preview", Service.ReasoningLevel.DEFAULT, 50000);
+        assertEquals(100, r2, "gemini-3-flash-preview DEFAULT @50k should be 100%");
+
+        int r3 = ModelBenchmarkData.getSuccessRate("gemini-3-flash-preview", Service.ReasoningLevel.DEFAULT, 100000);
+        assertEquals(67, r3, "gemini-3-flash-preview DEFAULT @100k should be 67%");
+    }
+
+    @Test
     void gemini25flash_disable_ranges() {
         int r1 = ModelBenchmarkData.getSuccessRate("gemini-2.5-flash", Service.ReasoningLevel.DISABLE, 50000);
         assertEquals(61, r1, "gemini-2.5-flash DISABLE @50k should be 61%");
