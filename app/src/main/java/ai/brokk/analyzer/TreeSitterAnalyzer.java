@@ -1114,7 +1114,10 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                     .forEach(results::add);
         }
 
-        return results.stream().filter(cu -> !isAnonymousStructure(cu.fqName())).collect(Collectors.toSet());
+        return results.stream()
+                .filter(cu -> !isAnonymousStructure(cu.fqName()))
+                .sorted(IAnalyzer.autocompleteDefinitionsSortComparator())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**

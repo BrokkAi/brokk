@@ -48,7 +48,7 @@ public class Completions {
             // getAllDeclarations would not be correct here since it only lists top-level CodeUnits
             return analyzer.autocompleteDefinitions(query).stream().limit(5000).toList();
         } catch (Exception e) {
-            // Handle analyzer exceptions (e.g., SchemaViolationException from JoernAnalyzer)
+            // Handle analyzer exceptions
             logger.warn("Failed to search definitions for autocomplete: {}", e.getMessage());
             // Fall back to using top-level declarations only
             return analyzer.getAllDeclarations();
