@@ -62,7 +62,6 @@ public class PreviewManager {
 
     // Track preview windows by ProjectFile for refresh on file changes
     private final Map<ProjectFile, JFrame> projectFileToPreviewWindow = new ConcurrentHashMap<>();
-    private boolean isPreviewDocked;
 
     /** Raise the given window to the front and give it focus. */
     public static void raiseWindow(Window window) {
@@ -89,16 +88,6 @@ public class PreviewManager {
         return projectFileToPreviewWindow;
     }
 
-    public boolean isPreviewDocked() {
-        return isPreviewDocked;
-    }
-
-    public void setPreviewDocked(boolean docked) {
-        if (this.isPreviewDocked == docked) return;
-        this.isPreviewDocked = docked;
-        chrome.getRightPanel().setPreviewDocked(docked);
-    }
-
     // Shared frame for all PreviewTextPanel tabs
     @Nullable
     private DetachableTabFrame previewFrame;
@@ -108,7 +97,6 @@ public class PreviewManager {
     public PreviewManager(Chrome chrome) {
         this.chrome = chrome;
         this.cm = chrome.getContextManager();
-        this.isPreviewDocked = GlobalUiSettings.isPreviewDocked();
     }
 
     /**
@@ -204,7 +192,7 @@ public class PreviewManager {
      * @param contentComponent The JComponent to display within the tab.
      */
     public void showPreviewFrame(String title, JComponent contentComponent) {
-        showPreviewFrame(title, contentComponent, null);
+        // No-op
     }
 
     /**
@@ -215,7 +203,7 @@ public class PreviewManager {
      * @param fragment         Optional fragment for deduplication via hasSameSource.
      */
     public void showPreviewFrame(String title, JComponent contentComponent, @Nullable ContextFragment fragment) {
-        showPreviewInTabbedFrame(title, contentComponent, fragment);
+        // No-op
     }
 
     /**
@@ -223,37 +211,7 @@ public class PreviewManager {
      * ensures bounds, min size, and theme are applied.
      */
     public void showPreviewInTabbedFrame(String title, JComponent panel, @Nullable ContextFragment fragment) {
-        SwingUtilities.invokeLater(() -> {
-            ProjectFile file = extractFileKey(panel, fragment);
-
-            if (isPreviewDocked) {
-                RightPanel rightPanel = chrome.getRightPanel();
-                rightPanel.setPreviewContent(panel);
-                if (file != null) {
-                    projectFileToPreviewWindow.put(file, chrome.getFrame());
-                }
-                rightPanel.selectPreviewTab();
-                return;
-            }
-
-            // Standalone frame
-            ensurePreviewFrame();
-            var frame = castNonNull(previewFrame);
-
-            frame.setContentComponent(panel);
-            if (file != null) {
-                projectFileToPreviewWindow.put(file, frame);
-            }
-
-            frame.setVisible(true);
-            frame.toFront();
-            frame.requestFocus();
-
-            if (SystemInfo.isMacOS) {
-                frame.setAlwaysOnTop(true);
-                frame.setAlwaysOnTop(false);
-            }
-        });
+        // No-op
     }
 
     private void ensurePreviewFrame() {
@@ -324,14 +282,7 @@ public class PreviewManager {
      */
     public void showDiffInTab(
             String title, BrokkDiffPanel panel, List<BufferSource> leftSources, List<BufferSource> rightSources) {
-        SwingUtilities.invokeLater(() -> {
-            // Check for existing standalone window first
-            if (tryRaiseExistingDiffWindow(leftSources, rightSources)) {
-                return;
-            }
-
-            showPreviewInTabbedFrame(title, panel, null);
-        });
+        // No-op
     }
 
     private boolean tryRaiseExistingDiffWindow(List<BufferSource> leftSources, List<BufferSource> rightSources) {
@@ -441,57 +392,7 @@ public class PreviewManager {
      * @param startLine The line number (0-based) to position the caret at, or -1 to use default positioning.
      */
     public void previewFile(ProjectFile pf, int startLine) {
-        assert SwingUtilities.isEventDispatchThread() : "Preview must be initiated on EDT";
-
-        try {
-            // 1. Read file content
-            var content = pf.read();
-            if (content.isEmpty()) {
-                chrome.toolError("Unable to read file for preview");
-                return;
-            }
-
-            // 2. Deduce syntax style
-            var syntax = pf.getSyntaxStyle();
-
-            // 3. Build the PTP with custom positioning
-            var panel = new PreviewTextPanel(chrome, cm, pf, content.get(), syntax, chrome.getTheme(), null);
-
-            // 4. Show in frame first
-            showPreviewFrame("Preview: " + pf, panel);
-
-            // 5. Position the caret at the specified line if provided, after showing the frame
-            if (startLine >= 0) {
-                // Convert line number to character offset using actual (CRLF/LF/CR) separators
-                var text = content.get();
-                var lineStarts = FileUtil.computeLineStarts(text);
-                SwingUtilities.invokeLater(() -> {
-                    try {
-                        if (startLine < lineStarts.length) {
-                            var charOffset = lineStarts[startLine];
-                            panel.setCaretPositionAndCenter(charOffset);
-                        } else {
-                            logger.warn(
-                                    "Start line {} exceeds file length {} for {}",
-                                    startLine,
-                                    lineStarts.length,
-                                    pf.absPath());
-                        }
-                    } catch (Exception e) {
-                        logger.warn(
-                                "Failed to position caret at line {} for {}: {}",
-                                startLine,
-                                pf.absPath(),
-                                e.getMessage());
-                        // Fall back to default positioning (beginning of file)
-                    }
-                });
-            }
-
-        } catch (Exception ex) {
-            chrome.toolError("Error opening file preview: " + ex.getMessage());
-            logger.error("Unexpected error opening preview for file {}", pf.absPath(), ex);
-        }
+        // No-op
     }
 
     /**
@@ -502,21 +403,7 @@ public class PreviewManager {
      * <p><b>Unified Entry Point:</b> All fragment preview requests should route through this method.</p>
      */
     public void openFragmentPreview(ContextFragment fragment) {
-        try {
-            String initialTitle = computeInitialTitle(fragment);
-
-            if (fragment instanceof ContextFragments.OutputFragment of) {
-                showOutputPreview(of, initialTitle);
-            } else if (!fragment.isText()) {
-                showImagePreview(fragment, initialTitle);
-            } else if (fragment instanceof ContextFragments.StringFragment sf) {
-                showStringPreview(sf, initialTitle);
-            } else {
-                showAsyncTextPreview(fragment, initialTitle);
-            }
-        } catch (Exception ex) {
-            chrome.toolError("Error opening preview: " + ex.getMessage());
-        }
+        // No-op
     }
 
     private String computeInitialTitle(ContextFragment fragment) {
@@ -712,13 +599,7 @@ public class PreviewManager {
      * Replaces an existing preview's content with a new component.
      */
     private void replaceTabContent(JComponent oldComponent, JComponent newComponent, String title) {
-        SwingUtilities.invokeLater(() -> {
-            if (isPreviewDocked) {
-                chrome.getRightPanel().setPreviewContent(newComponent);
-            } else if (previewFrame != null) {
-                previewFrame.setContentComponent(newComponent);
-            }
-        });
+        // No-op
     }
 
     /**

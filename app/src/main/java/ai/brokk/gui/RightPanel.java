@@ -157,13 +157,6 @@ public class RightPanel extends JPanel implements ThemeAware {
         buildReviewTabs.addTab("Preview", Icons.VISIBILITY, previewPanel);
         buildReviewTabs.addTab("Terminal", Icons.TERMINAL, terminalPanel);
 
-        if (!chrome.getPreviewManager().isPreviewDocked()) {
-            int idx = buildReviewTabs.indexOfTab("Preview");
-            if (idx != -1) {
-                buildReviewTabs.removeTabAt(idx);
-            }
-        }
-
         // Set up tab change listeners (must be after buildReviewTabs is created)
         setupCommandPaneLogic();
 
@@ -503,11 +496,6 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     private void undockPreview() {
-        if (!chrome.getPreviewManager().isPreviewDocked()) return;
-
-        chrome.getPreviewManager().setPreviewDocked(false);
-        GlobalUiSettings.savePreviewDocked(false);
-
         int idx = buildReviewTabs.indexOfTab("Preview");
         if (idx != -1) {
             buildReviewTabs.removeTabAt(idx);
@@ -517,11 +505,6 @@ public class RightPanel extends JPanel implements ThemeAware {
     }
 
     public void redockPreview() {
-        if (chrome.getPreviewManager().isPreviewDocked()) return;
-
-        chrome.getPreviewManager().setPreviewDocked(true);
-        GlobalUiSettings.savePreviewDocked(true);
-
         // Re-add the Preview tab to BuildPane
         int terminalIdx = buildReviewTabs.indexOfTab("Terminal");
         if (terminalIdx != -1) {
