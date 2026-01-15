@@ -76,7 +76,11 @@ class SearchModeSearchAgentTest {
 
         @Override
         public @Nullable StreamingChatModel getModel(ModelType modelType) {
-            return modelOverrides.get(modelType);
+            var model = modelOverrides.get(modelType);
+            if (model != null) {
+                return model;
+            }
+            return modelOverrides.get(ModelType.SCAN);
         }
 
         @Override
@@ -353,7 +357,6 @@ class SearchModeSearchAgentTest {
         }
     }
 
-    @Disabled
     @Test
     void testSearchModeUsesSearchAgent_ReadsOnly() throws Exception {
         // Upload a minimal session
@@ -598,6 +601,7 @@ class SearchModeSearchAgentTest {
 
             var contextsEntry = new ZipEntry("contexts.jsonl");
             zos.putNextEntry(contextsEntry);
+            zos.write("{\"role\":\"user\",\"content\":\"seed\"}\n".getBytes(StandardCharsets.UTF_8));
             zos.closeEntry();
         }
         return out.toByteArray();
