@@ -1286,6 +1286,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         @Override
         public void navigateToNextChange() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
             var contentPanel = panel.getCurrentContentPanel();
             if (contentPanel != null) {
                 if (contentPanel.isAtLastLogicalChange() && canNavigateToNextFile()) {
@@ -1299,6 +1300,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         @Override
         public void navigateToPreviousChange() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
             var contentPanel = panel.getCurrentContentPanel();
             if (contentPanel != null) {
                 if (contentPanel.isAtFirstLogicalChange() && canNavigateToPreviousFile()) {

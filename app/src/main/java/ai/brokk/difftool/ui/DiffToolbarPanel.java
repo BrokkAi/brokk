@@ -15,6 +15,14 @@ import org.jetbrains.annotations.Nullable;
 public class DiffToolbarPanel extends JToolBar {
     private static final Logger logger = LogManager.getLogger(DiffToolbarPanel.class);
 
+    // Spacing constants
+    private static final int BUTTON_GAP = 10;
+    private static final int SECTION_GAP = 20;
+    private static final int SMALL_GAP = 4;
+    private static final int MEDIUM_GAP = 8;
+    private static final int SEPARATOR_WIDTH = 2;
+    private static final int SEPARATOR_HEIGHT = 24;
+
     private final Set<ToolbarFeature> features;
     private final DiffToolbarCallbacks callbacks;
 
@@ -30,6 +38,10 @@ public class DiffToolbarPanel extends JToolBar {
 
     @Nullable
     private MaterialButton btnNextFile;
+
+    // Container for file navigation (includes separator)
+    @Nullable
+    private JPanel fileNavContainer;
 
     // Edit buttons
     @Nullable
@@ -75,6 +87,9 @@ public class DiffToolbarPanel extends JToolBar {
         assert SwingUtilities.isEventDispatchThread() : "Must be constructed on EDT";
         this.features = features;
         this.callbacks = callbacks;
+        setFloatable(false);
+        setRollover(true);
+        setBorderPainted(false);
         buildToolbar();
     }
 
@@ -93,7 +108,7 @@ public class DiffToolbarPanel extends JToolBar {
             btnNext.addActionListener(e -> callbacks.navigateToNextChange());
 
             add(btnPrevious);
-            add(Box.createHorizontalStrut(10));
+            add(Box.createHorizontalStrut(BUTTON_GAP));
             add(btnNext);
         }
 
@@ -110,12 +125,19 @@ public class DiffToolbarPanel extends JToolBar {
             btnNextFile.setToolTipText("Next File");
             btnNextFile.addActionListener(e -> callbacks.nextFile());
 
-            add(Box.createHorizontalStrut(20));
-            addSeparator();
-            add(Box.createHorizontalStrut(10));
-            add(btnPreviousFile);
-            add(Box.createHorizontalStrut(10));
-            add(btnNextFile);
+            // Wrap in container so separator can be hidden with buttons
+            fileNavContainer = new JPanel();
+            fileNavContainer.setOpaque(false);
+            fileNavContainer.setLayout(new BoxLayout(fileNavContainer, BoxLayout.X_AXIS));
+            fileNavContainer.add(Box.createHorizontalStrut(SECTION_GAP));
+            var sep = new JSeparator(SwingConstants.VERTICAL);
+            sep.setMaximumSize(new java.awt.Dimension(SEPARATOR_WIDTH, SEPARATOR_HEIGHT));
+            fileNavContainer.add(sep);
+            fileNavContainer.add(Box.createHorizontalStrut(BUTTON_GAP));
+            fileNavContainer.add(btnPreviousFile);
+            fileNavContainer.add(Box.createHorizontalStrut(BUTTON_GAP));
+            fileNavContainer.add(btnNextFile);
+            add(fileNavContainer);
         }
 
         // Edit controls
@@ -135,21 +157,21 @@ public class DiffToolbarPanel extends JToolBar {
             btnSaveAll.setToolTipText("Save");
             btnSaveAll.addActionListener(e -> callbacks.saveAll());
 
-            add(Box.createHorizontalStrut(20));
+            add(Box.createHorizontalStrut(SECTION_GAP));
             addSeparator();
-            add(Box.createHorizontalStrut(10));
+            add(Box.createHorizontalStrut(BUTTON_GAP));
             add(btnUndo);
-            add(Box.createHorizontalStrut(10));
+            add(Box.createHorizontalStrut(BUTTON_GAP));
             add(btnRedo);
-            add(Box.createHorizontalStrut(10));
+            add(Box.createHorizontalStrut(BUTTON_GAP));
             add(btnSaveAll);
         }
 
         // View mode toggle and tools menu
         if (features.contains(ToolbarFeature.VIEW_MODE_TOGGLE) || features.contains(ToolbarFeature.TOOLS_MENU)) {
-            add(Box.createHorizontalStrut(20));
+            add(Box.createHorizontalStrut(SECTION_GAP));
             addSeparator();
-            add(Box.createHorizontalStrut(10));
+            add(Box.createHorizontalStrut(BUTTON_GAP));
         }
 
         if (features.contains(ToolbarFeature.VIEW_MODE_TOGGLE)) {
@@ -162,7 +184,7 @@ public class DiffToolbarPanel extends JToolBar {
             toggle.addActionListener(e -> callbacks.switchViewMode(toggle.isSelected()));
             viewModeToggle = toggle;
             add(toggle);
-            add(Box.createHorizontalStrut(10));
+            add(Box.createHorizontalStrut(BUTTON_GAP));
         }
 
         if (features.contains(ToolbarFeature.TOOLS_MENU)) {
@@ -208,11 +230,11 @@ public class DiffToolbarPanel extends JToolBar {
             btnIncreaseFont = callbacks.createIncreaseFontButton(callbacks::increaseEditorFont);
 
             add(btnDecreaseFont);
-            add(Box.createHorizontalStrut(4));
+            add(Box.createHorizontalStrut(SMALL_GAP));
             add(btnResetFont);
-            add(Box.createHorizontalStrut(4));
+            add(Box.createHorizontalStrut(SMALL_GAP));
             add(btnIncreaseFont);
-            add(Box.createHorizontalStrut(8));
+            add(Box.createHorizontalStrut(MEDIUM_GAP));
         }
 
         // Capture controls
@@ -228,7 +250,7 @@ public class DiffToolbarPanel extends JToolBar {
                 captureAllDiffsButton.setText("Capture All Diffs");
                 captureAllDiffsButton.setToolTipText("Capture all file diffs to the context");
                 captureAllDiffsButton.addActionListener(e -> callbacks.captureAllDiffs());
-                add(Box.createHorizontalStrut(8));
+                add(Box.createHorizontalStrut(MEDIUM_GAP));
                 add(captureAllDiffsButton);
             }
         }
@@ -254,12 +276,13 @@ public class DiffToolbarPanel extends JToolBar {
 
         // File navigation - visibility based on multi-file state
         boolean multiFile = callbacks.isMultiFile();
+        if (fileNavContainer != null) {
+            fileNavContainer.setVisible(multiFile);
+        }
         if (btnPreviousFile != null) {
-            btnPreviousFile.setVisible(multiFile);
             btnPreviousFile.setEnabled(callbacks.canNavigateToPreviousFile());
         }
         if (btnNextFile != null) {
-            btnNextFile.setVisible(multiFile);
             btnNextFile.setEnabled(callbacks.canNavigateToNextFile());
         }
 
@@ -330,10 +353,10 @@ public class DiffToolbarPanel extends JToolBar {
      * Used to hide navigation when in guided review mode (navigation is controlled by review items).
      */
     public void setNavigationVisible(boolean visible) {
+        assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
         if (btnPrevious != null) btnPrevious.setVisible(visible);
         if (btnNext != null) btnNext.setVisible(visible);
-        if (btnPreviousFile != null) btnPreviousFile.setVisible(visible);
-        if (btnNextFile != null) btnNextFile.setVisible(visible);
+        if (fileNavContainer != null) fileNavContainer.setVisible(visible);
     }
 
     /**
