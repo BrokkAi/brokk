@@ -140,6 +140,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             String packageDef,
             Set<String> classLikeNodeType,
             BiFunction<TSNode, SourceContent, String> textSlice) {
+        log.debug("determineJvmPackageName called with packageDef={}", packageDef);
         // Packages are either present or not, and will be the immediate child of the `program`
         // if they are present at all
         final List<String> namespaceParts = new ArrayList<>();
@@ -158,6 +159,8 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         }
 
         if (maybeDeclaration != null && packageDef.equals(maybeDeclaration.getType())) {
+            log.debug("Found package declaration node: {}, named children count: {}", 
+                maybeDeclaration.getType(), maybeDeclaration.getNamedChildCount());
             // In Java, package_declaration has a single identifier or scoped_identifier child.
             // In Scala, it may have multiple package_identifier children.
             // We iterate through named children and skip annotations (blacklist approach).
@@ -167,18 +170,24 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     String type = nameNode.getType();
                     // Skip annotations: ensures both Java (@NullMarked) and Scala package nodes work.
                     if ("annotation".equals(type) || "marker_annotation".equals(type)) {
+                        log.debug("Index {}: Skipping annotation node of type: {}", i, type);
                         continue;
                     }
                     // Extract the text for this part of the namespace.
                     String nsPart = textSlice.apply(nameNode, sourceContent);
+                    log.debug("Index {}: Accepted node type: {}, extracted text: '{}'", i, type, nsPart);
                     if (!nsPart.isEmpty()) {
                         namespaceParts.add(nsPart);
                     }
                 }
             }
+        } else {
+            log.debug("No package declaration found matching type: {}", packageDef);
         }
         // Join parts with dots. Java's single scoped_identifier is preserved; Scala's parts are joined.
-        return String.join(".", namespaceParts);
+        String result = String.join(".", namespaceParts);
+        log.info("Final package name extracted for {}: '{}'", packageDef, result);
+        return result;
     }
 
     @Override
