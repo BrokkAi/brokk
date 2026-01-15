@@ -205,7 +205,6 @@ class SearchModeSearchAgentTest {
         FileUtil.deleteRecursively(tempDir);
     }
 
-    @Disabled
     @Test
     void testPostJobsAcceptsValidReasoningLevelAndTemperature_PersistsToJobStore() throws Exception {
         uploadSession();
