@@ -180,13 +180,16 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.pushBtn = new MaterialButton("");
         this.pushBtn.setIcon(Icons.PUBLISH);
 
-        this.prBtn = new MaterialButton("Create PR");
+        this.prBtn = new MaterialButton("");
         this.prBtn.setIcon(Icons.ADD_DIAMOND);
+        this.prBtn.setToolTipText("Create PR");
 
         this.guidedReviewBtn = new MaterialProgressButton("Guided Review", chrome);
         this.guidedReviewBtn.setIcon(Icons.CHECK);
 
-        this.pasteBtn = new MaterialButton("Paste Review");
+        this.pasteBtn = new MaterialButton("");
+        this.pasteBtn.setIcon(Icons.CONTENT_CAPTURE);
+        this.pasteBtn.setToolTipText("Paste Review");
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
