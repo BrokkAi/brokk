@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import ai.brokk.AbstractService;
 import ai.brokk.ContextManager;
 import ai.brokk.Service;
+import ai.brokk.agents.TestScriptedLanguageModel;
 import ai.brokk.executor.jobs.JobStore;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties.ModelType;
@@ -55,7 +56,8 @@ class SearchModeSearchAgentTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
-    private static final StreamingChatModel DUMMY_MODEL = new AbstractService.UnavailableStreamingModel();
+    private static final StreamingChatModel DUMMY_MODEL =
+            new TestScriptedLanguageModel("TestScriptedLanguageModel: dummy response");
 
     private static final class CapturingService extends AbstractService {
         volatile @Nullable Service.ModelConfig lastConfig;

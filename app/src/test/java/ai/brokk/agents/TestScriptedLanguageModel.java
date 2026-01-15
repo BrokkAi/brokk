@@ -11,10 +11,10 @@ import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Queue;
 
-class TestScriptedLanguageModel implements StreamingChatModel {
+public class TestScriptedLanguageModel implements StreamingChatModel {
     private final Queue<String> responses;
 
-    TestScriptedLanguageModel(String... cannedTexts) {
+    public TestScriptedLanguageModel(String... cannedTexts) {
         this.responses = new LinkedList<>(Arrays.asList(cannedTexts));
     }
 
