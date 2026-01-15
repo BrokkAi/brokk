@@ -36,7 +36,6 @@ import org.eclipse.jgit.revwalk.filter.RevFilter;
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.eclipse.jgit.treewalk.TreeWalk;
-import org.eclipse.jgit.util.FS;
 import org.eclipse.jgit.util.io.DisabledOutputStream;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;

@@ -482,14 +482,19 @@ public final class FileFilteringService {
         }
     }
 
-    private String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
+    private @org.jetbrains.annotations.Nullable String toGitRelativePath(GitRepo gitRepo, Path projectRelPath) {
         // Use workTreeRoot for relativizing paths - for worktrees this is the worktree's
         // working directory, not the main repo. Using gitTopLevel would produce incorrect
         // paths like "../worktree-name/src/file.java" that don't match gitignore patterns.
         Path workTreeRoot = gitRepo.getWorkTreeRoot();
         Path projectAbsPath = root.resolve(projectRelPath);
-        Path gitRelPath = workTreeRoot.relativize(projectAbsPath);
-        return toUnixPath(gitRelPath);
+        try {
+            Path gitRelPath = workTreeRoot.relativize(projectAbsPath);
+            return toUnixPath(gitRelPath);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Path {} is not relative to git worktree root {}", projectAbsPath, workTreeRoot);
+            return null;
+        }
     }
 
     private boolean isPathIgnored(
@@ -498,6 +503,9 @@ public final class FileFilteringService {
             List<Map.Entry<Path, Path>> fixedGitignorePairs,
             boolean isDirectory) {
         String gitRelPath = toGitRelativePath(gitRepo, projectRelPath);
+        if (gitRelPath == null) {
+            return false;
+        }
         Path gitRelPathObj = Path.of(gitRelPath);
         var workTreeRoot = gitRepo.getWorkTreeRoot();
 
