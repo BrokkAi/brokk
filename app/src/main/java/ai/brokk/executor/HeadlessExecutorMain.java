@@ -951,6 +951,16 @@ public final class HeadlessExecutorMain {
                 temperature = tempRaw;
             }
 
+            @Nullable Double temperatureCode = null;
+            var tempCodeRaw = jobSpecRequest.temperatureCode();
+            if (tempCodeRaw != null) {
+                if (tempCodeRaw.isNaN() || tempCodeRaw < 0.0 || tempCodeRaw > 2.0) {
+                    sendValidationError(exchange, "temperatureCode must be between 0.0 and 2.0");
+                    return;
+                }
+                temperatureCode = tempCodeRaw;
+            }
+
             // Optional job-scoped context text: accept from either top-level contextText or nested context.text
             var requestedJobContextTexts = new ArrayList<String>();
             var topLevelTexts = jobSpecRequest.contextText();
@@ -1014,7 +1024,7 @@ public final class HeadlessExecutorMain {
                     jobSpecRequest.codeModel(),
                     preScanFlag,
                     safeTags,
-                    new JobSpec.ModelOverrides(reasoningLevel, reasoningLevelCode, temperature, null));
+                    new JobSpec.ModelOverrides(reasoningLevel, reasoningLevelCode, temperature, temperatureCode));
 
             // Create or get job (idempotent)
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);
@@ -1529,7 +1539,8 @@ public final class HeadlessExecutorMain {
             @Nullable ContextPayload context,
             @Nullable String reasoningLevel,
             @Nullable String reasoningLevelCode,
-            @Nullable Double temperature) {}
+            @Nullable Double temperature,
+            @Nullable Double temperatureCode) {}
 
     private record ContextPayload(@Nullable List<String> text) {}
 
