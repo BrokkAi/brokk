@@ -248,7 +248,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             // - ChatMessageType changes
             isNew = meta.isReasoning() != lastIsReasoning
                     || meta.isTerminal() != lastIsTerminal
-                    || lastIsTerminal
                     || type != last.type();
         }
 

@@ -312,17 +312,37 @@ Both approaches:
 
         // Start streaming after 3s; first chunk will auto-hide the transient message
         setTimeout(() => {
-            let index = 0;
-            const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
-            const interval = setInterval(() => {
-                if (index < chunks.length) {
-                    simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true, meta: { isNewMessage: index === 0, isReasoning: false, isTerminal: false }});
-                    index++;
+            // First, stream terminal output with repeated gradlew commands
+            const terminalCommand = './gradlew --quiet tidy check\n';
+            const terminalRepetitions = 250;
+            let terminalIndex = 0;
+
+            const terminalInterval = setInterval(() => {
+                if (terminalIndex < terminalRepetitions) {
+                    simulateEvent('chunk', {
+                        text: terminalCommand,
+                        msgType: 'CUSTOM',
+                        streaming: true,
+                        meta: { isNewMessage: terminalIndex === 0, isReasoning: false, isTerminal: true }
+                    });
+                    terminalIndex++;
                 } else {
-                    clearInterval(interval);
-                    simulateEvent('chunk', {text: "Ask command complete!", msgType: 'SYSTEM', streaming: true, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
+                    clearInterval(terminalInterval);
+
+                    // After terminal output completes, stream the contentAi
+                    let index = 0;
+                    const chunks = contentAi.match(/[\s\S]{1,10}/g) || [];
+                    const interval = setInterval(() => {
+                        if (index < chunks.length) {
+                            simulateEvent('chunk', {text: chunks[index], msgType: 'AI', streaming: true, meta: { isNewMessage: index === 0, isReasoning: false, isTerminal: false }});
+                            index++;
+                        } else {
+                            clearInterval(interval);
+                            simulateEvent('chunk', {text: "Ask command complete!", msgType: 'SYSTEM', streaming: true, meta: { isNewMessage: true, isReasoning: false, isTerminal: false }});
+                        }
+                    }, 10);
                 }
-            }, 10);
+            }, 5);
         }, 3000);
     }
 

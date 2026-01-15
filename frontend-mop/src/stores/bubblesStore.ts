@@ -47,7 +47,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
 
                 const isStreaming = evt.streaming ?? false;
                 const chunkText = evt.text ?? '';
-                const isTerminalChunk = !!evt.meta.isTerminal;
+                const isTerminal = evt.meta.isTerminal;
 
                 // Decide if we append or start a new bubble.
                 // MarkdownOutputPanel.append is authoritative for isNewMessage.
@@ -63,7 +63,7 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                         markdown: chunkText,
                         epoch: evt.epoch,
                         streaming: isStreaming,
-                        isTerminal: isTerminalChunk || undefined,
+                        isTerminal: isTerminal || false,
                         hast: undefined,
                         reasoningState: evt.meta.isReasoning ? {
                             startTime: Date.now(),
@@ -73,22 +73,18 @@ export function onBrokkEvent(evt: BrokkEvent): void {
                     };
                     list = [...list, bubble];
 
-                    if (isStreaming && !isTerminalChunk) {
+                    if (isStreaming) {
                         // clear with flush (boundary for next message)
                         clearState(true);
                     }
                 } else {
                     // Immutable update
                     const last = list.at(-1)!;
-                    const nextIsTerminal = !!(last.isTerminal || isTerminalChunk);
 
                     bubble = {
                         ...last,
                         markdown: last.markdown + chunkText,
                         epoch: evt.epoch,
-                        streaming: isStreaming,
-                        isTerminal: nextIsTerminal || undefined,
-                        hast: nextIsTerminal ? undefined : last.hast,
                     };
                     list = [...list.slice(0, -1), bubble];
                 }

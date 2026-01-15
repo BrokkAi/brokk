@@ -1,5 +1,6 @@
 <script lang="ts">
     import HastRenderer from './HastRenderer.svelte';
+    import TerminalBlock from './TerminalBlock.svelte';
     import { rendererPlugins } from '../lib/renderer-plugins';
 
     // Generic bubble; only needs .hast for rendering
@@ -35,7 +36,9 @@
             on:mousedown={onMouseDown}
             on:contextmenu={preventContextMenu ? (e) => e.preventDefault() : undefined}
         >
-            {#if bubble?.hast}
+            {#if bubble?.isTerminal}
+                <TerminalBlock {bubble} />
+            {:else if bubble?.hast}
                 <HastRenderer tree={bubble.hast} plugins={rendererPlugins} />
             {/if}
         </div>

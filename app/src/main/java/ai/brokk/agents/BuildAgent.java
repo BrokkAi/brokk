@@ -1204,9 +1204,14 @@ public class BuildAgent {
         var io = cm.getIo();
 
         io.llmOutput(
-                "\nRunning verification command:\n\n```sh\n" + verificationCommand + "\n```\n",
+                "\nRunning verification command:",
                 ChatMessageType.CUSTOM,
                 LlmOutputMeta.newMessage());
+
+        io.llmOutput(verificationCommand + "\n\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.newMessage().withTerminal(true)
+        );
 
         try {
             var details = override != null ? override : cm.getProject().awaitBuildDetails();
