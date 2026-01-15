@@ -11,12 +11,13 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Instant;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
+import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 
 /**
  * Reports uncaught exceptions to the Brokk server for monitoring and debugging purposes. This class handles
@@ -50,6 +51,7 @@ public class ExceptionReporter {
      *
      * @param throwable The exception to report (must not be null)
      */
+    @Blocking
     public void reportException(Throwable throwable) {
         reportException(throwable, Map.of());
     }
@@ -61,6 +63,7 @@ public class ExceptionReporter {
      * @param throwable The exception to report (must not be null)
      * @param optionalFields Optional context fields to include with the report
      */
+    @Blocking
     public void reportException(Throwable throwable, Map<String, String> optionalFields) {
         // Generate a signature for this exception for deduplication
         String signature = generateExceptionSignature(throwable);
@@ -92,29 +95,22 @@ public class ExceptionReporter {
         // Format the stacktrace
         String stacktrace = formatStackTrace(throwable);
 
-        // Report asynchronously to avoid blocking the current thread
-        CompletableFuture.runAsync(() -> {
-                    try {
-                        String clientVersion = BuildInfo.version;
-                        ReportingService service = serviceSupplier.get();
-                        service.reportClientException(stacktrace, clientVersion, optionalFields);
-                        logger.debug(
-                                "Successfully reported exception: {} - {}",
-                                throwable.getClass().getSimpleName(),
-                                throwable.getMessage());
-                    } catch (Exception e) {
-                        // Log the failure but don't propagate - we don't want exception reporting
-                        // to cause more exceptions
-                        logger.warn(
-                                "Failed to report exception to server: {} (original exception: {})",
-                                e.getMessage(),
-                                throwable.getClass().getSimpleName());
-                    }
-                })
-                .exceptionally(ex -> {
-                    logger.warn("Unexpected error during async exception reporting", ex);
-                    return null;
-                });
+        try {
+            String clientVersion = BuildInfo.version;
+            ReportingService service = serviceSupplier.get();
+            service.reportClientException(stacktrace, clientVersion, optionalFields);
+            logger.debug(
+                    "Successfully reported exception: {} - {}",
+                    throwable.getClass().getSimpleName(),
+                    throwable.getMessage());
+        } catch (Exception e) {
+            // Log the failure but don't propagate - we don't want exception reporting
+            // to cause more exceptions
+            logger.warn(
+                    "Failed to report exception to server: {} (original exception: {})",
+                    e.getMessage(),
+                    throwable.getClass().getSimpleName());
+        }
     }
 
     /**
@@ -235,11 +231,16 @@ public class ExceptionReporter {
             return;
         }
 
-        Chrome activeWindow = SwingUtil.runOnEdt(() -> Brokk.getActiveWindow(), null);
-        if (activeWindow != null) {
+        SwingUtilities.invokeLater(() -> {
+            Chrome activeWindow = Brokk.getActiveWindow();
+            if (activeWindow == null) {
+                logger.warn("Unable to report exceptions in headless mode");
+                return;
+            }
+
             var cm = activeWindow.getContextManager();
             cm.reportException(throwable);
-        }
+        });
     }
 
     /**

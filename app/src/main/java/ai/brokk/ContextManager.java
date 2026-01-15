@@ -744,9 +744,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
     @Override
     public void reportException(Throwable th) {
-        submitBackgroundTask("Report exception", () -> {
-            exceptionReporter.reportException(th);
-        });
+        reportException(th, Map.of());
     }
 
     @Override
