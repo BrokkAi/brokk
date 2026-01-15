@@ -390,7 +390,11 @@ public class ToolRegistry {
 
     /** Generates a user-friendly explanation for a tool request validated against THIS registry. */
     public String getExplanationForToolRequest(ToolExecutionRequest request) {
-        if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
+        // hide tool calls which are rendered in another way (directly as markdown or with own taskEntry)
+        if (request.name().equals("answer")
+                || request.name().equals("abortSearch")
+                || request.name().equals("callCodeAgent")
+                || request.name().equals("createOrReplaceTaskList")) {
             return "";
         }
         try {

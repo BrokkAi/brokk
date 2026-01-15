@@ -817,7 +817,8 @@ public class Llm {
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.joining("\n\n"));
         if (!rendered.isBlank()) {
-            io.llmOutput("\n\n" + rendered, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
+            io.llmOutput(
+                    "\n\n" + rendered, ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
         }
     }
 
