@@ -4,6 +4,7 @@ import static java.util.Objects.requireNonNull;
 
 import ai.brokk.IssueProvider;
 import ai.brokk.project.IProject;
+import ai.brokk.util.HtmlUtil;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -382,7 +383,7 @@ public class JiraIssueService implements IssueService {
                     String createdStr = rawComment.path("created").asText(null); // ISO date from raw fields
                     Instant createdDate = parseJiraDateTime(createdStr);
 
-                    comments.add(new Comment(authorName, bodyHtml, createdDate));
+                    comments.add(new Comment(authorName, HtmlUtil.convertToMarkdown(bodyHtml), createdDate));
                 }
                 logger.debug("Parsed {} comments for Jira issue {}", comments.size(), issueId);
             } else {
@@ -423,7 +424,12 @@ public class JiraIssueService implements IssueService {
                     comments.size(),
                     attachmentUrls.size(),
                     issueId);
-            return new IssueDetails(header, renderedDescription, renderedDescription, comments, attachmentUrls);
+            return new IssueDetails(
+                    header,
+                    HtmlUtil.convertToMarkdown(renderedDescription),
+                    renderedDescription,
+                    comments,
+                    attachmentUrls);
 
         } catch (JsonProcessingException e) {
             logger.error(

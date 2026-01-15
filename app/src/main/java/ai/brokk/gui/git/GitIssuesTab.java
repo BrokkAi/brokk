@@ -1265,12 +1265,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
     private List<ChatMessage> buildIssueTextContentFromDetails(IssueDetails details) {
         IssueHeader header = details.header();
-        String bodyForCapture;
-        if (this.issueService instanceof JiraIssueService) {
-            bodyForCapture = HtmlUtil.convertToMarkdown(details.htmlBody());
-        } else {
-            bodyForCapture = details.markdownBody();
-        }
+        String bodyForCapture = details.markdownBody();
         bodyForCapture = bodyForCapture.isBlank() ? "*No description provided.*" : bodyForCapture;
         String content = String.format(
                 """
@@ -1309,11 +1304,7 @@ public class GitIssuesTab extends JPanel implements SettingsChangeListener, Them
 
         for (Comment comment : dtoComments) {
             String author = comment.author().isBlank() ? "unknown" : comment.author();
-            String originalCommentBody = comment.markdownBody(); // HTML from Jira, Markdown from GitHub
-            String commentBodyForCapture = originalCommentBody;
-            if (this.issueService instanceof JiraIssueService) {
-                commentBodyForCapture = HtmlUtil.convertToMarkdown(originalCommentBody);
-            }
+            String commentBodyForCapture = comment.markdownBody();
 
             if (!commentBodyForCapture.isBlank()) {
                 chatMessages.add(UserMessage.from(author, commentBodyForCapture));
