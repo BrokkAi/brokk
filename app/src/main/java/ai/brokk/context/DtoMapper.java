@@ -552,7 +552,7 @@ public class DtoMapper {
 
             attributes = customMessage.attributes().entrySet().stream()
                     .filter(e -> !e.getKey().equals("text"))
-                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+                    .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> b));
         } else {
             // For other message types, use the display representation
             contentId = writer.writeContent(Messages.getRepr(message), null);
