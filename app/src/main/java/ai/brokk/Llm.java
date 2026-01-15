@@ -544,9 +544,6 @@ public class Llm {
         // Happy path: successful completion, no errors
         var response = completedChatResponse.get(); // Will be null if an error occurred or onComplete got null
         assert response != null : "If no error, completedChatResponse must be set by onCompleteResponse";
-        if (echo) {
-            io.llmOutput("\n", ChatMessageType.AI, LlmOutputMeta.DEFAULT.withReasoning(forceReasoningEcho));
-        }
         return StreamingResult.fromResponse(response, null, elapsedMs);
     }
 
