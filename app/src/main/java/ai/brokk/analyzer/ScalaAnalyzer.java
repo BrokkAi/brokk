@@ -121,6 +121,11 @@ public class ScalaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
+    protected boolean requiresSemicolons() {
+        return false; // Scala does not require semicolons
+    }
+
+    @Override
     protected String renderClassHeader(
             TSNode classNode,
             SourceContent sourceContent,
