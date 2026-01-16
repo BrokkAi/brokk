@@ -4,7 +4,6 @@ import ai.brokk.ContextManager;
 import ai.brokk.SessionManager;
 import ai.brokk.context.Context;
 import ai.brokk.gui.components.MaterialButton;
-import ai.brokk.gui.components.PreviewTabbedPane;
 import ai.brokk.gui.components.SplitButton;
 import ai.brokk.gui.dialogs.DetachableTabFrame;
 import ai.brokk.gui.terminal.TaskListPanel;
