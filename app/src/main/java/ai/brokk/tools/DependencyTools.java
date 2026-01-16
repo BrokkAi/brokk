@@ -72,6 +72,7 @@ public class DependencyTools {
                     String coordinates)
             throws InterruptedException {
 
+        System.out.println("[DependencyTools] importMavenDependency called with: " + coordinates);
         logger.info("importMavenDependency called with: {}", coordinates);
         var io = contextManager.getIo();
 
@@ -175,6 +176,7 @@ public class DependencyTools {
                     .orTimeout(60, TimeUnit.SECONDS)
                     .join();
             logger.info("Successfully added {} to live dependencies", depName);
+            contextManager.notifyLiveDependenciesChanged();
             intelligenceStatus = "The library has been added to live dependencies and Code Intelligence is updating.";
         } catch (Exception e) {
             logger.error("Failed to add live dependency: {}", depName, e);

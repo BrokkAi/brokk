@@ -631,6 +631,13 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
     }
 
+    @Override
+    public void notifyLiveDependenciesChanged() {
+        for (var callback : analyzerCallbacks) {
+            submitBackgroundTask("Update for dependency changes", callback::onLiveDependenciesChanged);
+        }
+    }
+
     /** Submits a background task to clean up old LLM session history directories. */
     private void cleanupOldHistoryAsync() {
         submitBackgroundTask("Cleaning up LLM history", this::cleanupOldHistory);

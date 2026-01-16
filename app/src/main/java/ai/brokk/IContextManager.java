@@ -63,6 +63,9 @@ public interface IContextManager {
 
         /** Called when tracked files change in the working tree. */
         default void onTrackedFileChange() {}
+
+        /** Called when live dependencies are added or removed. */
+        default void onLiveDependenciesChanged() {}
     }
 
     default ExecutorService getBackgroundTasks() {
@@ -215,6 +218,9 @@ public interface IContextManager {
     }
 
     default void requestRebuild() {}
+
+    /** Notifies all registered analyzer callbacks that live dependencies have changed. */
+    default void notifyLiveDependenciesChanged() {}
 
     default IGitRepo getRepo() {
         return getProject().getRepo();

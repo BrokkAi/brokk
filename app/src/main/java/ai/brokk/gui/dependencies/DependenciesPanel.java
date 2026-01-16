@@ -578,6 +578,11 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
         }
     }
 
+    @Override
+    public void onLiveDependenciesChanged() {
+        reloadDependencies();
+    }
+
     private void addPendingDependencyRow(String name) {
         tableModel.addRow(new Object[] {LiveState.ENABLING, name, 0L});
     }
