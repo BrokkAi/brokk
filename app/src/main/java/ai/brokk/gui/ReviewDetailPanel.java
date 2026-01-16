@@ -124,31 +124,12 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
             // This is the Overview
             markdownChunks.add(text);
 
-            buttonPanel.removeAll();
-            buttonPanel.setVisible(true);
-
-            var captureBtn = new MaterialButton("Capture to new Session");
-            captureBtn.addActionListener(e -> {
-                var ctx = parent.getReviewContext();
-                if (ctx != null) {
-                    contextManager
-                            .createSessionFromContextAsync(ctx, "Code Review")
-                            .exceptionally(ex -> {
-                                contextManager
-                                        .getIo()
-                                        .toolError("Failed to create session: " + ex.getMessage(), "Session Error");
-                                return null;
-                            });
-                } else {
-                    contextManager.getIo().toolError("No review context available to capture", "Capture Error");
-                }
-            });
-            buttonPanel.add(captureBtn);
-
             if (!isLast) {
+                buttonPanel.removeAll();
+                buttonPanel.setVisible(true);
+
                 var nextBtn = new MaterialButton("Next");
                 nextBtn.addActionListener(e -> onNext.run());
-                buttonPanel.add(Box.createHorizontalStrut(10));
                 buttonPanel.add(nextBtn);
             }
         } else if (item instanceof KeyChanges change) {
