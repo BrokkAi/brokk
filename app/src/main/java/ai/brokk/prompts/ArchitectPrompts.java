@@ -43,13 +43,10 @@ public class ArchitectPrompts {
           usages, call graphs, etc.) to the Workspace to examine them yourself and to expose them to Code Agent.
         - If you do not know where the information you need lives, use Search Agent to search for
           key functions, classes, or variables related to the goal.
-        - When the goal involves using an external Java library, FIRST search for its key classes in Code Intelligence
-          (e.g., search for `ZipArchiveOutputStream` if using Commons Compress). If the classes are not found,
-          use `importMavenDependency` to import the library, then examine its API to understand how to use it.
-          Even if you know a library from training, importing it into Code Intelligence lets you add key classes
-          to the Workspace so Code Agent can see the actual API signatures and write more accurate code.
         - Identify the root cause of the problem.
         - Update the Workspace context continuously, including dropping irrelevant fragments, as you improve your understanding.
+        - When the goal involves using an external library (Java projects only), FIRST search for its key classes in Code Intelligence.
+          If the classes are not found, use `importMavenDependency` to import the library, then examine its API to understand how to use it.
 
         Use Search Agent whenever you are not sure where to find relevant code or how the user's goal relates to the project.
         Once Search Agent gives you the code location, you can add it (or derivatives like usages or call graphs)

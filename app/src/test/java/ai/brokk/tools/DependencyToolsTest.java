@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -109,7 +110,9 @@ public class DependencyToolsTest {
     /**
      * Integration test that actually downloads and decompiles a real library.
      * Uses slf4j-api as it's small and stable.
+     * Run manually with: ./gradlew test --tests="*DependencyToolsTest.importMavenDependency_RealLibrary*"
      */
+    @Disabled("Slow integration test - downloads from Maven Central")
     @Test
     void importMavenDependency_RealLibrary_DownloadsAndDecompiles() throws Exception {
         var cm = new TestContextManager(new TestProject(tempDir));
@@ -121,7 +124,8 @@ public class DependencyToolsTest {
         // Verify success
         assertTrue(result.contains("Successfully imported"), "Expected success, got: " + result);
         assertTrue(result.contains("slf4j-api"), "Should mention artifact name");
-        assertTrue(result.contains(".brokk/dependencies"), "Should mention output location");
+        // Path separators differ by OS, so check for both components
+        assertTrue(result.contains(".brokk") && result.contains("dependencies"), "Should mention output location");
 
         // Verify files were extracted
         var depsDir = tempDir.resolve(".brokk/dependencies");

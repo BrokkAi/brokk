@@ -151,7 +151,6 @@ public class SearchPrompts {
 
                 External library discovery (Java projects only):
                   - When the goal requires using an external Java library, search for its key classes first
-                    (e.g., search for `ObjectMapper` if using Jackson).
                   - If the library classes are NOT found in Code Intelligence, use `importMavenDependency`
                     to import the library. Example: `importMavenDependency("com.fasterxml.jackson.core:jackson-databind")`
                   - Once imported, the library's classes become searchable and can be added to the Workspace.
@@ -331,7 +330,7 @@ public class SearchPrompts {
         }
         if (objective.terminals().contains(Terminal.CODE)) {
             finals.add(
-                    "- Use callCodeAgent(String instructions) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
+                    "- Use callCodeAgent(String instructions, boolean deferBuild) to attempt implementation now in a single shot. If it succeeds, we finish; otherwise, continue with search/planning. Only use this when the goal is small enough to not need decomposition into a task list, and after you have added all the necessary context to the Workspace.");
         }
         finals.add(
                 "- If we cannot find the answer or the request is out of scope for this codebase, use abortSearch with a clear explanation.");
