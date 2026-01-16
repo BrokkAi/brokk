@@ -2,7 +2,6 @@ package ai.brokk.analyzer.skeleton;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
 import ai.brokk.AnalyzerUtil;
