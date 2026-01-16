@@ -105,21 +105,22 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             List<ScopeSegment> scopeChain,
             @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
-        // Special handling for MODULE: simpleName is the full package name,
-        // so packageName should be empty and shortName is the full package name.
-        if (skeletonType == SkeletonType.MODULE_STATEMENT) {
-            return new CodeUnit(file, CodeUnitType.MODULE, "", simpleName);
-        }
-
-        final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+        String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
         var type =
                 switch (skeletonType) {
                     case CLASS_LIKE -> CodeUnitType.CLASS;
                     case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
                     case FIELD_LIKE -> CodeUnitType.FIELD;
-                    case MODULE_STATEMENT -> CodeUnitType.MODULE;
-                    default -> CodeUnitType.CLASS;
+                    case MODULE_STATEMENT -> {
+                        packageName = classChain;
+                        yield CodeUnitType.MODULE;
+                    }
+                    default -> {
+                        // This shouldn't be reached if captureConfiguration is exhaustive
+                        log.warn("Unhandled CodeUnitType for '{}'", skeletonType);
+                        yield CodeUnitType.CLASS;
+                    }
                 };
 
         return new CodeUnit(file, type, packageName, shortName);
