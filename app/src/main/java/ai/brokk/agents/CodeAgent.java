@@ -339,13 +339,13 @@ public class CodeAgent {
                 String consoleLogForContinue;
                 if (blocksToApply.isEmpty()) {
                     // Treat "partial with no blocks" as a parse failure
-                    int updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
-                    if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
-                        reportComplete("Parse error limit reached (partial with no blocks); ending task.");
-                        stopDetails = new TaskResult.StopDetails(
-                                TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
-                        break;
-                    }
+                            int updatedConsecutiveParseFailures = es.consecutiveParseFailures() + 1;
+                            if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
+                                reportComplete(TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached (partial with no blocks); ending task.");
+                                stopDetails = new TaskResult.StopDetails(
+                                        TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
+                                break;
+                            }
                     messageForContinue = new UserMessage(
                             "It looks like the response was cut off before you provided any code blocks. Please continue with your response.");
                     consoleLogForContinue =
@@ -388,12 +388,12 @@ public class CodeAgent {
             if (options.contains(Option.DEFER_BUILD)) {
                 if (!es.javaLintDiagnostics().isEmpty()) {
                     if (es.consecutiveBuildFailures() >= MAX_BUILD_FAILURES) {
-                        reportComplete("Java syntax errors persist after %d attempts; aborting."
-                                .formatted(MAX_BUILD_FAILURES));
-                        stopDetails = new TaskResult.StopDetails(
-                                TaskResult.StopReason.BUILD_ERROR, "Java syntax issues persist.");
-                        break;
-                    }
+                            reportComplete(TaskResult.StopReason.BUILD_ERROR, "Java syntax errors persist after %d attempts; aborting."
+                                    .formatted(MAX_BUILD_FAILURES));
+                            stopDetails = new TaskResult.StopDetails(
+                                    TaskResult.StopReason.BUILD_ERROR, "Java syntax issues persist.");
+                            break;
+                        }
 
                     var diagnosticMessages = formatDiagnosticsReport(es.javaLintDiagnostics());
                     report(diagnosticMessages);
@@ -406,7 +406,7 @@ public class CodeAgent {
                     continue;
                 }
 
-                reportComplete(
+                reportComplete(TaskResult.StopReason.SUCCESS,
                         es.blocksAppliedWithoutBuild() > 0
                                 ? "Edits applied. Build/check deferred."
                                 : "No edits to apply. Build/check deferred.");
@@ -430,7 +430,7 @@ public class CodeAgent {
 
         // everyone reports their own reasons for stopping, except for interruptions
         if (stopDetails.reason() == TaskResult.StopReason.INTERRUPTED) {
-            reportComplete("Cancelled by user.");
+            reportComplete(TaskResult.StopReason.INTERRUPTED, "Cancelled by user.");
         }
 
         if (metrics != null) {
@@ -459,9 +459,10 @@ public class CodeAgent {
         io.llmOutput("\n" + message, ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
     }
 
-    void reportComplete(String message) {
+    void reportComplete(TaskResult.StopReason reason, String message) {
         logger.debug(message);
-        io.llmOutput("\n# Code Agent Finished\n" + message, ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+        var badge = StatusBadge.badgeFor(reason);
+        io.llmOutput("\n## Code Agent Finished\n" + badge + "\n\n**Reason:** " + message, ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
     }
 
     Step parsePhase(
@@ -505,7 +506,7 @@ public class CodeAgent {
             }
 
             if (updatedConsecutiveParseFailures > MAX_PARSE_ATTEMPTS) {
-                reportComplete("Parse error limit reached; ending task.");
+                reportComplete(TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task.");
                 return new Step.Fatal(new TaskResult.StopDetails(
                         TaskResult.StopReason.PARSE_ERROR, "Parse error limit reached; ending task."));
             }
@@ -720,7 +721,6 @@ public class CodeAgent {
     Step verifyPhase(ConversationState cs, EditState es, @Nullable Metrics metrics) {
         // Plan Invariant 3: Verify only runs when editsSinceLastBuild > 0.
         if (es.blocksAppliedWithoutBuild() == 0) {
-            reportComplete("No edits found or applied in response, and no changes since last build; ending task.");
             TaskResult.StopDetails stopDetails;
             if (es.lastBuildError().isEmpty()) {
                 var text = Messages.getText(cs.taskMessages().getLast());
@@ -728,6 +728,7 @@ public class CodeAgent {
             } else {
                 stopDetails = new TaskResult.StopDetails(TaskResult.StopReason.BUILD_ERROR, es.lastBuildError());
             }
+            reportComplete(stopDetails.reason(), "No edits found or applied in response, and no changes since last build; ending task.");
             return new Step.Fatal(stopDetails);
         }
 
@@ -789,15 +790,15 @@ public class CodeAgent {
 
                 if (isAskingForFiles) {
                     var fileNames =
-                            notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
-                    reportComplete("Agent is requesting additional files: " + fileNames);
-                    return new Step.Fatal(new TaskResult.StopDetails(
-                            TaskResult.StopReason.LLM_ABORTED,
-                            "Agent requested additional files not in context: " + fileNames));
+                                notInContext.stream().map(ProjectFile::getFileName).collect(Collectors.joining(", "));
+                        reportComplete(TaskResult.StopReason.LLM_ABORTED, "Agent is requesting additional files: " + fileNames);
+                        return new Step.Fatal(new TaskResult.StopDetails(
+                                TaskResult.StopReason.LLM_ABORTED,
+                                "Agent requested additional files not in context: " + fileNames));
                 }
             }
 
-            reportComplete("Success!");
+            reportComplete(TaskResult.StopReason.SUCCESS, "Success!");
             return new Step.Fatal(TaskResult.StopReason.SUCCESS);
         } else {
             // Build failed - use raw error for decisions, sanitized for storage, processed for LLM context
@@ -807,7 +808,7 @@ public class CodeAgent {
 
             int newBuildFailures = es.consecutiveBuildFailures() + 1;
             if (newBuildFailures >= MAX_BUILD_FAILURES) {
-                reportComplete("Build failed %d consecutive times; aborting.".formatted(newBuildFailures));
+                reportComplete(TaskResult.StopReason.BUILD_ERROR, "Build failed %d consecutive times; aborting.".formatted(newBuildFailures));
                 return new Step.Fatal(new TaskResult.StopDetails(
                         TaskResult.StopReason.BUILD_ERROR,
                         "Build failed %d consecutive times:\n%s".formatted(newBuildFailures, buildError)));
@@ -914,7 +915,7 @@ public class CodeAgent {
                             .collect(Collectors.joining(","));
                     var detailMsg = "Apply failed %d consecutive times; unable to apply %d blocks to %s"
                             .formatted(updatedConsecutiveApplyFailures, failedResults.size(), files);
-                    reportComplete(
+                    reportComplete(TaskResult.StopReason.APPLY_ERROR,
                             "Apply failed %d consecutive times; aborting.".formatted(updatedConsecutiveApplyFailures));
                     var details = new TaskResult.StopDetails(TaskResult.StopReason.APPLY_ERROR, detailMsg);
                     return new Step.Fatal(details);
@@ -965,7 +966,7 @@ public class CodeAgent {
             } else if (e.stopDetails.reason() == TaskResult.StopReason.IO_ERROR) {
                 io.toolError(e.stopDetails.explanation());
             } else if (e.stopDetails.reason() == TaskResult.StopReason.APPLY_ERROR) {
-                reportComplete(e.stopDetails.explanation());
+                reportComplete(e.stopDetails.reason(), e.stopDetails.explanation());
             }
             return new Step.Fatal(e.stopDetails);
         } catch (InterruptedException e) {

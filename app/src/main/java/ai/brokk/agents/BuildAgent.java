@@ -1204,7 +1204,7 @@ public class BuildAgent {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
-        io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.newMessage());
+        io.llmOutput("\nRunning verification command:", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
         io.llmOutput(
                 verificationCommand + "\n\n",
