@@ -617,28 +617,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
     }
 
     @Override
-    protected void createModulesFromImports(
-            ProjectFile file,
-            List<String> localImportStatements,
-            TSNode rootNode,
-            String modulePackageName,
-            Map<String, CodeUnit> localCuByFqName,
-            List<CodeUnit> localTopLevelCUs,
-            Map<CodeUnit, List<String>> localSignatures,
-            Map<CodeUnit, List<Range>> localSourceRanges) {
-        super.createModulesFromImports(
-                file,
-                localImportStatements,
-                rootNode,
-                modulePackageName,
-                localCuByFqName,
-                localTopLevelCUs,
-                localSignatures,
-                localSourceRanges,
-                new HashMap<>());
-    }
-
-    @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
