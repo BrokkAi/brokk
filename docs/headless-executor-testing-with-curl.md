@@ -218,6 +218,10 @@ JSON
 
 All job payloads must include `plannerModel`. The examples below use inline JSON via stdin; swap in real identifiers.
 
+Notes on request vs persisted fields:
+- `sessionId` exists in the request body and is used to select the active session; it is not persisted in `JobSpec` (it may be copied into tags as `session_id`).
+- `sourceBranch` / `targetBranch` are persisted/reserved `JobSpec` fields but are not currently accepted by `POST /v1/jobs`.
+
 ### Job-scoped free-form text seeding (inline)
 
 You can seed free-form text that applies only to the newly created job. These fragments are added just before execution and automatically cleaned up when the job finishes.
@@ -644,7 +648,9 @@ JSON
 
 ### ISSUE Mode (Automated Issue Resolution)
 
-ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, creates a dedicated branch, generates a task list, executes changes, and automatically retries on build failures (up to 3 attempts per task).
+ISSUE mode automates the resolution of GitHub Issues by combining intelligent planning with an iterative solve-and-verify build loop. It fetches the issue, creates a dedicated branch, generates a task list, executes changes, and automatically retries on build failures (controlled by `buildSettings.maxBuildAttempts`, per task).
+
+Additionally, you can cap the overall issue remediation workflow using `maxIssueFixAttempts` (job-level gate): this is the maximum number of issue-fix attempts before the workflow gives up and blocks PR creation. Default: 5.
 
 Upon success, it automatically commits the work, pushes the branch, and creates a Pull Request.
 
@@ -663,6 +669,7 @@ curl -sS -X POST "${BASE}/v1/jobs/issue" \
   "githubToken": "ghp_xxxxxxxxxxxx",
   "plannerModel": "gpt-5",
   "codeModel": "gpt-5-mini",
+  "maxIssueFixAttempts": 5,
   "buildSettings": {
     "buildLintCommand": "./gradlew classes",
     "testAllCommand": "./gradlew test",
@@ -787,7 +794,8 @@ curl -sS "${BASE}/v1/jobs/<job-id>/events?after=0" \
 - Uses LUTZ-style planning to decompose issue into tasks.
 - Executes each task with ArchitectAgent (uses `plannerModel` + `codeModel`).
 - Runs build verification after each task.
-- Automatically retries failed builds (default: 3 attempts per task, configurable via `maxBuildAttempts`).
+- Retries failed builds per task (default: 3 attempts per task, configurable via `buildSettings.maxBuildAttempts`).
+- Caps overall issue remediation attempts (default: 5, configurable via `maxIssueFixAttempts`).
 - **PR Creation**: On success, pushes changes and creates a Pull Request with an AI-generated title and description.
 - `buildSettings` overrides project defaults for the job duration.
 - `codeModel` is optional; defaults to project default if omitted.
