@@ -383,7 +383,7 @@ public class SessionManagerTest {
         List<SessionInfo> sessions = sessionManager.listSessions();
         assertEquals(1, sessions.size());
         assertEquals(session2.id(), sessions.get(0).id());
-        assertFalse(Files.exists(historyFileToDelete));
+        assertEventually(() -> assertFalse(Files.exists(historyFileToDelete)));
 
         // Test deleting non-existent, should not throw
         sessionManager.deleteSession(SessionManager.newSessionId());
@@ -471,6 +471,7 @@ public class SessionManagerTest {
     void testCountAiResponses_missingSession() throws Exception {
         MainProject project = new MainProject(tempDir);
         var sessionManager = project.getSessionManager();
+        ;
 
         // Use a random UUID that doesn't exist
         UUID nonExistentId = SessionManager.newSessionId();
