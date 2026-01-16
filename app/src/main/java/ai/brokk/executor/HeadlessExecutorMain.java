@@ -302,12 +302,11 @@ public final class HeadlessExecutorMain {
     }
 
     /**
-     * Asynchronously execute a job. Called after a new job is created.
-     * Delegates to JobRunner and handles per-job cleanup and reservation lifecycle.
+     * Await headless ContextManager initialization (with timeout) or respond with an error.
      *
-     * @param jobId the job identifier
-     * @param jobSpec the job specification
-     * @param seededTextFragmentIds IDs of any pasted text fragments seeded for this job
+     * @param exchange the HTTP exchange for sending an error response
+     * @param jobId the job identifier (used for logging and reservation cleanup)
+     * @return true if initialization completed successfully; false if an error response was sent
      */
     private boolean awaitHeadlessInitOrRespond(HttpExchange exchange, String jobId) throws IOException {
         try {
@@ -335,6 +334,14 @@ public final class HeadlessExecutorMain {
         }
     }
 
+    /**
+     * Asynchronously execute a job. Called after a new job is created.
+     * Delegates to JobRunner and handles per-job cleanup and reservation lifecycle.
+     *
+     * @param jobId the job identifier
+     * @param jobSpec the job specification
+     * @param seededTextFragmentIds IDs of any pasted text fragments seeded for this job
+     */
     private void executeJobAsync(String jobId, JobSpec jobSpec, List<String> seededTextFragmentIds) {
         logger.info("Starting job execution: {}, session={}", jobId, contextManager.getCurrentSessionId());
         final List<String> fragmentIds = List.copyOf(seededTextFragmentIds);
