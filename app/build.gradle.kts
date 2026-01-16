@@ -16,8 +16,6 @@ group = "ai.brokk"
 
 java {
     toolchain {
-        // Use Zulu for development with jcefmaven
-        // Change to JETBRAINS for production builds with JBR+JCEF
         languageVersion.set(JavaLanguageVersion.of(21))
         vendor.set(JvmVendorSpec.JETBRAINS)
     }
