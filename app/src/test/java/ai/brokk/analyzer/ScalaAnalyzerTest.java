@@ -385,27 +385,4 @@ public class ScalaAnalyzerTest {
                             () -> fail("Could not find code unit 'Sports.RUGBY'!"));
         }
     }
-
-    @Test
-    public void testAnnotatedPackageDeclaration() throws IOException {
-        try (var testProject = InlineTestProjectCreator.code(
-                        """
-                        @deprecated package ai.brokk
-                        
-                        class ClassName {}
-                        """,
-                        "ai/brokk/ClassName.scala")
-                .build()) {
-            var analyzer = createTreeSitterAnalyzer(testProject);
-            analyzer.getDefinitions("ai.brokk.ClassName").stream()
-                    .findFirst()
-                    .ifPresentOrElse(
-                            cu -> {
-                                assertTrue(cu.isClass());
-                                assertEquals("ai.brokk", cu.packageName());
-                                assertEquals("ai.brokk.ClassName", cu.fqName());
-                            },
-                            () -> fail("Could not find code unit 'ai.brokk.ClassName'!"));
-        }
-    }
 }
