@@ -10,6 +10,7 @@ import ai.brokk.Llm;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
@@ -42,7 +43,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -51,6 +51,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -143,13 +144,8 @@ public class ReviewAgent {
 
         try (var scope = cm.beginTask("Code Review", true, false, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
-            Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
-            var instructionsOpt = extractInstructionsFragment(sessionIds);
-            if (instructionsOpt.isPresent()) {
-                var instructionsFragment = instructionsOpt.get();
-                initialContext =
-                        initialContext.addFragments(instructionsFragment).withPinned(instructionsFragment, true);
-            }
+            Context initialContext =
+                    new Context(cm).addFragments(diffFragment).addFragments(extractSessionContext(sessionIds));
 
             updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
@@ -868,20 +864,22 @@ public class ReviewAgent {
     }
 
     @Blocking
-    public Optional<ContextFragments.StringFragment> extractInstructionsFragment(List<UUID> sessionIds) {
+    public List<ContextFragments.StringFragment> extractSessionContext(List<UUID> sessionIds) {
         if (sessionIds.isEmpty()) {
-            return Optional.empty();
+            return List.of();
         }
 
         var sessionManager = cm.getProject().getSessionManager();
-
-        // Extract instructions from all matching histories
         var relevantTypes = Set.of(TaskResult.Type.CODE, TaskResult.Type.ARCHITECT, TaskResult.Type.BLITZFORGE);
-        List<String> instructions = sessionIds.stream()
+        var contexts = sessionIds.stream()
                 .parallel()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
                 .filter(Objects::nonNull)
-                .flatMap(h -> h.getHistory().stream()) // Stream<Context>
+                .flatMap(h -> h.getHistory().stream())
+                .toList();
+
+        // Extract instructions
+        List<String> instructions = contexts.stream() // Stream<Context>
                 .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
                 .filter(te ->
                         te.meta() != null && relevantTypes.contains(te.meta().type()))
@@ -894,15 +892,33 @@ public class ReviewAgent {
                 .distinct()
                 .toList();
 
-        logger.debug("Extracted {} instruction fragments", instructions.size());
+        // Extract context hints
+        Set<ProjectFile> editedFiles = changes.perFileChanges().stream()
+                .flatMap(fd -> Stream.of(fd.oldFile(), fd.newFile()))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        List<String> fragmentHints = contexts.stream()
+                .flatMap(Context::allFragments)
+                .filter(cf ->
+                        !(cf instanceof ContextFragments.ProjectPathFragment ppf && editedFiles.contains(ppf.file())))
+                .map(cf -> cf.description().join())
+                .distinct()
+                .toList();
 
-        if (instructions.isEmpty()) {
-            return Optional.empty();
+        List<ContextFragments.StringFragment> results = new ArrayList<>();
+        if (!instructions.isEmpty()) {
+            String mergedInstructions =
+                    instructions.stream().map(desc -> "- " + desc).collect(Collectors.joining("\n"));
+            results.add(new ContextFragments.StringFragment(
+                    cm, mergedInstructions, "User Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
         }
 
-        String mergedText = instructions.stream().map(desc -> "- " + desc).collect(Collectors.joining("\n"));
+        if (!fragmentHints.isEmpty()) {
+            String mergedHints = fragmentHints.stream().map(hint -> "- " + hint).collect(Collectors.joining("\n"));
+            results.add(new ContextFragments.StringFragment(
+                    cm, mergedHints, "Sources Used During Patch Creation", SyntaxConstants.SYNTAX_STYLE_NONE));
+        }
 
-        return Optional.of(new ContextFragments.StringFragment(
-                cm, mergedText, "User Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
+        return results;
     }
 }
