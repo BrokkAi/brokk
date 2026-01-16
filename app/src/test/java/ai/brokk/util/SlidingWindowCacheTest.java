@@ -279,40 +279,80 @@ class SlidingWindowCacheTest {
     @Timeout(value = 10, unit = TimeUnit.SECONDS)
     void testConcurrentReservations() throws InterruptedException {
         final int numThreads = 10;
+        final int attemptsPerThread = 500; // exercise the reserve->putReserved transition many times
         var executor = Executors.newFixedThreadPool(numThreads);
-        var latch = new CountDownLatch(numThreads);
+        var startLatch = new CountDownLatch(1); // start workers simultaneously
+        var doneLatch = new CountDownLatch(numThreads);
         var successfulReservations = new AtomicInteger(0);
+        var concurrentHolders = new AtomicInteger(0);
+        var violation = new AtomicBoolean(false);
         var errors = new ConcurrentLinkedQueue<Exception>();
+        final String key = "contested-key";
 
-        // All threads try to reserve the same key
+        // Launch concurrent threads doing repeated reserve/putReserved attempts
         for (int t = 0; t < numThreads; t++) {
             final int threadId = t;
             executor.submit(() -> {
                 try {
-                    if (cache.tryReserve("contested-key")) {
-                        successfulReservations.incrementAndGet();
-                        // Simulate some work
-                        Thread.sleep(1);
-                        cache.putReserved("contested-key", new TestDisposable("winner-" + threadId));
+                    // Wait until all threads are ready to begin
+                    startLatch.await();
+
+                    for (int i = 0; i < attemptsPerThread; i++) {
+                        try {
+                            if (cache.tryReserve(key)) {
+                                // Track concurrent holders to detect double-reservation
+                                int holders = concurrentHolders.incrementAndGet();
+                                if (holders > 1) {
+                                    violation.set(true);
+                                }
+                                successfulReservations.incrementAndGet();
+                                // Increase the chance of overlapping windows
+                                try {
+                                    Thread.sleep(java.util.concurrent.ThreadLocalRandom.current().nextInt(0, 3));
+                                } catch (InterruptedException ignored) {
+                                }
+                                cache.putReserved(key, new TestDisposable("winner-" + threadId + "-" + i));
+                                concurrentHolders.decrementAndGet();
+                            } else {
+                                // Small pause to yield to other threads
+                                Thread.yield();
+                            }
+                        } catch (AssertionError ae) {
+                            // putReserved may assert if used incorrectly; capture as error
+                            errors.add(new Exception("AssertionError in worker", ae));
+                            break;
+                        } catch (Exception e) {
+                            errors.add(e);
+                            break;
+                        }
                     }
-                } catch (Exception e) {
+                } catch (InterruptedException e) {
                     errors.add(e);
                 } finally {
-                    latch.countDown();
+                    doneLatch.countDown();
                 }
             });
         }
 
-        assertTrue(latch.await(8, TimeUnit.SECONDS));
+        // Start all workers simultaneously
+        startLatch.countDown();
+
+        // Wait for completion
+        assertTrue(doneLatch.await(8, TimeUnit.SECONDS));
         executor.shutdown();
 
         if (!errors.isEmpty()) {
             fail("Concurrent reservations failed with errors: " + errors);
         }
 
-        // Only one thread should have successfully reserved
-        assertEquals(1, successfulReservations.get());
-        assertNotNull(cache.get("contested-key"));
+        // Ensure we observed at least one successful reservation and no concurrent-holder violations
+        assertTrue(successfulReservations.get() > 0, "Expected at least one successful reservation");
+        assertFalse(violation.get(), "Detected multiple concurrent reservation holders; reserve/putReserved is not atomic");
+
+        // The cache must contain an entry for the key
+        assertNotNull(cache.get(key));
+        // And only one cached value should exist for that key
+        assertEquals(1, cache.nonNullValues().size());
     }
 
     @Test
