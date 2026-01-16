@@ -182,10 +182,7 @@ class SearchModeSearchAgentTest {
 
             @Override
             public void reinit(ai.brokk.project.IProject p) {
-                assert p instanceof MainProject;
-                capturingService = new CapturingService((MainProject) p);
-                capturingService.setModel(ModelType.SCAN, DUMMY_MODEL);
-                svc = capturingService;
+                // no-op: preserve capturingService instance for test stability
             }
         };
 
