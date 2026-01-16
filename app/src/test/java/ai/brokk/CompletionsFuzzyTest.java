@@ -62,6 +62,14 @@ class CompletionsFuzzyTest {
     }
 
     @Test
+    @DisplayName("Exact match (case-insensitive) outranks prefix match")
+    void exactMatchOutranksPrefixMatch() {
+        // 'FuzzyMatcher' exactly matches 'fuzzymatcher' case-insensitively.
+        // It should score better than 'FuzzyMatcherUtil' which is a longer prefix match.
+        assertBetterScore("fuzzymatcher", "FuzzyMatcher", "FuzzyMatcherUtil");
+    }
+
+    @Test
     @DisplayName("Prefix match scores better than mid-word match")
     void prefixMatchOutranksSubstringMatch() {
         // Test case from original failure: ipan -> InstructionsPanel vs GitPanel
@@ -129,6 +137,33 @@ class CompletionsFuzzyTest {
     @DisplayName("Exact case match scores better than case-insensitive match")
     void exactCaseScoresBetter() {
         assertBetterScore("FooBar", "FooBar", "foobar");
+    }
+
+    @Test
+    @DisplayName("Exact match (case-insensitive) outranks longer suffix or prefix matches")
+    void exactMatchOutranksSuffixOrPrefix() {
+        // (1) "contextmanager" -> "ContextManager" vs "ContextManagerFactory" or "MyContextManager"
+        assertBetterScore("contextmanager", "ContextManager", "ContextManagerFactory");
+        assertBetterScore("contextmanager", "ContextManager", "MyContextManager");
+    }
+
+    @Test
+    @DisplayName("Case-insensitive exact matches rank better than partial or substring matches")
+    void caseInsensitiveExactOutranksPartial() {
+        // (2) "foo" -> "Foo" vs substring or partial
+        assertBetterScore("foo", "Foo", "Food");
+        assertBetterScore("foo", "Foo", "BarFoo");
+
+        // "FOO" -> "foo" vs substring or partial
+        assertBetterScore("FOO", "foo", "fooBar");
+        assertBetterScore("FOO", "foo", "Myfoo");
+    }
+
+    @Test
+    @DisplayName("Exact case match ranks better than prefix match")
+    void exactCaseMatchRanksBetterThanPrefix() {
+        // (3) "HTTP" -> "HTTP" (exact) vs "HTTP" -> "HttpClient"
+        assertBetterScore("HTTP", "HTTP", "HttpClient");
     }
 
     @Test

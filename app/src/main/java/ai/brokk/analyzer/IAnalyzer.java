@@ -294,11 +294,27 @@ public interface IAnalyzer {
     }
 
     /**
+     * In order to preserve deterministic outcomes, we should sort the results. The rationale behind sorting by code
+     * unit type in this way is guided by prioritizing "smaller" sets of units higher up in the tree. Modules are
+     * typically not searched for, so these are put last.
+     */
+    static Comparator<CodeUnit> autocompleteDefinitionsSortComparator() {
+        return Comparator.comparingInt((CodeUnit cu) -> switch (cu.kind()) {
+                    case CLASS -> 0;
+                    case FUNCTION -> 1;
+                    case FIELD -> 2;
+                    case MODULE -> 3;
+                })
+                .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(CodeUnit::signature, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
+    }
+
+    /**
      * Provides a search facility that is based on auto-complete logic based on (non-regex) user-input. By default, this
      * hands over to {@link IAnalyzer#searchDefinitions(String)} surrounded by wildcards.
      *
      * @param query the search query
-     * @return a list of candidates where their fully qualified names may match the query.
+     * @return a set of candidates where their fully qualified names may match the query.
      */
     default Set<CodeUnit> autocompleteDefinitions(String query) {
         if (query.isEmpty()) {
@@ -332,7 +348,10 @@ public interface IAnalyzer {
         for (CodeUnit cu : fuzzyResults)
             byFqName.computeIfAbsent(cu.fqName(), k -> new LinkedHashSet<>()).add(cu);
 
-        return byFqName.values().stream().flatMap(Set::stream).collect(Collectors.toSet());
+        return byFqName.values().stream()
+                .flatMap(Set::stream)
+                .sorted(autocompleteDefinitionsSortComparator())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     /**
