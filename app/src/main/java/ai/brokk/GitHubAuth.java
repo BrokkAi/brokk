@@ -90,15 +90,10 @@ public class GitHubAuth {
     public static synchronized GitHubAuth getOrCreateInstance(IProject project) throws IOException {
         var resolved = resolveRepoForProject(project);
 
-        // Compare all three: owner, repo, and host
-        boolean hostMatches =
-                (instance != null && instance.host == null && (resolved.host == null || resolved.host.isBlank()))
-                        || (instance != null && instance.host != null && instance.host.equals(resolved.host));
-
         if (instance != null
                 && instance.getOwner().equals(resolved.owner)
                 && instance.getRepoName().equals(resolved.repoName)
-                && hostMatches) {
+                && Objects.equals(instance.host, resolved.host)) {
             logger.debug(
                     "Using existing GitHubAuth instance for {}/{} (Host: {}) (project {})",
                     instance.getOwner(),
@@ -200,10 +195,17 @@ public class GitHubAuth {
             }
         }
 
-        if (effectiveHost != null && !effectiveHost.isBlank()) {
-            var normalizedHostOpt = GitRepoIdUtil.normalizeGitHubHost(effectiveHost);
-            if (normalizedHostOpt.isPresent()) {
-                var hostValidationError = GitRepoIdUtil.validateGitHubHost(normalizedHostOpt.get());
+        if (effectiveHost == null || effectiveHost.isBlank()) {
+            effectiveHost = null;
+        } else {
+            effectiveHost = effectiveHost.trim();
+            effectiveHost = GitRepoIdUtil.normalizeGitHubHost(effectiveHost)
+                    .map(String::trim)
+                    .filter(s -> !s.isBlank())
+                    .orElse(null);
+
+            if (effectiveHost != null) {
+                var hostValidationError = GitRepoIdUtil.validateGitHubHost(effectiveHost);
                 if (hostValidationError.isPresent()) {
                     logger.warn(
                             "Invalid GitHub host for project '{}': '{}'. Validation error: {}",
@@ -215,7 +217,6 @@ public class GitHubAuth {
                             + "': "
                             + hostValidationError.get());
                 }
-                effectiveHost = normalizedHostOpt.get();
             }
         }
 
