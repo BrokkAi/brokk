@@ -1,0 +1,53 @@
+package ai.brokk.gui.mop.webview.cef;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+/**
+ * Factory for selecting the appropriate CEF provider.
+ *
+ * <p>Selection priority:
+ * <ol>
+ *   <li>{@link JbrCefProvider} - Production jDeploy builds with JBR+JCEF</li>
+ *   <li>{@link MavenCefProvider} - Development with jcefmaven</li>
+ * </ol>
+ *
+ * <p>This design allows the application to work in both production
+ * (where jcefmaven is stripped) and development (where JBR may not be present).
+ */
+public final class CefAppProviderFactory {
+
+    private static final Logger logger = LogManager.getLogger(CefAppProviderFactory.class);
+
+    private CefAppProviderFactory() {
+        // Utility class
+    }
+
+    /**
+     * Returns the appropriate CEF provider for the current environment.
+     *
+     * @return a CEF provider that is available in this environment
+     * @throws IllegalStateException if no provider is available
+     */
+    public static CefAppProvider getProvider() {
+        // Priority 1: JBR (production jDeploy builds)
+        CefAppProvider jbr = new JbrCefProvider();
+        if (jbr.isAvailable()) {
+            logger.info("Using JBR CEF provider (production mode)");
+            return jbr;
+        }
+
+        // Priority 2: Maven (development)
+        CefAppProvider maven = new MavenCefProvider();
+        if (maven.isAvailable()) {
+            logger.info("Using Maven CEF provider (development mode)");
+            return maven;
+        }
+
+        // No provider available
+        throw new IllegalStateException(
+                "No CEF provider available. " +
+                "Either run with jDeploy (JBR+JCEF) or ensure jcefmaven is on the classpath."
+        );
+    }
+}

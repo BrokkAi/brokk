@@ -5,6 +5,8 @@ import ai.brokk.DependencyException;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.mop.webview.cef.CefAppProvider;
+import ai.brokk.gui.mop.webview.cef.CefAppProviderFactory;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.project.MainProject;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -23,13 +25,19 @@ import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.browser.CefMessageRouter;
+import org.cef.handler.CefAppHandlerAdapter;
 import org.cef.handler.CefLoadHandler;
 import org.cef.handler.CefLoadHandlerAdapter;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * JCEF-based WebView host using JBR's bundled JCEF.
- * Requires JetBrains Runtime (JBR) with JCEF variant - no external downloads needed.
+ * JCEF-based WebView host.
+ *
+ * <p>Automatically selects the appropriate CEF provider:
+ * <ul>
+ *   <li>JBR provider in production jDeploy builds</li>
+ *   <li>jcefmaven provider in development</li>
+ * </ul>
  */
 public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
     private static final Logger logger = LogManager.getLogger(JCEFWebViewHost.class);
@@ -321,12 +329,13 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 return existing;
             }
 
-            System.out.println("*** JCEF: Initializing CEF with JBR bundled JCEF ***");
-            logger.info("Initializing JCEF with JBR bundled JCEF");
+            CefAppProvider provider = CefAppProviderFactory.getProvider();
+            System.out.println("*** JCEF: Initializing CEF with " + provider.getClass().getSimpleName() + " ***");
+            logger.info("Initializing JCEF with {}", provider.getClass().getSimpleName());
 
             CefApp app;
             try {
-                app = JCefSetup.createCefApp(new org.cef.handler.CefAppHandlerAdapter(null) {
+                app = provider.createCefApp(new CefAppHandlerAdapter(null) {
                     @Override
                     public void stateHasChanged(CefApp.CefAppState state) {
                         logger.info("CefApp state changed: {}", state);

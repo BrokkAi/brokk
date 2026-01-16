@@ -1,6 +1,6 @@
 package ai.brokk;
 
-import ai.brokk.gui.mop.webview.JCefSetup;
+import ai.brokk.gui.mop.webview.cef.CefAppProviderFactory;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
@@ -17,8 +17,8 @@ import org.cef.handler.CefAppHandlerAdapter;
 public class JcefDemo {
 
     public static void main(String[] args) {
-        System.out.println("*** Building CefApp with JBR bundled JCEF... ***");
-        CefApp cefApp = JCefSetup.createCefApp(new CefAppHandlerAdapter(null) {
+        System.out.println("*** Building CefApp... ***");
+        CefApp cefApp = CefAppProviderFactory.getProvider().createCefApp(new CefAppHandlerAdapter(null) {
             @Override
             public void stateHasChanged(CefApp.CefAppState state) {
                 System.out.println("*** CefApp state: " + state + " ***");
