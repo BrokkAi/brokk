@@ -1182,7 +1182,7 @@ public class BuildAgent {
         var io = cm.getIo();
 
         if (command.isBlank()) {
-            io.llmOutput("\nNo explicit command specified, skipping.", ChatMessageType.CUSTOM);
+            io.llmOutput("\nNo explicit command specified, skipping.", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
             return ctx;
         }
 
@@ -1302,9 +1302,10 @@ public class BuildAgent {
         var cm = ctx.getContextManager();
         var io = cm.getIo();
 
-        io.llmOutput("\nRunning command: \n\n```bash\n" + command + "\n```\n", ChatMessageType.CUSTOM);
+        io.llmOutput(
+                "\nRunning command: \n\n```bash\n" + command + "\n```\n", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
         String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
-        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
+        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
         try {
             var details = override != null ? override : cm.getProject().awaitBuildDetails();
@@ -1317,16 +1318,16 @@ public class BuildAgent {
             var output = Environment.instance.runShellCommand(
                     command,
                     cm.getProject().getRoot(),
-                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.terminal()),
                     timeout,
                     execCfg,
                     envVars);
-            io.llmOutput("\n```", ChatMessageType.CUSTOM);
+            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
             logger.debug("Explicit command successful. Output: {}", output);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
-            io.llmOutput("\n```", ChatMessageType.CUSTOM);
+            io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
             String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
