@@ -14,6 +14,7 @@ Thank you for your interest in contributing. This guide covers environment setup
 ./gradlew test       # run tests
 ./gradlew build      # full build (compile + test + checks)
 ./gradlew shadowJar  # build fat JAR
+./brokkw             # run the shadow JAR (builds if needed)
 ./gradlew tidy       # format Java code (spotlessApply)
 ```
 

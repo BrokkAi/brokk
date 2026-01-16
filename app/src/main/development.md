@@ -236,6 +236,23 @@ To run multiple instances simultaneously, enable debugging only on specific inst
 - **Force JAR in build**: `./gradlew -PenableShadowJar build`
 - **Frontend assets**: Automatically included in JAR under `mop-web/` resources
 
+### Running the Shadow JAR
+
+Use the `brokkw` wrapper script to run the shadow JAR with required JVM flags:
+
+```bash
+./brokkw                    # Run latest shadow JAR (builds if needed)
+./brokkw path/to/brokk.jar  # Run specific JAR
+./brokkw --some-arg         # Pass args through to Brokk
+```
+
+The wrapper automatically includes:
+- `--add-opens` flags required for JCEF/Swing integration
+- `--enable-native-access` for native library access
+- Dev mode flags (`-Dbrokk.devmode=true`, etc.)
+
+On Windows, use `brokkw.bat` instead.
+
 ## Versioning
 
 The project uses automatic versioning based on git tags. Version numbers are derived dynamically from the git repository state:

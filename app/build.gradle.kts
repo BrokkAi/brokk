@@ -17,6 +17,7 @@ group = "ai.brokk"
 java {
     toolchain {
         languageVersion.set(JavaLanguageVersion.of(21))
+        vendor.set(JvmVendorSpec.JETBRAINS)
     }
 }
 
@@ -132,8 +133,10 @@ dependencies {
     // File watching - native recursive directory watching
     implementation("io.methvin:directory-watcher:0.18.0")
 
-    // JCEF for Chromium embedded browser
-    // Note: 141.0.10 breaks Linux windowed rendering (browser shows detached instead of embedded)
+    // JCEF is provided by JBR (JetBrains Runtime) with JCEF variant
+    // The jcef module is bundled with JBR and provides org.cef.* classes
+    // jcefmaven is used for development (auto-downloads JCEF binaries)
+    // In production jDeploy builds, jcefmaven is stripped via .jdpignore
     implementation("me.friwi:jcefmaven:122.1.10")
 
     // Testing
@@ -690,7 +693,7 @@ tasks.named("clean") {
 // JcefDemo task - minimal JCEF test
 tasks.register<JavaExec>("runJcefDemo") {
     group = "application"
-    description = "Run minimal JCEF demo with jcefmaven"
+    description = "Run minimal JCEF demo with JBR bundled JCEF"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass.set("ai.brokk.JcefDemo")
 

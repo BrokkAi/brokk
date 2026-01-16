@@ -5,6 +5,8 @@ import ai.brokk.DependencyException;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.ThemeColors;
+import ai.brokk.gui.mop.webview.cef.CefAppProvider;
+import ai.brokk.gui.mop.webview.cef.CefAppProviderFactory;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.project.MainProject;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -19,7 +21,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import javax.swing.JComponent;
 import javax.swing.JPanel;
-import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cef.CefApp;
@@ -27,14 +28,19 @@ import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.browser.CefMessageRouter;
+import org.cef.handler.CefAppHandlerAdapter;
 import org.cef.handler.CefLoadHandler;
 import org.cef.handler.CefLoadHandlerAdapter;
 import org.jetbrains.annotations.Nullable;
 
 /**
- * JCEF-based WebView host using jcefmaven.
- * Uses jcefmaven library which automatically downloads and manages JCEF binaries.
+ * JCEF-based WebView host.
  *
+ * <p>Automatically selects the appropriate CEF provider:
+ * <ul>
+ *   <li>JBR provider in production jDeploy builds</li>
+ *   <li>jcefmaven provider in development</li>
+ * </ul>
  */
 public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
     private static final Logger logger = LogManager.getLogger(JCEFWebViewHost.class);
@@ -141,7 +147,29 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                         CefLoadHandler.ErrorCode errorCode,
                         String errorText,
                         String failedUrl) {
+                    // ERR_ABORTED is common during navigation changes and usually not fatal
+                    if (errorCode == CefLoadHandler.ErrorCode.ERR_ABORTED) {
+                        logger.debug("Load aborted (non-fatal): {} for URL: {}", errorText, failedUrl);
+                        return;
+                    }
                     logger.error("Load error: {} - {} for URL: {}", errorCode, errorText, failedUrl);
+
+                    // Retry once for connection errors (server may not be ready)
+                    if (frame.isMain()
+                            && (errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_REFUSED
+                                    || errorCode == CefLoadHandler.ErrorCode.ERR_CONNECTION_RESET)) {
+                        logger.info("Retrying load after connection error...");
+                        // Retry after a short delay
+                        new Thread(() -> {
+                                    try {
+                                        Thread.sleep(500);
+                                        browser.reload();
+                                    } catch (InterruptedException e) {
+                                        Thread.currentThread().interrupt();
+                                    }
+                                })
+                                .start();
+                    }
                 }
             });
 
@@ -149,19 +177,17 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             int port = ClasspathHttpServer.ensureStarted();
             String themeName = MainProject.getTheme();
             String url = "http://127.0.0.1:" + port + "/index.html?theme=" + themeName;
-            System.out.println("*** JCEF (JBR): Creating browser for URL: " + url + " ***");
             logger.info("Creating JCEF browser for URL: {}", url);
 
-            // Create browser (windowed mode) - use deprecated API like working sample
+            // Create browser directly with URL (like working jcef branch)
             @SuppressWarnings("deprecation")
             var createdBrowser = client.createBrowser(url, false, false);
             browser = createdBrowser;
-            System.out.println("*** JCEF (JBR): Browser created: " + browser + " ***");
+            logger.debug("Browser created: {}", browser);
 
             // Get the UI component and add it
             var uiComponent = browser.getUIComponent();
-            System.out.println(
-                    "*** JCEF (JBR): UI component: " + uiComponent.getClass().getName() + " ***");
+            logger.debug("UI component: {}", uiComponent.getClass().getName());
 
             // Add browser directly - CEF requires component in displayable hierarchy to load
             // Brief white flash is unavoidable JCEF limitation (native window ignores Swing overlays)
@@ -169,7 +195,6 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             revalidate();
             repaint();
 
-            System.out.println("*** JCEF (JBR): Browser added to panel ***");
             logger.info("JCEF browser created successfully");
 
             // Initial theme - queue until bridge ready
@@ -177,7 +202,7 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
             setInitialTheme(themeName, isDevMode, MainProject.getCodeBlockWrapMode());
 
         } catch (Exception e) {
-            logger.error("Failed to initialize JCEF via jcefmaven", e);
+            logger.error("Failed to initialize JCEF via JBR", e);
             System.err.println("*** JCEF initialization failed: " + e.getMessage() + " ***");
             e.printStackTrace(System.err);
             throw wrapWithDependencyHint(e);
@@ -310,38 +335,23 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
                 return existing;
             }
 
-            System.out.println("*** JCEF: Initializing CEF with jcefmaven ***");
-            logger.info("Initializing JCEF with jcefmaven");
-
-            var builder = JCefSetup.builder();
-
-            String themeName = MainProject.getTheme();
-            boolean isDark = !GuiTheme.THEME_LIGHT.equals(themeName) && !"BrokkLightPlus".equals(themeName);
-            var bgColor = ThemeColors.getColor(isDark, ThemeColors.CHAT_BACKGROUND);
-
-            var settings = builder.getCefSettings();
-            settings.windowless_rendering_enabled = false;
-            settings.background_color =
-                    settings.new ColorType(0xFF, bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue());
-
-            builder.setAppHandler(new MavenCefAppHandlerAdapter() {
-                @Override
-                public void stateHasChanged(CefApp.CefAppState state) {
-                    logger.info("CefApp state changed: {}", state);
-                    System.out.println("*** JCEF: State changed to " + state + " ***");
-                }
-            });
+            CefAppProvider provider = CefAppProviderFactory.getProvider();
+            logger.info("Initializing JCEF with {}", provider.getClass().getSimpleName());
 
             CefApp app;
             try {
-                app = builder.build();
+                app = provider.createCefApp(new CefAppHandlerAdapter(null) {
+                    @Override
+                    public void stateHasChanged(CefApp.CefAppState state) {
+                        logger.info("CefApp state changed: {}", state);
+                    }
+                });
             } catch (Exception e) {
                 throw wrapWithDependencyHint(e);
             }
             cefAppRef.set(app);
 
-            System.out.println("*** JCEF: CefApp created (state: " + app.getState() + ") ***");
-            logger.info("JCEF CefApp created");
+            logger.info("JCEF CefApp created (state: {})", app.getState());
             return app;
         }
     }
@@ -380,7 +390,6 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
     // Called by JCEFBridge when JS signals bridge is ready
     void onBridgeReady() {
-        System.out.println("*** JCEFWebViewHost.onBridgeReady() called, setting bridgeReady=true ***");
         logger.info("Bridge ready, flushing {} pending commands", pendingCommands.size());
         bridgeReady = true;
         flushPendingCommands();
