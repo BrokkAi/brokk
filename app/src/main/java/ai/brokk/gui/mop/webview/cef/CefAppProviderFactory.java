@@ -38,10 +38,16 @@ public final class CefAppProviderFactory {
         }
 
         // Priority 2: Maven (development)
-        CefAppProvider maven = new MavenCefProvider();
-        if (maven.isAvailable()) {
-            logger.info("Using Maven CEF provider (development mode)");
-            return maven;
+        // Catch NoClassDefFoundError in case loading MavenCefProvider eagerly resolves
+        // me.friwi.* references that are stripped in production builds
+        try {
+            CefAppProvider maven = new MavenCefProvider();
+            if (maven.isAvailable()) {
+                logger.info("Using Maven CEF provider (development mode)");
+                return maven;
+            }
+        } catch (NoClassDefFoundError e) {
+            logger.debug("MavenCefProvider dependencies not available: {}", e.getMessage());
         }
 
         // No provider available
