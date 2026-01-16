@@ -321,7 +321,8 @@ public final class HeadlessExecutorMain {
         } catch (ExecutionException e) {
             logger.warn("Headless initialization failed; rejecting job {}", jobId, e.getCause());
             jobReservation.releaseIfOwner(jobId);
-            var error = ErrorPayload.internalError("Executor initialization failed", Objects.requireNonNullElse(e.getCause(), e));
+            var error = ErrorPayload.internalError(
+                    "Executor initialization failed", Objects.requireNonNullElse(e.getCause(), e));
             SimpleHttpServer.sendJsonResponse(exchange, 500, error);
             return false;
         } catch (InterruptedException e) {
