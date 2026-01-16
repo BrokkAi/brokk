@@ -2,9 +2,14 @@ package ai.brokk.executor.jobs;
 
 import ai.brokk.git.GitRepo;
 import ai.brokk.util.Json;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.apache.logging.log4j.LogManager;
@@ -45,8 +50,63 @@ public final class PrReviewService {
         }
     }
 
+    public enum Severity {
+        CRITICAL,
+        HIGH,
+        MEDIUM,
+        LOW;
+
+        public static Severity normalize(@Nullable String raw) {
+            if (raw == null || raw.isBlank()) {
+                return LOW;
+            }
+            String normalized = raw.trim().toUpperCase(Locale.ROOT);
+            return switch (normalized) {
+                case "CRITICAL" -> CRITICAL;
+                case "HIGH" -> HIGH;
+                case "MEDIUM" -> MEDIUM;
+                case "LOW" -> LOW;
+                default -> LOW;
+            };
+        }
+
+        public boolean isAtLeast(Severity threshold) {
+            return this.ordinal() <= threshold.ordinal();
+        }
+    }
+
     /** Inline comment for a specific file and line. */
-    public record InlineComment(String path, int line, String bodyMarkdown) {}
+    public record InlineComment(String path, int line, String bodyMarkdown, Severity severity) {
+        @JsonCreator
+        public InlineComment(
+                @JsonProperty("path") String path,
+                @JsonProperty("line") int line,
+                @JsonProperty("bodyMarkdown") String bodyMarkdown,
+                @JsonProperty("severity") @Nullable String severity) {
+            this(path, line, bodyMarkdown, Severity.normalize(severity));
+        }
+
+        public InlineComment {
+            Objects.requireNonNull(path, "path");
+            Objects.requireNonNull(bodyMarkdown, "bodyMarkdown");
+            severity = Objects.requireNonNullElse(severity, Severity.LOW);
+        }
+    }
+
+    public static List<InlineComment> filterInlineComments(
+            List<InlineComment> comments, Severity threshold, int maxComments) {
+        Objects.requireNonNull(comments, "comments");
+        Objects.requireNonNull(threshold, "threshold");
+        if (maxComments < 0) {
+            throw new IllegalArgumentException("maxComments must be >= 0");
+        }
+
+        return comments.stream()
+                .filter(c -> Objects.requireNonNullElse(c.severity(), Severity.LOW).isAtLeast(threshold))
+                .sorted(Comparator.comparingInt(c -> c.severity().ordinal()))
+                .limit(maxComments)
+                .toList();
+    }
 
     /**
      * Fetches PR details from GitHub.
