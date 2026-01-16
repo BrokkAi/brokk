@@ -112,16 +112,23 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     case CLASS_LIKE -> CodeUnitType.CLASS;
                     case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
                     case FIELD_LIKE -> CodeUnitType.FIELD;
-                    case MODULE_STATEMENT -> {
-                        packageName = classChain;
-                        yield CodeUnitType.MODULE;
-                    }
+                    case MODULE_STATEMENT -> CodeUnitType.MODULE;
                     default -> {
                         // This shouldn't be reached if captureConfiguration is exhaustive
                         log.warn("Unhandled CodeUnitType for '{}'", skeletonType);
                         yield CodeUnitType.CLASS;
                     }
                 };
+
+        // For modules, compute the parent package and short name from the full package string.
+        // simpleName contains the full package (e.g., "com.example.foo"), so split it.
+        if (type == CodeUnitType.MODULE) {
+            String fullPackage = simpleName;
+            int lastDot = fullPackage.lastIndexOf('.');
+            String parentPkg = lastDot > 0 ? fullPackage.substring(0, lastDot) : "";
+            String leafName = lastDot > 0 ? fullPackage.substring(lastDot + 1) : fullPackage;
+            return new CodeUnit(file, type, parentPkg, leafName);
+        }
 
         return new CodeUnit(file, type, packageName, shortName);
     }
