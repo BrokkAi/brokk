@@ -846,11 +846,11 @@ public final class HeadlessExecutorMain {
 
         // Switch ContextManager to this session with timeout to avoid indefinite blocking
         try {
-            contextManager.switchSessionAsync(sessionId).get(3, TimeUnit.SECONDS);
+            contextManager.switchSessionAsync(sessionId).get(30, TimeUnit.SECONDS);
             logger.info(
                     "Switched to session: {}; active session now: {}", sessionId, contextManager.getCurrentSessionId());
         } catch (TimeoutException e) {
-            logger.warn("Timed out switching to session {}; continuing asynchronously", sessionId);
+            throw new IOException("Timed out switching to session " + sessionId + " after 30 seconds", e);
         }
 
         System.out.println("Session imported: " + sessionId);
