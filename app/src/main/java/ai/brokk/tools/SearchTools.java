@@ -475,7 +475,12 @@ public class SearchTools {
         if (!GitRepoFactory.hasGitRepo(projectRoot)) {
             return "Cannot search commit messages: Git repository not found for this project.";
         }
-        var gitRepo = (GitRepo) contextManager.getRepo();
+
+        var repo = contextManager.getRepo();
+        if (!(repo instanceof GitRepo gitRepo)) {
+            return "Cannot search commit messages: git repo is not available as a GitRepo (was: "
+                    + repo.getClass().getName() + ").";
+        }
 
         List<CommitInfo> matchingCommits;
         try {
