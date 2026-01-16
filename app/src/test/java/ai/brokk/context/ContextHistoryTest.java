@@ -449,6 +449,105 @@ public class ContextHistoryTest {
     }
 
     @Test
+    public void testAreDiverged() {
+        Context a = new Context(contextManager, List.of(), List.of(), null);
+        Context b = new Context(contextManager, List.of(), List.of(), null);
+        Context c = new Context(contextManager, List.of(), List.of(), null);
+
+        // [A, B]
+        ContextHistory h1 = new ContextHistory(a);
+        h1.pushContext(b);
+
+        // [A, B]
+        ContextHistory h2 = new ContextHistory(a);
+        h2.pushContext(b);
+
+        assertFalse(ContextHistory.areDiverged(h1, h2), "Identical histories should not be diverged");
+
+        // [A, B, C]
+        ContextHistory h3 = new ContextHistory(a);
+        h3.pushContext(b);
+        h3.pushContext(c);
+
+        assertFalse(ContextHistory.areDiverged(h1, h3), "Prefix history should not be diverged (h1 is prefix of h3)");
+        assertFalse(ContextHistory.areDiverged(h3, h1), "Prefix history should not be diverged (h1 is prefix of h3)");
+
+        // [A, C]
+        ContextHistory h4 = new ContextHistory(a);
+        h4.pushContext(c);
+
+        assertTrue(ContextHistory.areDiverged(h1, h4), "Diverged at index 1 ([A, B] vs [A, C])");
+
+        // [A] vs [B]
+        ContextHistory hA = new ContextHistory(a);
+        ContextHistory hB = new ContextHistory(b);
+        assertTrue(ContextHistory.areDiverged(hA, hB), "Diverged at index 0");
+    }
+
+    @Test
+    public void testMerge() {
+        Context a = new Context(contextManager, List.of(), List.of(), null);
+        Context b = new Context(contextManager, List.of(), List.of(), null);
+        Context c = new Context(contextManager, List.of(), List.of(), null);
+        Context d = new Context(contextManager, List.of(), List.of(), null);
+        Context e = new Context(contextManager, List.of(), List.of(), null);
+        Context f = new Context(contextManager, List.of(), List.of(), null);
+
+        // Older: [A, B, C]
+        ContextHistory older = new ContextHistory(a);
+        older.pushContext(b);
+        older.pushContext(c);
+
+        // Newer: [A, B, D, E]
+        ContextHistory newer = new ContextHistory(a);
+        newer.pushContext(b);
+        newer.pushContext(d);
+        newer.pushContext(e);
+
+        // Add redo to newer: push F then undo, so history is [A, B, D, E] and redo has [F]
+        newer.pushContext(f);
+        newer.undo(1, new TestConsoleIO(), contextManager.getProject());
+
+        // Add auxiliary data
+        older.addResetEdge(a, c);
+        newer.addResetEdge(a, d);
+
+        var gsOlder = new ContextHistory.GitState("hashOlder", null);
+        older.addGitState(c.id(), gsOlder);
+        var gsNewer = new ContextHistory.GitState("hashNewer", null);
+        newer.addGitState(d.id(), gsNewer);
+
+        // Add group metadata
+        var groupOlder = UUID.randomUUID();
+        older.addContextToGroup(c.id(), groupOlder, "Older Group");
+        var groupNewer = UUID.randomUUID();
+        newer.addContextToGroup(d.id(), groupNewer, "Newer Group");
+
+        ContextHistory merged = ContextHistory.merge(older, newer);
+
+        // Expected history: [A, B, C, D, E]
+        List<Context> expectedHistory = List.of(a, b, c, d, e);
+        assertEquals(expectedHistory, merged.getHistory(), "Merged history should be [A, B, C, D, E]");
+
+        // Verify redo stack is preserved (should have F)
+        assertTrue(merged.hasRedoStates(), "Merged history should have redo states from newer");
+        ContextHistory.RedoResult redoResult = merged.redo(new TestConsoleIO(), contextManager.getProject());
+        assertTrue(redoResult.wasRedone());
+        assertEquals(f.id(), merged.liveContext().id(), "Redo should restore context F");
+
+        // Verify auxiliary data
+        assertEquals(2, merged.getResetEdges().size(), "Should combine reset edges");
+        assertEquals(gsOlder, merged.getGitState(c.id()).orElse(null), "Should preserve git state from older");
+        assertEquals(gsNewer, merged.getGitState(d.id()).orElse(null), "Should preserve git state from newer");
+
+        // Verify group metadata is preserved through merge
+        assertEquals(groupOlder, merged.getGroupId(c.id()), "Should preserve group mapping from older");
+        assertEquals(groupNewer, merged.getGroupId(d.id()), "Should preserve group mapping from newer");
+        assertEquals("Older Group", merged.getGroupLabels().get(groupOlder), "Should preserve group label from older");
+        assertEquals("Newer Group", merged.getGroupLabels().get(groupNewer), "Should preserve group label from newer");
+    }
+
+    @Test
     public void testPushDoesNotWaitForSlowFragments() {
         var latch = new CountDownLatch(1);
         var slowFrag = new SlowFragment(contextManager, "Slow1", latch);
