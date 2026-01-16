@@ -45,6 +45,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -539,11 +540,11 @@ public class ArchitectAgent {
 
             // Create a local registry for this planning turn
             var wst = new WorkspaceTools(this.context);
-            var depTools = DependencyTools.isSupported(cm.getProject()) ? new DependencyTools(cm) : null;
+            var depTools = DependencyTools.isSupported(cm.getProject())
+                    ? Optional.of(new DependencyTools(cm))
+                    : Optional.<DependencyTools>empty();
             var builder = cm.getToolRegistry().builder().register(this).register(wst);
-            if (depTools != null) {
-                builder.register(depTools);
-            }
+            depTools.ifPresent(builder::register);
             var tr = builder.build();
 
             // Decide tool availability for this step
@@ -573,7 +574,7 @@ public class ArchitectAgent {
                 allowed.add("verifyBuildCommand");
 
                 // Dependency tools (language-scoped)
-                if (depTools != null) {
+                if (depTools.isPresent()) {
                     allowed.add("importMavenDependency");
                 }
 
