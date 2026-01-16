@@ -39,6 +39,7 @@ public class MavenArtifactFetcher {
     private final RepositorySystem system;
     private final RepositorySystemSession session;
     private final List<RemoteRepository> repositories;
+    private final HttpClient httpClient;
 
     public MavenArtifactFetcher() {
         this(null);
@@ -49,6 +50,10 @@ public class MavenArtifactFetcher {
         this.session = newRepositorySystemSession(system, progressListener);
         this.repositories = List.of(
                 new RemoteRepository.Builder("central", "default", "https://repo.maven.apache.org/maven2/").build());
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
     }
 
     @SuppressWarnings("deprecation")
@@ -129,9 +134,6 @@ public class MavenArtifactFetcher {
                 .formatted(URLEncoder.encode(query, StandardCharsets.UTF_8));
 
         try {
-            var client = HttpClient.newBuilder()
-                    .connectTimeout(Duration.ofSeconds(10))
-                    .build();
             var request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .timeout(Duration.ofSeconds(30))
@@ -139,7 +141,7 @@ public class MavenArtifactFetcher {
                     .build();
 
             logger.debug("Querying Maven Central for latest version: {}", url);
-            var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() != 200) {
                 logger.warn("Maven Central returned status {}", response.statusCode());
