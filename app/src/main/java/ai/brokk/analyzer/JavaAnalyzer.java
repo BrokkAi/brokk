@@ -105,7 +105,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             List<ScopeSegment> scopeChain,
             @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
-        String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
+        final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
         var type =
                 switch (skeletonType) {
