@@ -528,7 +528,7 @@ public class ArchitectAgent {
                     .orElseThrow();
 
             // Calculate current workspace token size
-            var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
+            var suppressed = EnumSet.noneOf(SpecialTextType.class);
             var workspaceContentMessages =
                     new ArrayList<>(WorkspacePrompts.getMessagesGroupedByMutability(context, suppressed));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
@@ -549,13 +549,18 @@ public class ArchitectAgent {
             if (criticalWorkspaceSize) {
                 notifyCriticalWorkspaceRestriction(workspaceTokenSize, maxInputTokens);
                 var allowed = criticalAllowedTools();
+                allowed = WorkspaceTools.filterByAnalyzerAvailability(allowed, cm.getProject());
                 toolSpecs.addAll(tr.getTools(allowed));
                 toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
             } else {
                 // Default tool population logic
-                var allowed = new ArrayList<String>();
+                List<String> allowed = new ArrayList<>();
                 allowed.add("addFilesToWorkspace");
                 allowed.add("addFileSummariesToWorkspace");
+                allowed.add("addClassesToWorkspace");
+                allowed.add("addClassSummariesToWorkspace");
+                allowed.add("addMethodsToWorkspace");
+                allowed.add("addSymbolUsagesToWorkspace");
                 allowed.add("addUrlContentsToWorkspace");
                 allowed.add("appendNote");
                 allowed.add("dropWorkspaceFragments");
@@ -574,6 +579,9 @@ public class ArchitectAgent {
                 // Terminals
                 allowed.add("projectFinished");
                 allowed.add("abortProject");
+
+                // Filter out analyzer-required tools at the very end
+                allowed = WorkspaceTools.filterByAnalyzerAvailability(allowed, cm.getProject());
 
                 toolSpecs.addAll(tr.getTools(allowed));
                 toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
@@ -614,6 +622,7 @@ public class ArchitectAgent {
                         new Llm.Options(fallbackModel, "Architect emergency (context too large): " + goal).withEcho());
                 notifyCriticalWorkspaceRestriction(workspaceTokenSize, fallbackModelTokens);
                 var emergencyAllowed = criticalAllowedTools();
+                emergencyAllowed = WorkspaceTools.filterByAnalyzerAvailability(emergencyAllowed, cm.getProject());
                 var emergencyToolContext = new ToolContext(tr.getTools(emergencyAllowed), ToolChoice.REQUIRED, tr);
 
                 var emergencyResult = emergencyLlm.sendRequest(messages, emergencyToolContext);
