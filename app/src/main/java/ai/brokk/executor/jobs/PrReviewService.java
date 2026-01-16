@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -111,13 +112,26 @@ public final class PrReviewService {
             throw new IllegalArgumentException("maxComments must be >= 0");
         }
 
-        return comments.stream()
-                .filter(c ->
-                        Objects.requireNonNullElse(c.severity(), Severity.LOW).isAtLeast(threshold))
-                .sorted(Comparator.comparingInt(c ->
-                        Objects.requireNonNullElse(c.severity(), Severity.LOW).rank()))
-                .limit(maxComments)
-                .toList();
+        record InlineCommentKey(String path, int line, String bodyMarkdown) {}
+
+        Map<InlineCommentKey, InlineComment> deduped = comments.stream()
+                .filter(c -> Objects.requireNonNullElse(c.severity(), Severity.LOW).isAtLeast(threshold))
+                .collect(java.util.stream.Collectors.toMap(
+                        c -> new InlineCommentKey(c.path(), c.line(), c.bodyMarkdown()),
+                        c -> c,
+                        (a, b) -> {
+                            Severity aSeverity = Objects.requireNonNullElse(a.severity(), Severity.LOW);
+                            Severity bSeverity = Objects.requireNonNullElse(b.severity(), Severity.LOW);
+                            return aSeverity.rank() <= bSeverity.rank() ? a : b;
+                        }));
+
+        Comparator<InlineComment> comparator = Comparator.<InlineComment>comparingInt(
+                        c -> Objects.requireNonNullElse(c.severity(), Severity.LOW).rank())
+                .thenComparing(InlineComment::path)
+                .thenComparingInt(InlineComment::line)
+                .thenComparing(InlineComment::bodyMarkdown);
+
+        return deduped.values().stream().sorted(comparator).limit(maxComments).toList();
     }
 
     /**

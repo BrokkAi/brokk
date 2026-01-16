@@ -453,6 +453,28 @@ class PrReviewServiceTest {
     }
 
     @Test
+    void testFilterInlineComments_DeduplicatesBeforeCap() {
+        var duplicateHigh1 = new PrReviewService.InlineComment("a", 1, "dup", Severity.HIGH);
+        var duplicateHigh2 = new PrReviewService.InlineComment("a", 1, "dup", Severity.HIGH);
+        var distinctCritical = new PrReviewService.InlineComment("b", 2, "distinct critical", Severity.CRITICAL);
+
+        var comments = List.of(duplicateHigh1, duplicateHigh2, distinctCritical);
+
+        var filtered = PrReviewService.filterInlineComments(comments, Severity.HIGH, 2);
+
+        assertEquals(2, filtered.size());
+        assertEquals(Severity.CRITICAL, filtered.get(0).severity());
+        assertEquals("b", filtered.get(0).path());
+        assertEquals(2, filtered.get(0).line());
+        assertEquals("distinct critical", filtered.get(0).bodyMarkdown());
+
+        assertEquals(Severity.HIGH, filtered.get(1).severity());
+        assertEquals("a", filtered.get(1).path());
+        assertEquals(1, filtered.get(1).line());
+        assertEquals("dup", filtered.get(1).bodyMarkdown());
+    }
+
+    @Test
     void testSeverityRanking_IsStableAndMatchesSemantics() {
         assertTrue(Severity.CRITICAL.isAtLeast(Severity.HIGH));
         assertTrue(Severity.CRITICAL.isAtLeast(Severity.MEDIUM));
