@@ -1,0 +1,11 @@
+# Strip jcefmaven and its dependencies for production builds
+# Production uses JBR's bundled JCEF instead
+
+# jcefmaven classes
+me.friwi
+
+# jcef-api classes (JBR provides org.cef.* at runtime)
+org.cef
+
+# jogl-all and gluegen-rt (OpenGL/native bindings used by jcefmaven)
+com.jogamp
