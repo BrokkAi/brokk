@@ -56,12 +56,50 @@ class SlidingWindowCacheTest {
         public String toString() {
             return "TestDisposable(" + id + ")";
         }
-    }
+        }
 
-    @BeforeEach
-    void setUp() {
-        cache = new SlidingWindowCache<>(3); // Small cache for testing eviction
-    }
+        private static final class BlockingKey {
+            final String id;
+            final CountDownLatch hashCodeEntered;
+            final CountDownLatch allowHashCodeReturn;
+
+            BlockingKey(String id, CountDownLatch hashCodeEntered, CountDownLatch allowHashCodeReturn) {
+                this.id = id;
+                this.hashCodeEntered = hashCodeEntered;
+                this.allowHashCodeReturn = allowHashCodeReturn;
+            }
+
+            @Override
+            public int hashCode() {
+                // Signal that we've entered hashCode and then block until allowed to proceed.
+                hashCodeEntered.countDown();
+                try {
+                    // Wait a short bounded time so tests cannot hang indefinitely.
+                    allowHashCodeReturn.await(2, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return id.hashCode();
+            }
+
+            @Override
+            public boolean equals(Object o) {
+                if (this == o) return true;
+                if (!(o instanceof BlockingKey)) return false;
+                BlockingKey that = (BlockingKey) o;
+                return id.equals(that.id);
+            }
+
+            @Override
+            public String toString() {
+                return "BlockingKey(" + id + ")";
+            }
+        }
+
+        @BeforeEach
+        void setUp() {
+            cache = new SlidingWindowCache<>(3); // Small cache for testing eviction
+        }
 
     @Test
     void testBasicOperations() {
