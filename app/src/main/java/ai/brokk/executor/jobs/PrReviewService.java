@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -113,7 +114,7 @@ public final class PrReviewService {
         Map<InlineCommentKey, InlineComment> deduped = comments.stream()
                 .filter(c ->
                         Objects.requireNonNullElse(c.severity(), Severity.LOW).isAtLeast(threshold))
-                .collect(java.util.stream.Collectors.toMap(
+                .collect(Collectors.toMap(
                         c -> new InlineCommentKey(c.path(), c.line(), c.bodyMarkdown()), c -> c, (a, b) -> {
                             Severity aSeverity = Objects.requireNonNullElse(a.severity(), Severity.LOW);
                             Severity bSeverity = Objects.requireNonNullElse(b.severity(), Severity.LOW);
