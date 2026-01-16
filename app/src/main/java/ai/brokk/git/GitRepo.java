@@ -269,7 +269,10 @@ public class GitRepo implements Closeable, IGitRepo {
             try {
                 var commonDirContent =
                         Files.readString(commondirFile, StandardCharsets.UTF_8).trim();
-                var commonDir = gitDir.resolve(commonDirContent).normalize();
+                var commonDirPath = Path.of(commonDirContent);
+                // commondir can be absolute or relative; handle both cases explicitly
+                var commonDir =
+                        (commonDirPath.isAbsolute() ? commonDirPath : gitDir.resolve(commonDirPath)).normalize();
                 var commonInfoExclude = commonDir.resolve("info/exclude");
                 if (!commonInfoExclude.equals(infoExclude) && Files.exists(commonInfoExclude)) {
                     fixedFiles.add(commonInfoExclude);
