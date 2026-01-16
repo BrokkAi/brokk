@@ -745,8 +745,12 @@ public class ContextHistory {
         mergedGroupLabels.putAll(newer.getGroupLabels());
 
         ContextHistory mergedHistory = new ContextHistory(
-                mergedList, mergedResetEdges, mergedGitStates, mergedEntryInfos,
-                mergedContextToGroupId, mergedGroupLabels);
+                mergedList,
+                mergedResetEdges,
+                mergedGitStates,
+                mergedEntryInfos,
+                mergedContextToGroupId,
+                mergedGroupLabels);
         mergedHistory.redo.addAll(newer.redo);
 
         return mergedHistory;
