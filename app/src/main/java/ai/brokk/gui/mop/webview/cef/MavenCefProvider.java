@@ -76,7 +76,6 @@ public class MavenCefProvider implements CefAppProvider {
             @Override
             public void stateHasChanged(CefApp.CefAppState state) {
                 logger.info("CefApp state changed: {}", state);
-                System.out.println("*** JCEF (Maven): State changed to " + state + " ***");
                 if (stateHandler != null) {
                     stateHandler.stateHasChanged(state);
                 }
@@ -84,7 +83,6 @@ public class MavenCefProvider implements CefAppProvider {
         });
 
         try {
-            System.out.println("*** JCEF: Initializing CEF with jcefmaven ***");
             logger.info("Building CefApp with jcefmaven (install dir: {})", jcefDir);
             CefApp app = builder.build();
             logger.info("CefApp created successfully");

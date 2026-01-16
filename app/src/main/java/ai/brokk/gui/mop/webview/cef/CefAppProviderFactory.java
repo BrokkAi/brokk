@@ -45,9 +45,7 @@ public final class CefAppProviderFactory {
         }
 
         // No provider available
-        throw new IllegalStateException(
-                "No CEF provider available. " +
-                "Either run with jDeploy (JBR+JCEF) or ensure jcefmaven is on the classpath."
-        );
+        throw new IllegalStateException("No CEF provider available. "
+                + "Either run with jDeploy (JBR+JCEF) or ensure jcefmaven is on the classpath.");
     }
 }

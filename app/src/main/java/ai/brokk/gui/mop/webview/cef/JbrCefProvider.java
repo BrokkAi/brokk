@@ -6,8 +6,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.List;
+import java.security.NoSuchAlgorithmException;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.cef.CefApp;
@@ -68,23 +69,15 @@ public class JbrCefProvider implements CefAppProvider {
             logger.info("Set CEF cache path to: {}", cacheDir);
         }
 
-        // Build command-line arguments for CEF
-        List<String> args = new ArrayList<>();
-
         // Configure resource paths for JBR's bundled Chromium
-        configureResourcePaths(settings, args);
+        configureResourcePaths(settings);
 
         if (stateHandler != null) {
             CefApp.addAppHandler(stateHandler);
         }
 
-        String[] argsArray = args.toArray(new String[0]);
-        if (argsArray.length > 0) {
-            logger.info("Passing args to CEF: {}", String.join(" ", argsArray));
-        }
-
-        logger.info("Calling CefApp.getInstance() with {} args", argsArray.length);
-        return CefApp.getInstance(argsArray, settings);
+        logger.info("Calling CefApp.getInstance()");
+        return CefApp.getInstance(settings);
     }
 
     /**
@@ -99,14 +92,12 @@ public class JbrCefProvider implements CefAppProvider {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             byte[] hash = md.digest(appPath.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < 8; i++) {
-                sb.append(String.format("%02x", hash[i]));
-            }
-            String hashStr = sb.toString();
+            String hashStr = IntStream.range(0, 8)
+                    .mapToObj(i -> String.format("%02x", hash[i]))
+                    .collect(Collectors.joining());
             logger.debug("Generated cache hash {} for app path: {}", hashStr, appPath);
             return hashStr;
-        } catch (Exception e) {
+        } catch (NoSuchAlgorithmException e) {
             logger.warn("Failed to generate hash for app path", e);
             return "default";
         }
@@ -134,7 +125,8 @@ public class JbrCefProvider implements CefAppProvider {
         // Walk up from java.home looking for Contents/Frameworks
         Path current = javaHomePath;
         for (int i = 0; i < 6; i++) {
-            if (current.getFileName() != null && current.getFileName().toString().equals("Contents")) {
+            if (current.getFileName() != null
+                    && current.getFileName().toString().equals("Contents")) {
                 Path frameworks = current.resolve("Frameworks");
                 if (Files.exists(frameworks.resolve("Chromium Embedded Framework.framework"))) {
                     logger.info("Found JBR Frameworks at {}", frameworks);
@@ -174,8 +166,7 @@ public class JbrCefProvider implements CefAppProvider {
         }
 
         try (var stream = Files.list(appsDir)) {
-            var brokkApps = stream
-                    .filter(p -> {
+            var brokkApps = stream.filter(p -> {
                         String name = p.getFileName().toString();
                         return name.startsWith("Brokk") && name.endsWith(".app");
                     })
@@ -198,7 +189,7 @@ public class JbrCefProvider implements CefAppProvider {
     /**
      * Configures resource and locale paths for JCEF.
      */
-    private void configureResourcePaths(CefSettings settings, List<String> args) {
+    private void configureResourcePaths(CefSettings settings) {
         String javaHome = System.getProperty("java.home");
         if (javaHome == null) {
             logger.warn("java.home is null, cannot configure resource paths");
