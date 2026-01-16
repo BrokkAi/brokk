@@ -1,6 +1,7 @@
 package ai.brokk.gui.dialogs;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
@@ -69,7 +70,7 @@ public final class BlitzForgeProgressHeadless implements BlitzForge.Listener {
 
         if (!llmOutput.isBlank()) {
             // Emit the final per-file LLM output as a single new AI message
-            io.llmOutput(llmOutput, ChatMessageType.AI, true, false);
+            io.llmOutput(llmOutput, ChatMessageType.AI, LlmOutputMeta.newMessage());
             int newLines = (int) llmOutput.chars().filter(c -> c == '\n').count();
             if (newLines > 0) {
                 llmLineCount.addAndGet(newLines);

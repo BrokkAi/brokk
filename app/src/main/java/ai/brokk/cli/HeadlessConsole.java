@@ -1,6 +1,7 @@
 package ai.brokk.cli;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.gui.dialogs.BlitzForgeProgressHeadless;
 import dev.langchain4j.data.message.ChatMessageType;
@@ -13,9 +14,9 @@ import javax.swing.*;
  */
 public final class HeadlessConsole extends MemoryConsole {
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
-        super.llmOutput(token, type, explicitNewMessage, isReasoning);
-        if (isNewMessage(type, explicitNewMessage)) {
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
+        super.llmOutput(token, type, meta);
+        if (isNewMessage(type, meta.isNewMessage())) {
             System.out.printf("# %s%n%n", type);
         }
         System.out.print(token);

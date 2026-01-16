@@ -331,6 +331,8 @@ public class JavaAnalyzerTest {
         final var file = new ProjectFile(testProject.getRoot(), "Packaged.java");
         final var declarations = analyzer.getDeclarations(file);
         final var expected = Set.of(
+                // Module
+                CodeUnit.module(file, "io.github.jbellis", "brokk"),
                 // Class
                 CodeUnit.cls(file, "io.github.jbellis.brokk", "Foo"),
                 // Method
@@ -723,10 +725,16 @@ public class JavaAnalyzerTest {
 
         var topLevelUnits = analyzer.getTopLevelDeclarations(file);
 
-        assertEquals(1, topLevelUnits.size(), "Should return only the top-level class Foo");
-        var topLevelClass = topLevelUnits.get(0);
-        assertEquals("io.github.jbellis.brokk.Foo", topLevelClass.fqName());
-        assertTrue(topLevelClass.isClass());
+        // Now includes the Package Module definition
+        assertEquals(2, topLevelUnits.size(), "Should return top-level class Foo and Module p1");
+
+        boolean foundModule =
+                topLevelUnits.stream().anyMatch(cu -> cu.isModule() && "io.github.jbellis.brokk".equals(cu.fqName()));
+        boolean foundClass = topLevelUnits.stream()
+                .anyMatch(cu -> cu.isClass() && "io.github.jbellis.brokk.Foo".equals(cu.fqName()));
+
+        assertTrue(foundModule, "Should find module definition");
+        assertTrue(foundClass, "Should find class definition");
     }
 
     @Test
@@ -1023,6 +1031,45 @@ public class JavaAnalyzerTest {
         var cu3 = analyzer.enclosingCodeUnit(file, Math.min(m1Start, m2Start), Math.max(m1Start, m2Start));
         assertTrue(cu3.isPresent());
         assertEquals("A", cu3.get().fqName());
+    }
+
+    @Test
+    public void annotatedPackageInfo_CreatesModuleAndExcludesAnnotationFromFqn() throws IOException {
+        String packageInfo =
+                """
+                @NullMarked
+                package p1;
+
+                import org.jspecify.annotations.NullMarked;
+                """;
+        String classA = """
+                package p1;
+                public class A {}
+                """;
+
+        try (var testProject = InlineTestProjectCreator.code(packageInfo, "package-info.java")
+                .addFileContents(classA, "A.java")
+                .build()) {
+
+            var analyzer = createTreeSitterAnalyzer(testProject);
+
+            // Assert module existence and FQN
+            var definitions = analyzer.getDefinitions("p1");
+            var moduleOpt = definitions.stream().filter(CodeUnit::isModule).findFirst();
+
+            assertTrue(moduleOpt.isPresent(), "Module 'p1' should be defined");
+            CodeUnit module = moduleOpt.get();
+            assertEquals("p1", module.fqName(), "Module FQN should be exactly 'p1'");
+
+            // Assert annotation is NOT part of the FQN lookup
+            var leakedAnnotation = analyzer.getDefinitions("p1.@NullMarked");
+            assertTrue(leakedAnnotation.isEmpty(), "FQN should not include package annotations");
+
+            // Assert children include top-level classes (important for wildcard import resolution)
+            var children = analyzer.getDirectChildren(module);
+            boolean foundClassA = children.stream().anyMatch(cu -> cu.isClass() && "p1.A".equals(cu.fqName()));
+            assertTrue(foundClassA, "Module 'p1' should have top-level class 'p1.A' as a child");
+        }
     }
 
     @Test

@@ -14,14 +14,18 @@ import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.node.JMDiffNode;
+import ai.brokk.difftool.ui.AbstractContentPanel;
 import ai.brokk.difftool.ui.AbstractDiffPanel;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
 import ai.brokk.difftool.ui.DiffDisplayCore;
 import ai.brokk.difftool.ui.DiffProjectFileNavigationTarget;
+import ai.brokk.difftool.ui.DiffToolbarCallbacks;
+import ai.brokk.difftool.ui.DiffToolbarPanel;
 import ai.brokk.difftool.ui.FileComparisonInfo;
 import ai.brokk.difftool.ui.FileTreePanel;
+import ai.brokk.difftool.ui.ToolbarFeature;
 import ai.brokk.difftool.ui.unified.UnifiedDiffDocument;
 import ai.brokk.difftool.ui.unified.UnifiedDiffPanel;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -39,6 +43,7 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
 import ai.brokk.project.ModelProperties.ModelType;
+import ai.brokk.util.GlobalUiSettings;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -97,11 +102,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private BaselineMode lastBaselineMode = null;
 
+    private final DiffDisplayCore diffCore;
+
     /** If non-null, an explicit commit/ref to compare against. If null, we auto-resolve based on branch. */
     @Nullable
     private String reviewBaselineRef = null;
-
-    private final DiffDisplayCore diffCore;
 
     private final FileTreePanel fileTreePanel;
 
@@ -110,6 +115,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private final JSplitPane leftSplitPane;
 
     private final JPanel diffContainer;
+    private final DiffToolbarPanel diffToolbar;
 
     private final JComboBox<String> baselineDropdown;
 
@@ -184,6 +190,17 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.diffContainer = new JPanel(new BorderLayout());
         this.diffContainer.setOpaque(false);
 
+        // Create toolbar with navigation and font controls only (no view mode toggle or tools menu)
+        var reviewFeatures = java.util.EnumSet.of(
+                ToolbarFeature.CHANGE_NAVIGATION, ToolbarFeature.FILE_NAVIGATION, ToolbarFeature.FONT_CONTROLS);
+        this.diffToolbar = new DiffToolbarPanel(reviewFeatures, createToolbarCallbacks());
+
+        // Wrap diffContainer with toolbar at top
+        var diffWithToolbar = new JPanel(new BorderLayout());
+        diffWithToolbar.setOpaque(false);
+        diffWithToolbar.add(diffToolbar, BorderLayout.NORTH);
+        diffWithToolbar.add(diffContainer, BorderLayout.CENTER);
+
         this.codeReviewPanel = new CodeReviewPanel(this::generateGuidedReview, contextManager);
         this.fileTreePanel =
                 new FileTreePanel(List.of(), contextManager.getProject().getRoot());
@@ -192,7 +209,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         this.leftSplitPane.setResizeWeight(0.5);
 
         this.rightVerticalSplitPane =
-                new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getDetailPanel(), diffContainer);
+                new JSplitPane(JSplitPane.VERTICAL_SPLIT, codeReviewPanel.getDetailPanel(), diffWithToolbar);
         this.rightVerticalSplitPane.setResizeWeight(0.5);
 
         this.mainSplitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitPane, rightVerticalSplitPane);
@@ -233,6 +250,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         var dummyPanel =
                 new BrokkDiffPanel(new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager), chrome.getTheme());
+        // Initialize font from GlobalUiSettings so UnifiedEditorArea.hasExplicitFontSize() returns true
+        float savedFontSize = GlobalUiSettings.getEditorFontSize();
+        if (savedFontSize > 0f) {
+            int fontIdx = dummyPanel.findClosestFontIndex(savedFontSize);
+            dummyPanel.setCurrentFontIndex(fontIdx);
+        }
         this.diffCore = createDiffCore(dummyPanel);
 
         // One-time listener installations
@@ -304,6 +327,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         return new DiffDisplayCore(dummyPanel, cm, chrome.getTheme(), fileComparisons, false, 0) {
             @Override
             protected AbstractDiffPanel createPanel(int index, JMDiffNode diffNode) {
+                // Review panel always uses unified view with full context
                 var panel = new UnifiedDiffPanel(dummyPanel, chrome.getTheme(), diffNode);
                 panel.setContextMode(UnifiedDiffDocument.ContextMode.FULL_CONTEXT);
                 panel.applyTheme(chrome.getTheme());
@@ -321,6 +345,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     int index, AbstractDiffPanel panel, int targetLine, ReviewParser.DiffSide targetSide) {
                 diffContainer.removeAll();
                 diffContainer.add(panel.getComponent(), BorderLayout.CENTER);
+
+                // Apply saved font size to the panel
+                applyFontSizeToPanel(panel);
 
                 if (targetLine > 0) {
                     panel.resetAutoScrollFlag();
@@ -349,6 +376,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
                 diffContainer.revalidate();
                 diffContainer.repaint();
+
+                // Update toolbar button states after panel is displayed
+                SwingUtilities.invokeLater(() -> {
+                    diffToolbar.updateButtonStates();
+                    // Request focus on the panel to prevent focus going elsewhere
+                    panel.getComponent().requestFocusInWindow();
+                });
             }
         };
     }
@@ -687,6 +721,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
         this.fileComparisons = nextComparisons;
         this.diffCore.updateFileComparisons(this.fileComparisons, 0);
+        diffToolbar.updateButtonStates();
 
         fileTreePanel.updateData(fileComparisons, root, projectName);
 
@@ -837,6 +872,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             mainSplitPane.setDividerSize(defaultSplitPaneDividerSize());
             mainSplitPane.setResizeWeight(0.0);
             mainSplitPane.setDividerLocation(visible ? 300 : 200);
+
+            // Hide navigation buttons in guided review mode (navigation via review items)
+            diffToolbar.setNavigationVisible(!visible);
 
             revalidate();
             repaint();
@@ -1062,6 +1100,210 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         return sb.toString();
     }
 
+    /** Apply current font size to a panel from GlobalUiSettings */
+    private void applyFontSizeToPanel(AbstractDiffPanel panel) {
+        float saved = GlobalUiSettings.getEditorFontSize();
+        if (saved > 0f) {
+            panel.applyEditorFontSize(saved);
+        }
+    }
+
+    @Nullable
+    private AbstractContentPanel getCurrentContentPanel() {
+        return diffCore.getCachedPanel(diffCore.getCurrentIndex());
+    }
+
+    private DiffToolbarCallbacks createToolbarCallbacks() {
+        return new SessionChangesToolbarCallbacks(this);
+    }
+
+    private static final class SessionChangesToolbarCallbacks implements DiffToolbarCallbacks {
+        private final SessionChangesPanel panel;
+
+        SessionChangesToolbarCallbacks(SessionChangesPanel panel) {
+            this.panel = panel;
+        }
+
+        @Override
+        public void ensureFontIndexInitialized() {
+            // No local state to initialize - GlobalUiSettings is the source of truth
+        }
+
+        @Override
+        public void navigateToNextChange() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel != null) {
+                if (contentPanel.isAtLastLogicalChange() && canNavigateToNextFile()) {
+                    nextFile();
+                } else {
+                    contentPanel.doDown();
+                    panel.diffToolbar.updateButtonStates();
+                }
+            }
+        }
+
+        @Override
+        public void navigateToPreviousChange() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel != null) {
+                if (contentPanel.isAtFirstLogicalChange() && canNavigateToPreviousFile()) {
+                    previousFile();
+                    var newPanel = panel.getCurrentContentPanel();
+                    if (newPanel != null) {
+                        newPanel.goToLastLogicalChange();
+                    }
+                } else {
+                    contentPanel.doUp();
+                    panel.diffToolbar.updateButtonStates();
+                }
+            }
+        }
+
+        @Override
+        public void nextFile() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            int current = panel.diffCore.getCurrentIndex();
+            if (current < panel.fileComparisons.size() - 1) {
+                panel.diffCore.showFile(current + 1);
+                panel.diffToolbar.updateButtonStates();
+            }
+        }
+
+        @Override
+        public void previousFile() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            int current = panel.diffCore.getCurrentIndex();
+            if (current > 0) {
+                panel.diffCore.showFile(current - 1);
+                panel.diffToolbar.updateButtonStates();
+            }
+        }
+
+        @Override
+        public void switchViewMode(boolean useUnifiedView) {
+            // Review panel always uses unified view
+        }
+
+        @Override
+        public void setShowBlame(boolean show) {
+            // Not supported in review panel
+        }
+
+        @Override
+        public void setShowAllLines(boolean show) {
+            // Review panel always shows all lines
+        }
+
+        @Override
+        public void setShowBlankLineDiffs(boolean show) {
+            // Not applicable - review panel uses unified view
+        }
+
+        @Override
+        public boolean canNavigateToNextChange() {
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel == null) return false;
+            return !contentPanel.isAtLastLogicalChange() || canNavigateToNextFile();
+        }
+
+        @Override
+        public boolean canNavigateToPreviousChange() {
+            var contentPanel = panel.getCurrentContentPanel();
+            if (contentPanel == null) return false;
+            return !contentPanel.isAtFirstLogicalChange() || canNavigateToPreviousFile();
+        }
+
+        @Override
+        public boolean canNavigateToNextFile() {
+            return panel.fileComparisons.size() > 1
+                    && panel.diffCore.getCurrentIndex() < panel.fileComparisons.size() - 1;
+        }
+
+        @Override
+        public boolean canNavigateToPreviousFile() {
+            return panel.fileComparisons.size() > 1 && panel.diffCore.getCurrentIndex() > 0;
+        }
+
+        @Override
+        public boolean isUnifiedView() {
+            return true; // Review panel always uses unified view
+        }
+
+        @Override
+        public boolean isBlameAvailable() {
+            return false;
+        }
+
+        @Override
+        public boolean isMultiFile() {
+            return panel.fileComparisons.size() > 1;
+        }
+
+        @Override
+        public boolean isShowingBlame() {
+            return false;
+        }
+
+        @Override
+        public boolean isShowingAllLines() {
+            return true; // Review panel always shows all lines
+        }
+
+        @Override
+        public boolean isShowingBlankLineDiffs() {
+            return false; // Not applicable - review panel uses unified view
+        }
+
+        @Override
+        public int getCurrentFontIndex() {
+            float saved = GlobalUiSettings.getEditorFontSize();
+            return saved > 0f ? findClosestFontIndex(saved) : DEFAULT_FONT_INDEX;
+        }
+
+        @Override
+        public void setCurrentFontIndex(int index) {
+            // State is persisted via GlobalUiSettings in font change methods
+            // No local state to update
+        }
+
+        @Override
+        public void increaseEditorFont() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            int currentIdx = getCurrentFontIndex();
+            if (currentIdx >= FONT_SIZES.size() - 1) return;
+            float newSize = FONT_SIZES.get(currentIdx + 1);
+            GlobalUiSettings.saveEditorFontSize(newSize);
+            applyFontSizeToAllPanels();
+        }
+
+        @Override
+        public void decreaseEditorFont() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            int currentIdx = getCurrentFontIndex();
+            if (currentIdx <= 0) return;
+            float newSize = FONT_SIZES.get(currentIdx - 1);
+            GlobalUiSettings.saveEditorFontSize(newSize);
+            applyFontSizeToAllPanels();
+        }
+
+        @Override
+        public void resetEditorFont() {
+            assert SwingUtilities.isEventDispatchThread() : "Must be called on EDT";
+            float newSize = FONT_SIZES.get(DEFAULT_FONT_INDEX);
+            GlobalUiSettings.saveEditorFontSize(newSize);
+            applyFontSizeToAllPanels();
+        }
+
+        private void applyFontSizeToAllPanels() {
+            float fontSize = GlobalUiSettings.getEditorFontSize();
+            if (fontSize <= 0f) return;
+            for (var diffPanel : panel.diffCore.getCachedPanels()) {
+                diffPanel.applyEditorFontSize(fontSize);
+            }
+        }
+    }
     /**
      * Starts a review for a specific commit range, computing the diff and file comparisons
      * independently of the UI refresh cycle to avoid race conditions.

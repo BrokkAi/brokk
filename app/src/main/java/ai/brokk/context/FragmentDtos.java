@@ -118,16 +118,22 @@ public class FragmentDtos {
     }
 
     /** DTO for ChatMessage - simplified representation with role and content. */
-    public record ChatMessageDto(String role, String contentId, @Nullable String reasoningContentId) {
+    public record ChatMessageDto(
+            String role,
+            String contentId,
+            @Nullable String reasoningContentId,
+            @Nullable Map<String, Object> attributes) {
         public ChatMessageDto {
             if (role.isEmpty()) {
                 throw new IllegalArgumentException("role cannot be null or empty");
             }
+            if (attributes != null) {
+                attributes = Map.copyOf(attributes);
+            }
         }
 
-        /** Backward-compatible constructor for older code that doesn't provide reasoningContentId. */
         public ChatMessageDto(String role, String contentId) {
-            this(role, contentId, null);
+            this(role, contentId, null, null);
         }
     }
 

@@ -2,13 +2,13 @@ package ai.brokk.difftool.ui.unified;
 
 import ai.brokk.gui.SwingUtil;
 import java.awt.Rectangle;
-import java.util.ArrayList;
 import java.util.List;
 import javax.swing.SwingUtilities;
 import javax.swing.text.BadLocationException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Handles navigation between hunks in a unified diff view. This class manages hunk-based navigation similar to how
@@ -18,40 +18,36 @@ public class UnifiedDiffNavigator {
     private static final Logger logger = LogManager.getLogger(UnifiedDiffNavigator.class);
 
     private final RSyntaxTextArea textArea;
+
+    @Nullable
+    private UnifiedDiffDocument unifiedDocument;
+
     private List<Integer> hunkStartLines = List.of(); // Cached hunk positions
     private int currentHunkIndex = 0;
 
-    public UnifiedDiffNavigator(String plainTextContent, RSyntaxTextArea textArea) {
+    public UnifiedDiffNavigator(RSyntaxTextArea textArea, @Nullable UnifiedDiffDocument unifiedDocument) {
         this.textArea = textArea;
+        this.unifiedDocument = unifiedDocument;
+        refreshHunkPositions();
+    }
+
+    /** Update the unified document reference (e.g., after context mode switch). */
+    public void setUnifiedDocument(@Nullable UnifiedDiffDocument unifiedDocument) {
+        this.unifiedDocument = unifiedDocument;
         refreshHunkPositions();
     }
 
     /**
-     * Refresh the cached hunk positions from the text area content. Should be called when the content changes (e.g.,
+     * Refresh the cached hunk positions from the UnifiedDiffDocument. Should be called when the content changes (e.g.,
      * context mode switch).
      */
     public void refreshHunkPositions() {
-        var hunkLines = new ArrayList<Integer>();
-
-        try {
-            var document = textArea.getDocument();
-            int lineCount = textArea.getLineCount();
-
-            for (int i = 0; i < lineCount; i++) {
-                int lineStart = textArea.getLineStartOffset(i);
-                int lineEnd = textArea.getLineEndOffset(i);
-                String lineText = document.getText(lineStart, lineEnd - lineStart);
-
-                if (lineText.startsWith("@@")) {
-                    hunkLines.add(i);
-                }
-            }
-
-        } catch (BadLocationException e) {
-            logger.warn("Failed to refresh hunk positions", e);
+        if (unifiedDocument != null) {
+            // Use the document's HEADER line positions directly
+            this.hunkStartLines = unifiedDocument.getHunkHeaderLines();
+        } else {
+            this.hunkStartLines = List.of();
         }
-
-        this.hunkStartLines = hunkLines;
 
         // Ensure current hunk index is still valid
         if (currentHunkIndex >= hunkStartLines.size()) {

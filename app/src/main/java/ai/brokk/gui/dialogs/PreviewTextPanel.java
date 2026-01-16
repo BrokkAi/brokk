@@ -2,11 +2,7 @@ package ai.brokk.gui.dialogs;
 
 import static java.util.Objects.requireNonNull;
 
-import ai.brokk.ContextManager;
-import ai.brokk.EditBlock;
-import ai.brokk.IConsoleIO;
-import ai.brokk.Service;
-import ai.brokk.TaskResult;
+import ai.brokk.*;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.CodeUnitType;
@@ -1012,7 +1008,7 @@ public class PreviewTextPanel extends JPanel implements ThemeAware, EditorFontSi
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+            public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
                 appendSystemMessage(token);
             }
 

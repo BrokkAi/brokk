@@ -3,9 +3,12 @@ import type { SymbolLookupResult } from './stores/symbolCacheStore';
 import type { EnvInfo } from './stores/envStore';
 import type { FilePathLookupResult } from './stores/filePathCacheStore';
 
+/// <reference types="vite/client" />
+
 export {};
 
 declare global {
+  const __WORKER_URL__: string
   interface Window {
     brokk: {
       _buffer: BufferItem[];

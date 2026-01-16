@@ -4,6 +4,7 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.webview.MOPBridge;
@@ -12,7 +13,6 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.project.MainProject;
 import ai.brokk.util.Messages;
-import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
@@ -218,41 +218,49 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void append(String text, ChatMessageType type, boolean isNewMessage) {
-        append(text, type, isNewMessage, false);
-    }
-
-    public void append(String text, ChatMessageType type, boolean isNewMessage, boolean reasoning) {
+    public void append(String text, ChatMessageType type, LlmOutputMeta meta) {
         if (text.isEmpty()) {
             return;
         }
 
-        // If transient message was visible, this chunk should start a new message
+        // 1. Transient message cleanup
         boolean wasTransientVisible = transientMessageVisible;
         if (wasTransientVisible) {
             transientMessageVisible = false;
             webHost.hideTransientMessage();
         }
 
-        // Compute effective isNew: force true if transient was visible
-        boolean effectiveIsNew = isNewMessage || wasTransientVisible;
-
-        var lastMessageIsReasoning = !messages.isEmpty() && isReasoningMessage(messages.getLast());
-        if (effectiveIsNew
-                || messages.isEmpty()
-                || reasoning != lastMessageIsReasoning
-                || (!reasoning && type != messages.getLast().type())) {
-            // new message
-            messages.add(Messages.create(text, type, reasoning));
+        // 2. Determine if we must start a new message bubble
+        boolean isNew;
+        if (messages.isEmpty() || meta.isNewMessage() || wasTransientVisible) {
+            isNew = true;
         } else {
-            // merge with last message
+            var last = messages.getLast();
+
+            // Precedence is intentional:
+            // - a base ChatMessageType change always starts a new bubble
+            // - within the same type, split on variant changes (reasoning for AI, terminal for CUSTOM)
+            if (type != last.type()) {
+                isNew = true;
+            } else {
+                boolean lastIsReasoning = Messages.isReasoningMessage(last);
+                boolean lastIsTerminal = Messages.isTerminalMessage(last);
+                isNew = meta.isReasoning() != lastIsReasoning || meta.isTerminal() != lastIsTerminal;
+            }
+        }
+
+        var chunkMeta = ChunkMeta.fromLlmOutputMeta(meta, isNew);
+
+        if (isNew) {
+            messages.add(Messages.create(text, type, meta));
+        } else {
             var lastIdx = messages.size() - 1;
             var last = messages.get(lastIdx);
             var combined = Messages.getText(last) + text;
-            messages.set(lastIdx, Messages.create(combined, type, reasoning));
+            messages.set(lastIdx, Messages.create(combined, type, meta));
         }
 
-        webHost.append(text, effectiveIsNew, type, true, reasoning);
+        webHost.append(text, type, true, chunkMeta);
         textChangeListeners.forEach(Runnable::run);
     }
 
@@ -260,8 +268,11 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         clearMain();
         messages.addAll(newMessages);
         for (var message : newMessages) {
-            var isReasoning = isReasoningMessage(message);
-            webHost.append(Messages.getText(message), true, message.type(), false, isReasoning);
+            LlmOutputMeta meta = LlmOutputMeta.DEFAULT
+                    .withReasoning(Messages.isReasoningMessage(message))
+                    .withTerminal(Messages.isTerminalMessage(message));
+            var chunkMeta = ChunkMeta.fromLlmOutputMeta(meta, true);
+            webHost.append(Messages.getText(message), message.type(), false, chunkMeta);
         }
         // All appends are sent, now flush to make sure they are processed.
         webHost.flushAsync();
@@ -287,14 +298,6 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     public List<ChatMessage> getRawMessages() {
         return List.copyOf(messages);
-    }
-
-    public static boolean isReasoningMessage(ChatMessage msg) {
-        if (msg instanceof AiMessage ai) {
-            var reasoning = ai.reasoningContent();
-            return reasoning != null && !reasoning.isEmpty();
-        }
-        return false;
     }
 
     public void addTextChangeListener(Runnable listener) {

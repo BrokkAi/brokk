@@ -3,6 +3,7 @@ package ai.brokk.gui;
 import static java.util.Objects.requireNonNull;
 
 import ai.brokk.*;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -10,6 +11,7 @@ import ai.brokk.context.ContextFragments;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.difftool.ui.ToolbarFeature;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
@@ -1327,11 +1329,11 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Appends text to the LLM output area
      */
-    public void appendLlmOutput(String text, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+    public void appendLlmOutput(String text, ChatMessageType type, LlmOutputMeta meta) {
         // Apply any staged preset exactly once before the first token of the next stream
         applyPresetIfNeeded();
 
-        llmStreamArea.append(text, type, isNewMessage, isReasoning);
+        llmStreamArea.append(text, type, meta);
     }
 
     /**
@@ -1776,6 +1778,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
             var builder = new BrokkDiffPanel.Builder(chrome.getTheme(), contextManager)
                     .setMultipleCommitsContext(false)
                     .setRootTitle("Diff: " + actionDesc)
+                    .setToolbarFeatures(ToolbarFeature.viewOnly())
                     .setInitialFileIndex(0);
             String tabTitle = "Diff: " + actionDesc;
             if (diffs.size() == 1) {

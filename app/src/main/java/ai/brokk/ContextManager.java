@@ -276,7 +276,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
             }
 
             @Override
-            public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+            public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
                 // pass
             }
         };

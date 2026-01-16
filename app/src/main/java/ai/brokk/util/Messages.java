@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
@@ -34,6 +35,13 @@ public class Messages {
      * allowed at the very beginning for some models.
      */
     public static CustomMessage customSystem(String text) {
+        return new CustomMessage(Map.of("text", text));
+    }
+
+    public static CustomMessage customSystem(String text, LlmOutputMeta meta) {
+        if (meta.isTerminal()) {
+            return new CustomMessage(Map.of("text", text, "isTerminal", true));
+        }
         return new CustomMessage(Map.of("text", text));
     }
 
@@ -75,15 +83,15 @@ public class Messages {
 
     /** Helper method to create a ChatMessage of the specified type */
     public static ChatMessage create(String text, ChatMessageType type) {
-        return create(text, type, false);
+        return create(text, type, LlmOutputMeta.DEFAULT);
     }
 
-    public static ChatMessage create(String text, ChatMessageType type, boolean isReasoning) {
+    public static ChatMessage create(String text, ChatMessageType type, LlmOutputMeta meta) {
+        boolean isReasoning = meta.isReasoning();
         return switch (type) {
             case USER -> new UserMessage(text);
             case AI -> isReasoning ? new AiMessage("", text) : new AiMessage(text);
-            case CUSTOM -> customSystem(text);
-            // Add other cases as needed with appropriate implementations
+            case CUSTOM -> customSystem(text, meta);
             default -> {
                 logger.warn("Unsupported message type: {}, using AiMessage as fallback", type);
                 yield new AiMessage(text);
@@ -180,5 +188,9 @@ public class Messages {
         return message instanceof AiMessage aiMessage
                 && aiMessage.reasoningContent() != null
                 && !aiMessage.reasoningContent().isBlank();
+    }
+
+    public static boolean isTerminalMessage(ChatMessage message) {
+        return message instanceof CustomMessage cm && cm.attributes().get("isTerminal") != null;
     }
 }

@@ -1,6 +1,7 @@
 package ai.brokk.cli;
 
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.util.Messages;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
@@ -22,8 +23,8 @@ public abstract class MemoryConsole implements IConsoleIO {
     }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean explicitNewMessage, boolean isReasoning) {
-        if (isNewMessage(type, explicitNewMessage)) {
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
+        if (isNewMessage(type, meta.isNewMessage())) {
             messages.add(createMessage(type, token));
         } else {
             var lastMessage = messages.getLast();
@@ -31,7 +32,7 @@ public abstract class MemoryConsole implements IConsoleIO {
             messages.set(messages.size() - 1, updateMessage(lastMessage, newText));
         }
         if (echoTo != null) {
-            echoTo.llmOutput(token, type, explicitNewMessage, isReasoning);
+            echoTo.llmOutput(token, type, meta);
         }
     }
 

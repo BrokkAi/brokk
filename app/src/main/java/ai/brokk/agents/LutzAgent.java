@@ -2,6 +2,7 @@ package ai.brokk.agents;
 
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.git.GitWorkflow;
@@ -100,7 +101,7 @@ public class LutzAgent extends SearchAgent {
             @P(
                             "Comprehensive explanation that answers the query. Include relevant code snippets and how they relate, formatted in Markdown.")
                     String explanation) {
-        io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI);
+        io.llmOutput("# Answer\n\n" + explanation, ChatMessageType.AI, LlmOutputMeta.newMessage());
         return explanation;
     }
 
@@ -108,7 +109,7 @@ public class LutzAgent extends SearchAgent {
             "Ask the human for clarification when the goal is unclear or necessary information cannot be found. Outputs the provided question to the user and stops.")
     public String askForClarification(
             @P("A concise question or clarification request for the human user.") String queryForUser) {
-        io.llmOutput(queryForUser, ChatMessageType.AI);
+        io.llmOutput(queryForUser, ChatMessageType.AI, LlmOutputMeta.newMessage());
         return queryForUser;
     }
 
@@ -149,7 +150,10 @@ public class LutzAgent extends SearchAgent {
             throw new InterruptedException();
         }
         if (reason == TaskResult.StopReason.LLM_ERROR) {
-            io.llmOutput("# Code Agent\n\nFatal LLM error during CodeAgent execution.", ChatMessageType.AI);
+            io.llmOutput(
+                    "# Code Agent\n\nFatal LLM error during CodeAgent execution.",
+                    ChatMessageType.AI,
+                    LlmOutputMeta.newMessage());
             logger.error("Fatal LLM error during CodeAgent execution: {}", stopDetails.explanation());
             throw new ToolRegistry.FatalLlmException(stopDetails.explanation());
         }

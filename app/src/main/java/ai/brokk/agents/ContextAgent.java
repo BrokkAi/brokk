@@ -7,6 +7,7 @@ import ai.brokk.AnalyzerUtil;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.IAnalyzer;
 import ai.brokk.analyzer.ProjectFile;
@@ -767,8 +768,7 @@ public class ContextAgent {
             this.io.llmOutput(
                     "Processing " + chunks.size() + " batches in parallel (showing batch 1)…\n\n",
                     ChatMessageType.AI,
-                    false,
-                    true);
+                    LlmOutputMeta.reasoning());
         }
 
         Llm filesLlmWithEcho = showBatch1Reasoning
@@ -819,8 +819,7 @@ public class ContextAgent {
             this.io.llmOutput(
                     "All batches complete. " + combinedFiles.size() + " files selected.\n\n",
                     ChatMessageType.AI,
-                    false,
-                    true);
+                    LlmOutputMeta.reasoning());
         }
 
         return new LlmRecommendation(combinedFiles, combinedTests, combinedClasses, combinedUsage);
