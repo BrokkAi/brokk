@@ -11,6 +11,9 @@ import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.project.MainProject;
 import dev.langchain4j.data.message.ChatMessageType;
 import java.awt.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -360,89 +363,25 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
         return "unknown library";
     }
 
+    /**
+     * Loads a JavaScript resource file from the classpath.
+     */
+    private static String loadJavaScriptResource(String resourcePath) throws IOException {
+        try (InputStream is = JCEFWebViewHost.class.getClassLoader().getResourceAsStream(resourcePath)) {
+            if (is == null) {
+                throw new IOException("JavaScript resource not found: " + resourcePath);
+            }
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        }
+    }
+
     private void injectBridgeScript(CefBrowser browser) {
-        // Inject JavaScript that creates window.javaBridge using cefQuery
-        String bridgeScript =
-                """
-            (function() {
-                if (window.javaBridge) {
-                    console.log('javaBridge already exists, skipping injection');
-                    return;
-                }
-
-                console.log('Injecting JCEF javaBridge');
-
-                window.javaBridge = {
-                    onAck: function(epoch) {
-                        window.cefQuery({
-                            request: JSON.stringify({method: 'onAck', args: [epoch]}),
-                            onSuccess: function(r) {},
-                            onFailure: function(e, m) { console.error('onAck failed:', m); }
-                        });
-                    },
-                    jsLog: function(level, message) {
-                        window.cefQuery({
-                            request: JSON.stringify({method: 'jsLog', args: [level, message]}),
-                            onSuccess: function(r) {},
-                            onFailure: function(e, m) {}
-                        });
-                    },
-                    onBridgeReady: function() {
-                        window.cefQuery({
-                            request: JSON.stringify({method: 'onBridgeReady', args: []}),
-                            onSuccess: function(r) {},
-                            onFailure: function(e, m) { console.error('onBridgeReady failed:', m); }
-                        });
-                    },
-                    searchStateChanged: function(total, current) {
-                        // Stub for PoC
-                    },
-                    onSymbolClick: function(symbolName, symbolExists, fqn, x, y) {
-                        window.cefQuery({
-                            request: JSON.stringify({method: 'onSymbolClick', args: [symbolName, symbolExists, fqn, x, y]}),
-                            onSuccess: function(r) {},
-                            onFailure: function(e, m) { console.error('onSymbolClick failed:', m); }
-                        });
-                    },
-                    onFilePathClick: function() {
-                        // Stub for PoC
-                    },
-                    captureText: function() {
-                        // Stub for PoC
-                    },
-                    deleteHistoryTask: function() {
-                        // Stub for PoC
-                    },
-                    lookupSymbolsAsync: function(symbolNamesJson, seq, contextId) {
-                        window.cefQuery({
-                            request: JSON.stringify({method: 'lookupSymbolsAsync', args: [symbolNamesJson, seq, contextId]}),
-                            onSuccess: function(r) {},
-                            onFailure: function(e, m) { console.error('lookupSymbolsAsync failed:', m); }
-                        });
-                    },
-                    lookupFilePathsAsync: function() {
-                        // Stub for PoC
-                    },
-                    openExternalLink: function(url) {
-                        window.cefQuery({
-                            request: JSON.stringify({method: 'openExternalLink', args: [url]}),
-                            onSuccess: function(r) {},
-                            onFailure: function(e, m) {}
-                        });
-                    },
-                    onZoomChanged: function() {
-                        // Stub for PoC
-                    }
-                };
-
-                console.log('JCEF javaBridge injected successfully');
-
-                // Signal to Java that the bridge is ready
-                window.javaBridge.onBridgeReady();
-            })();
-            """;
-
-        browser.executeJavaScript(bridgeScript, browser.getURL(), 0);
+        try {
+            String bridgeScript = loadJavaScriptResource("mop-webview-scripts/jcef-bridge.js");
+            browser.executeJavaScript(bridgeScript, browser.getURL(), 0);
+        } catch (IOException e) {
+            logger.error("Failed to load JCEF bridge script", e);
+        }
     }
 
     // Called by JCEFBridge when JS signals bridge is ready
@@ -720,14 +659,16 @@ public final class JCEFWebViewHost extends JPanel implements IWebViewHost {
 
     @Override
     public void addSearchStateListener(Consumer<IWebViewHost.SearchState> listener) {
-        // Search state listeners not yet implemented for JCEF
-        logger.debug("addSearchStateListener - not implemented");
+        if (bridge != null) {
+            bridge.addSearchStateListener(listener);
+        }
     }
 
     @Override
     public void removeSearchStateListener(Consumer<IWebViewHost.SearchState> listener) {
-        // Search state listeners not yet implemented for JCEF
-        logger.debug("removeSearchStateListener - not implemented");
+        if (bridge != null) {
+            bridge.removeSearchStateListener(listener);
+        }
     }
 
     @Override

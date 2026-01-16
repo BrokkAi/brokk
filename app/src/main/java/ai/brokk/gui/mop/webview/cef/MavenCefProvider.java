@@ -1,5 +1,8 @@
 package ai.brokk.gui.mop.webview.cef;
 
+import ai.brokk.project.MainProject;
+import ai.brokk.gui.mop.ThemeColors;
+import java.awt.Color;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import me.friwi.jcefmaven.CefAppBuilder;
@@ -60,8 +63,12 @@ public class MavenCefProvider implements CefAppProvider {
 
         CefSettings settings = builder.getCefSettings();
         settings.windowless_rendering_enabled = false;
-        // Dark background to reduce flash while loading
-        settings.background_color = settings.new ColorType(0xFF, 37, 37, 37);
+        // Theme-aware background to reduce flash while loading
+        String themeName = MainProject.getTheme();
+        boolean isDark = !"BrokkLight".equals(themeName) && !"BrokkLightPlus".equals(themeName);
+        Color bgColor = ThemeColors.getColor(isDark, ThemeColors.CHAT_BACKGROUND);
+        settings.background_color =
+                settings.new ColorType(0xFF, bgColor.getRed(), bgColor.getGreen(), bgColor.getBlue());
 
         // Set cache path to avoid conflicts with JBR provider
         String userHome = System.getProperty("user.home");

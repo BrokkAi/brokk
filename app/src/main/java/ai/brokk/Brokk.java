@@ -199,10 +199,14 @@ public class Brokk {
             // CefApp.startup() initializes Xlib multithreading on Linux and loads
             // CEF framework on macOS. Must be called before any AWT/Swing initialization.
             org.cef.CefApp.startup(new String[0]);
-        } catch (Throwable t) {
-            // Log but don't fail - CEF will be initialized later via jcefmaven
-            // This early call is just to set up Xlib multithreading
-            logger.debug("CEF early startup: {}", t.getMessage());
+        } catch (Exception e) {
+            // Log but don't fail - CEF will be initialized later via jcefmaven.
+            // This early call is primarily to set up Xlib multithreading on Linux.
+            logger.warn("Unexpected exception during CEF early startup: {}", e.getMessage(), e);
+        } catch (NoClassDefFoundError | UnsatisfiedLinkError e) {
+            // These are expected if JCEF is not in the initial classpath or native libs
+            // are missing yet; they will be handled by jcefmaven during later initialization.
+            logger.debug("CEF early startup (expected link error/missing class): {}", e.getMessage());
         }
     }
 
