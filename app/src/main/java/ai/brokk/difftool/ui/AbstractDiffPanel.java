@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Set;
 import javax.swing.JComponent;
 import javax.swing.SwingUtilities;
+import javax.swing.text.JTextComponent;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Nullable;
@@ -264,6 +265,21 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
         if (parent != null) {
             parent.revalidate();
         }
+    }
+
+    /**
+     * Helper to apply a font size to an editor and its associated gutter, ensuring they stay in sync.
+     *
+     * @param editor the text component
+     * @param gutter the associated gutter component
+     * @param size the font size in points
+     */
+    protected static void applyFontToEditorAndGutter(JTextComponent editor, DiffGutterComponent gutter, float size) {
+        applyDerivedFont(editor, size);
+        editor.revalidate();
+        editor.repaint();
+
+        applyDerivedFontToGutter(gutter, size);
     }
 
     /**
