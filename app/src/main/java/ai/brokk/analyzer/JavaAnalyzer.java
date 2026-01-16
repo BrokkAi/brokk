@@ -105,6 +105,12 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             List<ScopeSegment> scopeChain,
             @Nullable TSNode definitionNode,
             SkeletonType skeletonType) {
+        // Special handling for MODULE: simpleName is the full package name,
+        // so packageName should be empty and shortName is the full package name.
+        if (skeletonType == SkeletonType.MODULE_STATEMENT) {
+            return new CodeUnit(file, CodeUnitType.MODULE, "", simpleName);
+        }
+
         final String shortName = classChain.isEmpty() ? simpleName : classChain + "." + simpleName;
 
         var type =
@@ -113,11 +119,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     case FUNCTION_LIKE -> CodeUnitType.FUNCTION;
                     case FIELD_LIKE -> CodeUnitType.FIELD;
                     case MODULE_STATEMENT -> CodeUnitType.MODULE;
-                    default -> {
-                        // This shouldn't be reached if captureConfiguration is exhaustive
-                        log.warn("Unhandled CodeUnitType for '{}'", skeletonType);
-                        yield CodeUnitType.CLASS;
-                    }
+                    default -> CodeUnitType.CLASS;
                 };
 
         return new CodeUnit(file, type, packageName, shortName);
@@ -164,7 +166,25 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             for (int i = 0; i < maybeDeclaration.getNamedChildCount(); i++) {
                 final TSNode nameNode = maybeDeclaration.getNamedChild(i);
                 if (nameNode != null && !nameNode.isNull()) {
+                    String type = nameNode.getType();
+                    if ("annotation".equals(type) || "marker_annotation".equals(type)) {
+                        continue;
+                    }
                     String nsPart = textSlice.apply(nameNode, sourceContent);
+                    // Special handling for nodes that might have child identifiers (like Scala package_identifier)
+                    if (nsPart.isEmpty() && nameNode.getNamedChildCount() > 0) {
+                        List<String> parts = new ArrayList<>();
+                        for (int j = 0; j < nameNode.getNamedChildCount(); j++) {
+                            TSNode child = nameNode.getNamedChild(j);
+                            if (child != null && !child.isNull()) {
+                                String childText = textSlice.apply(child, sourceContent);
+                                if (!childText.isEmpty()) {
+                                    parts.add(childText);
+                                }
+                            }
+                        }
+                        nsPart = String.join(".", parts);
+                    }
                     if (!nsPart.isEmpty()) {
                         namespaceParts.add(nsPart);
                     }
@@ -559,62 +579,54 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges,
             Map<CodeUnit, List<CodeUnit>> localChildren) {
-        // Create a MODULE CodeUnit for the current file's package and attach the file's top-level classes as children.
         if (modulePackageName.isBlank()) {
-            return; // default package: no module CU
+            return;
         }
 
-        // Locate the package_declaration node to compute a precise range for the module signature
-        TSNode packageNode = null;
-        for (int i = 0; i < rootNode.getChildCount(); i++) {
-            TSNode child = rootNode.getChild(i);
-            if (child != null && !child.isNull() && PACKAGE_DECLARATION.equals(child.getType())) {
-                packageNode = child;
-                break;
-            }
+        // Look up the module in localCuByFqName (created via captures).
+        // Only use modules that are already present; do not create new ones.
+        CodeUnit moduleCu = localCuByFqName.get(modulePackageName);
+        if (moduleCu == null || !moduleCu.isModule()) {
+            return;
         }
 
-        // Determine parent package and simple name, so that fqName(parent + "." + short) == modulePackageName
-        int idx = modulePackageName.lastIndexOf('.');
-        String parentPkg = idx >= 0 ? modulePackageName.substring(0, idx) : "";
-        String simpleName = idx >= 0 ? modulePackageName.substring(idx + 1) : modulePackageName;
+        // Filter localTopLevelCUs to find top-level classes in this package.
+        List<CodeUnit> classesInPackage = localTopLevelCUs.stream()
+                .filter(cu -> cu.isClass() && modulePackageName.equals(cu.packageName()))
+                .toList();
 
-        CodeUnit moduleCu = CodeUnit.module(file, parentPkg, simpleName);
-
-        // Signature for a Java package module
-        String signature = "package " + modulePackageName + ";";
-        localSignatures.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(signature);
-
-        // Range covering the package declaration (when available)
-        if (packageNode != null) {
-            Range r = new Range(
-                    packageNode.getStartByte(),
-                    packageNode.getEndByte(),
-                    packageNode.getStartPoint().getRow(),
-                    packageNode.getEndPoint().getRow(),
-                    packageNode.getStartByte());
-            localSourceRanges.computeIfAbsent(moduleCu, k -> new ArrayList<>()).add(r);
+        // If classes are found, link them as children.
+        if (!classesInPackage.isEmpty()) {
+            localChildren.put(moduleCu, new ArrayList<>(classesInPackage));
         }
+    }
 
-        // Children: include only top-level classes declared in this exact package
-        List<CodeUnit> classesInThisFileAndPackage = new ArrayList<>();
-        for (CodeUnit cu : localTopLevelCUs) {
-            if (cu.isClass() && modulePackageName.equals(cu.packageName())) {
-                classesInThisFileAndPackage.add(cu);
-            }
-        }
-        localChildren.put(moduleCu, classesInThisFileAndPackage);
-
-        // Register module as a top-level CodeUnit and in local lookup
-        localTopLevelCUs.add(moduleCu);
-        localCuByFqName.put(moduleCu.fqName(), moduleCu);
+    @Override
+    protected void createModulesFromImports(
+            ProjectFile file,
+            List<String> localImportStatements,
+            TSNode rootNode,
+            String modulePackageName,
+            Map<String, CodeUnit> localCuByFqName,
+            List<CodeUnit> localTopLevelCUs,
+            Map<CodeUnit, List<String>> localSignatures,
+            Map<CodeUnit, List<Range>> localSourceRanges) {
+        createModulesFromImports(
+                file,
+                localImportStatements,
+                rootNode,
+                modulePackageName,
+                localCuByFqName,
+                localTopLevelCUs,
+                localSignatures,
+                localSourceRanges,
+                new HashMap<>());
     }
 
     @Override
     protected List<String> extractRawSupertypesForClassLike(
             CodeUnit cu, TSNode classNode, String signature, SourceContent sourceContent) {
         // Aggregate all @type.super captures for the same @type.decl across all matches.
-        // Previously only the first match was considered, which dropped additional interfaces.
         var query = getThreadLocalQuery();
 
         // Ascend to the root node for matching
@@ -649,12 +661,10 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             }
 
             if (declNode != null && declNode.getStartByte() == targetStart && declNode.getEndByte() == targetEnd) {
-                // Accumulate all type.super nodes for this declaration; do not break after first match.
                 aggregateSuperNodes.addAll(superCapturesThisMatch);
             }
         }
 
-        // Sort once to preserve source order: superclass first, then interfaces in declaration order
         aggregateSuperNodes.sort(Comparator.comparingInt(TSNode::getStartByte));
 
         List<String> supers = new ArrayList<>(aggregateSuperNodes.size());
@@ -665,7 +675,6 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             }
         }
 
-        // Deduplicate while preserving order to avoid duplicates like [BaseClass, BaseClass, ...]
         LinkedHashSet<String> unique = new LinkedHashSet<>(supers);
         return List.copyOf(unique);
     }
