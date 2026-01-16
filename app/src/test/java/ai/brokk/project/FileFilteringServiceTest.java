@@ -208,8 +208,7 @@ public class FileFilteringServiceTest {
         var fixedFiles = worktreeRepo.getFixedGitignoreFiles();
 
         // Should include the main repo's shared info/exclude
-        boolean hasSharedInfoExclude =
-                fixedFiles.stream().anyMatch(path -> path.toString().contains("info/exclude"));
+        boolean hasSharedInfoExclude = fixedFiles.stream().anyMatch(path -> path.endsWith(Path.of("info", "exclude")));
 
         assertTrue(hasSharedInfoExclude, "Worktree should include main repo's shared .git/info/exclude");
 
