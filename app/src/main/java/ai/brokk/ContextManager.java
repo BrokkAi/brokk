@@ -446,10 +446,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
 
         // Load saved context history or create a new one
         var contextTask =
-                submitBackgroundTask("Loading saved context", () -> {
-                    initializeCurrentSessionAndHistory(false);
-                    return null;
-                });
+                submitBackgroundTask("Loading saved context", () -> initializeCurrentSessionAndHistory(false));
 
         // Ensure build details are loaded/generated asynchronously
         // (style and review guides are handled by ensureGuidesAsync() called earlier)

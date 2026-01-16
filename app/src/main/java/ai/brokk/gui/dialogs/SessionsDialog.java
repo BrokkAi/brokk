@@ -4,8 +4,6 @@ import static ai.brokk.SessionManager.SessionInfo;
 import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNull;
 
 import ai.brokk.ContextManager;
-import ai.brokk.SessionRegistry;
-import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.WorkspaceItemsChipPanel;

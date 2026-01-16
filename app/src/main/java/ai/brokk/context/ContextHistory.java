@@ -729,12 +729,12 @@ public class ContextHistory {
         mergedResetEdges.addAll(newer.resetEdges);
 
         Map<UUID, GitState> mergedGitStates = new HashMap<>();
-        mergedGitStates.putAll(older.gitStates);
-        mergedGitStates.putAll(newer.gitStates);
+        mergedGitStates.putAll(older.getGitStates());
+        mergedGitStates.putAll(newer.getGitStates());
 
         Map<UUID, ContextHistoryEntryInfo> mergedEntryInfos = new HashMap<>();
-        mergedEntryInfos.putAll(older.entryInfos);
-        mergedEntryInfos.putAll(newer.entryInfos);
+        mergedEntryInfos.putAll(older.getEntryInfos());
+        mergedEntryInfos.putAll(newer.getEntryInfos());
 
         ContextHistory mergedHistory =
                 new ContextHistory(mergedList, mergedResetEdges, mergedGitStates, mergedEntryInfos);
