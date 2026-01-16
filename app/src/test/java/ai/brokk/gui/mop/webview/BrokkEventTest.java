@@ -57,8 +57,9 @@ public class BrokkEventTest {
         assertTrue(json.contains("\"taskSequence\":456"));
         assertTrue(json.contains("\"compressed\":true"));
         assertTrue(json.contains("\"summary\":\"AI summary\""));
-        assertTrue(json.contains(
-                "\"messages\":[{\"text\":\"Full message content\",\"msgType\":\"AI\",\"reasoning\":false,\"terminal\":false}]"));
+        assertTrue(
+                json.contains(
+                        "\"messages\":[{\"text\":\"Full message content\",\"msgType\":\"AI\",\"reasoning\":false,\"terminal\":false}]"));
     }
 
     @Test

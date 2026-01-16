@@ -16,7 +16,7 @@ public final class StatusBadge {
             case INTERRUPTED -> badge("interrupted", "yellow");
             case READ_ONLY_EDIT, LLM_ABORTED, LLM_CONTEXT_SIZE -> badge(formatLabel(reason), "orange");
             case LLM_ERROR, PARSE_ERROR, APPLY_ERROR, BUILD_ERROR, IO_ERROR, TOOL_ERROR ->
-                    badge(formatLabel(reason), "red");
+                badge(formatLabel(reason), "red");
         };
     }
 
