@@ -4,18 +4,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
-import ai.brokk.project.MainProject;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.util.Environment;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.function.BiFunction;
 import java.util.function.Predicate;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.Test;
@@ -423,7 +421,8 @@ class BuildAgentTest {
         try {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
-            project.setBuildDetails(new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();
@@ -452,7 +451,8 @@ class BuildAgentTest {
         try {
             Files.writeString(tempDir.resolve("README.md"), "x");
             var project = new TestProject(tempDir);
-            project.setBuildDetails(new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
             var io = new TestConsoleIO();
             var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
             var ctx = cm.liveContext();

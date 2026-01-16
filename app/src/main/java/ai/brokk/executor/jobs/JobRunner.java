@@ -916,7 +916,8 @@ public final class JobRunner {
                                                                 return BuildAgent.runExplicitCommand(
                                                                         cm, cmd, buildDetailsOverride);
                                                             } catch (InterruptedException e) {
-                                                                Thread.currentThread().interrupt();
+                                                                Thread.currentThread()
+                                                                        .interrupt();
                                                                 return "Interrupted while running command: " + cmd;
                                                             }
                                                         },
@@ -927,7 +928,8 @@ public final class JobRunner {
                                                                         architectPlannerModel,
                                                                         architectCodeModel);
                                                             } catch (InterruptedException e) {
-                                                                Thread.currentThread().interrupt();
+                                                                Thread.currentThread()
+                                                                        .interrupt();
                                                                 throw new IssueExecutionException(
                                                                         "Interrupted while attempting to fix pre-PR gate failure",
                                                                         e);
@@ -1465,15 +1467,16 @@ public final class JobRunner {
             if (attempt == maxAttempts) {
                 var failureParts = new java.util.ArrayList<String>();
                 if (!testsPassed) {
-                    failureParts.add("Tests failed (" + (testCmd.isBlank() ? "testAllCommand" : testCmd) + "):\n"
-                            + testOut);
+                    failureParts.add(
+                            "Tests failed (" + (testCmd.isBlank() ? "testAllCommand" : testCmd) + "):\n" + testOut);
                 }
                 if (!lintPassed) {
-                    failureParts.add("Lint failed (" + (lintCmd.isBlank() ? "buildLintCommand" : lintCmd) + "):\n"
-                            + lintOut);
+                    failureParts.add(
+                            "Lint failed (" + (lintCmd.isBlank() ? "buildLintCommand" : lintCmd) + "):\n" + lintOut);
                 }
 
-                String failedDetails = failureParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", failureParts);
+                String failedDetails =
+                        failureParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", failureParts);
 
                 throw new IssueExecutionException(
                         "Pre-PR gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
@@ -1495,9 +1498,8 @@ public final class JobRunner {
 
             String fixPrompt = fixParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", fixParts);
 
-            String fullFixPrompt =
-                    "Pre-PR gate failed (attempt " + attempt + "/" + maxAttempts + ").\n\n" + fixPrompt
-                            + "\n\nPlease fix the issues so that BOTH full tests and full lint pass.";
+            String fullFixPrompt = "Pre-PR gate failed (attempt " + attempt + "/" + maxAttempts + ").\n\n" + fixPrompt
+                    + "\n\nPlease fix the issues so that BOTH full tests and full lint pass.";
 
             fixTaskRunner.accept(fullFixPrompt);
         }
