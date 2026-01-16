@@ -13,7 +13,6 @@ import ai.brokk.difftool.scroll.ScrollSynchronizer;
 import ai.brokk.gui.search.GenericSearchBar;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.util.KeyboardShortcutUtil;
-import ai.brokk.util.SlidingWindowCache;
 import com.github.difflib.patch.AbstractDelta;
 import com.github.difflib.patch.Patch;
 import com.jgoodies.forms.layout.CellConstraints;
@@ -48,7 +47,7 @@ import org.jetbrains.annotations.Nullable;
  * This panel shows the side-by-side file panels, the diff curves, plus search bars. It no longer depends on custom
  * JMRevision/JMDelta but rather on a Patch<String>.
  */
-public class BufferDiffPanel extends AbstractDiffPanel implements SlidingWindowCache.Disposable {
+public class BufferDiffPanel extends AbstractDiffPanel {
     private static final Logger logger = LogManager.getLogger(BufferDiffPanel.class);
 
     /**

@@ -3,7 +3,6 @@ package ai.brokk.difftool.ui;
 import ai.brokk.difftool.node.JMDiffNode;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
-import ai.brokk.util.SlidingWindowCache;
 import ai.brokk.util.SyntaxDetector;
 import java.awt.Component;
 import java.nio.file.Path;
@@ -25,8 +24,7 @@ import org.jetbrains.annotations.Nullable;
  * <p>Note: This extends AbstractContentPanel to leverage existing undo/redo infrastructure while providing diff panel
  * functionality.
  */
-public abstract class AbstractDiffPanel extends AbstractContentPanel
-        implements ThemeAware, SlidingWindowCache.Disposable {
+public abstract class AbstractDiffPanel extends AbstractContentPanel implements ThemeAware {
     protected final BrokkDiffPanel parent;
     protected final GuiTheme theme;
 
@@ -157,7 +155,6 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
         });
     }
 
-    @Override
     public void dispose() {
         // Default cleanup - subclasses should override and call super
         removeAll();
@@ -323,7 +320,6 @@ public abstract class AbstractDiffPanel extends AbstractContentPanel
     /**
      * Returns whether this panel has unsaved changes. The base implementation returns the cached dirty flag.
      */
-    @Override
     public final boolean hasUnsavedChanges() {
         return dirty;
     }
