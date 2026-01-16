@@ -1,3 +1,7 @@
+<script lang="ts" context="module">
+  let idCounter = 0;
+</script>
+
 <script lang="ts">
   import Icon from "@iconify/svelte";
 
@@ -16,7 +20,7 @@
 
   let preElem: HTMLPreElement | null = null;
 
-  const preId = "code-" + Math.random().toString(36).slice(2);
+  const preId = "code-" + idCounter++;
 
   let showCode = $state(!(toolHeadline || collapseDefault));
 
