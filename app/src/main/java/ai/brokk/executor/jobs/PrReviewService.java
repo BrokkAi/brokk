@@ -111,18 +111,17 @@ public final class PrReviewService {
         record InlineCommentKey(String path, int line, String bodyMarkdown) {}
 
         Map<InlineCommentKey, InlineComment> deduped = comments.stream()
-                .filter(c -> Objects.requireNonNullElse(c.severity(), Severity.LOW).isAtLeast(threshold))
+                .filter(c ->
+                        Objects.requireNonNullElse(c.severity(), Severity.LOW).isAtLeast(threshold))
                 .collect(java.util.stream.Collectors.toMap(
-                        c -> new InlineCommentKey(c.path(), c.line(), c.bodyMarkdown()),
-                        c -> c,
-                        (a, b) -> {
+                        c -> new InlineCommentKey(c.path(), c.line(), c.bodyMarkdown()), c -> c, (a, b) -> {
                             Severity aSeverity = Objects.requireNonNullElse(a.severity(), Severity.LOW);
                             Severity bSeverity = Objects.requireNonNullElse(b.severity(), Severity.LOW);
                             return aSeverity.rank() <= bSeverity.rank() ? a : b;
                         }));
 
-        Comparator<InlineComment> comparator = Comparator.<InlineComment>comparingInt(
-                        c -> Objects.requireNonNullElse(c.severity(), Severity.LOW).rank())
+        Comparator<InlineComment> comparator = Comparator.<InlineComment>comparingInt(c ->
+                        Objects.requireNonNullElse(c.severity(), Severity.LOW).rank())
                 .thenComparing(InlineComment::path)
                 .thenComparingInt(InlineComment::line)
                 .thenComparing(InlineComment::bodyMarkdown);
