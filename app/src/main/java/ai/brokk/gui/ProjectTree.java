@@ -20,6 +20,7 @@ import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.event.ActionEvent;
+import java.awt.event.HierarchyEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -80,6 +81,9 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     /** Flag to track if a refresh was requested during expansion restoration */
     private volatile boolean pendingRefreshDuringRestore = false;
 
+    /** Flag to track if a refresh should occur when component becomes visible */
+    private volatile boolean pendingRefreshWhenShown = false;
+
     public ProjectTree(IProject project, ContextManager contextManager, Chrome chrome) {
         this.project = project;
         this.contextManager = contextManager;
@@ -88,6 +92,17 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
         initializeTree();
         setupTreeBehavior(); // Includes mouse listeners and keyboard bindings now
+
+        // Defer tree refreshes when component is not visible
+        addHierarchyListener(e -> {
+            if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0) {
+                if (isShowing() && pendingRefreshWhenShown) {
+                    logger.trace("Component now visible, executing deferred refresh");
+                    pendingRefreshWhenShown = false;
+                    performRefreshInternal();
+                }
+            }
+        });
     }
 
     @Override
@@ -832,7 +847,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         var sortedPaths = paths.stream()
                 .sorted(Comparator.comparingInt(Path::getNameCount))
                 .toList();
-        logger.trace("Restoring expansion state for paths: {}", sortedPaths);
+        logger.trace("Restoring expansion state for {} paths", sortedPaths.size());
 
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (var relativePath : sortedPaths) {
@@ -849,6 +864,7 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
         chain.whenComplete((result, ex) -> {
             isRestoringExpansion = false;
             if (pendingRefreshDuringRestore) {
+                logger.trace("Expansion restoration complete, processing pending refresh");
                 pendingRefreshDuringRestore = false;
                 scheduleRefresh();
             }
@@ -857,6 +873,37 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
 
     @Override
     public void onFilesChanged(AbstractWatchService.EventBatch batch) {
+        // Skip refresh if no meaningful changes occurred
+        if (!batch.isOverflowed()
+                && !batch.isUntrackedGitignoreChanged()
+                && batch.getFiles().isEmpty()) {
+            logger.trace("Skipping tree refresh - no files changed");
+            return;
+        }
+
+        // Filter out gitignored/excluded files that wouldn't be visible in tree anyway
+        if (!batch.isOverflowed() && !batch.isUntrackedGitignoreChanged()) {
+            var visibleFiles = batch.getFiles().stream()
+                    .filter(f -> {
+                        Path relPath = f.getRelPath();
+                        boolean gitignored = project.isGitignored(relPath);
+                        boolean excluded = project.isPathExcluded(relPath.toString(), false);
+                        return !gitignored && !excluded;
+                    })
+                    .toList();
+
+            if (visibleFiles.isEmpty()) {
+                logger.trace(
+                        "Skipping tree refresh - all {} files gitignored/excluded",
+                        batch.getFiles().size());
+                return;
+            }
+            logger.trace(
+                    "{} of {} files visible, refreshing tree",
+                    visibleFiles.size(),
+                    batch.getFiles().size());
+        }
+
         scheduleRefresh();
     }
 
@@ -882,7 +929,16 @@ public class ProjectTree extends JTree implements AbstractWatchService.Listener 
     }
 
     private void performRefresh() {
-        logger.trace("FileSystem change detected, refreshing ProjectTree.");
+        if (!isShowing()) {
+            logger.trace("Tree not visible, deferring refresh");
+            pendingRefreshWhenShown = true;
+            return;
+        }
+        performRefreshInternal();
+    }
+
+    private void performRefreshInternal() {
+        pendingRefreshWhenShown = false; // Clear flag when actually refreshing
 
         var root = (DefaultMutableTreeNode) getModel().getRoot();
 
