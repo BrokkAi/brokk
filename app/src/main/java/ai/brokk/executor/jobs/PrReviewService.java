@@ -98,8 +98,6 @@ public final class PrReviewService {
         }
 
         public InlineComment {
-            Objects.requireNonNull(path, "path");
-            Objects.requireNonNull(bodyMarkdown, "bodyMarkdown");
             severity = Objects.requireNonNullElse(severity, Severity.LOW);
         }
     }
