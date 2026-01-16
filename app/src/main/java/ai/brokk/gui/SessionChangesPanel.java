@@ -916,7 +916,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void generateGuidedReviewInternal(ReviewScope scope) {
         cm.submitLlmAction(() -> {
             try {
-                var agent = new ReviewAgent(scope, ModelType.ARCHITECT.defaultConfig(), cm);
+                var agent = new ReviewAgent(scope, cm.getProject().getModelConfig(ModelType.ARCHITECT), true, cm);
 
                 agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
                     guidedReviewBtn.setProgress(p);

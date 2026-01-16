@@ -57,7 +57,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.VisibleForTesting;
+import org.jetbrains.annotations.TestOnly;
 import org.jspecify.annotations.NullMarked;
 
 /**
@@ -84,27 +84,36 @@ public class ReviewAgent {
         void updateProgress(String stage, int progress);
     }
 
-    private AbstractService.ModelConfig modelConfig;
+    private final AbstractService.ModelConfig modelConfig;
+    private final boolean optimizeForLatency;
     private final IContextManager cm;
     private @Nullable Context contextBeingBuilt;
+    private boolean isComplex = false;
+
+    private record ContextSetupResult(Context context, boolean isComplex) {}
 
     /**
      * Intended usage to review the changes on the current branch from `commit` [exclusive] to HEAD [inclusive]:
      * var scope = ReviewScope.fromBaseline(commit, cm);
-     * var result = new ReviewAgent(scope, ModelType.ARCHITECT.defaultConfig(), cm).execute();
+     * var result = new ReviewAgent(scope, preferredModel, false, cm).execute();
      *
      * An example of determining `commit` using GitRepo::getMergeBase is in SessionChangesPanel.
      */
-    public ReviewAgent(ReviewScope scope, AbstractService.ModelConfig modelConfig, IContextManager cm) {
+    public ReviewAgent(
+            ReviewScope scope,
+            AbstractService.ModelConfig modelConfig,
+            boolean optimizeForLatency,
+            IContextManager cm) {
         this.changes = scope.changes();
         this.sessionIds = scope.sessionIds();
         this.modelConfig = modelConfig;
+        this.optimizeForLatency = optimizeForLatency;
         this.cm = cm;
     }
 
-    @VisibleForTesting
+    @TestOnly
     ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm) {
-        this(new ReviewScope(changes, sessionIds), ModelType.ARCHITECT.defaultConfig(), cm);
+        this(new ReviewScope(changes, sessionIds), ModelType.ARCHITECT.defaultConfig(), true, cm);
     }
 
     private @Nullable ProgressUpdater progressUpdater;
@@ -144,16 +153,21 @@ public class ReviewAgent {
 
             updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
-            var reviewContext = setupContext(initialContext);
+            var setupResult = setupContext(initialContext);
+            var reviewContext = setupResult.context();
             logPhaseTime("Context selection", contextStart);
             updateProgress("Analyzing changes", SETUP_PROGRESS);
 
             // Publish the context as it stands after setup but before Turn 1
             scope.publish(reviewContext);
 
-            // Perform review + excerpt extraction
-            var model = requireNonNull(cm.getService().getModel(modelConfig));
-            var turn1Llm = cm.getLlm(new Llm.Options(model, "Code Review").withEcho());
+            var turn1ModelConfig = (optimizeForLatency && !setupResult.isComplex())
+                    ? cm.getProject().getModelConfig(ModelType.SCAN)
+                    : modelConfig;
+            var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
+            var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
+
+            // --- Turn 1: Full Markdown review + excerpt extraction ---
             long turn1Start = System.currentTimeMillis();
             Llm.StreamingResult turn1Result;
             var turn1Messages = new ArrayList<ChatMessage>();
@@ -245,7 +259,7 @@ public class ReviewAgent {
                     publishedMessages,
                     reviewContext,
                     new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
-                    new TaskResult.TaskMeta(TaskResult.Type.REVIEW, modelConfig));
+                    new TaskResult.TaskMeta(TaskResult.Type.REVIEW, turn1ModelConfig));
 
             scope.append(result);
 
@@ -258,8 +272,9 @@ public class ReviewAgent {
         logger.debug("{} completed in {}s", phaseName, String.format("%.1f", seconds));
     }
 
-    private @NotNull Context setupContext(Context initialContext) throws InterruptedException {
-        var model = requireNonNull(cm.getService().getModel(modelConfig));
+    private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
+        var model = requireNonNull(cm.getService()
+                .getModel(optimizeForLatency ? cm.getProject().getModelConfig(ModelType.SCAN) : modelConfig));
         var llm = cm.getLlm(model, "Review Context Selection");
 
         var messages = new ArrayList<ChatMessage>();
@@ -270,8 +285,14 @@ public class ReviewAgent {
                 new UserMessage(
                         """
                 Examine the proposed diff and identify additional context needed for a thorough code review.
-                You will have access to the full diff during the review, so only add code that you need to perform
-                the review, that you cannot infer from the diff alone.
+
+                Examine the proposed diff and determine the complexity level:
+                1. TRIVIAL: very small changes, documentation updates, or simple boilerplate with no logic risk.
+                2. STRAIGHTFORWARD: localized changes, simple refactors, easy to see if bugs were introduced.
+                3. COMPLEX: changes spanning multiple subsystems, introducing new abstractions, or with subtle correctness concerns.
+
+                Then identify additional context needed for a thorough code review. You will have access to the full
+                diff during the review, so only add code that you need to perform the review, that you cannot infer from the diff alone.
 
                 You can get API signatures when you do not need full implementation details using `filesForSummaries`.
 
@@ -287,12 +308,13 @@ public class ReviewAgent {
         var toolSpecs = tr.getTools(List.of("addFragments"));
 
         this.contextBeingBuilt = initialContext;
+        this.isComplex = false;
         var result = llm.sendRequest(messages, new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr));
 
         if (result.error() == null && !result.toolRequests().isEmpty()) {
             var toolRequest = result.toolRequests().getFirst();
             tr.executeTool(toolRequest);
-            return requireNonNull(contextBeingBuilt).withHistory(List.of());
+            return new ContextSetupResult(requireNonNull(contextBeingBuilt).withHistory(List.of()), isComplex);
         }
 
         // Fallback
@@ -314,7 +336,7 @@ public class ReviewAgent {
                 .collect(Collectors.toList());
         var ctx = initialContext.addFragments(filesToContext);
         ctx = ctx.addFragments(ctx.buildAutoContext(10));
-        return ctx;
+        return new ContextSetupResult(ctx, true);
     }
 
     private void updateProgress(String stage, int progress) {
@@ -823,6 +845,7 @@ public class ReviewAgent {
     @Tool(
             "Add context fragments to help perform a thorough code review. Call this once with all the files, summaries, classes, and methods needed.")
     private String addFragments(
+            @P("The categorized complexity of the change: TRIVIAL, STRAIGHTFORWARD, or COMPLEX") String complexity,
             @P("Full project paths for files where you need to see complete implementation details")
                     List<String> filesForFullSource,
             @P("Full project paths for files where you only need to see API signatures/skeletons")
@@ -833,6 +856,7 @@ public class ReviewAgent {
             @P(
                             "Fully qualified method names (e.g., 'com.example.MyClass.myMethod') for specific methods you need to examine")
                     List<String> methodNames) {
+        this.isComplex = !complexity.equalsIgnoreCase("TRIVIAL");
         var wst = new WorkspaceTools(requireNonNull(contextBeingBuilt));
         wst.addFilesToWorkspace(filesForFullSource);
         wst.addFileSummariesToWorkspace(filesForSummaries);
