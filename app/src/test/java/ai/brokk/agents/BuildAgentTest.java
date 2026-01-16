@@ -513,7 +513,8 @@ class BuildAgentTest {
     void testRunExplicitCommandBlankClearsPreviousBuildError(@TempDir Path tempDir) throws Exception {
         Files.writeString(tempDir.resolve("README.md"), "x");
         var project = new TestProject(tempDir);
-        project.setBuildDetails(new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+        project.setBuildDetails(
+                new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
 
         var io = new TestConsoleIO();
         var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
