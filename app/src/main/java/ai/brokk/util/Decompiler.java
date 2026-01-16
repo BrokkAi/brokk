@@ -264,6 +264,7 @@ public class Decompiler {
                     .filter(p -> p.toString().endsWith(".java"))
                     .count();
         } catch (IOException e) {
+            logger.debug("Failed to count Java files in {}: {}", dir, e.getMessage());
             return 0;
         }
     }

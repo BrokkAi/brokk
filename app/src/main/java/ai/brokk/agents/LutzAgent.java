@@ -19,6 +19,7 @@ import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import java.util.ArrayList;
 import java.util.List;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * LutzAgent: - Specialization of SearchAgent that includes code execution and task list objectives.
@@ -26,7 +27,7 @@ import java.util.List;
 public class LutzAgent extends SearchAgent {
 
     private final SearchPrompts.Objective objective;
-    private final DependencyTools depTools;
+    private final @Nullable DependencyTools depTools;
 
     /**
      * Primary constructor with explicit IO and ScanConfig.
@@ -41,7 +42,7 @@ public class LutzAgent extends SearchAgent {
             ScanConfig scanConfig) {
         super(initialContext, goal, model, scope, io, scanConfig);
         this.objective = objective;
-        this.depTools = new DependencyTools(cm);
+        this.depTools = DependencyTools.isSupported(cm.getProject()) ? new DependencyTools(cm) : null;
     }
 
     /**
@@ -72,7 +73,7 @@ public class LutzAgent extends SearchAgent {
     protected ToolRegistry createToolRegistry(WorkspaceTools wst) {
         var builder = cm.getToolRegistry().builder().register(wst).register(this);
         // Add dependency tools if supported for this project
-        if (DependencyTools.isSupported(cm.getProject())) {
+        if (depTools != null) {
             builder.register(depTools);
         }
         return builder.build();
@@ -175,7 +176,7 @@ public class LutzAgent extends SearchAgent {
             }
         }
         // Add dependency import tool if supported for this project
-        if (DependencyTools.isSupported(cm.getProject())) {
+        if (depTools != null) {
             names.add("importMavenDependency");
         }
         return names;

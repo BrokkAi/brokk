@@ -550,14 +550,6 @@ public final class DependenciesPanel extends JPanel implements IContextManager.A
         loadDependenciesAsync();
     }
 
-    /**
-     * Closes the panel and releases resources.
-     * Call this when the project is closing.
-     */
-    public void close() {
-        // Scheduler is now owned by Chrome, nothing to close here
-    }
-
     @Override
     public void addNotify() {
         super.addNotify();

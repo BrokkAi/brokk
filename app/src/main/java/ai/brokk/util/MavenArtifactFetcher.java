@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.maven.repository.internal.MavenRepositorySystemUtils;
@@ -170,7 +171,7 @@ public class MavenArtifactFetcher {
         private static final long THROTTLE_MS = 250;
 
         private final @Nullable DownloadProgressListener progressListener;
-        private volatile long lastUpdateTime = 0;
+        private final AtomicLong lastUpdateTime = new AtomicLong(0);
 
         ProgressReportingTransferListener(@Nullable DownloadProgressListener progressListener) {
             this.progressListener = progressListener;
@@ -191,10 +192,10 @@ public class MavenArtifactFetcher {
                 return;
             }
             long now = System.currentTimeMillis();
-            if (now - lastUpdateTime < THROTTLE_MS) {
+            long lastUpdate = lastUpdateTime.get();
+            if (now - lastUpdate < THROTTLE_MS || !lastUpdateTime.compareAndSet(lastUpdate, now)) {
                 return;
             }
-            lastUpdateTime = now;
 
             var resource = event.getResource();
             progressListener.onProgress(

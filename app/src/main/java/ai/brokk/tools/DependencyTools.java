@@ -7,12 +7,12 @@ import ai.brokk.project.IProject;
 import ai.brokk.util.Decompiler;
 import ai.brokk.util.DownloadProgressListener;
 import ai.brokk.util.MavenArtifactFetcher;
-import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.aether.artifact.DefaultArtifact;
 import org.jetbrains.annotations.Blocking;
 
 /**
@@ -72,39 +72,38 @@ public class DependencyTools {
                     String coordinates)
             throws InterruptedException {
 
-        System.out.println("[DependencyTools] importMavenDependency called with: " + coordinates);
         logger.info("importMavenDependency called with: {}", coordinates);
         var io = contextManager.getIo();
 
         // Check for early cancellation
         checkInterrupted();
 
-        // Parse coordinates
-        var parts = Splitter.on(':').splitToList(coordinates);
-        if (parts.size() < 2 || parts.size() > 3) {
+        // Count colons to validate format (only accept g:a or g:a:v)
+        long colonCount = coordinates.chars().filter(c -> c == ':').count();
+        if (colonCount < 1 || colonCount > 2) {
             logger.warn("Invalid coordinates format: {}", coordinates);
             return "Invalid coordinates format. Expected 'groupId:artifactId' or 'groupId:artifactId:version'. "
                     + "Examples: 'com.google.guava:guava' or 'com.google.guava:guava:32.1.2-jre'";
         }
 
-        var groupId = parts.get(0).trim();
-        var artifactId = parts.get(1).trim();
-
-        if (groupId.isEmpty() || artifactId.isEmpty()) {
-            logger.warn("Invalid coordinates (empty groupId or artifactId): {}", coordinates);
+        // Parse coordinates using Maven's DefaultArtifact
+        // For two-part coords (g:a), append placeholder version since DefaultArtifact requires it
+        String coordsToParse = colonCount == 1 ? coordinates + ":LATEST" : coordinates;
+        DefaultArtifact artifact;
+        try {
+            artifact = new DefaultArtifact(coordsToParse);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid coordinates format: {}", coordinates);
             return "Invalid coordinates format. Expected 'groupId:artifactId' or 'groupId:artifactId:version'. "
                     + "Examples: 'com.google.guava:guava' or 'com.google.guava:guava:32.1.2-jre'";
         }
 
-        String version;
+        var groupId = artifact.getGroupId();
+        var artifactId = artifact.getArtifactId();
+        String version = colonCount == 1 ? null : artifact.getVersion();
 
-        if (parts.size() == 3) {
-            version = parts.get(2).trim();
-            if (version.isEmpty()) {
-                return "Invalid coordinates: version cannot be empty";
-            }
-            logger.debug("Using provided version: {}", version);
-        } else {
+        // Resolve latest version if not provided
+        if (version == null || version.isEmpty()) {
             // Resolve latest version from Maven Central
             io.showNotification(
                     IConsoleIO.NotificationRole.INFO,
