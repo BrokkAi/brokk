@@ -132,6 +132,7 @@ public class ToolRegistry {
         /** Register @Tool methods from the given instance; last registration wins on name conflicts. */
         public Builder register(Object toolProviderInstance) {
             Class<?> clazz = toolProviderInstance.getClass();
+            int toolsFound = 0;
             for (Method method : clazz.getMethods()) {
                 if (!method.isAnnotationPresent(Tool.class)) continue;
                 String toolName = method.getName();
@@ -146,7 +147,9 @@ public class ToolRegistry {
                     logger.trace("Registering tool: '{}' from class {}", toolName, clazz.getName());
                 }
                 entries.put(toolName, new ToolInvocationTarget(method, toolProviderInstance));
+                toolsFound++;
             }
+            assert toolsFound > 0 : "No tools found in " + toolProviderInstance;
             return this;
         }
 
