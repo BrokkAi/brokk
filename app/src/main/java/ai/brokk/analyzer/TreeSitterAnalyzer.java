@@ -3029,7 +3029,11 @@ public abstract class TreeSitterAnalyzer implements IAnalyzer, SkeletonProvider,
                 if (firstLine.endsWith("{")) {
                     firstLine = firstLine.substring(0, firstLine.length() - 1).stripTrailing();
                 }
-                signatureLines.add(exportPrefix + firstLine);
+                String moduleSig = exportPrefix + firstLine;
+                if (requiresSemicolons() && !moduleSig.endsWith(";")) {
+                    moduleSig += ";";
+                }
+                signatureLines.add(moduleSig);
                 break;
             }
 

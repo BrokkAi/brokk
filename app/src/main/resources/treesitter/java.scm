@@ -4,7 +4,7 @@
     (identifier)
     (scoped_identifier)
   ] @package.name
-) @package.declaration
+) @package.definition
 
 ; Import declarations
 (import_declaration) @import.declaration
