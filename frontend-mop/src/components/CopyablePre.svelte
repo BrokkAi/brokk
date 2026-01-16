@@ -10,7 +10,7 @@
 
 <CodeBlockShell {toolHeadline} {collapseDefault} {languageLabel}>
   <svelte:fragment slot="default" let:preId let:registerPre let:handleWheel>
-    <pre id={preId} use:registerPre on:wheel|passive={handleWheel} {...rest}>
+    <pre id={preId} use:registerPre on:wheel={handleWheel} {...rest}>
 {@render children?.()}
     </pre>
   </svelte:fragment>

@@ -66,7 +66,7 @@
       use:registerPre
       bind:this={preElem}
       on:scroll={onScroll}
-      on:wheel|passive={handleWheel}
+      on:wheel={handleWheel}
     >
       <code class="terminal" bind:this={codeElem}></code>{#if !bubble.terminalComplete}<span
           class="terminal-cursor">█</span
