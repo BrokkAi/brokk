@@ -899,7 +899,7 @@ public class ReviewAgent {
     @SuppressWarnings("UnusedMethod") // Called via reflection by ToolRegistry
     @Tool(
             "Add context fragments to help perform a thorough code review. Call this once with all the files, summaries, classes, and methods needed.")
-    private String addReviewFragments(
+    public String addReviewFragments(
             @P("The categorized complexity of the change: TRIVIAL, STRAIGHTFORWARD, or COMPLEX") String complexity,
             @P("Full project paths for files where you need to see complete implementation details")
                     List<String> filesForFullSource,
