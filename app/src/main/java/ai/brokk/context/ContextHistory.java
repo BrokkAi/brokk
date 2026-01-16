@@ -736,8 +736,17 @@ public class ContextHistory {
         mergedEntryInfos.putAll(older.getEntryInfos());
         mergedEntryInfos.putAll(newer.getEntryInfos());
 
-        ContextHistory mergedHistory =
-                new ContextHistory(mergedList, mergedResetEdges, mergedGitStates, mergedEntryInfos);
+        Map<UUID, UUID> mergedContextToGroupId = new HashMap<>();
+        mergedContextToGroupId.putAll(older.getContextToGroupId());
+        mergedContextToGroupId.putAll(newer.getContextToGroupId());
+
+        Map<UUID, String> mergedGroupLabels = new HashMap<>();
+        mergedGroupLabels.putAll(older.getGroupLabels());
+        mergedGroupLabels.putAll(newer.getGroupLabels());
+
+        ContextHistory mergedHistory = new ContextHistory(
+                mergedList, mergedResetEdges, mergedGitStates, mergedEntryInfos,
+                mergedContextToGroupId, mergedGroupLabels);
         mergedHistory.redo.addAll(newer.redo);
 
         return mergedHistory;

@@ -517,6 +517,12 @@ public class ContextHistoryTest {
         var gsNewer = new ContextHistory.GitState("hashNewer", null);
         newer.addGitState(d.id(), gsNewer);
 
+        // Add group metadata
+        var groupOlder = UUID.randomUUID();
+        older.addContextToGroup(c.id(), groupOlder, "Older Group");
+        var groupNewer = UUID.randomUUID();
+        newer.addContextToGroup(d.id(), groupNewer, "Newer Group");
+
         ContextHistory merged = ContextHistory.merge(older, newer);
 
         // Expected history: [A, B, C, D, E]
@@ -533,6 +539,12 @@ public class ContextHistoryTest {
         assertEquals(2, merged.getResetEdges().size(), "Should combine reset edges");
         assertEquals(gsOlder, merged.getGitState(c.id()).orElse(null), "Should preserve git state from older");
         assertEquals(gsNewer, merged.getGitState(d.id()).orElse(null), "Should preserve git state from newer");
+
+        // Verify group metadata is preserved through merge
+        assertEquals(groupOlder, merged.getGroupId(c.id()), "Should preserve group mapping from older");
+        assertEquals(groupNewer, merged.getGroupId(d.id()), "Should preserve group mapping from newer");
+        assertEquals("Older Group", merged.getGroupLabels().get(groupOlder), "Should preserve group label from older");
+        assertEquals("Newer Group", merged.getGroupLabels().get(groupNewer), "Should preserve group label from newer");
     }
 
     @Test
