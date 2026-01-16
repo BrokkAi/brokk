@@ -1415,11 +1415,7 @@ public final class JobRunner {
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             String startMsg = "Pre-PR gate attempt %d/%d: tests=%s, lint=%s"
-                    .formatted(
-                            attempt,
-                            maxAttempts,
-                            testsSkipped ? "SKIP" : "RUN",
-                            lintSkipped ? "SKIP" : "RUN");
+                    .formatted(attempt, maxAttempts, testsSkipped ? "SKIP" : "RUN", lintSkipped ? "SKIP" : "RUN");
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, startMsg);
             } catch (Throwable ignore) {
