@@ -151,10 +151,18 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
         TSNode maybeDeclaration = null;
         for (int i = 0; i < rootNode.getChildCount(); i++) {
             final var child = rootNode.getChild(i);
-            if (packageDef.equals(child.getType())) {
+            String type = child.getType();
+            if (packageDef.equals(type)) {
                 maybeDeclaration = child;
                 break;
-            } else if (classLikeNodeType.contains(child.getType())) {
+            }
+
+            // Skip annotations when searching for the package declaration
+            if ("annotation".equals(type) || "marker_annotation".equals(type)) {
+                continue;
+            }
+
+            if (classLikeNodeType.contains(type)) {
                 break;
             }
         }
