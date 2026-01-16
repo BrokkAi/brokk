@@ -39,15 +39,32 @@ public class JbrCefProvider implements CefAppProvider {
             return false;
         }
 
-        // Must have JBR frameworks available
-        Path frameworksDir = findFrameworksDir();
-        if (frameworksDir == null) {
-            logger.debug("JBR frameworks not found, JBR provider not available");
+        // Must have JBR JCEF resources available (platform-specific check)
+        if (!hasJcefResources()) {
+            logger.debug("JBR JCEF resources not found, JBR provider not available");
             return false;
         }
 
         logger.info("JBR CEF provider is available");
         return true;
+    }
+
+    /**
+     * Checks if JCEF resources are available for the current platform.
+     */
+    private static boolean hasJcefResources() {
+        if (Environment.isMacOs()) {
+            return findMacOsFrameworksDir() != null;
+        } else if (Environment.isLinux()) {
+            String javaHome = System.getProperty("java.home");
+            if (javaHome == null) return false;
+            return Files.exists(Paths.get(javaHome, "lib", "jcef_helper"));
+        } else if (Environment.isWindows()) {
+            String javaHome = System.getProperty("java.home");
+            if (javaHome == null) return false;
+            return Files.exists(Paths.get(javaHome, "bin", "jcef_helper.exe"));
+        }
+        return false;
     }
 
     @Override
@@ -104,21 +121,7 @@ public class JbrCefProvider implements CefAppProvider {
     }
 
     /**
-     * Finds the Frameworks directory for JBR JCEF.
-     */
-    private static Path findFrameworksDir() {
-        // Try app bundle's Frameworks first (macOS)
-        Path appBundleFrameworks = findAppBundleFrameworks();
-        if (appBundleFrameworks != null) {
-            logger.info("Using app bundle Frameworks: {}", appBundleFrameworks);
-            return appBundleFrameworks;
-        }
-
-        return null;
-    }
-
-    /**
-     * Finds Frameworks directory in macOS app bundle using jdeploy.launcher.path.
+     * Finds the Frameworks directory for JBR JCEF on macOS using jdeploy.launcher.path.
      *
      * <p>Supports two formats for the launcher path:
      * <ul>
@@ -126,7 +129,7 @@ public class JbrCefProvider implements CefAppProvider {
      *   <li>App bundle directly: {@code /path/to/App.app}</li>
      * </ul>
      */
-    private static Path findAppBundleFrameworks() {
+    private static Path findMacOsFrameworksDir() {
         String launcherPath = System.getProperty("jdeploy.launcher.path");
         if (launcherPath == null || launcherPath.isEmpty()) {
             logger.debug("jdeploy.launcher.path not set, cannot find app bundle Frameworks");
@@ -190,7 +193,7 @@ public class JbrCefProvider implements CefAppProvider {
     }
 
     private void configureMacOsPaths(CefSettings settings) {
-        Path frameworksDir = findFrameworksDir();
+        Path frameworksDir = findMacOsFrameworksDir();
         if (frameworksDir == null) {
             logger.error("Could not find Frameworks directory!");
             return;
