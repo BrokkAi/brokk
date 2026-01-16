@@ -11,6 +11,8 @@ import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.Language;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.concurrent.LoggingFuture;
@@ -21,6 +23,7 @@ import ai.brokk.context.SpecialTextType;
 import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
+import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.WorkspaceTools;
 import ai.brokk.util.ContentDiffUtils;
 import ai.brokk.util.ReviewParser;
@@ -273,13 +276,63 @@ public class ReviewAgent {
                 .getModel(optimizeForLatency ? cm.getProject().getModelConfig(ModelType.SCAN) : modelConfig));
         var llm = cm.getLlm(model, "Review Context Selection");
 
+        Set<Language> analyzerLanguages = cm.getProject().getAnalyzerLanguages();
+        boolean hasAnalyzedLanguage = !analyzerLanguages.equals(Set.of(Languages.NONE));
+        var wst = new WorkspaceTools(initialContext);
+        var trBuilder = cm.getToolRegistry().builder();
+        List<String> toolNames;
+
+        if (hasAnalyzedLanguage) {
+            trBuilder.register(this);
+            toolNames = List.of("addReviewFragments");
+        } else {
+            trBuilder.register(wst);
+            toolNames = List.of("addFilesToWorkspace");
+        }
+
+        var tr = trBuilder.build();
+        var toolSpecs = tr.getTools(toolNames);
+
         var messages = new ArrayList<ChatMessage>();
         messages.add(buildSystemMessage());
         messages.addAll(
                 WorkspacePrompts.getMessagesInAddedOrder(initialContext, EnumSet.noneOf(SpecialTextType.class)));
-        messages.add(
-                new UserMessage(
+
+        String toolInstructions = hasAnalyzedLanguage
+                ? """
+                You can get API signatures when you do not need full implementation details using `filesForSummaries`.
+
+                You can get complete implementation details with any of the following; use the narrowest scope that you need:
+                - Use `methodNames` for specific method implementations (narrowest scope)
+                - Use `classNames` for full class implementations
+                - Use `filesForFullSource` only when you need the entire file
+
+                Call addReviewFragments once with all needed context.
+                """
+                : "Identify full project paths for files you need to examine and call `addFilesToWorkspace`. Be judicious and only include files that contain important information you cannot infer from the diff.";
+
+        String analyzerWarning = "";
+        if (hasAnalyzedLanguage) {
+            boolean allFilesAnalyzed = changes.perFileChanges().stream()
+                    .flatMap(fd -> Stream.of(fd.oldFile(), fd.newFile()))
+                    .filter(Objects::nonNull)
+                    .allMatch(f -> analyzerLanguages.contains(Languages.fromExtension(f.extension())));
+
+            if (!allFilesAnalyzed) {
+                String supportedTypes =
+                        analyzerLanguages.stream().map(Language::name).sorted().collect(Collectors.joining(", "));
+                analyzerWarning =
                         """
+
+                        Note: The code-aware inspection tools only support the following languages: %s.
+                        For other file types, you must use `filesForFullSource` to get context. Be judicious and only include full files that contain important information you cannot infer from the diff.
+                        """
+                                .formatted(supportedTypes);
+            }
+        }
+
+        messages.add(new UserMessage(
+                """
                 Examine the proposed diff and identify additional context needed for a thorough code review.
 
                 Examine the proposed diff and determine the complexity level:
@@ -289,19 +342,10 @@ public class ReviewAgent {
 
                 Then identify additional context needed for a thorough code review. You will have access to the full
                 diff during the review, so only add code that you need to perform the review, that you cannot infer from the diff alone.
-
-                You can get API signatures when you do not need full implementation details using `filesForSummaries`.
-
-                You can get complete implementation details with any of the following; use the narrowest scope that you need:
-                - Use `methodNames` for specific method implementations (narrowest scope)
-                - Use `classNames` for full class implementations
-                - Use `filesForFullSource` only when you need the entire file
-
-                Call addFragments once with all needed context.
-                """));
-
-        var tr = cm.getToolRegistry().builder().register(this).build();
-        var toolSpecs = tr.getTools(List.of("addFragments"));
+                %s
+                %s
+                """
+                        .formatted(analyzerWarning, toolInstructions)));
 
         this.contextBeingBuilt = initialContext;
         this.isComplex = false;
@@ -309,8 +353,15 @@ public class ReviewAgent {
 
         if (result.error() == null && !result.toolRequests().isEmpty()) {
             var toolRequest = result.toolRequests().getFirst();
-            tr.executeTool(toolRequest);
-            return new ContextSetupResult(requireNonNull(contextBeingBuilt).withHistory(List.of()), isComplex);
+            var toolResult = tr.executeTool(toolRequest);
+            if (toolResult.status().equals(ToolExecutionResult.Status.SUCCESS)) {
+                var completedContext = hasAnalyzedLanguage ? this.contextBeingBuilt : wst.getContext();
+                return new ContextSetupResult(requireNonNull(completedContext).withHistory(List.of()), isComplex);
+            } else {
+                logger.warn("Tool execution failed: {}", toolResult);
+            }
+        } else {
+            logger.warn("Tool request failed", result.error());
         }
 
         // Fallback
@@ -789,6 +840,9 @@ public class ReviewAgent {
 
                 All titles should be 3-6 words.
 
+                Make your recommendations with confidence; if there are multiple options to remediate, give only the best one.
+                Don't equivocate; if it's too minor to address then leave it out entirely.
+
                 Overview comes LAST, after you've had time to think through the design.
 
                 Every section except Overview is optional; omit them if there is nothing important to say.
@@ -814,7 +868,7 @@ public class ReviewAgent {
                 ## Design Notes
                 ### [Title of first design note]
                 [Description text. Include code blocks as needed.]
-                **Recommendation:** [Detailed instructions for fixing the design issue. Must be actionable by a developer without further context.]
+                **Recommendation:** [Detailed instructions for fixing the design issue. Must be actionable by a developer without reference to your review outside of this note's description.]
 
                 ### [Title of second design note, etc.]
                 ...
@@ -840,7 +894,7 @@ public class ReviewAgent {
     @SuppressWarnings("UnusedMethod") // Called via reflection by ToolRegistry
     @Tool(
             "Add context fragments to help perform a thorough code review. Call this once with all the files, summaries, classes, and methods needed.")
-    private String addFragments(
+    private String addReviewFragments(
             @P("The categorized complexity of the change: TRIVIAL, STRAIGHTFORWARD, or COMPLEX") String complexity,
             @P("Full project paths for files where you need to see complete implementation details")
                     List<String> filesForFullSource,
