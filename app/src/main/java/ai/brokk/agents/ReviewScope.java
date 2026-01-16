@@ -69,7 +69,8 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
         String resolvedEnd;
         try {
             resolvedFrom = repo.resolveToCommit(fromRef).name();
-            resolvedEnd = repo.resolveToCommit(endRef).name();
+            resolvedEnd = repo.resolveToCommit(endRef.equals("WORKING") ? "HEAD" : endRef)
+                    .name();
         } catch (GitAPIException e) {
             throw new RuntimeException("Failed to resolve references: " + fromRef + ", " + endRef, e);
         }
@@ -82,7 +83,8 @@ public record ReviewScope(DiffService.CumulativeChanges changes, ReviewScope.Met
                 throw new RuntimeException(e);
             }
         }
-        var summarizedChanges = DiffService.computeCumulativeDiff(repo, resolvedFrom, resolvedEnd, commits);
+        // use endRef instead of resolvedEnd to pass WORKING along
+        var summarizedChanges = DiffService.computeCumulativeDiff(repo, resolvedFrom, endRef, commits);
 
         GitWorkflow.PushPullState pushPullState = null;
         try {

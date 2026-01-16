@@ -82,6 +82,36 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private final DeferredUpdateHelper deferredUpdateHelper;
     private final TabTitleUpdater tabTitleUpdater;
 
+    /** The operational mode of the panel. */
+    private enum PanelMode {
+        /** Live preview of uncommitted changes vs auto-resolved branch baseline */
+        PREVIEW,
+        /** Frozen review with explicit commit range */
+        REVIEW,
+        /** No changes to display (working tree clean, or no diff) */
+        EMPTY,
+        /** Couldn't resolve baseline */
+        ERROR
+    }
+
+    private PanelMode currentMode = PanelMode.PREVIEW;
+
+    private void setMode(PanelMode newMode) {
+        assert SwingUtilities.isEventDispatchThread();
+        this.currentMode = newMode;
+
+        updateGuidedReviewButton();
+
+        if (newMode == PanelMode.EMPTY || newMode == PanelMode.ERROR) {
+            diffCore.updateFileComparisons(List.of());
+            emptyLabel.setText(getEmptyStateMessage());
+            mainCardLayout.show(cardsPanel, "EMPTY");
+        } else {
+            mainCardLayout.show(cardsPanel, "MAIN");
+            updateReviewPanelVisibility(newMode == PanelMode.REVIEW);
+        }
+    }
+
     @Nullable
     private DiffService.CumulativeChanges lastCumulativeChanges = null;
 
@@ -96,17 +126,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Nullable
     private ReviewState lastReviewState = null;
 
-    @Nullable
-    private String lastBaselineLabel = null;
-
-    @Nullable
-    private BaselineMode lastBaselineMode = null;
-
     private final DiffDisplayCore diffCore;
 
     /** If non-null, an explicit commit/ref to compare against. If null, we auto-resolve based on branch. */
     @Nullable
     private String reviewBaselineRef = null;
+
+    /** Target commit (HEAD) when the review was generated, for staleness checks. */
+    @Nullable
+    private String reviewTargetCommit = null;
 
     private final FileTreePanel fileTreePanel;
 
@@ -117,7 +145,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private final JPanel diffContainer;
     private final DiffToolbarPanel diffToolbar;
 
-    private final JComboBox<String> baselineDropdown;
+    private final JLabel baselineLabel;
 
     private final MaterialButton commitBtn;
 
@@ -136,9 +164,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private final JLabel emptyLabel;
 
     private boolean guidedReviewBusy = false;
-
-    /** Whether a review (generated, loaded, or pasted) is currently being displayed. */
-    private boolean hasGeneratedReview = false;
 
     private final JSplitPane rightVerticalSplitPane;
 
@@ -170,13 +195,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         setBorder(new CompoundBorder(
                 new LineBorder(UIManager.getColor("Separator.foreground"), 1), new EmptyBorder(6, 6, 6, 6)));
 
-        this.baselineDropdown = new JComboBox<>();
-        this.baselineDropdown.setOpaque(false);
-        this.baselineDropdown.addActionListener(e -> {
-            if (reviewBaselineRef != null && baselineDropdown.getSelectedIndex() == 1) {
-                clearReviewBaseline();
-            }
-        });
+        this.baselineLabel = new JLabel();
+        this.baselineLabel.setOpaque(false);
 
         this.commitBtn = createIconButton(Icons.COMMIT, "Changes to Commit");
 
@@ -228,7 +248,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         headerPanel.setOpaque(false);
         var leftHeader = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         leftHeader.setOpaque(false);
-        leftHeader.add(baselineDropdown);
+        leftHeader.add(baselineLabel);
         headerPanel.add(leftHeader, BorderLayout.WEST);
 
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 5, 0));
@@ -388,6 +408,18 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     public void requestUpdate() {
+        if (currentMode == PanelMode.REVIEW) {
+            // In review mode, we don't refresh the diff or title based on new git state,
+            // we only update the staleness notice.
+            SwingUtilities.invokeLater(() -> {
+                StalenessInfo staleness = computeStaleness();
+                if (staleness != null) {
+                    codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
+                }
+            });
+            return;
+        }
+
         // Capture this generation so we can ignore stale results
         final long thisGeneration = updateGeneration.incrementAndGet();
 
@@ -399,7 +431,8 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // Kick off async computation
         LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState();
-                    var reviewCtx = ReviewScope.fromBaseline(cm, state.resolvedLeftRef());
+                    // In PREVIEW mode, we show uncommitted changes
+                    var reviewCtx = ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "WORKING");
                     return new ComputedUpdate(state, reviewCtx);
                 })
                 .thenAccept(computed -> {
@@ -408,8 +441,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         return; // A newer requestUpdate superseded us
                     }
 
-                    lastBaselineLabel = computed.state.baselineLabel();
-                    lastBaselineMode = computed.state.baselineMode();
                     lastCumulativeChanges = computed.ctx.changes();
 
                     // Update title on EDT
@@ -434,13 +465,25 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     private record ComputedUpdate(BaselineState state, ReviewScope ctx) {}
 
-    private record BaselineState(BaselineMode baselineMode, String baselineLabel, String resolvedLeftRef) {}
+    /**
+     * Result of baseline resolution.
+     * @param baselineLabel The display label (e.g., "origin/main", "HEAD", or error message)
+     * @param resolvedLeftRef The actual git ref to use for the left side of the diff
+     * @param isWorkingTreeComparison True when comparing WORKING against HEAD (no branch baseline)
+     * @param isError True when baseline resolution failed
+     */
+    private record BaselineState(
+            String baselineLabel, String resolvedLeftRef, boolean isWorkingTreeComparison, boolean isError) {}
 
     private @Nullable String resolvedBaselineBranch = null;
 
+    /** Cached baseline state from last resolution, for use in getEmptyStateMessage() */
+    @Nullable
+    private BaselineState lastBaselineState = null;
+
     private BaselineState resolveBaselineState() {
         if (reviewBaselineRef != null) {
-            return new BaselineState(BaselineMode.COMMIT_RANGE, reviewBaselineRef, reviewBaselineRef);
+            return new BaselineState(reviewBaselineRef, reviewBaselineRef, false, false);
         }
 
         try {
@@ -448,12 +491,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             String currentBranch = repo.getCurrentBranch();
 
             String remoteName = repo.remote().getOriginRemoteNameWithFallback();
-            String upstreamRefCandidate = remoteName != null ? remoteName + "/" + defaultBranch : null;
+            String upstreamRefCandidate = remoteName == null ? null : remoteName + "/" + defaultBranch;
             boolean hasUpstream =
                     upstreamRefCandidate != null && repo.listRemoteBranches().contains(upstreamRefCandidate);
 
             String baseline = defaultBranch;
-            if (hasUpstream && upstreamRefCandidate != null) {
+            if (hasUpstream) {
                 // If upstream is ahead of our local default branch, use upstream as the baseline
                 String mergeBase = repo.getMergeBase(defaultBranch, upstreamRefCandidate);
                 if (mergeBase != null
@@ -466,12 +509,13 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             resolvedBaselineBranch = baseline;
 
             String label = baseline;
-            BaselineMode mode = BaselineMode.BRANCH_BASELINE;
+            boolean isWorkingTreeComparison = false;
             if (currentBranch.equals(defaultBranch)) {
-                if (hasUpstream && upstreamRefCandidate != null) {
+                if (hasUpstream) {
                     label = upstreamRefCandidate;
                 } else {
                     label = "HEAD";
+                    isWorkingTreeComparison = true;
                 }
             }
 
@@ -481,12 +525,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                         requireNonNull(repo.getMergeBase("HEAD", label), "Merge base cannot be null for " + label);
             }
 
-            return new BaselineState(mode, label, resolvedRef);
+            return new BaselineState(label, resolvedRef, isWorkingTreeComparison, false);
         } catch (Exception e) {
             logger.warn("Failed to compute baseline for changes", e);
             String errorLabel = e.getMessage();
-            return new BaselineState(
-                    BaselineMode.NO_BASELINE, errorLabel != null ? errorLabel : "Unknown Error", "HEAD");
+            return new BaselineState(errorLabel != null ? errorLabel : "Unknown Error", "HEAD", false, true);
         }
     }
 
@@ -510,11 +553,23 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             staleness = computeStaleness();
         }
 
-        String label = lastBaselineLabel != null ? lastBaselineLabel : "";
-        BaselineMode mode = lastBaselineMode != null ? lastBaselineMode : BaselineMode.NO_BASELINE;
+        var state = resolveBaselineState();
+        lastBaselineState = state;
+
+        PanelMode nextMode = currentMode;
+        if (state.isError()) {
+            nextMode = PanelMode.ERROR;
+        } else if (result.filesChanged() == 0 && currentMode != PanelMode.REVIEW) {
+            nextMode = PanelMode.EMPTY;
+        } else if (currentMode != PanelMode.REVIEW) {
+            nextMode = PanelMode.PREVIEW;
+        }
+        setMode(nextMode);
+
+        String label = state.baselineLabel();
 
         updateTitleAndTooltipFromResult(result, label);
-        updateContent(result, prepared, label, mode);
+        updateContent(result, prepared, label);
 
         if (staleness != null) {
             codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
@@ -550,35 +605,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     public void updateContent(
-            DiffService.CumulativeChanges res,
-            List<Map.Entry<String, FileDiff>> prepared,
-            @Nullable String baselineLabel,
-            @Nullable BaselineMode baselineMode) {
+            DiffService.CumulativeChanges res, List<Map.Entry<String, FileDiff>> prepared, String baselineLabel) {
 
-        // Check if the baseline or mode has changed since the last review was generated
-        boolean baselineChanged = (baselineLabel != null && !baselineLabel.equals(lastBaselineLabel))
-                || (baselineMode != null && baselineMode != lastBaselineMode);
-
-        if (baselineChanged && hasGeneratedReview) {
-            hasGeneratedReview = false;
-            lastReviewState = null;
-            activeExcerpt = null;
-            codeReviewPanel.getDetailPanel().showPlaceholder();
-            updateReviewPanelVisibility(false);
-        }
-
-        refreshUI(res, prepared, baselineMode);
+        refreshUI(res, prepared);
     }
 
     private String getEmptyStateMessage() {
-        if (BaselineMode.NO_BASELINE == lastBaselineMode) {
+        var state = lastBaselineState;
+        if (currentMode == PanelMode.ERROR || state == null || state.isError()) {
             return "No baseline to compare";
-        } else if ("HEAD".equals(lastBaselineLabel)) {
+        } else if (state.isWorkingTreeComparison()) {
             return "Working tree is clean (no uncommitted changes).";
-        } else if (lastBaselineLabel != null && !lastBaselineLabel.isBlank()) {
-            return "No changes vs " + lastBaselineLabel + ".";
         } else {
-            return "No changes to review.";
+            return "No changes vs " + state.baselineLabel() + ".";
         }
     }
 
@@ -596,53 +635,25 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 new BufferSource.StringSource(entry.getValue().newText(), "", entry.getKey(), null));
     }
 
-    private void updateDropdownLabels() {
+    private void updateBaselineLabel() {
         String branchLabel = resolvedBaselineBranch != null ? resolvedBaselineBranch : "branch";
 
-        // Remove action listeners temporarily to avoid triggering updates while rebuilding
-        var listeners = baselineDropdown.getActionListeners();
-        for (var al : listeners) {
-            baselineDropdown.removeActionListener(al);
-        }
-
-        baselineDropdown.removeAllItems();
         if (reviewBaselineRef != null) {
-            baselineDropdown.addItem("Changes from " + repo.shortHash(reviewBaselineRef));
-            baselineDropdown.addItem("Reset to " + branchLabel);
-            baselineDropdown.setSelectedIndex(0);
+            baselineLabel.setText("Changes from " + repo.shortHash(reviewBaselineRef));
         } else {
-            baselineDropdown.addItem("Changes vs " + branchLabel);
-            baselineDropdown.setSelectedIndex(0);
-        }
-
-        // Re-add action listeners
-        for (var al : listeners) {
-            baselineDropdown.addActionListener(al);
+            baselineLabel.setText("Changes vs " + branchLabel);
         }
     }
 
-    private void refreshUI(
-            DiffService.CumulativeChanges res,
-            List<Map.Entry<String, FileDiff>> prepared,
-            @Nullable BaselineMode baselineMode) {
+    private void refreshUI(DiffService.CumulativeChanges res, List<Map.Entry<String, FileDiff>> prepared) {
 
-        updateDropdownLabels();
+        updateBaselineLabel();
 
-        boolean noBaseline = baselineMode == BaselineMode.NO_BASELINE;
-        boolean noChanges = res.filesChanged() == 0;
-
-        // Show MAIN card if we have changes OR if we are currently displaying a review.
-        // If we have no baseline at all, we stay in EMPTY state.
-        if (noBaseline || (noChanges && !hasGeneratedReview)) {
-            diffCore.updateFileComparisons(List.of());
-            emptyLabel.setText(getEmptyStateMessage());
-            mainCardLayout.show(cardsPanel, "EMPTY");
+        if (currentMode == PanelMode.EMPTY || currentMode == PanelMode.ERROR) {
             revalidate();
             repaint();
             return;
         }
-
-        mainCardLayout.show(cardsPanel, "MAIN");
 
         boolean hasUncommittedChanges = false;
         try {
@@ -651,9 +662,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             logger.debug("Unable to determine uncommitted changes state", e);
         }
 
-        commitBtn.setVisible(hasUncommittedChanges);
+        commitBtn.setVisible(hasUncommittedChanges && currentMode == PanelMode.PREVIEW);
 
-        guidedReviewBtn.setVisible(true);
+        updateGuidedReviewButton();
 
         var pushPull = res.pushPullState();
         boolean canPull = pushPull != null && pushPull.canPull();
@@ -685,8 +696,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             logger.debug("Failed to check if current branch is default branch", e);
         }
 
-        boolean showPR = (baselineMode == BaselineMode.BRANCH_BASELINE && !isDefaultBranch)
-                || (baselineMode == BaselineMode.BRANCH_BASELINE && isDefaultBranch && res.filesChanged() > 0);
+        // Show PR button when in preview mode (not explicit commit range review) and either:
+        // - not on default branch, or
+        // - on default branch but have changes
+        boolean isPreviewMode = currentMode == PanelMode.PREVIEW;
+        boolean showPR =
+                (isPreviewMode && !isDefaultBranch) || (isPreviewMode && isDefaultBranch && res.filesChanged() > 0);
 
         boolean prBtnEnabled = !hasUncommittedChanges;
         String prBtnTooltip = hasUncommittedChanges
@@ -724,8 +739,6 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         diffToolbar.updateButtonStates();
 
         fileTreePanel.updateData(fileComparisons, root, projectName);
-
-        updateReviewPanelVisibility(hasGeneratedReview);
 
         if (!nextComparisons.isEmpty()) {
             this.diffCore.showFile(0);
@@ -812,11 +825,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public @Nullable StalenessInfo computeStaleness() {
         var state = lastReviewState;
-        if (state == null) {
+        if (state == null || reviewTargetCommit == null) {
             return null;
         }
 
-        String hash = state.commitHash();
+        String hash = reviewTargetCommit;
         int uncommittedChanges = 0;
         try {
             uncommittedChanges = repo.getModifiedFiles().size();
@@ -919,12 +932,28 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
     }
 
+    private void updateGuidedReviewButton() {
+        guidedReviewBtn.setVisible(true);
+        if (currentMode == PanelMode.REVIEW) {
+            guidedReviewBtn.setText("Close Review");
+            guidedReviewBtn.setToolTipText("Exit review mode and return to change preview");
+        } else {
+            guidedReviewBtn.setText("Guided Review");
+            guidedReviewBtn.setToolTipText("Generate an AI-powered code review for the current changes");
+        }
+    }
+
     /**
      * Generates a guided review using the currently cached cumulative changes.
      * Called by the Guided Review button when there's already data available.
      */
     private void generateGuidedReview() {
-        if (lastCumulativeChanges == null || lastBaselineLabel == null) return;
+        if (currentMode == PanelMode.REVIEW) {
+            closeReview();
+            return;
+        }
+
+        if (lastCumulativeChanges == null || lastCumulativeChanges.filesChanged() == 0) return;
 
         ensureCleanThenReview(() -> {
             setGuidedReviewBusy(true);
@@ -934,10 +963,21 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             // We use the same resolution logic as requestUpdate to get the correct resolved ref
             LoggingFuture.supplyAsync(() -> {
                         var state = resolveBaselineState();
-                        return ReviewScope.fromBaseline(cm, state.resolvedLeftRef());
+                        // Guided review targets committed changes (HEAD)
+                        return ReviewScope.fromBaseline(cm, state.resolvedLeftRef(), "HEAD");
                     })
                     .thenAccept(this::generateGuidedReviewAsync);
         });
+    }
+
+    private void closeReview() {
+        reviewBaselineRef = null;
+        lastReviewState = null;
+        reviewTargetCommit = null;
+        activeExcerpt = null;
+        codeReviewPanel.getDetailPanel().showPlaceholder();
+        setMode(PanelMode.PREVIEW);
+        requestUpdate();
     }
 
     /**
@@ -1031,12 +1071,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                 long now = System.currentTimeMillis();
 
                 SwingUtilities.invokeLater(() -> {
-                    lastReviewState = new ReviewState(currentHash, now);
-                    hasGeneratedReview = true;
-                    updateReviewPanelVisibility(true);
+                    setGuidedReviewBusy(false);
+                    lastReviewState = new ReviewState(scope.metadata().fromRef(), now);
+                    reviewTargetCommit = currentHash;
+                    setMode(PanelMode.REVIEW);
                     codeReviewPanel.displayReview(result.review(), result.context());
                     codeReviewPanel.setBusy(false);
-                    setGuidedReviewBusy(false);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
                     revalidate();
                     repaint();
@@ -1100,19 +1140,19 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             SwingUtilities.invokeLater(() -> {
                 lastCumulativeChanges = scope.changes();
-                lastBaselineLabel = scope.metadata().fromRef();
-                lastBaselineMode = BaselineMode.BRANCH_BASELINE;
 
-                lastReviewState = new ReviewState(hash, System.currentTimeMillis());
-                hasGeneratedReview = true;
+                lastReviewState = new ReviewState(scope.metadata().fromRef(), System.currentTimeMillis());
+                reviewTargetCommit = hash;
+                setMode(PanelMode.REVIEW);
 
                 // Re-trigger UI refresh to show panels and handle card layout
                 deferredUpdateHelper.requestUpdate();
 
                 codeReviewPanel.displayReview(review, context);
-                codeReviewPanel
-                        .getListPanel()
-                        .setStalenessNotice(formatStalenessMessage(requireNonNull(computeStaleness())));
+                StalenessInfo staleness = computeStaleness();
+                if (staleness != null) {
+                    codeReviewPanel.getListPanel().setStalenessNotice(formatStalenessMessage(staleness));
+                }
             });
         });
     }
@@ -1140,7 +1180,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     return ReviewParser.instance.parseMarkdownReview(clipboardData, resolvedExcerpts);
                 })
                 .thenAccept(guidedReview -> SwingUtilities.invokeLater(() -> {
-                    hasGeneratedReview = true;
+                    setMode(PanelMode.REVIEW);
                     deferredUpdateHelper.requestUpdate();
                     codeReviewPanel.displayReview(guidedReview, Context.EMPTY);
                     codeReviewPanel.getListPanel().setStalenessNotice(null);
@@ -1403,8 +1443,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             codeReviewPanel.setBusy(true);
             guidedReviewBtn.setProgress(0);
 
-            // Run the review with the explicitly computed data
-            LoggingFuture.supplyCallableAsync(() -> ReviewScope.fromBaseline(cm, parentId))
+            // Run the review with the explicitly computed data.
+            // Commit range review targets HEAD (committed changes).
+            LoggingFuture.supplyCallableAsync(() -> ReviewScope.fromBaseline(cm, parentId, "HEAD"))
                     .thenAccept(this::generateGuidedReviewAsync)
                     .exceptionally(ex -> {
                         logger.error("Failed to prepare commit range review", ex);
@@ -1437,11 +1478,5 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
     public void dispose() {
         diffCore.clearCache();
-    }
-
-    public enum BaselineMode {
-        BRANCH_BASELINE,
-        COMMIT_RANGE,
-        NO_BASELINE
     }
 }
