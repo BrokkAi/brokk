@@ -80,12 +80,10 @@ public class ContextFragments {
      * Resolves supporting summary fragments for the direct ancestors of the given code units.
      * Filters out anonymous units.
      */
+    @Blocking
     public static Set<ContextFragment> resolveAncestorFragments(
             Collection<CodeUnit> units, IContextManager contextManager) {
-        IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-        if (analyzer == null) {
-            return Set.of();
-        }
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
         return units.stream()
                 .filter(CodeUnit::isClass)
                 .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
@@ -478,11 +476,9 @@ public class ContextFragments {
         }
 
         @Override
+        @Blocking
         public Set<ContextFragment> supportingFragments() {
-            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (analyzer == null) {
-                return Set.of();
-            }
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
             return resolveAncestorFragments(analyzer.getTopLevelDeclarations(file), contextManager);
         }
     }
@@ -1455,11 +1451,9 @@ public class ContextFragments {
         }
 
         @Override
+        @Blocking
         public Set<ContextFragment> supportingFragments() {
-            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (analyzer == null) {
-                return Set.of();
-            }
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
             return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager);
         }
     }
@@ -1691,9 +1685,10 @@ public class ContextFragments {
         }
 
         @Override
+        @Blocking
         public Set<ContextFragment> supportingFragments() {
-            IAnalyzer analyzer = contextManager.getAnalyzerWrapper().getNonBlocking();
-            if (analyzer == null || summaryType != SummaryType.CODEUNIT_SKELETON) {
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+            if (summaryType != SummaryType.CODEUNIT_SKELETON) {
                 return Set.of();
             }
 
