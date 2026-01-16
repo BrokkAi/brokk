@@ -1206,8 +1206,8 @@ public class FilePanel implements BufferDocumentChangeListenerIF, ThemeAware {
                 // This is simpler and more reliable than trying to handle edge cases with incremental removal
                 BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
             } else if (eventType == DocumentEvent.EventType.CHANGE) {
-                // For change events, always use fallback to ensure consistency
-                BufferDiffPanel.synchronizeDocuments(sourceDoc, destinationDoc);
+                // CHANGE events are for attribute changes (font, style, etc.), not content changes.
+                // No need to sync content - doing so would incorrectly mark the document as dirty.
             }
         } catch (BadLocationException ex) {
             // Fallback to full document copy only on error
