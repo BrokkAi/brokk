@@ -1410,9 +1410,16 @@ public final class JobRunner {
         String testCmd = buildDetailsOverride.testAllCommand();
         String lintCmd = buildDetailsOverride.buildLintCommand();
 
+        boolean testsSkipped = testCmd.isBlank();
+        boolean lintSkipped = lintCmd.isBlank();
+
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            var startMsg =
-                    "Pre-PR gate attempt " + attempt + "/" + maxAttempts + ": running full tests and full lint...";
+            String startMsg = "Pre-PR gate attempt %d/%d: tests=%s, lint=%s"
+                    .formatted(
+                            attempt,
+                            maxAttempts,
+                            testsSkipped ? "SKIP" : "RUN",
+                            lintSkipped ? "SKIP" : "RUN");
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, startMsg);
             } catch (Throwable ignore) {
@@ -1428,25 +1435,15 @@ public final class JobRunner {
                         ioe);
             }
 
-            String testOut;
-            if (testCmd.isBlank()) {
-                testOut = "No testAllCommand configured";
-            } else {
-                testOut = commandRunner.apply(testCmd);
-            }
+            String testOut = testsSkipped ? "" : commandRunner.apply(testCmd);
+            String lintOut = lintSkipped ? "" : commandRunner.apply(lintCmd);
 
-            String lintOut;
-            if (lintCmd.isBlank()) {
-                lintOut = "No buildLintCommand configured";
-            } else {
-                lintOut = commandRunner.apply(lintCmd);
-            }
-
-            boolean testsPassed = testOut.isBlank();
-            boolean lintPassed = lintOut.isBlank();
+            boolean testsPassed = testsSkipped || testOut.isBlank();
+            boolean lintPassed = lintSkipped || lintOut.isBlank();
 
             var resultMsg = "Pre-PR gate attempt " + attempt + "/" + maxAttempts + " results: tests="
-                    + (testsPassed ? "PASS" : "FAIL") + ", lint=" + (lintPassed ? "PASS" : "FAIL");
+                    + (testsSkipped ? "SKIP" : (testsPassed ? "PASS" : "FAIL")) + ", lint="
+                    + (lintSkipped ? "SKIP" : (lintPassed ? "PASS" : "FAIL"));
             try {
                 io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
             } catch (Throwable ignore) {
@@ -1469,12 +1466,10 @@ public final class JobRunner {
             if (attempt == maxAttempts) {
                 var failureParts = new java.util.ArrayList<String>();
                 if (!testsPassed) {
-                    failureParts.add(
-                            "Tests failed (" + (testCmd.isBlank() ? "testAllCommand" : testCmd) + "):\n" + testOut);
+                    failureParts.add("Tests failed (" + testCmd + "):\n" + testOut);
                 }
                 if (!lintPassed) {
-                    failureParts.add(
-                            "Lint failed (" + (lintCmd.isBlank() ? "buildLintCommand" : lintCmd) + "):\n" + lintOut);
+                    failureParts.add("Lint failed (" + lintCmd + "):\n" + lintOut);
                 }
 
                 String failedDetails =
@@ -1486,16 +1481,10 @@ public final class JobRunner {
 
             var fixParts = new java.util.ArrayList<String>();
             if (!testsPassed) {
-                fixParts.add("Tests failed when running:\n"
-                        + (testCmd.isBlank() ? "(no testAllCommand configured)" : testCmd)
-                        + "\n\nOutput:\n"
-                        + testOut);
+                fixParts.add("Tests failed when running:\n" + testCmd + "\n\nOutput:\n" + testOut);
             }
             if (!lintPassed) {
-                fixParts.add("Lint failed when running:\n"
-                        + (lintCmd.isBlank() ? "(no buildLintCommand configured)" : lintCmd)
-                        + "\n\nOutput:\n"
-                        + lintOut);
+                fixParts.add("Lint failed when running:\n" + lintCmd + "\n\nOutput:\n" + lintOut);
             }
 
             String fixPrompt = fixParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", fixParts);

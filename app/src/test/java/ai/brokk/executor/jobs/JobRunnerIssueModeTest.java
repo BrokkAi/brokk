@@ -242,4 +242,23 @@ class JobRunnerIssueModeTest {
         assertTrue(prCreated.get());
         assertEquals(1, fixCalls.get());
     }
+
+    @Test
+    void testPrePrGateBlankCommandsAreSkippedAndPassing() {
+        var fixCalls = new AtomicInteger(0);
+
+        var io = new TestConsoleIO();
+        var details = new BuildAgent.BuildDetails("", "", "", Set.of());
+
+        assertDoesNotThrow(() -> JobRunner.runPrePrGateWithFixRetryLoop(
+                "job-blank-cmds",
+                store,
+                io,
+                details,
+                3,
+                cmd -> fail("commandRunner should not be invoked when commands are blank: " + cmd),
+                prompt -> fixCalls.incrementAndGet()));
+
+        assertEquals(0, fixCalls.get());
+    }
 }
