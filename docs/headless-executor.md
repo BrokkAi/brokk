@@ -518,10 +518,12 @@ Once running, the executor exposes the following endpoints:
 
 #### Job-level model overrides (optional)
 
-You can optionally override two model behaviors per job:
+You can optionally override model behaviors per job:
 
-- `reasoningLevel` (string, optional): Controls how much explicit reasoning effort the model should use.
-- `temperature` (number, optional): Controls sampling randomness for supported models.
+- `reasoningLevel` (string, optional): Controls how much explicit reasoning effort the planner model should use.
+- `reasoningLevelCode` (string, optional): Controls how much explicit reasoning effort the code model should use. Applies to CODE and ARCHITECT modes.
+- `temperature` (number, optional): Controls sampling randomness for the planner model.
+- `temperatureCode` (number, optional): Controls sampling randomness for the code model. Applies to CODE and ARCHITECT modes.
 
 These fields are accepted in the top-level job payload alongside `plannerModel` / `codeModel` / `scanModel`.
 
@@ -530,12 +532,22 @@ These fields are accepted in the top-level job payload alongside `plannerModel` 
 - `reasoningLevel`:
   - If provided, must be a string.
   - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
-  - If omitted or null, the executor uses the model/service default reasoning configuration.
+  - If omitted or null, the executor uses the model/service default reasoning configuration for the planner model.
+
+- `reasoningLevelCode`:
+  - If provided, must be a string.
+  - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
+  - If omitted or null, the executor uses the model/service default reasoning configuration for the code model.
 
 - `temperature`:
   - If provided, must be a JSON number.
   - Must be between `0.0` and `2.0` (inclusive).
-  - If omitted or null, the executor uses the model/service default temperature.
+  - If omitted or null, the executor uses the model/service default temperature for the planner model.
+
+- `temperatureCode`:
+  - If provided, must be a JSON number.
+  - Must be between `0.0` and `2.0` (inclusive).
+  - If omitted or null, the executor uses the model/service default temperature for the code model.
 
 ##### Example: ARCHITECT with reasoningLevel + temperature
 
@@ -553,7 +565,9 @@ curl -sS -X POST "http://localhost:8080/v1/jobs" \
   "plannerModel": "gpt-5",
   "codeModel": "gpt-5-mini",
   "reasoningLevel": "HIGH",
+  "reasoningLevelCode": "MEDIUM",
   "temperature": 0.2,
+  "temperatureCode": 0.0,
   "tags": {
     "mode": "ARCHITECT"
   }
@@ -620,7 +634,7 @@ Build the shadow JAR:
 Run the JAR:
 
 ```bash
-java -co app/build/libs/brokk-<version>.jar \
+java -cp app/build/libs/brokk-<version>.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \

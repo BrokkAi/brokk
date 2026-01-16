@@ -26,9 +26,15 @@ public record JobSpec(
         @JsonProperty("sourceBranch") @Nullable String sourceBranch,
         @JsonProperty("targetBranch") @Nullable String targetBranch,
         @JsonProperty("reasoningLevel") @Nullable String reasoningLevel,
-        @JsonProperty("temperature") @Nullable Double temperature) {
+        @JsonProperty("reasoningLevelCode") @Nullable String reasoningLevelCode,
+        @JsonProperty("temperature") @Nullable Double temperature,
+        @JsonProperty("temperatureCode") @Nullable Double temperatureCode) {
 
-    public record ModelOverrides(@Nullable String reasoningLevel, @Nullable Double temperature) {}
+    public record ModelOverrides(
+            @Nullable String reasoningLevel,
+            @Nullable String reasoningLevelCode,
+            @Nullable Double temperature,
+            @Nullable Double temperatureCode) {}
 
     /**
      * Tag keys that contain sensitive data and should not be persisted to disk.
@@ -56,7 +62,8 @@ public record JobSpec(
      * <p>This convenience factory uses sensible defaults for optional flags and sets {@code preScan} to {@code false}.</p>
      */
     public static JobSpec of(String taskInput, String plannerModel) {
-        return new JobSpec(taskInput, true, true, plannerModel, null, null, false, Map.of(), null, null, null, null);
+        return new JobSpec(
+                taskInput, true, true, plannerModel, null, null, false, Map.of(), null, null, null, null, null, null);
     }
 
     /**
@@ -79,6 +86,8 @@ public record JobSpec(
                         "repo_owner", owner,
                         "repo_name", repo,
                         "pr_number", String.valueOf(prNumber)),
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -117,6 +126,8 @@ public record JobSpec(
                 null,
                 null,
                 null,
+                null,
+                null,
                 null);
     }
 
@@ -131,7 +142,8 @@ public record JobSpec(
             @Nullable String scanModel,
             @Nullable String codeModel,
             boolean preScan,
-            Map<String, String> tags) {
+            Map<String, String> tags,
+            @Nullable String reasoningLevelCode) {
         return new JobSpec(
                 taskInput,
                 autoCommit,
@@ -143,6 +155,8 @@ public record JobSpec(
                 tags,
                 null,
                 null,
+                null,
+                reasoningLevelCode,
                 null,
                 null);
     }
@@ -172,7 +186,9 @@ public record JobSpec(
                 null,
                 null,
                 overrides != null ? overrides.reasoningLevel() : null,
-                overrides != null ? overrides.temperature() : null);
+                overrides != null ? overrides.reasoningLevelCode() : null,
+                overrides != null ? overrides.temperature() : null,
+                overrides != null ? overrides.temperatureCode() : null);
     }
 
     /**
@@ -188,7 +204,8 @@ public record JobSpec(
             boolean preScan,
             Map<String, String> tags,
             @Nullable String sourceBranch,
-            @Nullable String targetBranch) {
+            @Nullable String targetBranch,
+            @Nullable String reasoningLevelCode) {
         return new JobSpec(
                 taskInput,
                 autoCommit,
@@ -200,6 +217,8 @@ public record JobSpec(
                 tags,
                 sourceBranch,
                 targetBranch,
+                null,
+                reasoningLevelCode,
                 null,
                 null);
     }

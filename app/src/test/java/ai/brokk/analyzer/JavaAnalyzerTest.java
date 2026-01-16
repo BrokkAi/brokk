@@ -6,7 +6,11 @@ import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -1038,5 +1042,45 @@ public class JavaAnalyzerTest {
         // Verify the preceding code is NOT included
         assertFalse(source.contains("private int other"), "Should NOT include code from same line as Javadoc");
         assertFalse(source.contains("= 1;"), "Should NOT include field initialization from same line");
+    }
+
+    @Test
+    public void testSummaryFragmentSupportingFragmentsFiltersNestedAncestors() throws IOException {
+        try (var project = InlineTestProjectCreator.code(
+                        """
+                        package p;
+                        public class Outer extends OuterBase {
+                            class Inner extends InnerBase {}
+                        }
+                        """,
+                        "p/Outer.java")
+                .addFileContents(
+                        """
+                        package p;
+                        public class OuterBase {}
+                        """,
+                        "p/OuterBase.java")
+                .addFileContents(
+                        """
+                        package p;
+                        public class InnerBase {}
+                        """,
+                        "p/InnerBase.java")
+                .build()) {
+
+            var analyzer = new JavaAnalyzer(project);
+            var cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+            var frag =
+                    new ContextFragments.SummaryFragment(cm, "p.Outer", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+
+            var ids = frag.supportingFragments().stream()
+                    .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                    .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
+                    .collect(java.util.stream.Collectors.toSet());
+
+            assertTrue(ids.contains("p.OuterBase"), "Should contain top-level ancestor p.OuterBase");
+            assertFalse(ids.contains("p.InnerBase"), "Should NOT contain nested class ancestor p.InnerBase");
+        }
     }
 }

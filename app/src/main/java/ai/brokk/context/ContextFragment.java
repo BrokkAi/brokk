@@ -116,6 +116,7 @@ public interface ContextFragment {
      * <p>
      * This method is called during {@link Context#addFragments(Collection)} to expand a fragment with related context.
      */
+    @Blocking
     default Set<ContextFragment> supportingFragments() {
         return Set.of();
     }

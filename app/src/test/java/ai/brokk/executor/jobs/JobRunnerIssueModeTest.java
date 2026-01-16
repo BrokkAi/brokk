@@ -68,7 +68,8 @@ class JobRunnerIssueModeTest {
                         "github_token", "fake-token",
                         "repo_owner", "owner",
                         "repo_name", "repo",
-                        "issue_number", "42"));
+                        "issue_number", "42"),
+                (String) null);
 
         assertEquals(JobRunner.Mode.ISSUE, JobRunner.parseMode(specWithMode));
     }

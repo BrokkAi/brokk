@@ -3,7 +3,7 @@ package ai.brokk.util;
 import ai.brokk.ContextManager;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.project.MainProject;
 import com.google.common.base.Splitter;
 import com.vladsch.flexmark.ast.FencedCodeBlock;
@@ -50,9 +50,9 @@ public class ReviewParser {
 
     public record ExcerptMatch(int line, DiffSide side, String matchedText) {}
 
-    public static @Nullable ExcerptMatch matchExcerptInFile(RawExcerpt excerpt, FileComparisonInfo fileInfo) {
+    public static @Nullable ExcerptMatch matchExcerptInFile(RawExcerpt excerpt, FileDiff fileDiff) {
         // Try NEW content first
-        String newContent = fileInfo.rightSource().content();
+        String newContent = fileDiff.newText();
         var newMatch = matchExcerptInContent(excerpt, newContent);
         if (newMatch.isPresent()) {
             return new ExcerptMatch(
@@ -60,7 +60,7 @@ public class ReviewParser {
         }
 
         // Try OLD content
-        String oldContent = fileInfo.leftSource().content();
+        String oldContent = fileDiff.oldText();
         var oldMatch = matchExcerptInContent(excerpt, oldContent);
         if (oldMatch.isPresent()) {
             return new ExcerptMatch(
