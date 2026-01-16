@@ -397,8 +397,19 @@ When you submit an ISSUE job, the system follows these steps:
 5. **Completion & PR**: Upon successful verification of all tasks, the system:
     - Commits the changes with an automated message (e.g., `Resolves #42: ...`).
     - Pushes the branch to the remote.
-    - Automatically generates a Pull Request title and description.
+    - Automatically generates a Pull Request title and description. The PR description is generated from a summary of the merge-base diff (i.e., a concise summary of the changes introduced by the issue branch) and the system automatically appends a "Fixes #<issueNumber>" line so the issue will be closed when the PR is merged.
     - Creates the Pull Request on GitHub.
+
+Example Pull Request description produced by ISSUE mode:
+
+```markdown
+Brief summary of the changes and intent (one or two short paragraphs).
+
+- Fixed null pointer in UserService by adding a defensive null check.
+- Added unit tests covering the new behavior.
+
+Fixes #42
+```
 
 ### Configuration
 
@@ -505,6 +516,65 @@ Once running, the executor exposes the following endpoints:
   - **ISSUE mode**: Set `"tags": { "mode": "ISSUE" }` to resolve a GitHub Issue. Requires `github_token`, `repo_owner`, `repo_name`, and `issue_number` in tags.
   - **ARCHITECT mode** (default): Orchestrates multi-step planning and implementation
 
+#### Job-level model overrides (optional)
+
+You can optionally override model behaviors per job:
+
+- `reasoningLevel` (string, optional): Controls how much explicit reasoning effort the planner model should use.
+- `reasoningLevelCode` (string, optional): Controls how much explicit reasoning effort the code model should use. Applies to CODE and ARCHITECT modes.
+- `temperature` (number, optional): Controls sampling randomness for the planner model.
+- `temperatureCode` (number, optional): Controls sampling randomness for the code model. Applies to CODE and ARCHITECT modes.
+
+These fields are accepted in the top-level job payload alongside `plannerModel` / `codeModel` / `scanModel`.
+
+##### Validation rules
+
+- `reasoningLevel`:
+  - If provided, must be a string.
+  - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
+  - If omitted or null, the executor uses the model/service default reasoning configuration for the planner model.
+
+- `reasoningLevelCode`:
+  - If provided, must be a string.
+  - Accepted values: `"DEFAULT"`, `"LOW"`, `"MEDIUM"`, `"HIGH"`, `"DISABLE"`.
+  - If omitted or null, the executor uses the model/service default reasoning configuration for the code model.
+
+- `temperature`:
+  - If provided, must be a JSON number.
+  - Must be between `0.0` and `2.0` (inclusive).
+  - If omitted or null, the executor uses the model/service default temperature for the planner model.
+
+- `temperatureCode`:
+  - If provided, must be a JSON number.
+  - Must be between `0.0` and `2.0` (inclusive).
+  - If omitted or null, the executor uses the model/service default temperature for the code model.
+
+##### Example: ARCHITECT with reasoningLevel + temperature
+
+```bash
+curl -sS -X POST "http://localhost:8080/v1/jobs" \
+  -H "Authorization: Bearer my-secret-token" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: architect-overrides-001" \
+  --data @- <<'JSON'
+{
+  "sessionId": "<session-id>",
+  "taskInput": "Refactor the auth module to improve logging and error messages.",
+  "autoCommit": true,
+  "autoCompress": true,
+  "plannerModel": "gpt-5",
+  "codeModel": "gpt-5-mini",
+  "reasoningLevel": "HIGH",
+  "reasoningLevelCode": "MEDIUM",
+  "temperature": 0.2,
+  "temperatureCode": 0.0,
+  "tags": {
+    "mode": "ARCHITECT"
+  }
+}
+JSON
+```
+
 - **`POST /v1/jobs/issue`** - Create an issue resolution job (convenience endpoint)
   - Requires `Idempotency-Key` header
   - Body: `{ "owner": "<string>", "repo": "<string>", "issueNumber": <int>, "githubToken": "<string>", "plannerModel": "<string>", "codeModel": "<string>", "buildSettings": <object> }`
@@ -564,7 +634,7 @@ Build the shadow JAR:
 Run the JAR:
 
 ```bash
-java -co app/build/libs/brokk-<version>.jar \
+java -cp app/build/libs/brokk-<version>.jar \
   ai.brokk.executor.HeadlessExecutorMain \
   --exec-id 550e8400-e29b-41d4-a716-446655440000 \
   --listen-addr 0.0.0.0:8080 \

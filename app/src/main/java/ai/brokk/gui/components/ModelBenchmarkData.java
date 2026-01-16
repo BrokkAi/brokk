@@ -39,6 +39,7 @@ public class ModelBenchmarkData {
 
     static {
         // Gemini models
+        addModel("gemini-3-flash-preview", Service.ReasoningLevel.DEFAULT, 100, 100, 67);
         addModel("gemini-3-pro-preview", Service.ReasoningLevel.DEFAULT, 100, 94, 80);
         addModel("gemini-2.5-pro", Service.ReasoningLevel.DEFAULT, 93, 94, 50);
         addModel("gemini-2.5-pro", Service.ReasoningLevel.HIGH, 83, 70, 54);
@@ -49,6 +50,7 @@ public class ModelBenchmarkData {
         addModel("gemini-2.5-flash-lite", Service.ReasoningLevel.DEFAULT, 0, 0, 0);
 
         // GPT models
+        addModel("gpt-5.2", Service.ReasoningLevel.DEFAULT, 100, 100, 67);
         addModel("gpt-5.1", Service.ReasoningLevel.DEFAULT, 100, 100, 67);
         addModel("gpt-5", Service.ReasoningLevel.DEFAULT, 93, 71, 50);
         addModel("gpt-5", Service.ReasoningLevel.HIGH, 90, 77, 48);

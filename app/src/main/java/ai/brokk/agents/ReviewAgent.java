@@ -4,19 +4,20 @@ import static java.lang.Math.min;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
-import ai.brokk.IConsoleIO;
+import ai.brokk.AbstractService;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
 import ai.brokk.TaskEntry;
 import ai.brokk.TaskResult;
 import ai.brokk.analyzer.CodeUnit;
+import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.cli.MemoryConsole;
 import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.DiffService;
+import ai.brokk.context.DiffService.CumulativeChanges;
 import ai.brokk.context.SpecialTextType;
-import ai.brokk.difftool.ui.FileComparisonInfo;
+import ai.brokk.git.GitRepoData.FileDiff;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.prompts.WorkspacePrompts;
 import ai.brokk.tools.WorkspaceTools;
@@ -42,7 +43,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,6 +51,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -66,7 +68,7 @@ import org.jspecify.annotations.NullMarked;
 public class ReviewAgent {
     private static final Logger logger = LogManager.getLogger(ReviewAgent.class);
 
-    private final DiffService.CumulativeChanges changes;
+    private final CumulativeChanges changes;
     private final List<UUID> sessionIds;
 
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
@@ -83,34 +85,43 @@ public class ReviewAgent {
         void updateProgress(String stage, int progress);
     }
 
+    private final AbstractService.ModelConfig modelConfig;
+    private final boolean optimizeForLatency;
     private final IContextManager cm;
-    private final IConsoleIO io;
-    private final List<FileComparisonInfo> fileComparisons;
     private @Nullable Context contextBeingBuilt;
     private boolean isComplex = false;
 
     private record ContextSetupResult(Context context, boolean isComplex) {}
 
+    /**
+     * Intended usage to review the changes on the current branch from `commit` [exclusive] to HEAD [inclusive]:
+     * var scope = ReviewScope.fromBaseline(commit, cm);
+     * var result = new ReviewAgent(scope, preferredModel, false, cm).execute();
+     *
+     * An example of determining `commit` using GitRepo::getMergeBase is in SessionChangesPanel.
+     */
     public ReviewAgent(
-            DiffService.CumulativeChanges changes,
-            List<UUID> sessionIds,
-            IContextManager cm,
-            IConsoleIO io,
-            List<FileComparisonInfo> fileComparisons) {
-        this.changes = changes;
-        this.sessionIds = List.copyOf(sessionIds);
+            ReviewScope scope,
+            AbstractService.ModelConfig modelConfig,
+            boolean optimizeForLatency,
+            IContextManager cm) {
+        this.changes = scope.changes();
+        this.sessionIds = scope.sessionIds();
+        this.modelConfig = modelConfig;
+        this.optimizeForLatency = optimizeForLatency;
         this.cm = cm;
-        this.io = io;
-        this.fileComparisons = fileComparisons;
     }
 
     @TestOnly
-    ReviewAgent(IContextManager cm, IConsoleIO io, List<FileComparisonInfo> fileComparisons) {
-        this(new DiffService.CumulativeChanges(0, 0, 0, List.of(), List.of()), List.of(), cm, io, fileComparisons);
+    ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm) {
+        this(new ReviewScope(changes, sessionIds), ModelType.ARCHITECT.defaultConfig(), true, cm);
     }
 
     private @Nullable ProgressUpdater progressUpdater;
 
+    /**
+     * Optional
+     */
     public void setProgressUpdater(@Nullable ProgressUpdater updater) {
         this.progressUpdater = updater;
     }
@@ -133,13 +144,8 @@ public class ReviewAgent {
 
         try (var scope = cm.beginTask("Code Review", true, false, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
-            Context initialContext = new Context(cm).addFragments(diffFragment).withPinned(diffFragment, true);
-            var instructionsOpt = extractInstructionsFragment(sessionIds);
-            if (instructionsOpt.isPresent()) {
-                var instructionsFragment = instructionsOpt.get();
-                initialContext =
-                        initialContext.addFragments(instructionsFragment).withPinned(instructionsFragment, true);
-            }
+            Context initialContext =
+                    new Context(cm).addFragments(diffFragment).addFragments(extractSessionContext(sessionIds));
 
             updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
@@ -151,11 +157,11 @@ public class ReviewAgent {
             // Publish the context as it stands after setup but before Turn 1
             scope.publish(reviewContext);
 
-            var turn1ModelConfig =
-                    setupResult.isComplex() ? ModelType.ARCHITECT.defaultConfig() : ModelType.SCAN.defaultConfig();
+            var turn1ModelConfig = (optimizeForLatency && !setupResult.isComplex())
+                    ? cm.getProject().getModelConfig(ModelType.SCAN)
+                    : modelConfig;
             var turn1Model = requireNonNull(cm.getService().getModel(turn1ModelConfig));
             var turn1Llm = cm.getLlm(new Llm.Options(turn1Model, "Code Review").withEcho());
-            turn1Llm.setOutput(io);
 
             // --- Turn 1: Full Markdown review + excerpt extraction ---
             long turn1Start = System.currentTimeMillis();
@@ -183,8 +189,8 @@ public class ReviewAgent {
                         }
                     }
                 };
-
                 turn1Llm.setOutput(progressConsole);
+
                 turn1Result = turn1Llm.sendRequest(turn1Messages);
                 if (turn1Result.error() == null) {
                     break;
@@ -263,9 +269,9 @@ public class ReviewAgent {
     }
 
     private @NotNull ContextSetupResult setupContext(Context initialContext) throws InterruptedException {
-        var scanModel = cm.getService().getModel(ModelType.SCAN);
-        var llm = cm.getLlm(scanModel, "Review Context Selection");
-        llm.setOutput(io);
+        var model = requireNonNull(cm.getService()
+                .getModel(optimizeForLatency ? cm.getProject().getModelConfig(ModelType.SCAN) : modelConfig));
+        var llm = cm.getLlm(model, "Review Context Selection");
 
         var messages = new ArrayList<ChatMessage>();
         messages.add(buildSystemMessage());
@@ -276,10 +282,10 @@ public class ReviewAgent {
                         """
                 Examine the proposed diff and identify additional context needed for a thorough code review.
 
-                Examine the proposed diff and determine:
-                1. Is this a complex change requiring deep architectural analysis, or a straightforward change?
-                   - Complex: changes spanning multiple subsystems, introducing new abstractions, or with subtle correctness concerns
-                   - Straightforward: localized changes, simple refactors, or changes with obvious correctness
+                Examine the proposed diff and determine the complexity level:
+                1. TRIVIAL: very small changes, documentation updates, or simple boilerplate with no logic risk.
+                2. STRAIGHTFORWARD: localized changes, simple refactors, easy to see if bugs were introduced.
+                3. COMPLEX: changes spanning multiple subsystems, introducing new abstractions, or with subtle correctness concerns.
 
                 Then identify additional context needed for a thorough code review. You will have access to the full
                 diff during the review, so only add code that you need to perform the review, that you cannot infer from the diff alone.
@@ -326,7 +332,7 @@ public class ReviewAgent {
                 .collect(Collectors.toList());
         var ctx = initialContext.addFragments(filesToContext);
         ctx = ctx.addFragments(ctx.buildAutoContext(10));
-        return new ContextSetupResult(ctx, false);
+        return new ContextSetupResult(ctx, true);
     }
 
     private void updateProgress(String stage, int progress) {
@@ -336,13 +342,11 @@ public class ReviewAgent {
         }
     }
 
-    public static @Nullable FileComparisonInfo findFileComparison(
-            String relPath, List<FileComparisonInfo> fileComparisons) {
-        return fileComparisons.stream()
-                .filter(info ->
-                        (info.file() != null && relPath.equals(info.file().toString()))
-                                || relPath.equals(info.rightSource().filename())
-                                || relPath.equals(info.leftSource().filename()))
+    static @Nullable FileDiff findFileDiff(String relPath, List<FileDiff> fileDiffs) {
+        return fileDiffs.stream()
+                .filter(fd -> (fd.oldFile() != null
+                                && relPath.equals(fd.oldFile().toString()))
+                        || (fd.newFile() != null && relPath.equals(fd.newFile().toString())))
                 .findFirst()
                 .orElse(null);
     }
@@ -424,7 +428,6 @@ public class ReviewAgent {
                     """
                             .formatted(errorList)));
 
-            llm.setOutput(io);
             currentResult = llm.sendRequest(retryFileMessages);
             totalRetries++;
             if (currentResult.error() != null) {
@@ -467,13 +470,13 @@ public class ReviewAgent {
         for (var entry : validPathExcerpts.entrySet()) {
             int id = entry.getKey();
             RawExcerpt excerpt = entry.getValue();
-            FileComparisonInfo fileInfo = findFileComparison(excerpt.file(), fileComparisons);
-            if (fileInfo == null) {
+            FileDiff fileDiff = findFileDiff(excerpt.file(), changes.perFileChanges());
+            if (fileDiff == null) {
                 pendingTextErrors.put(id, "File not in diff: " + excerpt.file());
                 continue;
             }
 
-            ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(excerpt, fileInfo);
+            ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(excerpt, fileDiff);
             if (match == null) {
                 pendingTextErrors.put(id, "Excerpt text not found in " + excerpt.file());
             } else {
@@ -532,7 +535,6 @@ public class ReviewAgent {
                     """
                             .formatted(errorList)));
 
-            llm.setOutput(io);
             Llm.StreamingResult textResult = llm.sendRequest(retryTextMessages);
             totalRetries++;
             if (textResult.error() != null) {
@@ -556,12 +558,12 @@ public class ReviewAgent {
                 // Update the validPathExcerpts with the fixed version
                 validPathExcerpts.put(id, fixed);
 
-                FileComparisonInfo fileInfo = findFileComparison(fixed.file(), fileComparisons);
-                if (fileInfo == null) {
+                FileDiff fileDiff = findFileDiff(fixed.file(), changes.perFileChanges());
+                if (fileDiff == null) {
                     continue;
                 }
 
-                ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fixed, fileInfo);
+                ReviewParser.ExcerptMatch match = ReviewParser.matchExcerptInFile(fixed, fileDiff);
                 if (match != null) {
                     var file = cm.toFile(fixed.file());
                     int lineCount = (int) match.matchedText().lines().count();
@@ -586,8 +588,7 @@ public class ReviewAgent {
         return new RetryResult(matchedExcerpts, totalRetries, mergedResponseText);
     }
 
-    private String correctFailedNotes(Llm llm, String responseText, List<ReviewParser.NoteValidationError> errors)
-            throws InterruptedException {
+    private String correctFailedNotes(Llm llm, String responseText, List<ReviewParser.NoteValidationError> errors) {
         Map<String, List<String>> errorsByNote = errors.stream()
                 .collect(Collectors.groupingBy(
                         ReviewParser.NoteValidationError::title,
@@ -611,7 +612,6 @@ public class ReviewAgent {
                         LoggingFuture.supplyAsync(
                                 () -> {
                                     Llm correctionLlm = cm.getLlm(llm.getModel(), "Note Correction");
-                                    correctionLlm.setOutput(io);
                                     String currentNote = noteSection;
                                     List<String> currentIssues = initialIssues;
 
@@ -800,6 +800,8 @@ public class ReviewAgent {
                 ```
                 $code
                 ```
+
+                I will look for EXACT matches for your excerpt, so avoid ellipsis or commentary in the block.
                 </excerpt_format>
                 <review_format>
                 ## Key Changes
@@ -835,12 +837,11 @@ public class ReviewAgent {
                 """);
     }
 
+    @SuppressWarnings("UnusedMethod") // Called via reflection by ToolRegistry
     @Tool(
             "Add context fragments to help perform a thorough code review. Call this once with all the files, summaries, classes, and methods needed.")
-    public String addFragments(
-            @P(
-                            "True if this is a complex change requiring deep architectural analysis; false for straightforward changes")
-                    boolean isComplex,
+    private String addFragments(
+            @P("The categorized complexity of the change: TRIVIAL, STRAIGHTFORWARD, or COMPLEX") String complexity,
             @P("Full project paths for files where you need to see complete implementation details")
                     List<String> filesForFullSource,
             @P("Full project paths for files where you only need to see API signatures/skeletons")
@@ -851,7 +852,7 @@ public class ReviewAgent {
             @P(
                             "Fully qualified method names (e.g., 'com.example.MyClass.myMethod') for specific methods you need to examine")
                     List<String> methodNames) {
-        this.isComplex = isComplex;
+        this.isComplex = !complexity.equalsIgnoreCase("TRIVIAL");
         var wst = new WorkspaceTools(requireNonNull(contextBeingBuilt));
         wst.addFilesToWorkspace(filesForFullSource);
         wst.addFileSummariesToWorkspace(filesForSummaries);
@@ -863,21 +864,25 @@ public class ReviewAgent {
     }
 
     @Blocking
-    public Optional<ContextFragments.StringFragment> extractInstructionsFragment(List<UUID> sessionIds) {
+    public List<ContextFragments.StringFragment> extractSessionContext(List<UUID> sessionIds) {
         if (sessionIds.isEmpty()) {
-            return Optional.empty();
+            return List.of();
         }
 
         var sessionManager = cm.getProject().getSessionManager();
-
-        // Extract instructions from all matching histories
-        List<String> instructions = sessionIds.stream()
+        var relevantTypes = Set.of(TaskResult.Type.CODE, TaskResult.Type.ARCHITECT, TaskResult.Type.BLITZFORGE);
+        var contexts = sessionIds.stream()
                 .parallel()
                 .map(sessionId -> sessionManager.loadHistory(sessionId, cm))
                 .filter(Objects::nonNull)
-                .flatMap(h -> h.getHistory().stream()) // Stream<Context>
+                .flatMap(h -> h.getHistory().stream())
+                .toList();
+
+        // Extract instructions
+        List<String> instructions = contexts.stream() // Stream<Context>
                 .flatMap(ctx -> ctx.getTaskHistory().stream()) // Stream<TaskEntry>
-                .filter(te -> te.meta() == null || te.meta().type() != TaskResult.Type.REVIEW)
+                .filter(te ->
+                        te.meta() != null && relevantTypes.contains(te.meta().type()))
                 .map(TaskEntry::log)
                 .filter(Objects::nonNull)
                 .sorted(Comparator.comparing(log -> log.id()))
@@ -887,15 +892,33 @@ public class ReviewAgent {
                 .distinct()
                 .toList();
 
-        logger.debug("Extracted {} instruction fragments", instructions.size());
+        // Extract context hints
+        Set<ProjectFile> editedFiles = changes.perFileChanges().stream()
+                .flatMap(fd -> Stream.of(fd.oldFile(), fd.newFile()))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        List<String> fragmentHints = contexts.stream()
+                .flatMap(Context::allFragments)
+                .filter(cf ->
+                        !(cf instanceof ContextFragments.ProjectPathFragment ppf && editedFiles.contains(ppf.file())))
+                .map(cf -> cf.description().join())
+                .distinct()
+                .toList();
 
-        if (instructions.isEmpty()) {
-            return Optional.empty();
+        List<ContextFragments.StringFragment> results = new ArrayList<>();
+        if (!instructions.isEmpty()) {
+            String mergedInstructions =
+                    instructions.stream().map(desc -> "- " + desc).collect(Collectors.joining("\n"));
+            results.add(new ContextFragments.StringFragment(
+                    cm, mergedInstructions, "User Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
         }
 
-        String mergedText = instructions.stream().map(desc -> "- " + desc).collect(Collectors.joining("\n"));
+        if (!fragmentHints.isEmpty()) {
+            String mergedHints = fragmentHints.stream().map(hint -> "- " + hint).collect(Collectors.joining("\n"));
+            results.add(new ContextFragments.StringFragment(
+                    cm, mergedHints, "Sources Used During Patch Creation", SyntaxConstants.SYNTAX_STYLE_NONE));
+        }
 
-        return Optional.of(new ContextFragments.StringFragment(
-                cm, mergedText, "User Instructions", SyntaxConstants.SYNTAX_STYLE_NONE));
+        return results;
     }
 }

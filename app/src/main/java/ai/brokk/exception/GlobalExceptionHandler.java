@@ -1,10 +1,12 @@
 package ai.brokk.exception;
 
 import ai.brokk.ExceptionReporter;
+import ai.brokk.concurrent.ExecutorsUtil;
 import ai.brokk.project.MainProject;
 import java.lang.Thread.UncaughtExceptionHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 import javax.swing.*;
 import org.apache.logging.log4j.LogManager;
@@ -12,6 +14,7 @@ import org.apache.logging.log4j.Logger;
 
 public class GlobalExceptionHandler implements UncaughtExceptionHandler {
     private static final Logger logger = LogManager.getLogger(GlobalExceptionHandler.class);
+    private static final ExecutorService executor = ExecutorsUtil.newFixedThreadExecutor(1, "GlobalExceptionHandler");
 
     @Override
     public void uncaughtException(Thread thread, Throwable throwable) {
@@ -55,14 +58,13 @@ public class GlobalExceptionHandler implements UncaughtExceptionHandler {
             }
         }
 
-        try {
-            ExceptionReporter.tryReportException(th);
-        } catch (Throwable reportingError) {
-            logger.warn("Failed to upload exception report", reportingError);
-        }
+        ExceptionReporter.tryReportException(th);
 
-        notifier.accept("Internal error %s%s"
-                .formatted(th.getClass().getName(), th.getMessage() == null ? "" : ": " + th.getMessage()));
+        // ensure that a notifier that does blocking things doesn't cause issues
+        executor.submit(() -> {
+            notifier.accept("Internal error %s%s"
+                    .formatted(th.getClass().getName(), th.getMessage() == null ? "" : ": " + th.getMessage()));
+        });
 
         if (isOomError(th)) {
             shutdownWithRecovery();

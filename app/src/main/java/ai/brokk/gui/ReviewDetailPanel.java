@@ -38,7 +38,6 @@ import javax.swing.JTextArea;
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
 import javax.swing.border.EmptyBorder;
-import org.jetbrains.annotations.Nullable;
 import org.jspecify.annotations.NullMarked;
 
 @NullMarked
@@ -228,7 +227,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         markdownPanel.setStaticDocument(combined);
     }
 
-    private void addRecommendationButtons(@Nullable String title, String recommendation, boolean isLast) {
+    private void addRecommendationButtons(String title, String recommendation, boolean isLast) {
         buttonPanel.removeAll();
         buttonPanel.setVisible(true);
 
@@ -275,7 +274,7 @@ public class ReviewDetailPanel extends JPanel implements ThemeAware {
         }
     }
 
-    private void enqueueTask(@Nullable String title, String text) {
+    private void enqueueTask(String title, String text) {
         var currentData = contextManager.liveContext().getTaskListDataOrEmpty();
         var currentTasks = currentData.tasks();
 

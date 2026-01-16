@@ -15,6 +15,7 @@ import ai.brokk.TaskResult;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.LutzAgent;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.difftool.utils.ColorUtil;
@@ -1098,12 +1099,11 @@ public class InstructionsPanel extends JPanel implements IContextManager.Context
     void updateTokenCostIndicator() {
         var ctx = chrome.getContextManager().selectedContext();
         Service.ModelConfig config = getSelectedConfig();
-        var service = chrome.getContextManager().getService();
-        var model = service.getModel(config);
 
         // Compute tokens off-EDT
-        chrome.getContextManager()
-                .submitBackgroundTask("Compute token estimate (Instructions)", () -> {
+        LoggingFuture.supplyAsync(() -> {
+                    var service = chrome.getContextManager().getService();
+                    var model = service.getModel(config);
                     if (model == null || model instanceof Service.UnavailableStreamingModel) {
                         return new TokenUsageBarComputation(
                                 buildTokenUsageTooltip(

@@ -29,6 +29,18 @@ class ModelBenchmarkDataTest {
     }
 
     @Test
+    void gemini3_flash_preview_ranges() {
+        int r1 = ModelBenchmarkData.getSuccessRate("gemini-3-flash-preview", Service.ReasoningLevel.DEFAULT, 20000);
+        assertEquals(100, r1, "gemini-3-flash-preview DEFAULT @20k should be 100%");
+
+        int r2 = ModelBenchmarkData.getSuccessRate("gemini-3-flash-preview", Service.ReasoningLevel.DEFAULT, 50000);
+        assertEquals(100, r2, "gemini-3-flash-preview DEFAULT @50k should be 100%");
+
+        int r3 = ModelBenchmarkData.getSuccessRate("gemini-3-flash-preview", Service.ReasoningLevel.DEFAULT, 100000);
+        assertEquals(67, r3, "gemini-3-flash-preview DEFAULT @100k should be 67%");
+    }
+
+    @Test
     void gemini25flash_disable_ranges() {
         int r1 = ModelBenchmarkData.getSuccessRate("gemini-2.5-flash", Service.ReasoningLevel.DISABLE, 50000);
         assertEquals(61, r1, "gemini-2.5-flash DISABLE @50k should be 61%");
@@ -86,5 +98,23 @@ class ModelBenchmarkDataTest {
         var config = new Service.ModelConfig("provider/zai-glm-4.6", Service.ReasoningLevel.DEFAULT);
         int result = ModelBenchmarkData.getSuccessRate(config, 100);
         assertEquals(85, result, "ModelConfig with provider prefix should resolve to zai-glm-4.6 @100 => 85%");
+    }
+
+    @Test
+    void gpt52_benchmarks_and_fallbacks() {
+        int[] representativeTokenCounts = {20_000, 50_000, 100_000};
+
+        for (int tokenCount : representativeTokenCounts) {
+            int rate51 = ModelBenchmarkData.getSuccessRate("gpt-5.1", Service.ReasoningLevel.DEFAULT, tokenCount);
+            int rate52 = ModelBenchmarkData.getSuccessRate("gpt-5.2", Service.ReasoningLevel.DEFAULT, tokenCount);
+
+            assertEquals(rate51, rate52, "gpt-5.2 should match gpt-5.1 for DEFAULT at %d tokens".formatted(tokenCount));
+
+            int rate52Medium = ModelBenchmarkData.getSuccessRate("gpt-5.2", Service.ReasoningLevel.MEDIUM, tokenCount);
+            assertEquals(
+                    rate52,
+                    rate52Medium,
+                    "gpt-5.2 MEDIUM should fall back to DEFAULT at %d tokens".formatted(tokenCount));
+        }
     }
 }
