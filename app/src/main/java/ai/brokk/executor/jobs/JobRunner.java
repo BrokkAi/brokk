@@ -158,15 +158,19 @@ public final class JobRunner {
                         (rawCodeModelName != null && !rawCodeModelName.isBlank()) ? rawCodeModelName.trim() : null;
                 var hasCodeModelOverride = trimmedCodeModelName != null;
 
-                final StreamingChatModel architectPlannerModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
-                        ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
-                        : null;
-                final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
-                        ? (trimmedCodeModelName != null
-                                ? resolveModelOrThrow(
-                                        trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
-                                : defaultCodeModel(spec))
-                        : null;
+                final StreamingChatModel architectPlannerModel =
+                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
+                                ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
+                                : null;
+                final StreamingChatModel architectCodeModel =
+                        (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
+                                ? (trimmedCodeModelName != null
+                                        ? resolveModelOrThrow(
+                                                trimmedCodeModelName,
+                                                spec.reasoningLevelCode(),
+                                                spec.temperatureCode())
+                                        : defaultCodeModel(spec))
+                                : null;
                 final StreamingChatModel reviewPlannerModel = mode == Mode.REVIEW
                         ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                         : null;
