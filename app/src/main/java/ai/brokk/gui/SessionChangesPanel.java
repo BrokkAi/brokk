@@ -38,6 +38,7 @@ import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
 import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.Icons;
+import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.ReviewParser;
 import java.awt.*;
 import java.awt.datatransfer.DataFlavor;
@@ -71,7 +72,7 @@ import org.jetbrains.annotations.Nullable;
 public class SessionChangesPanel extends JPanel implements ThemeAware {
     private static final Logger logger = LogManager.getLogger(SessionChangesPanel.class);
     private final Chrome chrome;
-    private final ContextManager contextManager;
+    private final ContextManager cm;
     private final GitRepo repo;
     private final DeferredUpdateHelper deferredUpdateHelper;
     private final TabTitleUpdater tabTitleUpdater;
@@ -150,7 +151,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     public SessionChangesPanel(Chrome chrome, ContextManager contextManager, TabTitleUpdater tabTitleUpdater) {
         super(new BorderLayout());
         this.chrome = chrome;
-        this.contextManager = contextManager;
+        this.cm = contextManager;
         this.tabTitleUpdater = tabTitleUpdater;
 
         var maybeRepo = contextManager.getProject().getRepo();
@@ -300,7 +301,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private DiffDisplayCore createDiffCore(BrokkDiffPanel dummyPanel) {
-        return new DiffDisplayCore(dummyPanel, contextManager, chrome.getTheme(), fileComparisons, false, 0) {
+        return new DiffDisplayCore(dummyPanel, cm, chrome.getTheme(), fileComparisons, false, 0) {
             @Override
             protected AbstractDiffPanel createPanel(int index, JMDiffNode diffNode) {
                 var panel = new UnifiedDiffPanel(dummyPanel, chrome.getTheme(), diffNode);
@@ -364,7 +365,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // Kick off async computation
         LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState();
-                    var reviewCtx = ReviewScope.fromBaseline(contextManager, state.resolvedLeftRef());
+                    var reviewCtx = ReviewScope.fromBaseline(cm, state.resolvedLeftRef());
                     return new ComputedUpdate(state, reviewCtx);
                 })
                 .thenAccept(computed -> {
@@ -551,7 +552,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private FileComparisonInfo toFileComparisonInfo(Map.Entry<String, FileDiff> entry) {
         ProjectFile pf = null;
         try {
-            pf = contextManager.toFile(entry.getKey());
+            pf = cm.toFile(entry.getKey());
         } catch (Exception e) {
             logger.debug("Failed to resolve ProjectFile for {}", entry.getKey(), e);
         }
@@ -660,8 +661,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         if (prBtnEnabled && showPR) {
             try {
                 String currentBranch = repo.getCurrentBranch();
-                if (GitHubAuth.getOrCreateInstance(contextManager.getProject())
-                        .hasOpenPullRequestForBranch(currentBranch)) {
+                if (GitHubAuth.getOrCreateInstance(cm.getProject()).hasOpenPullRequestForBranch(currentBranch)) {
                     prBtnEnabled = false;
                     prBtnTooltip = "A pull request already exists for branch " + currentBranch;
                 }
@@ -674,7 +674,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         prBtn.setVisible(showPR);
 
         String projectName = "Project";
-        var root = contextManager.getProject().getRoot();
+        var root = cm.getProject().getRoot();
         if (root.getFileName() != null) projectName = root.getFileName().toString();
 
         List<FileComparisonInfo> nextComparisons =
@@ -705,7 +705,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void showCommitDialog() {
-        var content = new GitCommitTab(chrome, contextManager);
+        var content = new GitCommitTab(chrome, cm);
         content.requestUpdate();
         var dialog = new BaseThemedDialog(chrome.getFrame(), "Changes");
         dialog.getContentRoot().add(content);
@@ -725,11 +725,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void performPull() {
-        contextManager.submitExclusiveAction(() -> {
+        cm.submitExclusiveAction(() -> {
             try {
                 String branch = repo.getCurrentBranch();
                 chrome.showOutputSpinner("Pulling " + branch + "...");
-                var result = new GitWorkflow(contextManager).pull(branch);
+                var result = new GitWorkflow(cm).pull(branch);
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
                     if (result.isEmpty()) {
@@ -750,11 +750,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void performPush() {
-        contextManager.submitExclusiveAction(() -> {
+        cm.submitExclusiveAction(() -> {
             try {
                 String branch = repo.getCurrentBranch();
                 chrome.showOutputSpinner("Pushing " + branch + "...");
-                var result = new GitWorkflow(contextManager).push(branch);
+                var result = new GitWorkflow(cm).push(branch);
                 SwingUtilities.invokeLater(() -> {
                     chrome.hideOutputSpinner();
                     if (result.isEmpty()) {
@@ -855,14 +855,14 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     @Blocking
     private void ensureReviewSession(ReviewScope reviewCtx) {
         // Check if any overlapping session is already active
-        UUID currentId = contextManager.getCurrentSessionId();
+        UUID currentId = cm.getCurrentSessionId();
         if (reviewCtx.sessionIds().contains(currentId)) {
             return;
         }
 
         // If not active, but we have overlapping sessions, we could switch,
         // but for now we follow the existing logic: if the commits aren't in current session, create a new one.
-        Set<String> currentSessionCommits = contextManager.getContextHistory().getGitStates().values().stream()
+        Set<String> currentSessionCommits = cm.getContextHistory().getGitStates().values().stream()
                 .map(ContextHistory.GitState::commitHash)
                 .collect(Collectors.toSet());
         List<String> reviewCommits =
@@ -878,7 +878,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
             }
             String time = LocalTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"));
             String sessionName = "Review " + branchName + " " + time;
-            contextManager.createSessionAsync(sessionName).join();
+            cm.createSessionAsync(sessionName).join();
         }
     }
 
@@ -896,7 +896,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         // We use the same resolution logic as requestUpdate to get the correct resolved ref
         LoggingFuture.supplyAsync(() -> {
                     var state = resolveBaselineState();
-                    return ReviewScope.fromBaseline(contextManager, state.resolvedLeftRef());
+                    return ReviewScope.fromBaseline(cm, state.resolvedLeftRef());
                 })
                 .thenAccept(this::generateGuidedReviewAsync);
     }
@@ -914,9 +914,9 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     }
 
     private void generateGuidedReviewInternal(ReviewScope scope) {
-        contextManager.submitLlmAction(() -> {
+        cm.submitLlmAction(() -> {
             try {
-                var agent = new ReviewAgent(scope, contextManager);
+                var agent = new ReviewAgent(scope, ModelType.ARCHITECT.defaultConfig(), cm);
 
                 agent.setProgressUpdater((stage, p) -> SwingUtilities.invokeLater(() -> {
                     guidedReviewBtn.setProgress(p);
@@ -977,11 +977,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      * This parses the markdown as a GuidedReview and displays it in the review panels.
      */
     public void loadExternalReview(String markdown, Context context) {
-        var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(contextManager, markdown);
+        var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(cm, markdown);
         var review = ReviewParser.instance.parseMarkdownReview(markdown, resolvedExcerpts);
 
-        var hash = contextManager
-                .getContextHistory()
+        var hash = cm.getContextHistory()
                 .getGitState(context.id())
                 .map(ContextHistory.GitState::commitHash)
                 .orElse(null);
@@ -1019,7 +1018,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         }
 
         LoggingFuture.supplyAsync(() -> {
-                    var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(contextManager, clipboardData);
+                    var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(cm, clipboardData);
                     return ReviewParser.instance.parseMarkdownReview(clipboardData, resolvedExcerpts);
                 })
                 .thenAccept(guidedReview -> SwingUtilities.invokeLater(() -> {
@@ -1082,7 +1081,7 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
         guidedReviewBtn.setProgress(0);
 
         // Run the review with the explicitly computed data
-        LoggingFuture.supplyCallableAsync(() -> ReviewScope.fromBaseline(contextManager, parentId))
+        LoggingFuture.supplyCallableAsync(() -> ReviewScope.fromBaseline(cm, parentId))
                 .thenAccept(this::generateGuidedReviewAsync)
                 .exceptionally(ex -> {
                     logger.error("Failed to prepare commit range review", ex);
