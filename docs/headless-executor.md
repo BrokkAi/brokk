@@ -418,7 +418,18 @@ ISSUE mode requires:
 - `codeModel` (optional): The LLM model for code generation; defaults to project default.
 - GitHub Issue metadata: `github_token`, `repo_owner`, `repo_name`, `issue_number`.
 - `buildSettings` (optional): JSON object defining how to verify the project (see below).
-- `maxIssueFixAttempts` (optional): Overall issue remediation attempt budget (job-level gate). This is the maximum number of issue-fix attempts before the workflow gives up and blocks PR creation. Default: 5.
+- `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap). After it is exhausted, the executor stops and does not create a PR. Default: 5.
+
+### Retry limits: per-task vs overall
+
+ISSUE mode has two retry limits: one for repeating build verification for a single task, and one for how many times the overall ISSUE workflow will try before giving up.
+
+| Setting | What it limits | Default |
+|---------|----------------|---------|
+| `buildSettings.maxBuildAttempts` | Per task: how many times to rerun build/lint/test for that task after attempting fixes when verification fails. | 3 |
+| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 5 |
+
+Example: if `maxBuildAttempts=3` and `maxIssueFixAttempts=5`, each task can retry verification up to 3 times, but the job will stop entirely after 5 overall ISSUE attempts.
 
 ### Build Settings Structure
 
