@@ -35,5 +35,12 @@ public final class JavaTreeSitterNodeTypes {
     // Test detection
     public static final String TEST_MARKER = "test_marker";
 
+    // Annotations
+    public static final String ANNOTATION = "annotation";
+    public static final String MARKER_ANNOTATION = "marker_annotation";
+
+    // Scala/JVM related
+    public static final String PACKAGE_IDENTIFIER = "package_identifier";
+
     private JavaTreeSitterNodeTypes() {}
 }

@@ -68,7 +68,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                     ANNOTATION_TYPE_DECLARATION),
             Set.of(METHOD_DECLARATION, CONSTRUCTOR_DECLARATION),
             Set.of(FIELD_DECLARATION, ENUM_CONSTANT),
-            Set.of("annotation", "marker_annotation"),
+            Set.of(ANNOTATION, MARKER_ANNOTATION),
             IMPORT_DECLARATION,
             "name", // identifier field name
             "body", // body field name
@@ -158,7 +158,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             }
 
             // Skip annotations when searching for the package declaration
-            if ("annotation".equals(type) || "marker_annotation".equals(type)) {
+            if (ANNOTATION.equals(type) || MARKER_ANNOTATION.equals(type)) {
                 continue;
             }
 
@@ -175,7 +175,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 final TSNode nameNode = maybeDeclaration.getNamedChild(i);
                 if (nameNode != null && !nameNode.isNull()) {
                     String type = nameNode.getType();
-                    if ("annotation".equals(type) || "marker_annotation".equals(type)) {
+                    if (ANNOTATION.equals(type) || MARKER_ANNOTATION.equals(type)) {
                         continue;
                     }
                     String nsPart = textSlice.apply(nameNode, sourceContent);
