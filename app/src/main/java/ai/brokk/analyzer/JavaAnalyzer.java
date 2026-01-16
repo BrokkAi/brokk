@@ -611,10 +611,9 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
                 .filter(cu -> cu.isClass() && modulePackageName.equals(cu.packageName()))
                 .toList();
 
-        // If classes are found, link them as children.
-        if (!classesInPackage.isEmpty()) {
-            localChildren.put(moduleCu, new ArrayList<>(classesInPackage));
-        }
+        // Always record the module's children (even if empty) so callers can distinguish
+        // "known module with no children" from "no relationship recorded".
+        localChildren.put(moduleCu, new ArrayList<>(classesInPackage));
     }
 
     @Override
@@ -627,7 +626,7 @@ public class JavaAnalyzer extends TreeSitterAnalyzer {
             List<CodeUnit> localTopLevelCUs,
             Map<CodeUnit, List<String>> localSignatures,
             Map<CodeUnit, List<Range>> localSourceRanges) {
-        createModulesFromImports(
+        super.createModulesFromImports(
                 file,
                 localImportStatements,
                 rootNode,
