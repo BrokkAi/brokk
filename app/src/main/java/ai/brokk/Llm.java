@@ -632,7 +632,6 @@ public class Llm {
 
         // poor man's ToolChoice.REQUIRED (not supported by langchain4j for some providers)
         // Also needed for our emulation if it returns a response without a tool call
-        var tools = toolContext.toolSpecifications();
         var toolChoice = toolContext.toolChoice();
         int totalAttemptsMade = result.retries() + 1;
         while (result.error == null

@@ -496,12 +496,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     upstreamRefCandidate != null && repo.listRemoteBranches().contains(upstreamRefCandidate);
 
             String baseline = defaultBranch;
-            if (hasUpstream) {
+            if (hasUpstream && upstreamRefCandidate != null) {
                 // If upstream is ahead of our local default branch, use upstream as the baseline
                 String mergeBase = repo.getMergeBase(defaultBranch, upstreamRefCandidate);
-                if (mergeBase != null
-                        && !mergeBase.equals(
-                                repo.resolveToCommit(upstreamRefCandidate).name())) {
+                var resolvedUpstream = repo.resolveToCommit(upstreamRefCandidate);
+                if (mergeBase != null && !mergeBase.equals(resolvedUpstream.name())) {
                     baseline = upstreamRefCandidate;
                 }
             }
@@ -521,11 +520,12 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
 
             String resolvedRef = label;
             if (!"HEAD".equals(label)) {
-                resolvedRef =
-                        requireNonNull(repo.getMergeBase("HEAD", label), "Merge base cannot be null for " + label);
+                String mergeBase = repo.getMergeBase("HEAD", requireNonNull(label));
+                resolvedRef = requireNonNull(mergeBase, "Merge base cannot be null for " + label);
             }
 
-            return new BaselineState(label, resolvedRef, isWorkingTreeComparison, false);
+            return new BaselineState(
+                    requireNonNull(label), requireNonNull(resolvedRef), isWorkingTreeComparison, false);
         } catch (Exception e) {
             logger.warn("Failed to compute baseline for changes", e);
             String errorLabel = e.getMessage();
