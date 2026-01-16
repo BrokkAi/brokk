@@ -453,6 +453,27 @@ class PrReviewServiceTest {
     }
 
     @Test
+    void testSeverityRanking_IsStableAndMatchesSemantics() {
+        assertTrue(Severity.CRITICAL.isAtLeast(Severity.HIGH));
+        assertTrue(Severity.CRITICAL.isAtLeast(Severity.MEDIUM));
+        assertTrue(Severity.CRITICAL.isAtLeast(Severity.LOW));
+
+        assertTrue(Severity.HIGH.isAtLeast(Severity.HIGH));
+        assertTrue(Severity.HIGH.isAtLeast(Severity.MEDIUM));
+        assertTrue(Severity.HIGH.isAtLeast(Severity.LOW));
+        assertTrue(Severity.MEDIUM.isAtLeast(Severity.LOW));
+
+        assertTrue(Severity.LOW.isAtLeast(Severity.LOW));
+        assertTrue(!Severity.LOW.isAtLeast(Severity.MEDIUM));
+        assertTrue(!Severity.MEDIUM.isAtLeast(Severity.HIGH));
+        assertTrue(!Severity.HIGH.isAtLeast(Severity.CRITICAL));
+
+        assertTrue(Severity.CRITICAL.rank() < Severity.HIGH.rank());
+        assertTrue(Severity.HIGH.rank() < Severity.MEDIUM.rank());
+        assertTrue(Severity.MEDIUM.rank() < Severity.LOW.rank());
+    }
+
+    @Test
     void testPrReviewResponse_RecordImmutability() {
         var comment = new PrReviewService.InlineComment("src/Foo.java", 10, "Issue here", Severity.HIGH);
         var response = new PrReviewService.PrReviewResponse("## Summary", List.of(comment));

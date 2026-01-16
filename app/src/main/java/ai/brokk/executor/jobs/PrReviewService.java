@@ -51,10 +51,20 @@ public final class PrReviewService {
     }
 
     public enum Severity {
-        CRITICAL,
-        HIGH,
-        MEDIUM,
-        LOW;
+        CRITICAL(0),
+        HIGH(1),
+        MEDIUM(2),
+        LOW(3);
+
+        private final int rank;
+
+        Severity(int rank) {
+            this.rank = rank;
+        }
+
+        public int rank() {
+            return rank;
+        }
 
         public static Severity normalize(@Nullable String raw) {
             if (raw == null || raw.isBlank()) {
@@ -71,7 +81,7 @@ public final class PrReviewService {
         }
 
         public boolean isAtLeast(Severity threshold) {
-            return this.ordinal() <= threshold.ordinal();
+            return this.rank <= threshold.rank;
         }
     }
 
@@ -102,9 +112,8 @@ public final class PrReviewService {
         }
 
         return comments.stream()
-                .filter(c ->
-                        Objects.requireNonNullElse(c.severity(), Severity.LOW).isAtLeast(threshold))
-                .sorted(Comparator.comparingInt(c -> c.severity().ordinal()))
+                .filter(c -> Objects.requireNonNullElse(c.severity(), Severity.LOW).isAtLeast(threshold))
+                .sorted(Comparator.comparingInt(c -> Objects.requireNonNullElse(c.severity(), Severity.LOW).rank()))
                 .limit(maxComments)
                 .toList();
     }
