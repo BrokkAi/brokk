@@ -16,10 +16,10 @@ group = "ai.brokk"
 
 java {
     toolchain {
-        // Use JBR with JCEF for compilation (provides org.cef.* classes)
-        // Set to 21 to match JBR 21; change to 25 if using JBR 25
+        // Use Zulu for development with jcefmaven
+        // Change to JETBRAINS for production builds with JBR+JCEF
         languageVersion.set(JavaLanguageVersion.of(21))
-        vendor.set(JvmVendorSpec.JETBRAINS)
+        vendor.set(JvmVendorSpec.AZUL)
     }
 }
 
@@ -135,8 +135,11 @@ dependencies {
     // File watching - native recursive directory watching
     implementation("io.methvin:directory-watcher:0.18.0")
 
-    // JCEF is provided by JBR (JetBrains Runtime) with JCEF variant - no dependency needed
+    // JCEF is provided by JBR (JetBrains Runtime) with JCEF variant
     // The jcef module is bundled with JBR and provides org.cef.* classes
+    // jcefmaven is used for development (auto-downloads JCEF binaries)
+    // In production jDeploy builds, jcefmaven is stripped via .jdpignore
+    implementation("me.friwi:jcefmaven:122.1.10")
 
     // Testing
     testImplementation(platform(libs.junit.bom))
