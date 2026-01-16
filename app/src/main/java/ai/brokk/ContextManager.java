@@ -1345,17 +1345,10 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         lowMemoryWatcherManager.close();
 
-        var periodicTasksFuture = CompletableFuture.runAsync(() -> {
-            periodicTasks.shutdown();
-            try {
-                if (!periodicTasks.awaitTermination(awaitMillis, TimeUnit.MILLISECONDS)) {
-                    periodicTasks.shutdownNow();
-                }
-            } catch (InterruptedException e) {
-                periodicTasks.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
-        });
+        var periodicTasksFuture = new LoggingExecutorService(
+                periodicTasks,
+                th -> GlobalExceptionHandler.handle(th, st -> {})
+        ).shutdownAndAwait(awaitMillis, "periodicTasks");
 
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
