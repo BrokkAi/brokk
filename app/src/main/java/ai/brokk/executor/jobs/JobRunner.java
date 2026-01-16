@@ -166,9 +166,7 @@ public final class JobRunner {
                         (mode == Mode.ARCHITECT || mode == Mode.LUTZ || mode == Mode.ISSUE)
                                 ? (trimmedCodeModelName != null
                                         ? resolveModelOrThrow(
-                                                trimmedCodeModelName,
-                                                spec.reasoningLevelCode(),
-                                                spec.temperatureCode())
+                                                trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
                                         : defaultCodeModel(spec))
                                 : null;
                 final StreamingChatModel reviewPlannerModel = mode == Mode.REVIEW
