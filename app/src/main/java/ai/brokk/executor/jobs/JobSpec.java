@@ -28,7 +28,10 @@ public record JobSpec(
         @JsonProperty("reasoningLevel") @Nullable String reasoningLevel,
         @JsonProperty("reasoningLevelCode") @Nullable String reasoningLevelCode,
         @JsonProperty("temperature") @Nullable Double temperature,
-        @JsonProperty("temperatureCode") @Nullable Double temperatureCode) {
+        @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
+        @JsonProperty("maxIssueFixAttempts") int maxIssueFixAttempts) {
+
+    public static final int DEFAULT_MAX_ISSUE_FIX_ATTEMPTS = 5;
 
     public record ModelOverrides(
             @Nullable String reasoningLevel,
@@ -63,7 +66,21 @@ public record JobSpec(
      */
     public static JobSpec of(String taskInput, String plannerModel) {
         return new JobSpec(
-                taskInput, true, true, plannerModel, null, null, false, Map.of(), null, null, null, null, null, null);
+                taskInput,
+                true,
+                true,
+                plannerModel,
+                null,
+                null,
+                false,
+                Map.of(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 
     /**
@@ -91,7 +108,8 @@ public record JobSpec(
                 null,
                 null,
                 null,
-                null);
+                null,
+                DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 
     /**
@@ -108,6 +126,26 @@ public record JobSpec(
             String repo,
             int issueNumber,
             String buildSettingsJson) {
+        return ofIssue(
+                plannerModel,
+                codeModel,
+                githubToken,
+                owner,
+                repo,
+                issueNumber,
+                buildSettingsJson,
+                DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
+    }
+
+    public static JobSpec ofIssue(
+            String plannerModel,
+            @Nullable String codeModel,
+            String githubToken,
+            String owner,
+            String repo,
+            int issueNumber,
+            String buildSettingsJson,
+            int maxIssueFixAttempts) {
         return new JobSpec(
                 "",
                 false,
@@ -128,7 +166,8 @@ public record JobSpec(
                 null,
                 null,
                 null,
-                null);
+                null,
+                maxIssueFixAttempts);
     }
 
     /**
@@ -158,7 +197,8 @@ public record JobSpec(
                 null,
                 reasoningLevelCode,
                 null,
-                null);
+                null,
+                DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 
     /**
@@ -188,7 +228,8 @@ public record JobSpec(
                 overrides != null ? overrides.reasoningLevel() : null,
                 overrides != null ? overrides.reasoningLevelCode() : null,
                 overrides != null ? overrides.temperature() : null,
-                overrides != null ? overrides.temperatureCode() : null);
+                overrides != null ? overrides.temperatureCode() : null,
+                DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 
     /**
@@ -220,7 +261,8 @@ public record JobSpec(
                 null,
                 reasoningLevelCode,
                 null,
-                null);
+                null,
+                DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 
     @JsonIgnore

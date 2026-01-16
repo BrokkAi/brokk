@@ -92,6 +92,7 @@ class JobRunnerIssueModeTest {
         assertEquals("{\"buildLintCommand\":\"./gradlew build\"}", spec.getBuildSettingsJson());
         assertEquals("gpt-4", spec.plannerModel());
         assertEquals("gpt-4-mini", spec.codeModel());
+        assertEquals(5, spec.maxIssueFixAttempts());
     }
 
     @Test
@@ -146,7 +147,7 @@ class JobRunnerIssueModeTest {
 
     @Test
     void testJobStoreCreatesIssueJob() throws Exception {
-        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "{}");
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "{}", 7);
 
         String idempotencyKey = "issue-job-test";
         var result = store.createOrGetJob(idempotencyKey, spec);
@@ -161,9 +162,24 @@ class JobRunnerIssueModeTest {
         assertNotNull(status);
         assertEquals("QUEUED", status.state());
 
+        JobSpec persistedSpec = store.loadSpec(result.jobId());
+        assertNotNull(persistedSpec);
+        assertEquals(7, persistedSpec.maxIssueFixAttempts());
+
         // Verify idempotency: same key returns same job
         var secondResult = store.createOrGetJob(idempotencyKey, spec);
         assertFalse(secondResult.isNewJob());
         assertEquals(result.jobId(), secondResult.jobId());
+    }
+
+    @Test
+    void testJobStorePersistsDefaultMaxIssueFixAttempts() throws Exception {
+        JobSpec spec = JobSpec.ofIssue("gpt-4", null, "token", "owner", "repo", 42, "{}");
+
+        var result = store.createOrGetJob("issue-job-default-attempts", spec);
+
+        JobSpec persistedSpec = store.loadSpec(result.jobId());
+        assertNotNull(persistedSpec);
+        assertEquals(JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS, persistedSpec.maxIssueFixAttempts());
     }
 }
