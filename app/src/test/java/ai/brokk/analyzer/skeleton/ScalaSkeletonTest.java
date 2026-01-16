@@ -1,6 +1,7 @@
 package ai.brokk.analyzer.skeleton;
 
 import static ai.brokk.testutil.AnalyzerCreator.createTreeSitterAnalyzer;
+import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -40,13 +41,13 @@ public class ScalaSkeletonTest {
 
             AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.Foo")
                     .ifPresentOrElse(
-                            source -> assertEquals(
+                            source -> assertCodeEquals(
                                     """
                                             class Foo() {
-                                              val field1: String = "Test";
+                                              val field1: String = "Test"
                                               val multiLineField: String = "
                                                     das
-                                                    ";
+                                                    "
                                               private def foo1(): Int = {...}
                                             }
                                             """
@@ -75,13 +76,12 @@ public class ScalaSkeletonTest {
 
             AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.GenericFoo")
                     .ifPresentOrElse(
-                            source -> assertEquals(
+                            source -> assertCodeEquals(
                                     """
                                             class GenericFoo[R]() {
                                               def genericMethod[T](arg: T): T = {...}
                                             }
-                                            """
-                                            .strip(),
+                                            """,
                                     source),
                             () -> fail("Could not find source code for 'GenericFoo'!"));
         }
@@ -108,13 +108,12 @@ public class ScalaSkeletonTest {
 
             AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.ImplicitFoo")
                     .ifPresentOrElse(
-                            source -> assertEquals(
+                            source -> assertCodeEquals(
                                     """
                                             class ImplicitFoo() {
                                               def implicitMethod(arg: Int)(implicit ec: ExecutionContext): String = {...}
                                             }
-                                            """
-                                            .strip(),
+                                            """,
                                     source),
                             () -> fail("Could not find source code for 'ImplicitFoo'!"));
         }
@@ -142,17 +141,16 @@ public class ScalaSkeletonTest {
             AnalyzerUtil.getSkeleton(analyzer, "ai.brokk.WhitespaceClass")
                     .ifPresentOrElse(
                             // Note in the following, Scala 2 braces are used
-                            source -> assertEquals(
+                            source -> assertCodeEquals(
                                     """
                                             class WhitespaceClass {
                                               val s = ""\"
                                                   line 1
                                                     line 2
-                                                ""\";
-                                              val i = 2;
+                                                ""\"
+                                              val i = 2
                                             }
-                                            """
-                                            .strip(),
+                                            """,
                                     source),
                             () -> fail("Could not find source code for 'WhitespaceClass'!"));
         }
