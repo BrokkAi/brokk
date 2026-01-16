@@ -3,11 +3,15 @@ package ai.brokk.executor.jobs;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.agents.BuildAgent;
+import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestGitRepo;
 import ai.brokk.util.Json;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.eclipse.jgit.api.Git;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -181,5 +185,61 @@ class JobRunnerIssueModeTest {
         JobSpec persistedSpec = store.loadSpec(result.jobId());
         assertNotNull(persistedSpec);
         assertEquals(JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS, persistedSpec.maxIssueFixAttempts());
+    }
+
+    @Test
+    void testPrePrGateExhaustsAttemptsBlocksPrCreation() {
+        var prCreated = new AtomicBoolean(false);
+        var fixCalls = new AtomicInteger(0);
+
+        var io = new TestConsoleIO();
+        var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
+
+        assertThrows(IssueExecutionException.class, () -> {
+            JobRunner.runPrePrGateWithFixRetryLoop(
+                    "job-1",
+                    store,
+                    io,
+                    details,
+                    3,
+                    cmd -> cmd.contains("testAll") ? "tests failed" : "lint failed",
+                    prompt -> fixCalls.incrementAndGet());
+            prCreated.set(true);
+        });
+
+        assertFalse(prCreated.get());
+        assertEquals(2, fixCalls.get());
+    }
+
+    @Test
+    void testPrePrGateSucceedsAfterFixAllowsPrCreation() {
+        var prCreated = new AtomicBoolean(false);
+        var fixCalls = new AtomicInteger(0);
+
+        var io = new TestConsoleIO();
+        var details = new BuildAgent.BuildDetails("./lint", "./testAll", "", Set.of());
+
+        var testCmdCalls = new AtomicInteger(0);
+
+        assertDoesNotThrow(() -> {
+            JobRunner.runPrePrGateWithFixRetryLoop(
+                    "job-2",
+                    store,
+                    io,
+                    details,
+                    5,
+                    cmd -> {
+                        if (cmd.contains("testAll")) {
+                            int attempt = testCmdCalls.incrementAndGet();
+                            return attempt == 1 ? "tests failed on attempt 1" : "";
+                        }
+                        return "";
+                    },
+                    prompt -> fixCalls.incrementAndGet());
+            prCreated.set(true);
+        });
+
+        assertTrue(prCreated.get());
+        assertEquals(1, fixCalls.get());
     }
 }

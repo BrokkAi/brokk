@@ -33,6 +33,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.eclipse.jgit.api.errors.GitAPIException;
@@ -903,6 +905,35 @@ public final class JobRunner {
                                                     }
                                                 }
 
+                                                runPrePrGateWithFixRetryLoop(
+                                                        jobId,
+                                                        store,
+                                                        cm.getIo(),
+                                                        buildDetailsOverride,
+                                                        spec.maxIssueFixAttempts(),
+                                                        cmd -> {
+                                                            try {
+                                                                return BuildAgent.runExplicitCommand(
+                                                                        cm, cmd, buildDetailsOverride);
+                                                            } catch (InterruptedException e) {
+                                                                Thread.currentThread().interrupt();
+                                                                return "Interrupted while running command: " + cmd;
+                                                            }
+                                                        },
+                                                        prompt -> {
+                                                            try {
+                                                                cm.executeTask(
+                                                                        TaskList.TaskItem.createFixTask(prompt),
+                                                                        architectPlannerModel,
+                                                                        architectCodeModel);
+                                                            } catch (InterruptedException e) {
+                                                                Thread.currentThread().interrupt();
+                                                                throw new IssueExecutionException(
+                                                                        "Interrupted while attempting to fix pre-PR gate failure",
+                                                                        e);
+                                                            }
+                                                        });
+
                                                 // 5. Commit and Create Pull Request
                                                 var workflow = new GitWorkflow(cm);
                                                 workflow.performAutoCommit(
@@ -1358,5 +1389,119 @@ public final class JobRunner {
             return throwable.getClass().getSimpleName();
         }
         return throwable.getClass().getSimpleName() + ": " + message;
+    }
+
+    static void runPrePrGateWithFixRetryLoop(
+            String jobId,
+            JobStore store,
+            IConsoleIO io,
+            BuildAgent.BuildDetails buildDetailsOverride,
+            int maxAttempts,
+            Function<String, String> commandRunner,
+            Consumer<String> fixTaskRunner) {
+        if (maxAttempts < 1) {
+            throw new IssueExecutionException("maxIssueFixAttempts must be >= 1");
+        }
+
+        String testCmd = buildDetailsOverride.testAllCommand();
+        String lintCmd = buildDetailsOverride.buildLintCommand();
+
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            var startMsg =
+                    "Pre-PR gate attempt " + attempt + "/" + maxAttempts + ": running full tests and full lint...";
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, startMsg);
+            } catch (Throwable ignore) {
+                // best-effort only
+            }
+            try {
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", startMsg));
+            } catch (IOException ioe) {
+                logger.warn(
+                        "Failed to append pre-PR gate start notification event for job {}: {}",
+                        jobId,
+                        ioe.getMessage(),
+                        ioe);
+            }
+
+            String testOut;
+            if (testCmd.isBlank()) {
+                testOut = "No testAllCommand configured";
+            } else {
+                testOut = commandRunner.apply(testCmd);
+            }
+
+            String lintOut;
+            if (lintCmd.isBlank()) {
+                lintOut = "No buildLintCommand configured";
+            } else {
+                lintOut = commandRunner.apply(lintCmd);
+            }
+
+            boolean testsPassed = testOut.isBlank();
+            boolean lintPassed = lintOut.isBlank();
+
+            var resultMsg = "Pre-PR gate attempt " + attempt + "/" + maxAttempts + " results: tests="
+                    + (testsPassed ? "PASS" : "FAIL") + ", lint=" + (lintPassed ? "PASS" : "FAIL");
+            try {
+                io.showNotification(IConsoleIO.NotificationRole.INFO, resultMsg);
+            } catch (Throwable ignore) {
+                // best-effort only
+            }
+            try {
+                store.appendEvent(jobId, JobEvent.of("NOTIFICATION", resultMsg));
+            } catch (IOException ioe) {
+                logger.warn(
+                        "Failed to append pre-PR gate results notification event for job {}: {}",
+                        jobId,
+                        ioe.getMessage(),
+                        ioe);
+            }
+
+            if (testsPassed && lintPassed) {
+                return;
+            }
+
+            if (attempt == maxAttempts) {
+                var failureParts = new java.util.ArrayList<String>();
+                if (!testsPassed) {
+                    failureParts.add("Tests failed (" + (testCmd.isBlank() ? "testAllCommand" : testCmd) + "):\n"
+                            + testOut);
+                }
+                if (!lintPassed) {
+                    failureParts.add("Lint failed (" + (lintCmd.isBlank() ? "buildLintCommand" : lintCmd) + "):\n"
+                            + lintOut);
+                }
+
+                String failedDetails = failureParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", failureParts);
+
+                throw new IssueExecutionException(
+                        "Pre-PR gate failed after " + maxAttempts + " attempt(s):\n\n" + failedDetails);
+            }
+
+            var fixParts = new java.util.ArrayList<String>();
+            if (!testsPassed) {
+                fixParts.add("Tests failed when running:\n"
+                        + (testCmd.isBlank() ? "(no testAllCommand configured)" : testCmd)
+                        + "\n\nOutput:\n"
+                        + testOut);
+            }
+            if (!lintPassed) {
+                fixParts.add("Lint failed when running:\n"
+                        + (lintCmd.isBlank() ? "(no buildLintCommand configured)" : lintCmd)
+                        + "\n\nOutput:\n"
+                        + lintOut);
+            }
+
+            String fixPrompt = fixParts.isEmpty() ? "Unknown pre-PR gate failure" : String.join("\n\n", fixParts);
+
+            String fullFixPrompt =
+                    "Pre-PR gate failed (attempt " + attempt + "/" + maxAttempts + ").\n\n" + fixPrompt
+                            + "\n\nPlease fix the issues so that BOTH full tests and full lint pass.";
+
+            fixTaskRunner.accept(fullFixPrompt);
+        }
+
+        throw new IssueExecutionException("Pre-PR gate failed unexpectedly");
     }
 }
