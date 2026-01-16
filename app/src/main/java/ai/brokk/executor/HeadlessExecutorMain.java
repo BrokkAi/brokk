@@ -1621,7 +1621,8 @@ public final class HeadlessExecutorMain {
             @Nullable String githubToken,
             @Nullable String plannerModel,
             @Nullable String codeModel,
-            @Nullable Map<String, Object> buildSettings) {}
+            @Nullable Map<String, Object> buildSettings,
+            @Nullable Integer maxIssueFixAttempts) {}
 
     /**
      * POST /v1/jobs/issue - Convenience endpoint for starting an ISSUE mode job.
@@ -1665,6 +1666,17 @@ public final class HeadlessExecutorMain {
                 return;
             }
 
+            int maxAttempts;
+            if (request.maxIssueFixAttempts() == null) {
+                maxAttempts = JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS;
+            } else {
+                maxAttempts = request.maxIssueFixAttempts();
+                if (maxAttempts <= 0) {
+                    sendValidationError(exchange, "maxIssueFixAttempts must be a positive integer");
+                    return;
+                }
+            }
+
             String buildSettingsJson = "";
             if (request.buildSettings() != null) {
                 buildSettingsJson = OBJECT_MAPPER.writeValueAsString(request.buildSettings());
@@ -1677,7 +1689,8 @@ public final class HeadlessExecutorMain {
                     Objects.requireNonNull(request.owner()),
                     Objects.requireNonNull(request.repo()),
                     request.issueNumber(),
-                    buildSettingsJson);
+                    buildSettingsJson,
+                    maxAttempts);
 
             // Create or get job
             var createResult = jobStore.createOrGetJob(idempotencyKey, jobSpec);

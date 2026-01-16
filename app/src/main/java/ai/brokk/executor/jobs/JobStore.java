@@ -103,7 +103,8 @@ public final class JobStore {
                 spec.reasoningLevel(),
                 spec.reasoningLevelCode(),
                 spec.temperature(),
-                spec.temperatureCode());
+                spec.temperatureCode(),
+                spec.maxIssueFixAttempts());
         objectMapper.writeValue(tempMetaFile.toFile(), specForPersistence);
         Files.move(tempMetaFile, metaFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
 

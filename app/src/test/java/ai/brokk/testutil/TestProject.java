@@ -24,6 +24,8 @@ public class TestProject implements IProject {
     private final Path root;
     private final Language language;
 
+    private long runCommandTimeoutSeconds = 0L;
+
     private volatile CompletableFuture<BuildAgent.BuildDetails> detailsFuture =
             CompletableFuture.completedFuture(BuildAgent.BuildDetails.EMPTY);
     private BuildAgent.BuildDetails buildDetails = BuildAgent.BuildDetails.EMPTY;
@@ -164,6 +166,15 @@ public class TestProject implements IProject {
     @Override
     public Language getBuildLanguage() {
         return language;
+    }
+
+    @Override
+    public long getRunCommandTimeoutSeconds() {
+        return runCommandTimeoutSeconds;
+    }
+
+    public void setRunCommandTimeoutSeconds(long seconds) {
+        this.runCommandTimeoutSeconds = seconds;
     }
 
     @Override

@@ -43,10 +43,12 @@ public class TestConsoleIO implements IConsoleIO {
                 streamingAiMessage.setLength(0);
             }
             streamingAiMessage.append(token);
+            outputLog.append(token);
         } else if (type == ChatMessageType.CUSTOM) {
             finishStreamingAiMessage();
             // Use AiMessage for status updates in tests, as TaskEntry formatting knows how to handle it.
             llmRawMessages.add(new AiMessage(token));
+            outputLog.append(token);
         }
     }
 

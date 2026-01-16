@@ -393,7 +393,7 @@ When you submit an ISSUE job, the system follows these steps:
 4. **Execution & Verification Loop**: For each generated task:
     - **Implementation**: ArchitectAgent implements the task using `plannerModel` and `codeModel`.
     - **Build Verification**: Runs the project's build/lint command.
-    - **Self-Correction**: If the build fails, the system automatically attempts to fix the errors (up to 3 attempts per task) before proceeding.
+    - **Self-Correction**: If the build fails, the system automatically attempts to fix the errors (up to `buildSettings.maxBuildAttempts` attempts per task) before proceeding.
 5. **Completion & PR**: Upon successful verification of all tasks, the system:
     - Commits the changes with an automated message (e.g., `Resolves #42: ...`).
     - Pushes the branch to the remote.
@@ -418,6 +418,18 @@ ISSUE mode requires:
 - `codeModel` (optional): The LLM model for code generation; defaults to project default.
 - GitHub Issue metadata: `github_token`, `repo_owner`, `repo_name`, `issue_number`.
 - `buildSettings` (optional): JSON object defining how to verify the project (see below).
+- `maxIssueFixAttempts` (optional): Overall ISSUE workflow attempt budget (job-level cap). After it is exhausted, the executor stops and does not create a PR. Default: 5.
+
+### Retry limits: per-task vs overall
+
+ISSUE mode has two retry limits: one for repeating build verification for a single task, and one for how many times the overall ISSUE workflow will try before giving up.
+
+| Setting | What it limits | Default |
+|---------|----------------|---------|
+| `buildSettings.maxBuildAttempts` | Per task: how many times to rerun build/lint/test for that task after attempting fixes when verification fails. | 3 |
+| `maxIssueFixAttempts` | Overall: how many ISSUE attempts the job is allowed before stopping (no PR is created after this is exhausted). | 5 |
+
+Example: if `maxBuildAttempts=3` and `maxIssueFixAttempts=5`, each task can retry verification up to 3 times, but the job will stop entirely after 5 overall ISSUE attempts.
 
 ### Build Settings Structure
 
@@ -429,7 +441,7 @@ The `buildSettings` object configures how Brokk verifies its changes. If provide
 | `testAllCommand` | String | Command to run the full test suite. |
 | `testSomeCommand` | String | Command to run specific tests. |
 | `environmentVariables` | Map | Key-value pairs of environment variables required for the build. |
-| `maxBuildAttempts` | Integer (optional) | Maximum number of build verification attempts per task (default: 3). |
+| `maxBuildAttempts` | Integer (optional) | Maximum number of build verification attempts per task (default: 3). This controls the per-task build verification retry loop. |
 
 ### Example: Using the Convenience Endpoint
 
@@ -448,6 +460,7 @@ curl -sS -X POST "http://localhost:8080/v1/jobs/issue" \
   "githubToken": "ghp_xxxxxxxxxxxx",
   "plannerModel": "gpt-4o",
   "codeModel": "gpt-4o",
+  "maxIssueFixAttempts": 5,
   "buildSettings": {
     "buildLintCommand": "./gradlew classes",
     "environmentVariables": {
@@ -506,7 +519,9 @@ Once running, the executor exposes the following endpoints:
 
 - **`POST /v1/jobs`** - Create and execute a job
   - Requires `Idempotency-Key` header for safe retries
-  - Body: `JobSpec` JSON with task input and execution mode (ARCHITECT, LUTZ, ASK, SEARCH, CODE, or REVIEW)
+  - Body: Job JSON accepted by the headless API. Most fields correspond to persisted `JobSpec`, but:
+    - `sessionId` exists in the request body and is used to select the active session; it is not persisted in `JobSpec` (it may be copied into tags as `session_id`).
+    - `sourceBranch` / `targetBranch` are persisted/reserved `JobSpec` fields but are not currently accepted by `POST /v1/jobs` (they will always be null when jobs are created via this endpoint).
   - Returns: `{ "jobId": "<uuid>", "state": "running", ... }`
   - **SEARCH mode**: Set `"tags": { "mode": "SEARCH" }` to run a read-only repository scan. Optionally include `"scanModel": "<model>"` to override the default scan model used for repository scanning. `plannerModel` is still required by the API for validation.
   - **ASK mode**: Set `"tags": { "mode": "ASK" }` for ad-hoc read-only searches (uses service default scan model unless otherwise configured).
