@@ -201,7 +201,7 @@ public class Decompiler {
                 usedSources = true;
             } else {
                 logger.info("No sources JAR found, decompiling {}", jarPath);
-                decompileBlocking(jarPath, outputDir);
+                runFernflower(jarPath, outputDir);
                 usedSources = false;
             }
 
@@ -214,36 +214,14 @@ public class Decompiler {
         }
     }
 
-    private static void decompileBlocking(Path jarPath, Path outputDir) throws IOException {
+    private static void runFernflower(Path jarPath, Path outputDir) throws IOException {
         Path tempDir = null;
         try {
             tempDir = Files.createTempDirectory("fernflower-extracted-");
             extractJarToTemp(jarPath, tempDir);
 
             Map<String, Object> options = Map.of("hes", "1", "hdc", "1", "dgs", "1", "ren", "1");
-            var decompiler = new ConsoleDecompiler(outputDir.toFile(), options, new IFernflowerLogger() {
-                @Override
-                public void writeMessage(String message, Severity severity) {
-                    switch (severity) {
-                        case ERROR -> logger.error("Fernflower: {}", message);
-                        case WARN -> logger.warn("Fernflower: {}", message);
-                        case INFO -> logger.info("Fernflower: {}", message);
-                        case TRACE -> logger.trace("Fernflower: {}", message);
-                        default -> logger.debug("Fernflower: {}", message);
-                    }
-                }
-
-                @Override
-                public void writeMessage(String message, Severity severity, Throwable t) {
-                    switch (severity) {
-                        case ERROR -> logger.error("Fernflower: {}", message, t);
-                        case WARN -> logger.warn("Fernflower: {}", message, t);
-                        case INFO -> logger.info("Fernflower: {}", message, t);
-                        case TRACE -> logger.trace("Fernflower: {}", message, t);
-                        default -> logger.debug("Fernflower: {}", message, t);
-                    }
-                }
-            });
+            var decompiler = new ConsoleDecompiler(outputDir.toFile(), options, createFernflowerLogger());
 
             decompiler.addSource(tempDir.toFile());
             decompiler.decompileContext();
@@ -256,6 +234,32 @@ public class Decompiler {
                 }
             }
         }
+    }
+
+    private static IFernflowerLogger createFernflowerLogger() {
+        return new IFernflowerLogger() {
+            @Override
+            public void writeMessage(String message, Severity severity) {
+                switch (severity) {
+                    case ERROR -> logger.error("Fernflower: {}", message);
+                    case WARN -> logger.warn("Fernflower: {}", message);
+                    case INFO -> logger.info("Fernflower: {}", message);
+                    case TRACE -> logger.trace("Fernflower: {}", message);
+                    default -> logger.debug("Fernflower: {}", message);
+                }
+            }
+
+            @Override
+            public void writeMessage(String message, Severity severity, Throwable t) {
+                switch (severity) {
+                    case ERROR -> logger.error("Fernflower: {}", message, t);
+                    case WARN -> logger.warn("Fernflower: {}", message, t);
+                    case INFO -> logger.info("Fernflower: {}", message, t);
+                    case TRACE -> logger.trace("Fernflower: {}", message, t);
+                    default -> logger.debug("Fernflower: {}", message, t);
+                }
+            }
+        };
     }
 
     private static int countJavaFiles(Path dir) {
@@ -308,55 +312,13 @@ public class Decompiler {
         return true;
     }
 
-    private static void decompile(Chrome io, Path jarPath, Path outputDir) throws Exception {
+    private static void decompile(Chrome io, Path jarPath, Path outputDir) throws IOException {
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Decompiling " + jarPath.getFileName() + "...");
         logger.debug("Starting decompilation in background thread for {}", jarPath);
-        Path tempDir = null;
-
-        try {
-            tempDir = Files.createTempDirectory("fernflower-extracted-");
-            extractJarToTemp(jarPath, tempDir);
-
-            Map<String, Object> options = Map.of("hes", "1", "hdc", "1", "dgs", "1", "ren", "1");
-            ConsoleDecompiler decompiler = new ConsoleDecompiler(outputDir.toFile(), options, new IFernflowerLogger() {
-                @Override
-                public void writeMessage(String message, Severity severity) {
-                    switch (severity) {
-                        case ERROR -> logger.error("Fernflower: {}", message);
-                        case WARN -> logger.warn("Fernflower: {}", message);
-                        case INFO -> logger.info("Fernflower: {}", message);
-                        case TRACE -> logger.trace("Fernflower: {}", message);
-                        default -> logger.debug("Fernflower: {}", message);
-                    }
-                }
-
-                @Override
-                public void writeMessage(String message, Severity severity, Throwable t) {
-                    switch (severity) {
-                        case ERROR -> logger.error("Fernflower: {}", message, t);
-                        case WARN -> logger.warn("Fernflower: {}", message, t);
-                        case INFO -> logger.info("Fernflower: {}", message, t);
-                        case TRACE -> logger.trace("Fernflower: {}", message, t);
-                        default -> logger.debug("Fernflower: {}", message, t);
-                    }
-                }
-            });
-
-            decompiler.addSource(tempDir.toFile());
-            decompiler.decompileContext();
-
-            io.showNotification(
-                    IConsoleIO.NotificationRole.INFO,
-                    "Decompilation completed. Reopen project to incorporate the new source files.");
-        } finally {
-            if (tempDir != null) {
-                try {
-                    deleteDirectoryRecursive(tempDir);
-                } catch (IOException e) {
-                    logger.error("Failed to delete temporary directory: {}", tempDir, e);
-                }
-            }
-        }
+        runFernflower(jarPath, outputDir);
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Decompilation completed. Reopen project to incorporate the new source files.");
     }
 
     public static void extractJarToTemp(Path jarPath, Path targetDir) throws IOException {

@@ -42,9 +42,8 @@ public class LutzAgent extends SearchAgent {
             ScanConfig scanConfig) {
         super(initialContext, goal, model, scope, io, scanConfig);
         this.objective = objective;
-        this.depTools = DependencyTools.isSupported(cm.getProject())
-                ? Optional.of(new DependencyTools(cm))
-                : Optional.empty();
+        this.depTools =
+                DependencyTools.isSupported(cm.getProject()) ? Optional.of(new DependencyTools(cm)) : Optional.empty();
     }
 
     /**
