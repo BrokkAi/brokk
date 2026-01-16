@@ -488,7 +488,6 @@ public class Helper {
         }
     }
 
-
     public static final Set<PosixFilePermission> parsePerms(int perms) {
         final char[] ds = Integer.toString(perms).toCharArray();
         final char[] ss = {'-', '-', '-', '-', '-', '-', '-', '-', '-'};

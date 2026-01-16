@@ -23,12 +23,7 @@ public class DependencyToolsTest {
         var cm = new TestContextManager(new TestProject(tempDir));
         var tools = new DependencyTools(cm);
 
-        String[] invalidInputs = {
-            "",
-            "justgroup",
-            "too:many:parts:here:extra",
-            "  "
-        };
+        String[] invalidInputs = {"", "justgroup", "too:many:parts:here:extra", "  "};
 
         for (String input : invalidInputs) {
             String result = tools.importMavenDependency(input);
@@ -58,7 +53,8 @@ public class DependencyToolsTest {
         String result = tools.importMavenDependency("org.example:lib:1.2.3");
 
         assertEquals("org.example:lib:1.2.3", recordedCoords.get());
-        String expectedMessage = "Could not find artifact org.example:lib:1.2.3 on Maven Central. Check the coordinates and try again.";
+        String expectedMessage =
+                "Could not find artifact org.example:lib:1.2.3 on Maven Central. Check the coordinates and try again.";
         assertEquals(expectedMessage, result);
     }
 
@@ -89,7 +85,8 @@ public class DependencyToolsTest {
 
         assertEquals(1, resolveCount.get(), "Should resolve version exactly once");
         assertEquals("org.example:lib:2.0.0", recordedCoords.get());
-        String expectedMessage = "Could not find artifact org.example:lib:2.0.0 on Maven Central. Check the coordinates and try again.";
+        String expectedMessage =
+                "Could not find artifact org.example:lib:2.0.0 on Maven Central. Check the coordinates and try again.";
         assertEquals(expectedMessage, result);
     }
 
@@ -137,7 +134,8 @@ public class DependencyToolsTest {
 
             // Count Java files
             try (var walk = java.nio.file.Files.walk(artifactDir)) {
-                long javaFiles = walk.filter(p -> p.toString().endsWith(".java")).count();
+                long javaFiles =
+                        walk.filter(p -> p.toString().endsWith(".java")).count();
                 assertTrue(javaFiles > 0, "Should have extracted Java files, found: " + javaFiles);
             }
         }

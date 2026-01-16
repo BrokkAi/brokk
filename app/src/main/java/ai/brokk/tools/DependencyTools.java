@@ -7,9 +7,10 @@ import ai.brokk.project.IProject;
 import ai.brokk.util.Decompiler;
 import ai.brokk.util.DownloadProgressListener;
 import ai.brokk.util.MavenArtifactFetcher;
-import java.util.concurrent.TimeUnit;
+import com.google.common.base.Splitter;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
+import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -78,15 +79,15 @@ public class DependencyTools {
         checkInterrupted();
 
         // Parse coordinates
-        var parts = coordinates.split(":");
-        if (parts.length < 2 || parts.length > 3) {
+        var parts = Splitter.on(':').splitToList(coordinates);
+        if (parts.size() < 2 || parts.size() > 3) {
             logger.warn("Invalid coordinates format: {}", coordinates);
             return "Invalid coordinates format. Expected 'groupId:artifactId' or 'groupId:artifactId:version'. "
                     + "Examples: 'com.google.guava:guava' or 'com.google.guava:guava:32.1.2-jre'";
         }
 
-        var groupId = parts[0].trim();
-        var artifactId = parts[1].trim();
+        var groupId = parts.get(0).trim();
+        var artifactId = parts.get(1).trim();
 
         if (groupId.isEmpty() || artifactId.isEmpty()) {
             logger.warn("Invalid coordinates (empty groupId or artifactId): {}", coordinates);
@@ -96,22 +97,24 @@ public class DependencyTools {
 
         String version;
 
-        if (parts.length == 3) {
-            version = parts[2].trim();
+        if (parts.size() == 3) {
+            version = parts.get(2).trim();
             if (version.isEmpty()) {
                 return "Invalid coordinates: version cannot be empty";
             }
             logger.debug("Using provided version: {}", version);
         } else {
             // Resolve latest version from Maven Central
-            io.showNotification(IConsoleIO.NotificationRole.INFO,
-                                "Resolving latest version for " + groupId + ":" + artifactId + "...");
+            io.showNotification(
+                    IConsoleIO.NotificationRole.INFO,
+                    "Resolving latest version for " + groupId + ":" + artifactId + "...");
             logger.info("Resolving latest version for {}:{} from Maven Central", groupId, artifactId);
             var latestOpt = fetcher.resolveLatestVersion(groupId, artifactId);
             if (latestOpt.isEmpty()) {
                 logger.warn("Could not resolve latest version for {}:{}", groupId, artifactId);
-                return "Could not resolve latest version for %s:%s from Maven Central. "
-                        + "Try specifying an explicit version.".formatted(groupId, artifactId);
+                return ("Could not resolve latest version for %s:%s from Maven Central. "
+                                + "Try specifying an explicit version.")
+                        .formatted(groupId, artifactId);
             }
             version = latestOpt.get();
             logger.info("Resolved latest version: {}", version);
@@ -141,8 +144,9 @@ public class DependencyTools {
         checkInterrupted();
 
         // Decompile/extract to .brokk/dependencies/
-        io.showNotification(IConsoleIO.NotificationRole.INFO,
-                            "Importing " + artifactId + " (this may take a moment for large libraries)...");
+        io.showNotification(
+                IConsoleIO.NotificationRole.INFO,
+                "Importing " + artifactId + " (this may take a moment for large libraries)...");
         logger.info("Importing JAR to {}", projectRoot.resolve(".brokk/dependencies"));
         var resultOpt = Decompiler.decompileJarBlocking(jarPath, projectRoot, false);
         if (resultOpt.isEmpty()) {
@@ -165,7 +169,8 @@ public class DependencyTools {
             io.showNotification(IConsoleIO.NotificationRole.INFO, "Adding " + depName + " to Code Intelligence...");
             logger.debug("Adding {} to live dependencies...", depName);
             var analyzerWrapper = contextManager.getAnalyzerWrapper();
-            contextManager.getProject()
+            contextManager
+                    .getProject()
                     .addLiveDependency(depName, analyzerWrapper)
                     .orTimeout(60, TimeUnit.SECONDS)
                     .join();

@@ -65,8 +65,8 @@ public class MavenArtifactFetcher {
     }
 
     @SuppressWarnings("deprecation")
-    private static RepositorySystemSession newRepositorySystemSession(RepositorySystem system,
-                                                                       @Nullable DownloadProgressListener progressListener) {
+    private static RepositorySystemSession newRepositorySystemSession(
+            RepositorySystem system, @Nullable DownloadProgressListener progressListener) {
         var session = MavenRepositorySystemUtils.newSession();
         var localRepoPath = Path.of(System.getProperty("user.home"), ".m2", "repository");
         var localRepo = new LocalRepository(localRepoPath.toFile());
@@ -197,9 +197,8 @@ public class MavenArtifactFetcher {
             lastUpdateTime = now;
 
             var resource = event.getResource();
-            progressListener.onProgress(resource.getResourceName(),
-                                        event.getTransferredBytes(),
-                                        resource.getContentLength());
+            progressListener.onProgress(
+                    resource.getResourceName(), event.getTransferredBytes(), resource.getContentLength());
         }
 
         @Override
@@ -207,19 +206,19 @@ public class MavenArtifactFetcher {
             var resource = event.getResource();
             logger.info("Download complete for {}{}", resource.getRepositoryUrl(), resource.getResourceName());
             if (progressListener != null) {
-                progressListener.onProgress(resource.getResourceName(),
-                                            event.getTransferredBytes(),
-                                            event.getTransferredBytes());
+                progressListener.onProgress(
+                        resource.getResourceName(), event.getTransferredBytes(), event.getTransferredBytes());
             }
         }
 
         @Override
         public void transferFailed(TransferEvent event) {
             var resource = event.getResource();
-            logger.warn("Download failed for {}{}",
-                        resource.getRepositoryUrl(),
-                        resource.getResourceName(),
-                        event.getException());
+            logger.warn(
+                    "Download failed for {}{}",
+                    resource.getRepositoryUrl(),
+                    resource.getResourceName(),
+                    event.getException());
         }
     }
 }

@@ -22,7 +22,7 @@ class DecompilerTest {
     void decompileJarBlocking_OverwriteFalse_ReturnsExistingResult() throws IOException {
         Path projectRoot = tempDir.resolve("project");
         Files.createDirectories(projectRoot);
-        
+
         Path jarPath = tempDir.resolve("test-lib.jar");
         createDummyJar(jarPath);
 
