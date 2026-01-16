@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+#
+# Brokk wrapper script - runs the shadow JAR with required JVM flags
+#
+# Usage:
+#   ./brokkw [args...]              - Run latest shadow JAR, build if needed
+#   ./brokkw path/to/brokk.jar [args...] - Run specific JAR
+#
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIBS_DIR="$SCRIPT_DIR/app/build/libs"
+
+# JVM flags required for JCEF
+JVM_OPTS=(
+    "--add-opens=java.desktop/sun.awt=ALL-UNNAMED"
+    "--add-opens=java.desktop/java.awt.peer=ALL-UNNAMED"
+    "--add-opens=java.desktop/sun.lwawt=ALL-UNNAMED"
+    "--add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED"
+    "--enable-native-access=ALL-UNNAMED"
+    "-Dbrokk.servicetiers=true"
+    "-Dbrokk.architectshell=true"
+    "-Dwatch.service.polling=true"
+    "-Dbrokk.devmode=true"
+)
+
+# Check if first argument is a JAR file
+if [[ -n "$1" && "$1" == *.jar && -f "$1" ]]; then
+    JAR_PATH="$1"
+    shift
+else
+    # Find shadow JARs (exclude sources and javadoc)
+    find_latest_jar() {
+        find "$LIBS_DIR" -maxdepth 1 -name "brokk*.jar" \
+            ! -name "*-sources.jar" \
+            ! -name "*-javadoc.jar" \
+            -type f 2>/dev/null | \
+            xargs ls -t 2>/dev/null | \
+            head -1
+    }
+
+    JAR_PATH=$(find_latest_jar)
+
+    # If no JAR found, build it
+    if [[ -z "$JAR_PATH" ]]; then
+        echo "No shadow JAR found. Building with gradlew shadowJar..."
+        "$SCRIPT_DIR/gradlew" shadowJar -PenableShadowJar=true
+        JAR_PATH=$(find_latest_jar)
+    fi
+
+    if [[ -z "$JAR_PATH" ]]; then
+        echo "Error: Could not find or build shadow JAR" >&2
+        exit 1
+    fi
+fi
+
+echo "Running: $JAR_PATH"
+exec java "${JVM_OPTS[@]}" -jar "$JAR_PATH" "$@"

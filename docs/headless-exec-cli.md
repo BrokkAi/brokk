@@ -30,13 +30,18 @@ Build the shadow JAR containing the CLI:
 ./gradlew shadowJar
 ```
 
-Run directly:
+Run directly with required JVM flags:
 
 ```bash
-java -cp app/build/libs/brokk-<version>.jar ai.brokk.tools.HeadlessExecCli [options] <prompt>
+java --add-opens=java.desktop/sun.awt=ALL-UNNAMED \
+     --add-opens=java.desktop/java.awt.peer=ALL-UNNAMED \
+     --add-opens=java.desktop/sun.lwawt=ALL-UNNAMED \
+     --add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED \
+     --enable-native-access=ALL-UNNAMED \
+     -cp app/build/libs/brokk-<version>.jar ai.brokk.tools.HeadlessExecCli [options] <prompt>
 ```
 
-Or via Gradle:
+Or via Gradle (recommended for development):
 
 ```bash
 ./gradlew :app:runHeadlessCli --args "[options] <prompt>"
