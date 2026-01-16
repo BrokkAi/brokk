@@ -104,8 +104,6 @@ public final class PrReviewService {
 
     public static List<InlineComment> filterInlineComments(
             List<InlineComment> comments, Severity threshold, int maxComments) {
-        Objects.requireNonNull(comments, "comments");
-        Objects.requireNonNull(threshold, "threshold");
         if (maxComments < 0) {
             throw new IllegalArgumentException("maxComments must be >= 0");
         }
