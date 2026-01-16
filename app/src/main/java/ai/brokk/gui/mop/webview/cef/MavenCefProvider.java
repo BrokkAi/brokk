@@ -17,7 +17,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * <p>This provider is used in development when:
  * <ul>
- *   <li>Not running in jDeploy (no {@code jdeploy.app.path} property)</li>
+ *   <li>Not running in jDeploy (no {@code jdeploy.launcher.path} property)</li>
  *   <li>jcefmaven classes are available on the classpath</li>
  * </ul>
  *

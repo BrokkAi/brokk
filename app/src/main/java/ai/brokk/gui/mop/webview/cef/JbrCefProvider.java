@@ -23,7 +23,7 @@ import org.jetbrains.annotations.Nullable;
  * <ul>
  *   <li>The JVM is JBR with JCEF variant</li>
  *   <li>JCEF frameworks are bundled in the app</li>
- *   <li>The {@code jdeploy.app.path} system property is set</li>
+ *   <li>The {@code jdeploy.launcher.path} system property is set</li>
  * </ul>
  */
 public class JbrCefProvider implements CefAppProvider {
@@ -33,9 +33,9 @@ public class JbrCefProvider implements CefAppProvider {
     @Override
     public boolean isAvailable() {
         // Must be running in jDeploy
-        String appPath = System.getProperty("jdeploy.app.path");
-        if (appPath == null || appPath.isEmpty()) {
-            logger.debug("jdeploy.app.path not set, JBR provider not available");
+        String launcherPath = System.getProperty("jdeploy.launcher.path");
+        if (launcherPath == null || launcherPath.isEmpty()) {
+            logger.debug("jdeploy.launcher.path not set, JBR provider not available");
             return false;
         }
 
@@ -81,24 +81,24 @@ public class JbrCefProvider implements CefAppProvider {
     }
 
     /**
-     * Generates a short hash from the jdeploy.app.path to create unique cache directories.
+     * Generates a short hash from the jdeploy.launcher.path to create unique cache directories.
      */
     private String getAppPathHash() {
-        String appPath = System.getProperty("jdeploy.app.path");
-        if (appPath == null || appPath.isEmpty()) {
+        String launcherPath = System.getProperty("jdeploy.launcher.path");
+        if (launcherPath == null || launcherPath.isEmpty()) {
             return "default";
         }
 
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hash = md.digest(appPath.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = md.digest(launcherPath.getBytes(StandardCharsets.UTF_8));
             String hashStr = IntStream.range(0, 8)
                     .mapToObj(i -> String.format("%02x", hash[i]))
                     .collect(Collectors.joining());
-            logger.debug("Generated cache hash {} for app path: {}", hashStr, appPath);
+            logger.debug("Generated cache hash {} for launcher path: {}", hashStr, launcherPath);
             return hashStr;
         } catch (NoSuchAlgorithmException e) {
-            logger.warn("Failed to generate hash for app path", e);
+            logger.warn("Failed to generate hash for launcher path", e);
             return "default";
         }
     }
@@ -114,76 +114,58 @@ public class JbrCefProvider implements CefAppProvider {
             return appBundleFrameworks;
         }
 
-        // Fall back to JBR's bundled Frameworks
-        String javaHome = System.getProperty("java.home");
-        if (javaHome == null) {
-            return null;
-        }
-
-        Path javaHomePath = Paths.get(javaHome);
-
-        // Walk up from java.home looking for Contents/Frameworks
-        Path current = javaHomePath;
-        for (int i = 0; i < 6; i++) {
-            if (current.getFileName() != null
-                    && current.getFileName().toString().equals("Contents")) {
-                Path frameworks = current.resolve("Frameworks");
-                if (Files.exists(frameworks.resolve("Chromium Embedded Framework.framework"))) {
-                    logger.info("Found JBR Frameworks at {}", frameworks);
-                    return frameworks;
-                }
-            }
-            current = current.getParent();
-            if (current == null) break;
-        }
-
         return null;
     }
 
     /**
-     * Finds Frameworks directory in macOS app bundle.
+     * Finds Frameworks directory in macOS app bundle using jdeploy.launcher.path.
+     *
+     * <p>Supports two formats for the launcher path:
+     * <ul>
+     *   <li>Binary inside MacOS: {@code /path/to/App.app/Contents/MacOS/AppName}</li>
+     *   <li>App bundle directly: {@code /path/to/App.app}</li>
+     * </ul>
      */
     private static Path findAppBundleFrameworks() {
-        String userHome = System.getProperty("user.home");
-        if (userHome != null) {
-            Path userApps = Paths.get(userHome, "Applications");
-            Path appFrameworks = findFrameworksInAppDir(userApps);
-            if (appFrameworks != null) {
-                return appFrameworks;
-            }
-        }
-
-        Path systemApps = Paths.get("/Applications");
-        return findFrameworksInAppDir(systemApps);
-    }
-
-    /**
-     * Searches for Brokk*.app in the given directory.
-     */
-    private static Path findFrameworksInAppDir(Path appsDir) {
-        if (!Files.isDirectory(appsDir)) {
+        String launcherPath = System.getProperty("jdeploy.launcher.path");
+        if (launcherPath == null || launcherPath.isEmpty()) {
+            logger.debug("jdeploy.launcher.path not set, cannot find app bundle Frameworks");
             return null;
         }
 
-        try (var stream = Files.list(appsDir)) {
-            var brokkApps = stream.filter(p -> {
-                        String name = p.getFileName().toString();
-                        return name.startsWith("Brokk") && name.endsWith(".app");
-                    })
-                    .toList();
+        Path launcher = Paths.get(launcherPath);
 
-            for (Path appPath : brokkApps) {
-                Path frameworks = appPath.resolve("Contents/Frameworks");
-                if (Files.exists(frameworks.resolve("Chromium Embedded Framework.framework"))) {
+        // Case 1: Path is the .app bundle itself
+        if (launcherPath.endsWith(".app")) {
+            Path frameworks = launcher.resolve("Contents/Frameworks");
+            if (hasChromiumFramework(frameworks)) {
+                logger.info("Found app bundle Frameworks at {}", frameworks);
+                return frameworks;
+            }
+        }
+
+        // Case 2: Path is binary inside MacOS - walk up to find Contents/Frameworks
+        Path current = launcher;
+        for (int i = 0; i < 5; i++) {
+            current = current.getParent();
+            if (current == null) {
+                break;
+            }
+            if ("Contents".equals(current.getFileName().toString())) {
+                Path frameworks = current.resolve("Frameworks");
+                if (hasChromiumFramework(frameworks)) {
                     logger.info("Found app bundle Frameworks at {}", frameworks);
                     return frameworks;
                 }
             }
-        } catch (Exception e) {
-            logger.debug("Error searching for app bundles in {}: {}", appsDir, e.getMessage());
         }
 
+        logger.debug("Chromium Embedded Framework.framework not found from launcher path: {}", launcherPath);
         return null;
+    }
+
+    private static boolean hasChromiumFramework(Path frameworksDir) {
+        return Files.exists(frameworksDir.resolve("Chromium Embedded Framework.framework"));
     }
 
     /**
