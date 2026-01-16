@@ -184,7 +184,10 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
 
     /** Removes a reserved entry (used when loading fails). */
     public void removeReserved(K key) {
-        reservedKeys.remove(key);
+        // Align with tryReserve()/putReserved() locking to avoid visibility/ordering gaps.
+        synchronized (this) {
+            reservedKeys.remove(key);
+        }
     }
 
     /** Returns all cached values, excluding reserved (not yet loaded) entries. */
@@ -194,14 +197,19 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
     }
 
     public void clear() {
-        // Collect all values for disposal
-        var toDispose = new ArrayList<>(cache.values());
+        // Collect and clear under the same lock as tryReserve/putReserved to avoid
+        // a visibility/ordering gap with reservation state. Disposal must remain outside.
+        var toDispose = new ArrayList<V>();
+        synchronized (this) {
+            // Collect all values for disposal
+            toDispose.addAll(cache.values());
 
-        // Clear all data structures
-        cache.clear();
-        accessOrder.clear();
-        reservedKeys.clear();
-        currentSize.set(0);
+            // Clear all data structures
+            cache.clear();
+            accessOrder.clear();
+            reservedKeys.clear();
+            currentSize.set(0);
+        }
 
         // Dispose outside of clearing to avoid blocking other operations
         disposeDeferred(toDispose);
