@@ -1099,6 +1099,33 @@ public class BuildAgent {
     }
 
     /**
+     * Run a caller-specified command (intended for ISSUE-mode gates, but reusable), stream output to the console, and
+     * update the session's Build Results fragment.
+     *
+     * <p>Returns empty string on success (or when no command is configured), otherwise the raw combined error/output
+     * text.
+     */
+    @Blocking
+    public static String runExplicitCommand(IContextManager cm, String command, @Nullable BuildDetails override)
+            throws InterruptedException {
+        var interrupted = new AtomicReference<InterruptedException>(null);
+        var updated = cm.pushContext(ctx -> {
+            try {
+                return runExplicitCommand(ctx, command, override);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                interrupted.set(e);
+                return ctx;
+            }
+        });
+        var ie = interrupted.get();
+        if (ie != null) {
+            throw ie;
+        }
+        return updated.getBuildError();
+    }
+
+    /**
      * Context-based overload that performs build/check and returns an updated Context with the build results. No pushes
      * are performed here; callers decide when to persist.
      */
@@ -1137,6 +1164,40 @@ public class BuildAgent {
             }
         } else {
             return runBuildAndUpdateFragmentInternal(ctx, verificationCommand, override);
+        }
+    }
+
+    /**
+     * Context-based overload that performs a caller-specified command and returns an updated Context with the build
+     * results. No pushes are performed here; callers decide when to persist.
+     */
+    @Blocking
+    public static Context runExplicitCommand(Context ctx, String command, @Nullable BuildDetails override)
+            throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+
+        if (command.isBlank()) {
+            io.llmOutput("\nNo explicit command specified, skipping.", ChatMessageType.CUSTOM);
+            return ctx;
+        }
+
+        boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
+        if (noConcurrentBuilds) {
+            var lock = acquireBuildLock(cm);
+            if (lock == null) {
+                logger.warn("Failed to acquire build lock; proceeding without it");
+                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            }
+            try (var ignored = lock) {
+                logger.debug("Acquired build lock {}", lock.lockFile());
+                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            } catch (Exception e) {
+                logger.warn("Exception while using build lock {}; proceeding without it", lock.lockFile(), e);
+                return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
+            }
+        } else {
+            return runExplicitBuildAndUpdateFragmentInternal(ctx, command, override);
         }
     }
 
@@ -1226,6 +1287,43 @@ public class BuildAgent {
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
             io.llmOutput("\n```", ChatMessageType.CUSTOM); // Close the markdown block
+
+            String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
+            String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
+            return ctx.withBuildResult(false, processed);
+        }
+    }
+
+    private static Context runExplicitBuildAndUpdateFragmentInternal(
+            Context ctx, String command, @Nullable BuildDetails override) throws InterruptedException {
+        var cm = ctx.getContextManager();
+        var io = cm.getIo();
+
+        io.llmOutput("\nRunning command: \n\n```bash\n" + command + "\n```\n", ChatMessageType.CUSTOM);
+        String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
+        io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM);
+
+        try {
+            var details = override != null ? override : cm.getProject().awaitBuildDetails();
+            var envVars = details.environmentVariables();
+            var execCfg = ExecutorConfig.fromProject(cm.getProject());
+
+            long timeoutSeconds = cm.getProject().getRunCommandTimeoutSeconds();
+            Duration timeout = timeoutSeconds > 0L ? Duration.ofSeconds(timeoutSeconds) : Environment.DEFAULT_TIMEOUT;
+
+            var output = Environment.instance.runShellCommand(
+                    command,
+                    cm.getProject().getRoot(),
+                    line -> io.llmOutput(line + "\n", ChatMessageType.CUSTOM),
+                    timeout,
+                    execCfg,
+                    envVars);
+            io.llmOutput("\n```", ChatMessageType.CUSTOM);
+
+            logger.debug("Explicit command successful. Output: {}", output);
+            return ctx.withBuildResult(true, "Build succeeded.");
+        } catch (Environment.SubprocessException e) {
+            io.llmOutput("\n```", ChatMessageType.CUSTOM);
 
             String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
