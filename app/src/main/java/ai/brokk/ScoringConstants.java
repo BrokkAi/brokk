@@ -55,5 +55,4 @@ public final class ScoringConstants {
      * is observed in production (via logging), it signals that constants may need review.
      */
     public static final int OVERFLOW_SCORE_SENTINEL = Integer.MAX_VALUE - 1;
-
 }
