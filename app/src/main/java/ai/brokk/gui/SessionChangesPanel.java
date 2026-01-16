@@ -1014,26 +1014,28 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      * Loads a review from markdown text that was previously generated.
      * This parses the markdown as a GuidedReview and displays it in the review panels.
      */
-    public void loadExternalReview(String markdown, Context context) {
-        var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(cm, markdown);
-        var review = ReviewParser.instance.parseMarkdownReview(markdown, resolvedExcerpts);
+    public void loadExternalReviewAsync(String markdown, Context context) {
+        LoggingFuture.supplyAsync(() -> {
+            var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(cm, markdown);
+            var review = ReviewParser.instance.parseMarkdownReview(markdown, resolvedExcerpts);
 
-        var hash = cm.getContextHistory()
-                .getGitState(context.id())
-                .map(ContextHistory.GitState::commitHash)
-                .orElse(null);
+            var hash = cm.getContextHistory()
+                    .getGitState(context.id())
+                    .map(ContextHistory.GitState::commitHash)
+                    .orElse(null);
 
-        SwingUtilities.invokeLater(() -> {
-            lastReviewState = new ReviewState(hash, System.currentTimeMillis());
-            hasGeneratedReview = true;
+            SwingUtilities.invokeLater(() -> {
+                lastReviewState = new ReviewState(hash, System.currentTimeMillis());
+                hasGeneratedReview = true;
 
-            // Re-trigger UI refresh to show panels and handle card layout
-            deferredUpdateHelper.requestUpdate();
+                // Re-trigger UI refresh to show panels and handle card layout
+                deferredUpdateHelper.requestUpdate();
 
-            codeReviewPanel.displayReview(review, context);
-            codeReviewPanel
-                    .getListPanel()
-                    .setStalenessNotice(formatStalenessMessage(requireNonNull(computeStaleness())));
+                codeReviewPanel.displayReview(review, context);
+                codeReviewPanel
+                        .getListPanel()
+                        .setStalenessNotice(formatStalenessMessage(requireNonNull(computeStaleness())));
+            });
         });
     }
 
