@@ -15,12 +15,8 @@ import dev.langchain4j.data.message.UserMessage;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 public class CommitPrompts {
-    private static final Logger logger = LogManager.getLogger(CommitPrompts.class);
-
     public static final CommitPrompts instance = new CommitPrompts() {};
 
     static final int FILE_LIMIT = 5;

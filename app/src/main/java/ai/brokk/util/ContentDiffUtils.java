@@ -120,7 +120,12 @@ public class ContentDiffUtils {
                     contextLines);
         }
 
-        var diffLines = UnifiedDiffUtils.generateUnifiedDiff(oldName, newName, oldLines, patch, contextLines);
+        var diffLines = UnifiedDiffUtils.generateUnifiedDiff(
+                oldName == null ? null : "a/" + oldName,
+                newName == null ? null : "b/" + newName,
+                oldLines,
+                patch,
+                contextLines);
         var diffText = String.join("\n", diffLines);
         return new DiffComputationResult(diffText, added, deleted);
     }

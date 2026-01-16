@@ -894,12 +894,11 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void ensureReviewSession(ReviewScope reviewCtx) {
         // Check if any overlapping session is already active
         UUID currentId = cm.getCurrentSessionId();
-        if (reviewCtx.sessionIds().contains(currentId)) {
+        if (reviewCtx.metadata().sessionIds().contains(currentId)) {
             return;
         }
 
-        // If not active, but we have overlapping sessions, we could switch,
-        // but for now we follow the existing logic: if the commits aren't in current session, create a new one.
+        // if the commits aren't in current session, create a new one.
         Set<String> currentSessionCommits = cm.getContextHistory().getGitStates().values().stream()
                 .map(ContextHistory.GitState::commitHash)
                 .collect(Collectors.toSet());
@@ -927,16 +926,82 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     private void generateGuidedReview() {
         if (lastCumulativeChanges == null || lastBaselineLabel == null) return;
 
-        setGuidedReviewBusy(true);
-        codeReviewPanel.setBusy(true);
-        guidedReviewBtn.setProgress(0);
+        ensureCleanThenReview(() -> {
+            setGuidedReviewBusy(true);
+            codeReviewPanel.setBusy(true);
+            guidedReviewBtn.setProgress(0);
 
-        // We use the same resolution logic as requestUpdate to get the correct resolved ref
-        LoggingFuture.supplyAsync(() -> {
-                    var state = resolveBaselineState();
-                    return ReviewScope.fromBaseline(cm, state.resolvedLeftRef());
-                })
-                .thenAccept(this::generateGuidedReviewAsync);
+            // We use the same resolution logic as requestUpdate to get the correct resolved ref
+            LoggingFuture.supplyAsync(() -> {
+                        var state = resolveBaselineState();
+                        return ReviewScope.fromBaseline(cm, state.resolvedLeftRef());
+                    })
+                    .thenAccept(this::generateGuidedReviewAsync);
+        });
+    }
+
+    /**
+     * Shows a dialog if the working tree is dirty, offering to commit first or cancel.
+     * If the tree is clean, the action runs immediately.
+     */
+    private void ensureCleanThenReview(Runnable action) {
+        assert SwingUtilities.isEventDispatchThread();
+
+        // Use chrome.getModifiedFiles() which returns Set<ProjectFile>
+        var dirtyFiles = chrome.getModifiedFiles();
+
+        if (dirtyFiles.isEmpty()) {
+            action.run();
+            return;
+        }
+
+        var owner = SwingUtilities.getWindowAncestor(this);
+        var dialog = new BaseThemedDialog(owner, "Uncommitted Changes", Dialog.ModalityType.APPLICATION_MODAL);
+
+        var content = new JPanel(new BorderLayout(8, 8));
+        content.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        String message =
+                "Your working tree has %d uncommitted change(s).\nWould you like to commit before starting the review?"
+                        .formatted(dirtyFiles.size());
+        var msgArea = new JTextArea(message);
+        msgArea.setEditable(false);
+        msgArea.setOpaque(false);
+        msgArea.setLineWrap(true);
+        msgArea.setWrapStyleWord(true);
+        content.add(msgArea, BorderLayout.CENTER);
+
+        var buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        var commitFirstBtn = new MaterialButton("Commit First");
+        SwingUtil.applyPrimaryButtonStyle(commitFirstBtn);
+        var cancelBtn = new MaterialButton("Cancel");
+        buttons.add(commitFirstBtn);
+        buttons.add(cancelBtn);
+        content.add(buttons, BorderLayout.SOUTH);
+
+        final int[] choice = new int[] {-1}; // 0 = commit, 1 = cancel
+        commitFirstBtn.addActionListener(e -> {
+            choice[0] = 0;
+            dialog.dispose();
+        });
+        cancelBtn.addActionListener(e -> {
+            choice[0] = 1;
+            dialog.dispose();
+        });
+
+        dialog.getContentRoot().add(content);
+        dialog.getRootPane().setDefaultButton(commitFirstBtn);
+        dialog.pack();
+        dialog.setLocationRelativeTo(owner);
+        dialog.setVisible(true);
+
+        if (choice[0] == 0) {
+            // Commit first, then proceed on success
+            var commitDialog = new CommitDialog(
+                    chrome.getFrame(), chrome, cm, dirtyFiles, commitResult -> SwingUtilities.invokeLater(action));
+            commitDialog.setVisible(true);
+        }
+        // choice[0] == 1 or -1 (dialog closed): do nothing (cancel)
     }
 
     /**
@@ -1016,6 +1081,15 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
      */
     public void loadExternalReviewAsync(String markdown, Context context) {
         LoggingFuture.supplyAsync(() -> {
+            ReviewScope scope;
+            try {
+                scope = ReviewScope.fromContext(cm, context);
+            } catch (ReviewScope.ReviewLoadException e) {
+                logger.warn("Failed to load review scope from context: {}", e.getMessage());
+                cm.getIo().toolError("Unable to load review: " + e.getMessage());
+                return;
+            }
+
             var resolvedExcerpts = ReviewParser.resolveExcerptsNewOnly(cm, markdown);
             var review = ReviewParser.instance.parseMarkdownReview(markdown, resolvedExcerpts);
 
@@ -1025,6 +1099,10 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
                     .orElse(null);
 
             SwingUtilities.invokeLater(() -> {
+                lastCumulativeChanges = scope.changes();
+                lastBaselineLabel = scope.metadata().fromRef();
+                lastBaselineMode = BaselineMode.BRANCH_BASELINE;
+
                 lastReviewState = new ReviewState(hash, System.currentTimeMillis());
                 hasGeneratedReview = true;
 
@@ -1313,29 +1391,31 @@ public class SessionChangesPanel extends JPanel implements ThemeAware {
     public void startCommitRangeReview(String oldestCommitId) {
         assert SwingUtilities.isEventDispatchThread();
 
-        var parentId = oldestCommitId + "^";
-        this.reviewBaselineRef = parentId;
+        ensureCleanThenReview(() -> {
+            var parentId = oldestCommitId + "^";
+            this.reviewBaselineRef = parentId;
 
-        // Update dropdown and trigger refresh for the new baseline
-        requestUpdate();
+            // Update dropdown and trigger refresh for the new baseline
+            requestUpdate();
 
-        // Set busy state immediately
-        setGuidedReviewBusy(true);
-        codeReviewPanel.setBusy(true);
-        guidedReviewBtn.setProgress(0);
+            // Set busy state immediately
+            setGuidedReviewBusy(true);
+            codeReviewPanel.setBusy(true);
+            guidedReviewBtn.setProgress(0);
 
-        // Run the review with the explicitly computed data
-        LoggingFuture.supplyCallableAsync(() -> ReviewScope.fromBaseline(cm, parentId))
-                .thenAccept(this::generateGuidedReviewAsync)
-                .exceptionally(ex -> {
-                    logger.error("Failed to prepare commit range review", ex);
-                    SwingUtilities.invokeLater(() -> {
-                        codeReviewPanel.setBusy(false);
-                        setGuidedReviewBusy(false);
-                        chrome.toolError("Failed to prepare review: " + ex.getMessage());
+            // Run the review with the explicitly computed data
+            LoggingFuture.supplyCallableAsync(() -> ReviewScope.fromBaseline(cm, parentId))
+                    .thenAccept(this::generateGuidedReviewAsync)
+                    .exceptionally(ex -> {
+                        logger.error("Failed to prepare commit range review", ex);
+                        SwingUtilities.invokeLater(() -> {
+                            codeReviewPanel.setBusy(false);
+                            setGuidedReviewBusy(false);
+                            chrome.toolError("Failed to prepare review: " + ex.getMessage());
+                        });
+                        return null;
                     });
-                    return null;
-                });
+        });
     }
 
     public void clearReviewBaseline() {

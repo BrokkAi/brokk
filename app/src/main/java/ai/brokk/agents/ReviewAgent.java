@@ -73,7 +73,7 @@ public class ReviewAgent {
     private static final Logger logger = LogManager.getLogger(ReviewAgent.class);
 
     private final CumulativeChanges changes;
-    private final List<UUID> sessionIds;
+    private final ReviewScope.Metadata metadata;
 
     public record ReviewResult(ReviewParser.GuidedReview review, Context context) {}
 
@@ -110,7 +110,7 @@ public class ReviewAgent {
             boolean optimizeForLatency,
             IContextManager cm) {
         this.changes = scope.changes();
-        this.sessionIds = scope.sessionIds();
+        this.metadata = scope.metadata();
         this.modelConfig = modelConfig;
         this.optimizeForLatency = optimizeForLatency;
         this.cm = cm;
@@ -118,7 +118,11 @@ public class ReviewAgent {
 
     @TestOnly
     ReviewAgent(CumulativeChanges changes, List<UUID> sessionIds, IContextManager cm) {
-        this(new ReviewScope(changes, sessionIds), ModelType.ARCHITECT.defaultConfig(), true, cm);
+        this(
+                new ReviewScope(changes, new ReviewScope.Metadata("HEAD~1", "HEAD", sessionIds)),
+                ModelType.ARCHITECT.defaultConfig(),
+                true,
+                cm);
     }
 
     private @Nullable ProgressUpdater progressUpdater;
@@ -143,13 +147,13 @@ public class ReviewAgent {
                             .diff();
                 })
                 .collect(Collectors.joining("\n\n"));
-        var diffFragment = new ContextFragments.StringFragment(
-                cm, diff, "Proposed Changes (Diff)", SyntaxConstants.SYNTAX_STYLE_NONE);
+        var diffFragment = SpecialTextType.REVIEW_DIFF.create(cm, diff);
 
         try (var scope = cm.beginTask("Code Review", true, false, "Performing code review")) {
             // Turn 0: Context setup and determine complexity
-            Context initialContext =
-                    new Context(cm).addFragments(diffFragment).addFragments(extractSessionContext(sessionIds));
+            Context initialContext = new Context(cm)
+                    .addFragments(diffFragment)
+                    .addFragments(extractSessionContext(metadata.sessionIds()));
 
             updateProgress("Gathering context", 0);
             long contextStart = System.currentTimeMillis();
@@ -252,17 +256,18 @@ public class ReviewAgent {
             var publishedMessages = List.of(
                     new UserMessage("Please review this diff"), new AiMessage(mergedReviewText, mergedReasoning));
 
+            Context contextWithMeta =
+                    reviewContext.addFragments(SpecialTextType.REVIEW_METADATA.create(cm, metadata.toJson()));
             var result = new TaskResult(
                     cm,
                     "Code Review",
                     publishedMessages,
-                    reviewContext,
+                    contextWithMeta,
                     new TaskResult.StopDetails(TaskResult.StopReason.SUCCESS),
                     new TaskResult.TaskMeta(TaskResult.Type.REVIEW, turn1ModelConfig));
+            var finalContext = scope.append(result);
 
-            scope.append(result);
-
-            return new ReviewResult(review, reviewContext.addHistoryEntry(reviewContext.createTaskEntry(result), null));
+            return new ReviewResult(review, finalContext);
         }
     }
 
@@ -918,7 +923,7 @@ public class ReviewAgent {
     }
 
     @Blocking
-    public List<ContextFragments.StringFragment> extractSessionContext(List<UUID> sessionIds) {
+    private List<ContextFragments.StringFragment> extractSessionContext(List<UUID> sessionIds) {
         if (sessionIds.isEmpty()) {
             return List.of();
         }
