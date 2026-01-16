@@ -304,7 +304,9 @@ public final class GitWorkflow {
         String base = target.replaceFirst("^origin/", "");
 
         // 3. GitHub call
-        var auth = GitHubAuth.getOrCreateInstance(cm.getProject());
+        var auth = (githubToken == null)
+                ? GitHubAuth.getOrCreateInstance(cm.getProject())
+                : GitHubAuth.createForProject(cm.getProject(), githubToken);
         var ghRepo = auth.getGhRepository();
         var pr = ghRepo.createPullRequest(title, head, base, body);
 
