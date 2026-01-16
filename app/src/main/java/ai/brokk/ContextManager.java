@@ -339,7 +339,7 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     private void startPeriodicSessionSync() {
-        logger.debug("Starting periodic session sync every 30 seconds.");
+        logger.debug("Starting periodic session sync every 5 minutes");
         periodicTasks.scheduleWithFixedDelay(
                 () -> {
                     try {
