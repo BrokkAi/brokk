@@ -35,6 +35,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
@@ -67,6 +69,7 @@ public final class HeadlessExecutorMain {
     private final JobReservation jobReservation = new JobReservation();
     private final JobRunner jobRunner;
     private final Thread initThread;
+    private final CompletableFuture<Void> headlessInit = new CompletableFuture<>();
     // Indicates whether a session has been loaded (either uploaded or created) at least once.
     // Used to gate /health/ready until the first session is available.
     private volatile boolean sessionLoaded = false;
@@ -219,8 +222,10 @@ public final class HeadlessExecutorMain {
                 () -> {
                     try {
                         this.contextManager.createHeadless();
+                        headlessInit.complete(null);
                         logger.info("ContextManager headless initialization complete");
                     } catch (Exception e) {
+                        headlessInit.completeExceptionally(e);
                         logger.warn("ContextManager headless initialization failed", e);
                     }
                 },
@@ -304,6 +309,32 @@ public final class HeadlessExecutorMain {
      * @param jobSpec the job specification
      * @param seededTextFragmentIds IDs of any pasted text fragments seeded for this job
      */
+    private boolean awaitHeadlessInitOrRespond(HttpExchange exchange, String jobId) throws IOException {
+        try {
+            headlessInit.get(30, TimeUnit.SECONDS);
+            return true;
+        } catch (TimeoutException e) {
+            logger.warn("Headless initialization timed out; rejecting job {}", jobId);
+            jobReservation.releaseIfOwner(jobId);
+            var error = ErrorPayload.of("NOT_READY", "Executor is still initializing");
+            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
+            return false;
+        } catch (ExecutionException e) {
+            logger.warn("Headless initialization failed; rejecting job {}", jobId, e.getCause());
+            jobReservation.releaseIfOwner(jobId);
+            var error = ErrorPayload.internalError("Executor initialization failed", e.getCause());
+            SimpleHttpServer.sendJsonResponse(exchange, 500, error);
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.warn("Interrupted while awaiting headless initialization; rejecting job {}", jobId);
+            jobReservation.releaseIfOwner(jobId);
+            var error = ErrorPayload.of("NOT_READY", "Executor is still initializing");
+            SimpleHttpServer.sendJsonResponse(exchange, 503, error);
+            return false;
+        }
+    }
+
     private void executeJobAsync(String jobId, JobSpec jobSpec, List<String> seededTextFragmentIds) {
         logger.info("Starting job execution: {}, session={}", jobId, contextManager.getCurrentSessionId());
         final List<String> fragmentIds = List.copyOf(seededTextFragmentIds);
@@ -1065,6 +1096,11 @@ public final class HeadlessExecutorMain {
                         jobId,
                         idempotencyKey,
                         contextManager.getCurrentSessionId());
+
+                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
+                    return;
+                }
+
                 try {
                     // Add any validated job-scoped context text fragments before starting execution
                     var contextTextFragmentIds = new ArrayList<String>();
@@ -1306,6 +1342,10 @@ public final class HeadlessExecutorMain {
                             jobId);
                     var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
                     SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+
+                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
                     return;
                 }
 
@@ -1647,6 +1687,10 @@ public final class HeadlessExecutorMain {
                 if (!tryReserveJobSlot(jobId)) {
                     var error = ErrorPayload.of("JOB_IN_PROGRESS", "A job is currently executing");
                     SimpleHttpServer.sendJsonResponse(exchange, 409, error);
+                    return;
+                }
+
+                if (!awaitHeadlessInitOrRespond(exchange, jobId)) {
                     return;
                 }
 
