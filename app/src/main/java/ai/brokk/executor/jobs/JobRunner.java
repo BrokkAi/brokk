@@ -50,6 +50,9 @@ public final class JobRunner {
     private static final Logger logger = LogManager.getLogger(JobRunner.class);
     private static final int DEFAULT_MAX_BUILD_ATTEMPTS = 3;
 
+    private static final PrReviewService.Severity DEFAULT_REVIEW_SEVERITY_THRESHOLD = PrReviewService.Severity.HIGH;
+    private static final int DEFAULT_REVIEW_MAX_INLINE_COMMENTS = 5;
+
     private final ContextManager cm;
     private final JobStore store;
     private final ExecutorService runner;
@@ -723,11 +726,16 @@ public final class JobRunner {
                                             PrReviewService.postReviewComment(pr, summary);
                                             logger.info("Posted PR review summary to PR #{}", prNumber);
 
-                                            // 8. Post inline comments from structured response
+                                            // 8. Post inline comments from structured response (filtered)
                                             int postedComments = 0;
                                             int skippedComments = 0;
 
-                                            for (var comment : reviewResponse.comments()) {
+                                            var filteredComments = PrReviewService.filterInlineComments(
+                                                    reviewResponse.comments(),
+                                                    DEFAULT_REVIEW_SEVERITY_THRESHOLD,
+                                                    DEFAULT_REVIEW_MAX_INLINE_COMMENTS);
+
+                                            for (var comment : filteredComments) {
                                                 String path = comment.path();
                                                 int line = comment.line();
                                                 String bodyMarkdown = comment.bodyMarkdown();
@@ -737,10 +745,18 @@ public final class JobRunner {
                                                         PrReviewService.postLineComment(
                                                                 pr, path, line, bodyMarkdown, headSha);
                                                         postedComments++;
-                                                        logger.debug("Posted line comment on {}:{}", path, line);
+                                                        logger.debug(
+                                                                "Posted line comment on {}:{} severity={}",
+                                                                path,
+                                                                line,
+                                                                comment.severity());
                                                     } else {
                                                         skippedComments++;
-                                                        logger.debug("Skipped duplicate comment on {}:{}", path, line);
+                                                        logger.debug(
+                                                                "Skipped duplicate comment on {}:{} severity={}",
+                                                                path,
+                                                                line,
+                                                                comment.severity());
                                                     }
                                                 } catch (Exception e) {
                                                     logger.warn(
@@ -1257,19 +1273,20 @@ public final class JobRunner {
                 You MUST output a single JSON object with this exact structure:
 
                 {
-                  "summaryMarkdown": "## Brokk PR Review\\n\\n[1-3 sentences describing what changed and key issues]",
+                  "summaryMarkdown": "## Brokk PR Review\\n\\n[1-3 sentences describing what changed and only the most important risks]",
                   "comments": [
                     {
                       "path": "src/main/java/Example.java",
                       "line": 42,
-                      "bodyMarkdown": "Description of issue and why it matters. Provide a minimal actionable suggestion if relevant."
+                      "severity": "HIGH",
+                      "bodyMarkdown": "Describe the issue, why it matters, and a minimal actionable fix."
                     }
                   ]
                 }
 
                 REQUIRED FIELDS:
-                - "summaryMarkdown": MUST start with exactly "## Brokk PR Review" followed by a newline and 1-3 sentences
-                - "comments": Array of inline comment objects (may be empty if no issues found)
+                - "summaryMarkdown": MUST start with exactly "## Brokk PR Review" followed by a newline and 1-3 sentences.
+                - "comments": Array of inline comment objects (MUST be [] if nothing meets threshold).
 
                 Each comment object MUST have:
                 - "path": File path relative to repository root (e.g., "src/main/java/Foo.java")
@@ -1277,19 +1294,23 @@ public final class JobRunner {
                   * For "+" lines: use the NEW line number
                   * For "-" lines: use the OLD line number
                   * For " " lines: use the NEW line number
-                - "bodyMarkdown": Markdown description of the issue with actionable suggestion
+                - "severity": One of "CRITICAL"|"HIGH"|"MEDIUM"|"LOW"
+                - "bodyMarkdown": Markdown description of the issue with a minimal actionable fix
 
-                RULES FOR COMMENTS:
-                - SKIP any line that has no issue. Do not comment on correct code.
-                - Only output comments for actual problems, bugs, security issues, or code smells.
-                - Only write comments with criticism and suggested improvement; avoid compliments.
-                - Be precise and concise.
-                - Include code snippets only when they clarify the fix.
-                - If no issues are found, set "comments" to an empty array: []
+                SEVERITY DEFINITIONS:
+                - CRITICAL: likely exploitable security issue, data loss/corruption, auth/permission bypass, remote crash, or severe production outage risk.
+                - HIGH: likely bug, race condition, broken error handling, incorrect logic, resource leak, significant performance regression, or high-impact maintainability risk.
+                - MEDIUM: could become a bug; edge-case correctness; non-trivial readability/maintenance concerns.
+                - LOW: style, nits, subjective preference, minor readability, minor refactors.
+
+                COMMENT POLICY (STRICT):
+                - ONLY emit comments with severity >= HIGH.
+                - MAX 5 comments total. Merge similar issues into one comment instead of repeating.
+                - NO style-only/nit suggestions. NO repetitive variants of the same point.
+                - SKIP correct code and skip minor improvements.
+                - If nothing meets severity >= HIGH, "comments" MUST be [].
 
                 OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
-
-                Begin analysis now.
                 """
                         .formatted(fencedDiff);
 
