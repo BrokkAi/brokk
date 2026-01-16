@@ -1291,7 +1291,7 @@ public class BuildAgent {
             logger.debug("Verification command successful. Output: {}", output);
             return ctx.withBuildResult(true, "Build succeeded.");
         } catch (Environment.SubprocessException e) {
-            String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
+            String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
             return ctx.withBuildResult(false, processed);
         }
@@ -1331,7 +1331,7 @@ public class BuildAgent {
         } catch (Environment.SubprocessException e) {
             io.llmOutput("\n```", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
-            String rawBuild = e.getMessage() + "\n\n" + e.getOutput();
+            String rawBuild = Objects.toString(e.getMessage(), "") + "\n\n" + Objects.toString(e.getOutput(), "");
             String processed = BuildOutputPreprocessor.processForLlm(rawBuild, cm);
             return ctx.withBuildResult(false, processed);
         }

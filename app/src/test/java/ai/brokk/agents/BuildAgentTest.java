@@ -477,4 +477,35 @@ class BuildAgentTest {
             Environment.shellCommandRunnerFactory = originalFactory;
         }
     }
+
+    @Test
+    void testRunExplicitCommandFailureNullOutputDoesNotEmbedNullLiteral(@TempDir Path tempDir) throws Exception {
+        var originalFactory = Environment.shellCommandRunnerFactory;
+        try {
+            Files.writeString(tempDir.resolve("README.md"), "x");
+            var project = new TestProject(tempDir);
+            project.setBuildDetails(
+                    new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+            var io = new TestConsoleIO();
+            var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+            var ctx = cm.liveContext();
+
+            String cmd = "explicit-failure-null-output";
+            Environment.shellCommandRunnerFactory = (command, root) -> (outputConsumer, timeout) -> {
+                outputConsumer.accept("some output");
+                throw new Environment.SubprocessException(null, "ignored") {
+                    @Override
+                    public String getOutput() {
+                        return null;
+                    }
+                };
+            };
+
+            var updated = BuildAgent.runExplicitCommand(ctx, cmd, project.awaitBuildDetails());
+
+            assertFalse(updated.getBuildError().contains("null"), "Build error must not contain the literal 'null'");
+        } finally {
+            Environment.shellCommandRunnerFactory = originalFactory;
+        }
+    }
 }
