@@ -13,6 +13,7 @@
         "jdkProvider": "jbr",
         "jbrVariant": "jcef",
         "minLauncherInitialAppVersion": "0.18.0",
+        "minLauncherVersion": "5.5.14",
         "files": [{
             "dir": "app/build/libs",
             "includes": "jdeploy-prelaunch.jar"

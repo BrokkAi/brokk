@@ -65,4 +65,3 @@ jobs:
         with:
           github_token: ${{ secrets.BROKK_RELEASES_TOKEN }}
           target_repository: 'BrokkAi/brokk-releases'
-          jdeploy_version: '5.5.14-dev.2'
