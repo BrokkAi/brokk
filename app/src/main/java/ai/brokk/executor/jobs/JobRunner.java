@@ -916,7 +916,11 @@ public final class JobRunner {
                                                         suggestion.description(), issueNumber);
 
                                                 var prUri = workflow.createPullRequest(
-                                                        issueBranchName, targetBranch, suggestion.title(), prBody);
+                                                        issueBranchName,
+                                                        targetBranch,
+                                                        suggestion.title(),
+                                                        prBody,
+                                                        githubToken);
 
                                                 logger.info("ISSUE job {} created PR: {}", jobId, prUri);
                                                 if (console != null) {

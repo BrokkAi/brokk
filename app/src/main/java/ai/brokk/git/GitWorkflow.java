@@ -163,6 +163,10 @@ public final class GitWorkflow {
     }
 
     public String push(String branch) throws GitAPIException {
+        return push(branch, null);
+    }
+
+    public String push(String branch, @Nullable String githubToken) throws GitAPIException {
         // This check prevents attempting to push special views like "Search:" or "stashes"
         // or remote branches directly.
         if (repo.isRemoteBranch(branch) || isSyntheticBranchName(branch)) {
@@ -171,7 +175,7 @@ public final class GitWorkflow {
         }
 
         if (repo.hasUpstreamBranch(branch)) {
-            repo.remote().push(branch);
+            repo.remote().push(branch, githubToken);
             return "Pushed " + branch;
         } else {
             // Check if there are any commits to push before setting upstream.
@@ -181,7 +185,7 @@ public final class GitWorkflow {
             if (repo.listCommitsDetailed(branch).isEmpty()) {
                 return "Branch " + branch + " is empty. Nothing to push.";
             }
-            repo.remote().pushAndSetRemoteTracking(branch, "origin");
+            repo.remote().pushAndSetRemoteTracking(branch, "origin", branch, githubToken);
             return "Pushed " + branch + " and set upstream to origin/" + branch;
         }
     }
@@ -284,9 +288,15 @@ public final class GitWorkflow {
 
     /** Pushes branch if needed and opens a PR. Returns the PR url. */
     public URI createPullRequest(String source, String target, String title, String body) throws Exception {
+        return createPullRequest(source, target, title, body, null);
+    }
+
+    /** Pushes branch if needed and opens a PR. Returns the PR url. */
+    public URI createPullRequest(String source, String target, String title, String body, @Nullable String githubToken)
+            throws Exception {
         // 1. Ensure branch is pushed
         if (repo.remote().branchNeedsPush(source)) {
-            push(source);
+            push(source, githubToken);
         }
 
         // 2. Strip "origin/" prefix for GitHub
@@ -294,7 +304,9 @@ public final class GitWorkflow {
         String base = target.replaceFirst("^origin/", "");
 
         // 3. GitHub call
-        var auth = GitHubAuth.getOrCreateInstance(cm.getProject());
+        var auth = (githubToken == null)
+                ? GitHubAuth.getOrCreateInstance(cm.getProject())
+                : GitHubAuth.createForProject(cm.getProject(), githubToken);
         var ghRepo = auth.getGhRepository();
         var pr = ghRepo.createPullRequest(title, head, base, body);
 
