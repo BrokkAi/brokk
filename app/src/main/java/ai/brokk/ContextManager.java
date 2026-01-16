@@ -1364,10 +1364,22 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture, periodicTasksFuture)
                 .whenComplete((v, t) -> {
                     if (sessionsSyncActive) {
+                        Thread syncThread = Thread.ofVirtual().start(() -> {
+                            try {
+                                new SessionSynchronizer(this).synchronize();
+                            } catch (Exception e) {
+                                logger.warn("Failed to synchronize sessions during close: {}", e.getMessage());
+                            }
+                        });
                         try {
-                            new SessionSynchronizer(this).synchronize();
-                        } catch (Exception e) {
-                            logger.warn("Failed to synchronize sessions during close: {}", e.getMessage());
+                            syncThread.join(awaitMillis);
+                            if (syncThread.isAlive()) {
+                                logger.warn("Session sync timed out after {} ms, interrupting", awaitMillis);
+                                syncThread.interrupt();
+                            }
+                        } catch (InterruptedException e) {
+                            syncThread.interrupt();
+                            Thread.currentThread().interrupt();
                         }
                     }
                     project.close();
