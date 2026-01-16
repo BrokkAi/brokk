@@ -350,8 +350,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
                     }
                 },
                 0,
-                30,
-                TimeUnit.SECONDS);
+                5,
+                TimeUnit.MINUTES);
     }
 
     private CompletableFuture<Void> migrateToSessionsV3IfNeeded() {
