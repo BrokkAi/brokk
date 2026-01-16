@@ -508,4 +508,22 @@ class BuildAgentTest {
             Environment.shellCommandRunnerFactory = originalFactory;
         }
     }
+
+    @Test
+    void testRunExplicitCommandBlankClearsPreviousBuildError(@TempDir Path tempDir) throws Exception {
+        Files.writeString(tempDir.resolve("README.md"), "x");
+        var project = new TestProject(tempDir);
+        project.setBuildDetails(new BuildAgent.BuildDetails("lint", "testAll", "testSome", Set.of(), java.util.Map.of()));
+
+        var io = new TestConsoleIO();
+        var cm = new TestContextManager(project, io, Set.of(), new ai.brokk.testutil.TestAnalyzer());
+        var ctx = cm.liveContext();
+
+        var ctxWithError = ctx.withBuildResult(false, "previous failure");
+
+        var updated = BuildAgent.runExplicitCommand(ctxWithError, "   ", project.awaitBuildDetails());
+
+        assertTrue(updated.getBuildError().isBlank(), "Blank command should clear any existing build error");
+        assertTrue(io.getOutputLog().contains("No explicit command specified, skipping."), "Should log skip message");
+    }
 }

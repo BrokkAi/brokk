@@ -1183,7 +1183,7 @@ public class BuildAgent {
 
         if (command.isBlank()) {
             io.llmOutput("\nNo explicit command specified, skipping.", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
-            return ctx;
+            return ctx.withBuildResult(true, "");
         }
 
         boolean noConcurrentBuilds = "true".equalsIgnoreCase(System.getenv("BRK_NO_CONCURRENT_BUILDS"));
