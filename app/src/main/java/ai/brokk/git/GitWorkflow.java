@@ -292,8 +292,8 @@ public final class GitWorkflow {
     }
 
     /** Pushes branch if needed and opens a PR. Returns the PR url. */
-    public URI createPullRequest(
-            String source, String target, String title, String body, @Nullable String githubToken) throws Exception {
+    public URI createPullRequest(String source, String target, String title, String body, @Nullable String githubToken)
+            throws Exception {
         // 1. Ensure branch is pushed
         if (repo.remote().branchNeedsPush(source)) {
             push(source, githubToken);
