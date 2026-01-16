@@ -50,6 +50,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.SequencedSet;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
@@ -67,6 +68,7 @@ import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.VisibleForTesting;
 
 /**
  * Manages interactions with a Language Model (LLM) to generate and apply code modifications based on user instructions.
@@ -855,6 +857,14 @@ public class CodeAgent {
             return new Step.Continue(cs, es, blocksToApply);
         }
 
+        // If any fragments need to be computed, we'll wait a bit
+        try {
+            context.awaitContentsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.debug("Interrupted while waiting for contexts to be computed", e);
+        }
+
         // Guardrail: block edits to files designated read-only in the current context
         var readOnlyPaths = computeReadOnlyPaths(context);
         var violating = blocksToApply.stream()
@@ -1574,7 +1584,7 @@ public class CodeAgent {
          * <p>Note: We use full-file replacements for simplicity and robustness. This ensures correctness for the
          * history compaction without depending on the diff library package structure at compile time.
          */
-        @org.jetbrains.annotations.VisibleForTesting
+        @VisibleForTesting
         SequencedSet<EditBlock.SearchReplaceBlock> toSearchReplaceBlocks() {
             var results = new LinkedHashSet<EditBlock.SearchReplaceBlock>();
             var originals = originalFileContents();
@@ -1730,7 +1740,7 @@ public class CodeAgent {
 
         private static String joinLines(List<String> lines, int start, int end) {
             if (lines.isEmpty() || start > end) return "";
-            var sj = new java.util.StringJoiner("\n");
+            var sj = new StringJoiner("\n");
             for (int i = start; i <= end; i++) {
                 sj.add(lines.get(i));
             }
@@ -1761,12 +1771,6 @@ public class CodeAgent {
         // 2. Files referred to by other editable Fragments should not be in our Set.
         // 3. Files referred to by other read-only Fragments should be in our Set.
 
-        // If any fragments need to be computed, we'll wait a bit
-        try {
-            ctx.awaitContextsAreComputed(ContextHistory.SNAPSHOT_AWAIT_TIMEOUT);
-        } catch (InterruptedException e) {
-            logger.warn("Interrupted while waiting for contexts to be computed", e);
-        }
         var readonlyPaths = ctx.getMarkedReadonlyFragments()
                 .filter(cf -> cf instanceof ContextFragments.ProjectPathFragment)
                 .flatMap(cf -> cf.files().renderNowOr(Set.of()).stream())

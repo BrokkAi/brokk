@@ -5,6 +5,7 @@ import com.jediterm.terminal.model.TerminalTextBuffer;
 import com.jediterm.terminal.ui.TerminalPanel;
 import com.jediterm.terminal.ui.settings.SettingsProvider;
 import java.awt.Point;
+import java.util.ArrayList;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -123,7 +124,7 @@ public class BrokkJediTermPanel extends TerminalPanel {
     }
 
     static String computeFullBufferText(BufferAccessor buffer) {
-        var lines = new java.util.ArrayList<String>();
+        var lines = new ArrayList<String>();
         buffer.lock();
         try {
             int historyCount = buffer.getHistoryLinesCount();

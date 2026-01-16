@@ -12,6 +12,7 @@ import ai.brokk.agents.BuildAgent;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.gui.theme.GuiTheme;
@@ -19,7 +20,6 @@ import ai.brokk.init.onboarding.GitIgnoreUtils;
 import ai.brokk.init.onboarding.StyleGuideMigrator;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
-import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.BrokkConfigPaths;
 import ai.brokk.util.DependencyUpdateScheduler;
 import ai.brokk.util.GlobalUiSettings;
@@ -454,6 +454,7 @@ public final class MainProject extends AbstractProject {
         invalidateAllFiles();
     }
 
+    @Override
     public void setBuildDetails(BuildAgent.BuildDetails details) {
         if (detailsFuture.isDone()) {
             detailsFuture = new CompletableFuture<>();
@@ -787,8 +788,7 @@ public final class MainProject extends AbstractProject {
 
     @Override
     public boolean isGitHubRepo() {
-        if (!hasGit()) return false; // hasGit from AbstractProject
-        var gitRepo = (GitRepo) getRepo(); // getRepo from AbstractProject
+        if (!(getRepo() instanceof GitRepo gitRepo)) return false;
         String remoteUrl = gitRepo.remote().getUrl("origin");
         if (remoteUrl == null || remoteUrl.isBlank()) return false;
         return remoteUrl.contains("github.com");
@@ -1195,9 +1195,9 @@ public final class MainProject extends AbstractProject {
     public boolean performStyleMdToAgentsMdMigration(IConsoleIO io) {
         try {
             var gitTopLevel = getMasterRootPathForConfig();
-            var legacyStyle = new ai.brokk.analyzer.ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
-            var agentsFile = new ai.brokk.analyzer.ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
-            var gitRepo = hasGit() ? (GitRepo) getRepo() : null;
+            var legacyStyle = new ProjectFile(gitTopLevel, BROKK_DIR + "/style.md");
+            var agentsFile = new ProjectFile(gitTopLevel, STYLE_GUIDE_FILE);
+            var gitRepo = getRepo() instanceof GitRepo g ? g : null;
 
             logger.info(
                     "Starting style.md to AGENTS.md migration for {} via StyleGuideMigrator",

@@ -19,14 +19,16 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
+import ai.brokk.concurrent.ComputedValue;
+import ai.brokk.concurrent.ExecutorsUtil;
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.git.GitRepo;
-import ai.brokk.util.ComputedValue;
 import ai.brokk.util.FragmentUtils;
 import ai.brokk.util.ImageUtil;
-import ai.brokk.util.LoggingExecutorService;
 import ai.brokk.util.Messages;
 import com.github.difflib.unifieddiff.UnifiedDiff;
 import com.github.difflib.unifieddiff.UnifiedDiffFile;
+import com.github.difflib.unifieddiff.UnifiedDiffParserException;
 import com.github.difflib.unifieddiff.UnifiedDiffReader;
 import dev.langchain4j.data.message.ChatMessage;
 import java.awt.*;
@@ -37,10 +39,10 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.time.Duration;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -53,9 +55,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -76,6 +75,24 @@ public class ContextFragments {
     public static final Logger logger = LogManager.getLogger(ContextFragments.class);
 
     public static final LoggingExecutorService FRAGMENT_EXECUTOR = createFragmentExecutor();
+
+    /**
+     * Resolves supporting summary fragments for the direct ancestors of the given code units.
+     * Filters out anonymous units.
+     */
+    @Blocking
+    public static Set<ContextFragment> resolveAncestorFragments(
+            Collection<CodeUnit> units, IContextManager contextManager) {
+        IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+        return units.stream()
+                .filter(CodeUnit::isClass)
+                .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
+                .filter(anc -> !anc.isAnonymous())
+                .distinct()
+                .map(anc -> new SummaryFragment(
+                        contextManager, anc.fqName(), ContextFragment.SummaryType.CODEUNIT_SKELETON))
+                .collect(Collectors.toSet());
+    }
 
     public static byte @Nullable [] convertToByteArray(@Nullable List<Byte> imageBytes) {
         if (imageBytes == null) {
@@ -113,13 +130,7 @@ public class ContextFragments {
     }
 
     private static LoggingExecutorService createFragmentExecutor() {
-        ThreadFactory virtualThreadFactory = Thread.ofVirtual()
-                .name("brokk-cf-", 0) // Prefix and starting counter
-                .factory();
-        ExecutorService virtualExecutor = Executors.newThreadPerTaskExecutor(virtualThreadFactory);
-        return new LoggingExecutorService(
-                virtualExecutor,
-                th -> logger.error("Uncaught exception in ContextFragment Virtual Thread executor", th));
+        return ExecutorsUtil.newVirtualThreadExecutor("brokk-cf-", 1_000);
     }
 
     public sealed interface PathFragment extends ContextFragment
@@ -463,6 +474,13 @@ public class ContextFragments {
         public String toString() {
             return "ProjectPathFragment('%s')".formatted(description().renderNowOr(file.toString()));
         }
+
+        @Override
+        @Blocking
+        public Set<ContextFragment> supportingFragments() {
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+            return resolveAncestorFragments(analyzer.getTopLevelDeclarations(file), contextManager);
+        }
     }
 
     public static final class GitFileFragment extends AbstractStaticFragment implements PathFragment {
@@ -505,15 +523,12 @@ public class ContextFragments {
 
         /**
          * Create a GitFileFragment representing the content of the given file at the given revision.
-         * This reads the file content via the provided GitRepo. On error, falls back to empty content.
+         * This reads the file content via the provided GitRepo.
          */
-        public static GitFileFragment fromCommit(ProjectFile file, String revision, GitRepo repo) {
-            try {
-                var content = repo.getFileContent(revision, file);
-                return new GitFileFragment(file, revision, content);
-            } catch (GitAPIException e) {
-                throw new RuntimeException(e);
-            }
+        public static GitFileFragment fromCommit(ProjectFile file, String revision, GitRepo repo)
+                throws GitAPIException {
+            var content = repo.getFileContent(revision, file);
+            return new GitFileFragment(file, revision, content);
         }
 
         public String revision() {
@@ -797,7 +812,7 @@ public class ContextFragments {
                     }
                 }
                 return files;
-            } catch (IOException e) {
+            } catch (IOException | UnifiedDiffParserException e) {
                 return Set.of();
             }
         }
@@ -1434,6 +1449,13 @@ public class ContextFragments {
         public ContextFragment refreshCopy() {
             return new CodeFragment(id, contextManager, fullyQualifiedName);
         }
+
+        @Override
+        @Blocking
+        public Set<ContextFragment> supportingFragments() {
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+            return resolveAncestorFragments(analyzer.getDefinitions(fullyQualifiedName), contextManager);
+        }
     }
 
     public static class CallGraphFragment extends AbstractComputedFragment {
@@ -1662,6 +1684,17 @@ public class ContextFragments {
             return summaryType;
         }
 
+        @Override
+        @Blocking
+        public Set<ContextFragment> supportingFragments() {
+            IAnalyzer analyzer = contextManager.getAnalyzerUninterrupted();
+            if (summaryType != SummaryType.CODEUNIT_SKELETON) {
+                return Set.of();
+            }
+
+            return resolveAncestorFragments(analyzer.getDefinitions(targetIdentifier), contextManager);
+        }
+
         private static ContentSnapshot computeSnapshotFor(
                 String targetIdentifier, SummaryType summaryType, IContextManager contextManager) {
             var analyzer = contextManager.getAnalyzerUninterrupted();
@@ -1675,31 +1708,14 @@ public class ContextFragments {
                 for (CodeUnit cu : primaryTargets) {
                     skeletonProvider.getSkeleton(cu).ifPresent(s -> skeletonsMap.put(cu, s));
                 }
-                var seenAncestors = new HashSet<String>();
-                primaryTargets.stream()
-                        .filter(CodeUnit::isClass)
-                        .flatMap(cu -> analyzer.getDirectAncestors(cu).stream())
-                        .filter(anc -> seenAncestors.add(anc.fqName()))
-                        .forEach(anc -> skeletonProvider.getSkeleton(anc).ifPresent(s -> skeletonsMap.put(anc, s)));
             }
 
             String text;
             if (skeletonsMap.isEmpty()) {
                 text = "No summary found for: " + targetIdentifier;
             } else {
-                CodeUnit primaryTarget = null;
-                List<CodeUnit> ancestors = List.of();
-                if (summaryType == SummaryType.CODEUNIT_SKELETON) {
-                    var maybeClassUnit =
-                            primaryTargets.stream().filter(CodeUnit::isClass).findFirst();
-                    if (maybeClassUnit.isPresent()) {
-                        primaryTarget = maybeClassUnit.get();
-                        ancestors = analyzer.getDirectAncestors(primaryTarget);
-                    }
-                }
                 text = new SkeletonFragmentFormatter()
-                        .format(new SkeletonFragmentFormatter.Request(
-                                primaryTarget, ancestors, skeletonsMap, summaryType));
+                        .format(new SkeletonFragmentFormatter.Request(null, List.of(), skeletonsMap, summaryType));
                 if (text.isEmpty()) text = "No summary found for: " + targetIdentifier;
             }
 
@@ -1843,6 +1859,9 @@ public class ContextFragments {
         private final List<ChatMessage> messages;
         private final boolean escapeHtml;
 
+        /**
+         * @param description the user instructions or action goal
+         */
         public TaskFragment(IContextManager contextManager, List<ChatMessage> messages, String description) {
             this(contextManager, messages, description, true);
         }

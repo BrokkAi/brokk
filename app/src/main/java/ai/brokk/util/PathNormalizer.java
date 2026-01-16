@@ -1,7 +1,9 @@
 package ai.brokk.util;
 
 import java.nio.file.Path;
+import java.util.ArrayDeque;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
@@ -21,7 +23,7 @@ import org.jetbrains.annotations.Nullable;
  * {@link #canonicalizeEnvPathValue(String)} which does not force relativity and preserves UNC forms.
  *
  * Notes:
- * - This operates on Strings, not {@link java.nio.file.Path} objects, to avoid
+ * - This operates on Strings, not {@link Path} objects, to avoid
  *   platform-specific re-interpretation of non-native absolute forms (e.g., "C:/..." on Linux).
  * - The output is intended for persistence (e.g., in project.properties), not for filesystem I/O.
  */
@@ -173,7 +175,7 @@ public final class PathNormalizer {
 
         // Segment and collapse
         String[] parts = s.split("/", -1);
-        java.util.Deque<String> stack = new java.util.ArrayDeque<>();
+        Deque<String> stack = new ArrayDeque<>();
         for (String part : parts) {
             if (part.isEmpty() || ".".equals(part)) {
                 continue;

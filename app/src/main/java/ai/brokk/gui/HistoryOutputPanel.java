@@ -7,14 +7,13 @@ import ai.brokk.context.ComputedSubscription;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import ai.brokk.context.ContextFragments;
-import ai.brokk.context.ContextHistory;
 import ai.brokk.context.DiffService;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
-import ai.brokk.difftool.utils.ColorUtil;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.SpinnerIconUtil;
 import ai.brokk.gui.dialogs.BaseThemedDialog;
+import ai.brokk.gui.history.HistoryTable;
 import ai.brokk.gui.mop.MarkdownOutputPanel;
 import ai.brokk.gui.mop.ThemeColors;
 import ai.brokk.gui.theme.GuiTheme;
@@ -25,22 +24,20 @@ import ai.brokk.gui.util.Icons;
 import ai.brokk.tools.ToolExecutionResult;
 import ai.brokk.tools.ToolRegistry;
 import ai.brokk.tools.WorkspaceTools;
-import ai.brokk.util.ComputedValue;
 import ai.brokk.util.GlobalUiSettings;
 import dev.langchain4j.agent.tool.ToolContext;
+import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.awt.*;
-import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.awt.geom.Path2D;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -52,19 +49,13 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Queue;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.plaf.LayerUI;
-import javax.swing.table.DefaultTableModel;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -75,13 +66,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
     private final Chrome chrome;
     private final ContextManager contextManager;
-    private final JTable historyTable;
-    private final DefaultTableModel historyModel;
+    private final HistoryTable historyTableComponent;
     private final MaterialButton undoButton;
     private final MaterialButton redoButton;
     private final MaterialButton compressButton;
-
-    private ResetArrowLayerUI arrowLayerUI;
 
     @Nullable
     private JPanel sessionSwitchPanel;
@@ -90,9 +78,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     private JLabel sessionSwitchSpinner;
 
     private JLayeredPane historyLayeredPane;
-
-    @SuppressWarnings("NullAway.Init") // Initialized in constructor
-    private JScrollPane historyScrollPane;
 
     // Output components
     private final MarkdownOutputPanel llmStreamArea;
@@ -160,20 +145,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     // Preset state for staging history before next new message
     private @Nullable List<TaskEntry> pendingHistory = null;
 
-    // Track expand/collapse state for grouped non-LLM action runs
-    private final Map<UUID, Boolean> groupExpandedState = new HashMap<>();
-
-    // Cache of latest group descriptors used to render the table; used by arrow painter
-    private volatile java.util.List<HistoryGrouping.GroupDescriptor> latestDescriptors = java.util.List.of();
-
-    // Selection directives applied after a table rebuild (for expand/collapse UX)
-    private PendingSelectionType pendingSelectionType = PendingSelectionType.NONE;
-    private @Nullable UUID pendingSelectionGroupKey = null;
-
-    // Viewport preservation flags for group expand/collapse operations
-    private boolean suppressScrollOnNextUpdate = false;
-    private @Nullable Point pendingViewportPosition = null;
-
     /**
      * Constructs a new HistoryOutputPane.
      *
@@ -187,7 +158,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         // Build combined Output + Instructions panel (Center)
         this.llmStreamArea = new MarkdownOutputPanel();
-        this.llmStreamArea.withContextForLookups(contextManager, chrome);
+        this.llmStreamArea.setShowEmptyState(true);
+        this.llmStreamArea.setContextForLookups(contextManager, chrome);
         this.llmScrollPane = buildLLMStreamScrollPane(this.llmStreamArea);
         this.copyButton = new MaterialButton();
         this.clearButton = new MaterialButton();
@@ -206,21 +178,14 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         loadPersistedNotifications();
 
         // Build session controls and activity panel (East)
-        this.historyModel = new DefaultTableModel(new Object[] {"", "Action", "Context"}, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return false;
-            }
-        };
-        this.historyTable = new JTable(this.historyModel);
-        this.arrowLayerUI = new ResetArrowLayerUI(this.historyTable);
+        this.historyTableComponent = new HistoryTable(contextManager, chrome);
         this.undoButton = new MaterialButton();
         this.redoButton = new MaterialButton();
 
         this.historyLayeredPane = new JLayeredPane();
         this.historyLayeredPane.setLayout(new OverlayLayout(this.historyLayeredPane));
 
-        var activityPanel = buildActivityPanel(this.historyTable, this.undoButton, this.redoButton);
+        var activityPanel = buildActivityPanel(this.historyTableComponent, this.undoButton, this.redoButton);
 
         // Wrap activity panel in a tabbed pane with single "Activity" tab
         activityTabs = new JTabbedPane(JTabbedPane.TOP);
@@ -269,7 +234,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
         JLabel notificationText = new JLabel("Loading session...");
         notificationText.setOpaque(false);
-        notificationText.setFont(historyTable.getFont());
+        notificationText.setFont(historyTableComponent.getTable().getFont());
         notificationText.setForeground(UIManager.getColor("Label.foreground"));
         notificationText.setBorder(null);
 
@@ -304,137 +269,30 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     /**
      * Builds the Activity history panel that shows past contexts
      */
-    private JPanel buildActivityPanel(JTable historyTable, MaterialButton undoButton, MaterialButton redoButton) {
+    private JPanel buildActivityPanel(
+            HistoryTable historyTableComponent, MaterialButton undoButton, MaterialButton redoButton) {
         // Create history panel
         var panel = new JPanel(new BorderLayout());
 
-        historyTable.setFont(new Font(Font.DIALOG, Font.PLAIN, 12));
-        historyTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        historyTableComponent.addSelectionListener(ctx -> {
+            contextManager.setSelectedContext(ctx);
+            // setContext is for *previewing* a context without changing selection state in the manager
+            chrome.setContext(ctx);
+        });
 
-        // Remove table header
-        historyTable.setTableHeader(null);
-
-        // Set up custom renderers for history table columns
-        historyTable.getColumnModel().getColumn(0).setCellRenderer(new IndentedIconRenderer());
-        historyTable
-                .getColumnModel()
-                .getColumn(1)
-                .setCellRenderer(new HistoryCellRenderer(this, contextManager, chrome, historyTable));
-
-        // Add selection listener to preview context (ignore group header rows)
-        historyTable.getSelectionModel().addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) {
-                int row = historyTable.getSelectedRow();
-                if (row >= 0 && row < historyTable.getRowCount()) {
-                    var val = historyModel.getValueAt(row, 2);
-                    if (val instanceof Context ctx) {
-                        contextManager.setSelectedContext(ctx);
-                        // setContext is for *previewing* a context without changing selection state in the manager
-                        chrome.setContext(ctx);
-
-                        // On-demand diff for selection
-                        var ds = contextManager.getContextHistory().getDiffService();
-                        ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
-                    }
-                }
+        historyTableComponent.addDoubleClickListener(context -> {
+            if (isReviewContext(context)) {
+                loadReviewFromContext(context);
+            } else if (context.isAiResult()) {
+                openDiffPreview(context);
+            } else {
+                openOutputWindowFromContext(context);
             }
         });
 
-        // Add mouse listener for right-click context menu, expand/collapse on group header, and double-click action
-        historyTable.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                int row = historyTable.rowAtPoint(e.getPoint());
-                if (row < 0) return;
-                var val = historyModel.getValueAt(row, 2);
+        historyTableComponent.addContextMenuListener((context, e) -> showPopupForContext(context, e.getX(), e.getY()));
 
-                if (SwingUtilities.isLeftMouseButton(e)) {
-                    if (val instanceof GroupRow) {
-                        // Toggle expand/collapse on click for the group header
-                        toggleGroupRow(row);
-                        return;
-                    }
-                    if (e.getClickCount() == 2 && val instanceof Context context) {
-                        if (context.isAiResult()) {
-                            openDiffPreview(context);
-                        } else {
-                            openOutputWindowFromContext(context);
-                        }
-                    }
-                }
-            }
-
-            @Override
-            public void mouseReleased(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showContextHistoryPopupMenuIfContext(e);
-                }
-            }
-
-            @Override
-            public void mousePressed(MouseEvent e) {
-                if (e.isPopupTrigger()) {
-                    showContextHistoryPopupMenuIfContext(e);
-                }
-            }
-
-            private void showContextHistoryPopupMenuIfContext(MouseEvent e) {
-                int row = historyTable.rowAtPoint(e.getPoint());
-                if (row < 0) return;
-                showContextHistoryPopupMenu(e);
-            }
-        });
-
-        // Adjust column widths - set emoji column width and hide the context object column
-        // Increase to 44 to accommodate one indent level (~15px) + possibly 24px themed icon, ensuring no clipping.
-        historyTable.getColumnModel().getColumn(0).setPreferredWidth(38);
-        historyTable.getColumnModel().getColumn(0).setMinWidth(38);
-        historyTable.getColumnModel().getColumn(0).setMaxWidth(38);
-        historyTable.getColumnModel().getColumn(1).setPreferredWidth(150);
-        historyTable.getColumnModel().getColumn(2).setMinWidth(0);
-        historyTable.getColumnModel().getColumn(2).setMaxWidth(0);
-        historyTable.getColumnModel().getColumn(2).setWidth(0);
-
-        // Add table to scroll pane with AutoScroller
-        this.historyScrollPane = new JScrollPane(historyTable);
-        var layer = new JLayer<>(historyScrollPane, arrowLayerUI);
-        historyScrollPane.getViewport().addChangeListener(e -> {
-            layer.repaint();
-            // Trigger on-demand diffs for the currently visible rows
-            requestVisibleDiffs();
-        });
-        historyScrollPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-        AutoScroller.install(historyScrollPane);
-        BorderUtils.addFocusBorder(historyScrollPane, historyTable);
-
-        // Add MouseListener to scrollPane's viewport to request focus for historyTable
-        historyScrollPane.getViewport().addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getSource() == historyScrollPane.getViewport()) { // Click was on the viewport itself
-                    historyTable.requestFocusInWindow();
-                }
-            }
-        });
-
-        // Allow Tab/Shift+Tab to move out of Activity (history table) instead of trapping focus
-        historyTable.setFocusTraversalKeysEnabled(false);
-        historyTable.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0), "histNext");
-        historyTable.getActionMap().put("histNext", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                historyTable.transferFocus();
-            }
-        });
-        historyTable
-                .getInputMap(JComponent.WHEN_FOCUSED)
-                .put(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, KeyEvent.SHIFT_DOWN_MASK), "histPrev");
-        historyTable.getActionMap().put("histPrev", new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                historyTable.transferFocusBackward();
-            }
-        });
+        AutoScroller.install(historyTableComponent.getScrollPane());
 
         // Add undo/redo buttons at the bottom, side by side
         var buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
@@ -463,7 +321,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         buttonPanel.add(redoButton);
         buttonPanel.setBorder(new EmptyBorder(5, 5, 5, 5));
 
-        historyLayeredPane.add(layer, JLayeredPane.DEFAULT_LAYER);
+        historyLayeredPane.add(historyTableComponent, JLayeredPane.DEFAULT_LAYER);
 
         panel.add(historyLayeredPane, BorderLayout.CENTER);
         panel.add(buttonPanel, BorderLayout.SOUTH);
@@ -492,65 +350,6 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         });
     }
 
-    /**
-     * Shows the context menu for the context history table (supports Context and GroupRow).
-     */
-    private void showContextHistoryPopupMenu(MouseEvent e) {
-        int row = historyTable.rowAtPoint(e.getPoint());
-        if (row < 0) return;
-
-        Object val = historyModel.getValueAt(row, 2);
-
-        // Direct Context row: select and show popup
-        if (val instanceof Context context) {
-            historyTable.setRowSelectionInterval(row, row);
-            showPopupForContext(context, e.getX(), e.getY());
-            return;
-        }
-
-        // Group header row: expand if needed, then target the first child row
-        if (val instanceof GroupRow group) {
-            var key = group.key();
-            boolean expandedNow = groupExpandedState.getOrDefault(key, group.expanded());
-
-            Runnable showAfterExpand = () -> {
-                int headerRow = findGroupHeaderRow(key);
-                if (headerRow >= 0) {
-                    int firstChildRow = headerRow + 1;
-                    if (firstChildRow < historyModel.getRowCount()) {
-                        Object childVal = historyModel.getValueAt(firstChildRow, 2);
-                        if (childVal instanceof Context ctx) {
-                            historyTable.setRowSelectionInterval(firstChildRow, firstChildRow);
-                            showPopupForContext(ctx, e.getX(), e.getY());
-                        }
-                    }
-                }
-            };
-
-            if (!expandedNow) {
-                groupExpandedState.put(key, true);
-                // Preserve viewport while expanding so the view doesn't jump
-                pendingViewportPosition = historyScrollPane.getViewport().getViewPosition();
-                suppressScrollOnNextUpdate = true;
-                updateHistoryTable(null);
-                // Ensure the table is rebuilt first, then select and show the popup
-                SwingUtilities.invokeLater(showAfterExpand);
-            } else {
-                showAfterExpand.run();
-            }
-        }
-    }
-
-    private int findGroupHeaderRow(UUID groupKey) {
-        for (int i = 0; i < historyModel.getRowCount(); i++) {
-            var v = historyModel.getValueAt(i, 2);
-            if (v instanceof GroupRow gr && gr.key().equals(groupKey)) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
     private void showPopupForContext(Context context, int x, int y) {
         // Create popup menu
         JPopupMenu popup = new JPopupMenu();
@@ -567,12 +366,19 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         resetToHereIncludingHistoryItem.addActionListener(event -> resetContextToIncludingHistory(context));
         popup.add(resetToHereIncludingHistoryItem);
 
-        // Show diff (uses BrokkDiffPanel)
-        JMenuItem showDiffItem = new JMenuItem("Show diff");
-        showDiffItem.addActionListener(event -> openDiffPreview(context));
-        // Enable only if we have a previous context to diff against
-        showDiffItem.setEnabled(contextManager.getContextHistory().previousOf(context) != null);
-        popup.add(showDiffItem);
+        // Show diff or Load Review based on context type
+        if (isReviewContext(context)) {
+            JMenuItem loadReviewItem = new JMenuItem("Load Review");
+            loadReviewItem.addActionListener(event -> loadReviewFromContext(context));
+            popup.add(loadReviewItem);
+        } else {
+            // Show diff (uses BrokkDiffPanel)
+            JMenuItem showDiffItem = new JMenuItem("Show diff");
+            showDiffItem.addActionListener(event -> openDiffPreview(context));
+            // Enable only if we have a previous context to diff against
+            showDiffItem.setEnabled(contextManager.getContextHistory().previousOf(context) != null);
+            popup.add(showDiffItem);
+        }
 
         popup.addSeparator();
 
@@ -592,7 +398,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         chrome.getThemeManager().registerPopupMenu(popup);
 
         // Show popup menu
-        popup.show(historyTable, x, y);
+        popup.show(historyTableComponent.getTable(), x, y);
     }
 
     /**
@@ -628,189 +434,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
                 contextToSelect != null ? contextToSelect.id() : "null");
 
         SwingUtilities.invokeLater(() -> {
-            historyModel.setRowCount(0);
-            // Reset any per-row height customizations before rebuilding; individual rows that
-            // need more space (e.g., with diff summaries) will be expanded explicitly later.
-            historyTable.setRowHeight(historyTable.getRowHeight());
-
-            int rowToSelect = -1;
-            int currentRow = 0;
-
-            var contexts = contextManager.getContextHistoryList();
-
-            // Diff warm-up is deferred; request diffs only for visible rows and current selection.
-            var diffService = contextManager.getContextHistory().getDiffService();
-            var history = contextManager.getContextHistory();
-            var resetEdges = history.getResetEdges();
-            var resetTargetIds = resetEdges.stream()
-                    .map(ai.brokk.context.ContextHistory.ResetEdge::targetId)
-                    .collect(java.util.stream.Collectors.toSet());
-
-            var descriptors = HistoryGrouping.GroupingBuilder.discoverGroups(contexts, history);
-            latestDescriptors = descriptors;
-
-            for (var descriptor : descriptors) {
-                var children = descriptor.children();
-
-                if (!descriptor.shouldShowHeader()) {
-                    // Render singleton (no header)
-                    assert children.size() == 1 : "Descriptor without header must be singleton";
-                    var ctx = children.getFirst();
-                    Context prev = contextManager.getContextHistory().previousOf(ctx);
-                    Icon icon = ctx.isAiResult() ? Icons.CHAT_BUBBLE : null;
-
-                    ComputedValue<String> description = resetTargetIds.contains(ctx.id())
-                            ? ai.brokk.util.ComputedValue.completed("Copy From History")
-                            : ctx.getAction(prev);
-
-                    ComputedSubscription.bind(description, historyTable, () -> {
-                        historyTable.repaint();
-                    });
-                    var actionVal = new ActionText(description, 0);
-                    historyModel.addRow(new Object[] {icon, actionVal, ctx});
-                    if (ctx.equals(contextToSelect)) {
-                        rowToSelect = currentRow;
-                    }
-                    currentRow++;
-                    continue;
-                }
-
-                // Render group header + (optional) children if expanded
-                var uuidKey = UUID.fromString(descriptor.key());
-                boolean expandedDefault = descriptor.isLastGroup();
-                boolean expanded = groupExpandedState.computeIfAbsent(uuidKey, k -> expandedDefault);
-
-                // Boundary detection for visual grouping: check if this group contains a state reset
-                boolean containsClearHistory = children.stream().anyMatch(c -> {
-                    var prev = contextManager.getContextHistory().previousOf(c);
-                    return prev != null
-                            && !prev.getTaskHistory().isEmpty()
-                            && c.getTaskHistory().isEmpty();
-                });
-
-                var groupRow = new GroupRow(uuidKey, expanded, containsClearHistory);
-                var headerLabel = descriptor.label();
-                ComputedSubscription.bind(headerLabel, historyTable, historyTable::repaint);
-
-                historyModel.addRow(new Object[] {new TriangleIcon(expanded), headerLabel, groupRow});
-                currentRow++;
-
-                if (expanded) {
-                    for (Context child : children) {
-                        Context prev = contextManager.getContextHistory().previousOf(child);
-                        var childDesc = child.getAction(prev);
-                        ComputedSubscription.bind(childDesc, historyTable, historyTable::repaint);
-                        var childAction = new ActionText(childDesc, 1);
-                        Icon childIcon = child.isAiResult() ? Icons.CHAT_BUBBLE : null;
-                        historyModel.addRow(new Object[] {childIcon, childAction, child});
-                        if (child.equals(contextToSelect)) {
-                            rowToSelect = currentRow;
-                        }
-                        currentRow++;
-                    }
-                }
-            }
-
-            // Apply pending selection directive, if any
-            if (pendingSelectionType == PendingSelectionType.FIRST_IN_GROUP && pendingSelectionGroupKey != null) {
-                int headerRow = findGroupHeaderRow(pendingSelectionGroupKey);
-                int candidate = headerRow >= 0 ? headerRow + 1 : -1;
-                if (candidate >= 0 && candidate < historyModel.getRowCount()) {
-                    Object v = historyModel.getValueAt(candidate, 2);
-                    if (v instanceof Context) {
-                        rowToSelect = candidate;
-                    }
-                }
-            }
-
-            boolean suppress = suppressScrollOnNextUpdate;
-
-            if (pendingSelectionType == PendingSelectionType.CLEAR) {
-                historyTable.clearSelection();
-                // Do not auto-select any row when collapsing a group
-            } else if (rowToSelect >= 0) {
-                historyTable.setRowSelectionInterval(rowToSelect, rowToSelect);
-                if (!suppress) {
-                    historyTable.scrollRectToVisible(historyTable.getCellRect(rowToSelect, 0, true));
-                }
-            } else if (!suppress && historyModel.getRowCount() > 0) {
-                int lastRow = historyModel.getRowCount() - 1;
-                historyTable.setRowSelectionInterval(lastRow, lastRow);
-                historyTable.scrollRectToVisible(historyTable.getCellRect(lastRow, 0, true));
-            }
-
-            // Restore viewport if requested
-            if (suppress && pendingViewportPosition != null) {
-                Point desired = pendingViewportPosition;
-                SwingUtilities.invokeLater(() -> {
-                    historyScrollPane.getViewport().setViewPosition(clampViewportPosition(historyScrollPane, desired));
-                });
-            }
-
-            // Reset directive after applying
-            pendingSelectionType = PendingSelectionType.NONE;
-            pendingSelectionGroupKey = null;
-            suppressScrollOnNextUpdate = false;
-            pendingViewportPosition = null;
-
-            // Adjust row heights for any Context rows that already have cached, non-empty
-            // diff summaries so their per-fragment diff panels are fully visible.
-            for (int row = 0; row < historyModel.getRowCount(); row++) {
-                Object v = historyModel.getValueAt(row, 2);
-                if (v instanceof Context ctxRow) {
-                    var diffsOpt = diffService.peek(ctxRow);
-                    if (diffsOpt.isPresent() && !diffsOpt.get().isEmpty()) {
-                        adjustRowHeightForContext(ctxRow);
-                    }
-                }
-            }
-
-            // Request diffs for visible rows and current selection only.
-            requestVisibleDiffs();
-
+            historyTableComponent.setHistory(contextManager.getContextHistory(), contextToSelect);
             contextManager.getProject().getMainProject().sessionsListChanged();
-            arrowLayerUI.setResetEdges(resetEdges);
             updateUndoRedoButtonStates();
         });
-    }
-
-    /**
-     * Adjusts the row height for the given Context so that the Action column's renderer
-     * (including any diff summary) is fully visible.
-     *
-     * <p>This method must be called on the EDT and performs no work if the context is
-     * not currently represented in the table.
-     */
-    void adjustRowHeightForContext(Context ctx) {
-        assert SwingUtilities.isEventDispatchThread() : "adjustRowHeightForContext must be called on EDT";
-
-        int targetRow = -1;
-        for (int row = 0; row < historyModel.getRowCount(); row++) {
-            Object val = historyModel.getValueAt(row, 2);
-            if (val == ctx) {
-                targetRow = row;
-                break;
-            }
-        }
-        if (targetRow < 0) {
-            return;
-        }
-
-        int actionCol = 1;
-        if (actionCol >= historyTable.getColumnCount()) {
-            return;
-        }
-
-        var renderer = historyTable.getCellRenderer(targetRow, actionCol);
-        Component comp = historyTable.prepareRenderer(renderer, targetRow, actionCol);
-
-        int colWidth = historyTable.getColumnModel().getColumn(actionCol).getWidth();
-        comp.setSize(colWidth, Short.MAX_VALUE);
-        int prefHeight = Math.max(18, comp.getPreferredSize().height + 2);
-
-        if (historyTable.getRowHeight(targetRow) != prefHeight) {
-            historyTable.setRowHeight(targetRow, prefHeight);
-        }
     }
 
     /**
@@ -819,7 +446,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      * @return The JTable containing context history
      */
     public @Nullable JTable getHistoryTable() {
-        return historyTable;
+        return historyTableComponent.getTable();
     }
 
     public JTabbedPane getActivityTabs() {
@@ -1754,8 +1381,8 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     public void showSessionSwitchSpinner() {
         SwingUtilities.invokeLater(() -> {
-            historyModel.setRowCount(0);
-            ComputedSubscription.disposeAll(historyTable);
+            historyTableComponent.getModel().setRowCount(0);
+            ComputedSubscription.disposeAll(historyTableComponent.getTable());
 
             JPanel ssp = sessionSwitchPanel;
             if (ssp == null) {
@@ -1932,7 +1559,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         Guidance:
     %s
     """
-                                    .formatted(captureText, ai.brokk.tools.WorkspaceTools.TASK_LIST_GUIDANCE));
+                                    .formatted(captureText, WorkspaceTools.TASK_LIST_GUIDANCE));
 
                     // Register tool providers
                     var ws = new WorkspaceTools(contextManager.liveContext());
@@ -1992,14 +1619,16 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     public void disableHistory() {
         SwingUtilities.invokeLater(() -> {
-            historyTable.setEnabled(false);
+            historyTableComponent.getTable().setEnabled(false);
             undoButton.setEnabled(false);
             redoButton.setEnabled(false);
             compressButton.setEnabled(false);
             // Optionally change appearance to indicate disabled state
-            historyTable.setForeground(UIManager.getColor("Label.disabledForeground"));
+            historyTableComponent.getTable().setForeground(UIManager.getColor("Label.disabledForeground"));
             // Make the table visually distinct when disabled
-            historyTable.setBackground(UIManager.getColor("Panel.background").darker());
+            historyTableComponent
+                    .getTable()
+                    .setBackground(UIManager.getColor("Panel.background").darker());
         });
     }
 
@@ -2008,10 +1637,10 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
      */
     public void enableHistory() {
         SwingUtilities.invokeLater(() -> {
-            historyTable.setEnabled(true);
+            historyTableComponent.getTable().setEnabled(true);
             // Restore appearance
-            historyTable.setForeground(UIManager.getColor("Table.foreground"));
-            historyTable.setBackground(UIManager.getColor("Table.background"));
+            historyTableComponent.getTable().setForeground(UIManager.getColor("Table.foreground"));
+            historyTableComponent.getTable().setBackground(UIManager.getColor("Table.background"));
             compressButton.setEnabled(true);
             updateUndoRedoButtonStates();
         });
@@ -2041,162 +1670,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
-    // Centralized icon mapping for task types; future-proofed for differentiation.
-    private javax.swing.Icon iconFor(TaskResult.Type type) {
-        switch (type) {
-            case ARCHITECT -> {
-                return Icons.ARCHITECT;
-            }
-            case CODE -> {
-                return Icons.CODE;
-            }
-            case ASK -> {
-                return Icons.ASK;
-            }
-            case SEARCH -> {
-                return Icons.SEARCH;
-            }
-            case CONTEXT -> {
-                return Icons.CONTEXT;
-            }
-            case MERGE -> {
-                return Icons.MERGE;
-            }
-            case BLITZFORGE -> {
-                return Icons.BLITZFORGE;
-            }
-            default -> {
-                return Icons.CHAT_BUBBLE;
-            }
-        }
-    }
-
-    // ---- Centralized TaskMeta / ModelSpec helpers (used by multiple renderers) ----
-
     /**
-     * Returns the last TaskMeta in the given Context's task history, or null if not present.
+     * Returns true if the given Context's most recent task is a REVIEW type.
      */
-    private @Nullable TaskResult.TaskMeta lastMetaOf(ai.brokk.context.Context ctx) {
-        var history = ctx.getTaskHistory();
-        if (history.isEmpty()) return null;
-        var last = history.getLast();
-        return last.meta();
-    }
-
-    /**
-     * Returns the ModelSpec from the last TaskMeta of the context, or null if unavailable.
-     */
-    private @Nullable Service.ModelConfig modelOf(ai.brokk.context.Context ctx) {
-        var meta = lastMetaOf(ctx);
-        return (meta == null) ? null : meta.primaryModel();
-    }
-
-    private @Nullable String taskTypeOf(ai.brokk.context.Context ctx) {
-        var meta = lastMetaOf(ctx);
-        return (meta == null) ? null : meta.type().displayName();
-    }
-
-    /**
-     * Returns a short, human-friendly model string: "name (reasoning)" or just "name".
-     */
-    private static String summarizeModel(Service.ModelConfig spec) {
-        var name = spec.name();
-        var rl = spec.reasoning().name();
-        if (!rl.isBlank()) {
-            return name + " (" + rl + ")";
-        }
-        return name;
-    }
-
-    /**
-     * Builds a tooltip that prepends the model summary on its own line when available,
-     * followed by the provided base text ("normal tooltip").
-     *
-     * <p>Exposed for use by external renderers such as {@link HistoryCellRenderer}.
-     */
-    public String buildTooltipWithModel(@Nullable ai.brokk.context.Context ctx, String base) {
-        if (ctx == null) return base;
-        var spec = modelOf(ctx);
-        if (spec == null) return base;
-        var taskType = taskTypeOf(ctx);
-        var tt = taskType == null ? "" : taskType + " ";
-
-        var header = "[" + summarizeModel(spec) + "]";
-        return "<html>" + escapeHtml(tt + header) + "<br/>" + escapeHtml(base) + "</html>";
-    }
-
-    /**
-     * Icon renderer that mirrors the Action column's indentation for nested rows.
-     */
-    private class IndentedIconRenderer extends ActivityTableRenderers.IconCellRenderer {
-        @Override
-        public Component getTableCellRendererComponent(
-                JTable table, @Nullable Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            // Retrieve the action value from column 1; derive indent level from ActionText if present
-            Object actionVal = table.getModel().getValueAt(row, 1);
-            Object actionForCheck =
-                    (actionVal instanceof ActionText atTmp) ? atTmp.text().renderNowOr(Context.SUMMARIZING) : actionVal;
-
-            // Detect group header rows from column 2
-            Object contextCol2 = table.getModel().getValueAt(row, 2);
-            boolean isHeader = (contextCol2 instanceof GroupRow);
-
-            // Preserve separator and header behavior by delegating to the base renderer unchanged
-            if (ActivityTableRenderers.isSeparatorAction(actionForCheck) || isHeader) {
-                return super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-            }
-
-            int indentLevel = (actionVal instanceof ActionText at) ? Math.max(0, at.indentLevel()) : 0;
-            Component comp = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-
-            // Attempt to override the icon based on TaskMeta.type() of the most recent TaskEntry,
-            // but only for AI result contexts.
-            try {
-                Object ctxVal = table.getModel().getValueAt(row, 2);
-                if (ctxVal instanceof ai.brokk.context.Context ctx) {
-                    var meta = lastMetaOf(ctx);
-                    if (comp instanceof JLabel lbl) {
-                        if (ctx.isAiResult() && meta != null) {
-                            var chosen = iconFor(meta.type());
-                            lbl.setIcon(chosen);
-                        } else if (!ctx.isAiResult()) {
-                            // Ensure non-AI rows have no type icon override
-                            lbl.setIcon(null);
-                        }
-                    }
-
-                    // Compute tooltip: include model details only for AI + meta; otherwise use plain action text
-                    String actionText;
-                    Object col1 = table.getModel().getValueAt(row, 1);
-                    if (col1 instanceof ActionText at2) {
-                        actionText = at2.text().renderNowOr(Context.SUMMARIZING);
-                    } else {
-                        actionText = (col1 != null) ? col1.toString() : "";
-                    }
-                    if (comp instanceof JComponent jc) {
-                        if (ctx.isAiResult() && meta != null) {
-                            jc.setToolTipText(buildTooltipWithModel(ctx, actionText));
-                        } else {
-                            jc.setToolTipText(actionText);
-                        }
-                    }
-                }
-            } catch (Throwable ignored) {
-                // Best-effort icon override only; fall back silently on any errors
-            }
-
-            // Apply inset: top-level rows get a base margin; nested rows align exactly with action indent
-            if (comp instanceof JComponent jc) {
-                int perLevelInset = indentLevel * Constants.H_GAP * 4;
-                int inset = (indentLevel == 0) ? (Constants.H_GAP * 2) : perLevelInset;
-                jc.setBorder(new EmptyBorder(0, inset, 0, 0));
-            }
-            // Align icon left only for non-header, non-separator rows
-            if (comp instanceof JLabel lbl) {
-                lbl.setHorizontalAlignment(JLabel.LEFT);
-            }
-            return comp;
-        }
+    private boolean isReviewContext(Context ctx) {
+        var meta = ActivityTableRenderers.lastMetaOf(ctx);
+        return meta != null && meta.type() == TaskResult.Type.REVIEW;
     }
 
     @Override
@@ -2230,6 +1709,46 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         }
     }
 
+    /**
+     * Loads a review from a Context that contains a REVIEW TaskResult.
+     * Extracts the final AI message, parses it as a GuidedReview, and displays it in SessionChangesPanel.
+     */
+    private void loadReviewFromContext(Context context) {
+        var taskHistory = context.getTaskHistory();
+        if (taskHistory.isEmpty()) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review content found in context.");
+            return;
+        }
+
+        var lastEntry = taskHistory.getLast();
+        var log = lastEntry.log();
+        if (log == null) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review content found in context.");
+            return;
+        }
+
+        // Extract the final AI message from the TaskFragment
+        var messages = log.messages();
+        String reviewMarkdown = null;
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            var msg = messages.get(i);
+            if (msg.type() == ChatMessageType.AI) {
+                if (msg instanceof AiMessage aiMsg) {
+                    reviewMarkdown = aiMsg.text();
+                    break;
+                }
+            }
+        }
+
+        if (reviewMarkdown == null || reviewMarkdown.isBlank()) {
+            chrome.showNotification(IConsoleIO.NotificationRole.INFO, "No review content found in context.");
+            return;
+        }
+
+        // Load the review into SessionChangesPanel
+        chrome.getRightPanel().loadReviewFromMarkdown(reviewMarkdown, context);
+    }
+
     /** Open a multi-file diff preview window for the given AI result context. */
     private void openDiffPreview(Context ctx) {
         var ch = contextManager.getContextHistory();
@@ -2241,7 +1760,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
         ds.diff(ctx).thenAccept(diffs -> SwingUtilities.invokeLater(() -> showDiffWindow(ctx, diffs)));
     }
 
-    private void showDiffWindow(Context ctx, List<DiffService.DiffEntry> diffs) {
+    private void showDiffWindow(Context ctx, List<DiffService.FragmentDiff> diffs) {
 
         record BufferedSourcePair(BufferSource left, BufferSource right) {}
 
@@ -2280,7 +1799,7 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
 
                     // Use the typed API matching buildAggregatedChangesPanel: BufferSource.StringSource +
                     // addComparison(BufferSource, BufferSource)
-                    String leftContent = de.oldContent();
+                    String leftContent = de.oldText();
                     String rightContent = safeFragmentText(de);
                     BufferSource left = new BufferSource.StringSource(leftContent, "Previous", pathDisplay, null);
                     BufferSource right = new BufferSource.StringSource(rightContent, "Current", pathDisplay, null);
@@ -2307,300 +1826,12 @@ public class HistoryOutputPanel extends JPanel implements ThemeAware {
     }
 
     @Blocking
-    private static String safeFragmentText(DiffService.DiffEntry de) {
+    private static String safeFragmentText(DiffService.FragmentDiff de) {
         try {
             return de.fragment().text().join();
         } catch (Throwable t) {
             return "";
         }
-    }
-
-    /**
-     * A LayerUI that paints reset-from-history arrows over the history table.
-     */
-    private class ResetArrowLayerUI extends LayerUI<JScrollPane> {
-        private final JTable table;
-        private List<ContextHistory.ResetEdge> resetEdges = List.of();
-        private final Map<ContextHistory.ResetEdge, Integer> edgePaletteIndices = new HashMap<>();
-        private int nextPaletteIndex = 0;
-
-        public ResetArrowLayerUI(JTable table) {
-            this.table = table;
-        }
-
-        public void setResetEdges(List<ContextHistory.ResetEdge> edges) {
-            this.resetEdges = edges;
-            // remove color mappings for edges that no longer exist
-            edgePaletteIndices.keySet().retainAll(new HashSet<>(edges));
-            firePropertyChange("resetEdges", null, edges); // Triggers repaint for the JLayer
-        }
-
-        private record Arrow(ContextHistory.ResetEdge edge, int sourceRow, int targetRow, int length) {}
-
-        private Color colorFor(ContextHistory.ResetEdge edge, boolean isDark) {
-            int paletteIndex = edgePaletteIndices.computeIfAbsent(edge, e -> {
-                int i = nextPaletteIndex;
-                nextPaletteIndex = (nextPaletteIndex + 1) % 4; // Cycle through 4 colors
-                return i;
-            });
-
-            // For light mode, we want darker lines for better contrast against a light background.
-            // For dark mode, we want brighter lines.
-            var palette = List.of(
-                    isDark ? Color.LIGHT_GRAY : Color.DARK_GRAY,
-                    isDark
-                            ? ColorUtil.brighter(ThemeColors.getDiffAdded(true), 0.4f)
-                            : ColorUtil.brighter(ThemeColors.getDiffAdded(false), -0.4f),
-                    isDark
-                            ? ColorUtil.brighter(ThemeColors.getDiffChanged(true), 0.6f)
-                            : ColorUtil.brighter(ThemeColors.getDiffChanged(false), -0.4f),
-                    isDark
-                            ? ColorUtil.brighter(ThemeColors.getDiffDeleted(true), 1.2f)
-                            : ColorUtil.brighter(ThemeColors.getDiffDeleted(false), -0.4f));
-            return palette.get(paletteIndex);
-        }
-
-        @Override
-        public void paint(Graphics g, JComponent c) {
-            super.paint(g, c);
-            if (resetEdges.isEmpty()) {
-                return;
-            }
-
-            // Use unified helper to compute anchor rows for each Context id
-            Map<UUID, Integer> contextIdToRow = HistoryGrouping.buildContextToRowMap(latestDescriptors, table);
-
-            // 4) Build list of arrows with geometry between the resolved row anchors
-            List<Arrow> arrows = new ArrayList<>();
-            for (var edge : resetEdges) {
-                Integer sourceRow = contextIdToRow.get(edge.sourceId());
-                Integer targetRow = contextIdToRow.get(edge.targetId());
-                if (sourceRow != null && targetRow != null) {
-                    var sourceRect = table.getCellRect(sourceRow, 0, true);
-                    var targetRect = table.getCellRect(targetRow, 0, true);
-                    int y1 = sourceRect.y + sourceRect.height / 2;
-                    int y2 = targetRect.y + targetRect.height / 2;
-                    arrows.add(new Arrow(edge, sourceRow, targetRow, Math.abs(y1 - y2)));
-                }
-            }
-
-            // 5) Draw arrows, longest first (so shorter arrows aren't hidden)
-            arrows.sort(Comparator.comparingInt((Arrow a) -> a.length).reversed());
-
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
-                float lineWidth = (float)
-                        (c.getGraphicsConfiguration().getDefaultTransform().getScaleX() >= 2 ? 0.75 : 1.0);
-                g2.setStroke(new BasicStroke(lineWidth));
-
-                boolean isDark = chrome.getTheme().isDarkTheme();
-                for (var arrow : arrows) {
-                    g2.setColor(colorFor(arrow.edge(), isDark));
-                    drawArrow(g2, c, arrow.sourceRow(), arrow.targetRow());
-                }
-            } finally {
-                g2.dispose();
-            }
-        }
-
-        private void drawArrow(Graphics2D g2, JComponent c, int sourceRow, int targetRow) {
-            Rectangle sourceRect = table.getCellRect(sourceRow, 0, true);
-            Rectangle targetRect = table.getCellRect(targetRow, 0, true);
-
-            // Convert cell rectangles to the JLayer's coordinate system
-            Point sourcePoint = SwingUtilities.convertPoint(
-                    table, new Point(sourceRect.x, sourceRect.y + sourceRect.height / 2), c);
-            Point targetPoint = SwingUtilities.convertPoint(
-                    table, new Point(targetRect.x, targetRect.y + targetRect.height / 2), c);
-
-            // Don't draw if either point is outside the visible viewport
-            if (!c.getVisibleRect().contains(sourcePoint) && !c.getVisibleRect().contains(targetPoint)) {
-                // a bit of a hack -- if just one is visible, we still want to draw part of the arrow
-                if (c.getVisibleRect().contains(sourcePoint)
-                        || c.getVisibleRect().contains(targetPoint)) {
-                    // one is visible, fall through
-                } else {
-                    return;
-                }
-            }
-
-            int iconColWidth = table.getColumnModel().getColumn(0).getWidth();
-            int arrowHeadLength = 5;
-            int arrowLeadIn = 1; // length of the line segment before the arrowhead
-            int arrowRightMargin = -2; // margin from the right edge of the column
-
-            int tipX = sourcePoint.x + iconColWidth - arrowRightMargin;
-            int baseX = tipX - arrowHeadLength;
-            int verticalLineX = baseX - arrowLeadIn;
-
-            // Define the path for the arrow shaft
-            Path2D.Double path = new Path2D.Double();
-            path.moveTo(tipX, sourcePoint.y); // Start at source, aligned with the eventual arrowhead tip
-            path.lineTo(verticalLineX, sourcePoint.y); // Horizontal segment at source row
-            path.lineTo(verticalLineX, targetPoint.y); // Vertical segment connecting rows
-            path.lineTo(baseX, targetPoint.y); // Horizontal segment leading to arrowhead base
-            g2.draw(path);
-
-            // Draw the arrowhead at the target, pointing left-to-right
-            drawArrowHead(g2, new Point(tipX, targetPoint.y), arrowHeadLength);
-        }
-
-        private void drawArrowHead(Graphics2D g2, Point to, int size) {
-            // The arrow is always horizontal, left-to-right. Build an isosceles triangle.
-            int tipX = to.x;
-            int midY = to.y;
-            int baseX = to.x - size;
-            int halfHeight = (int) Math.round(size * 0.6); // Make it slightly wider than it is long
-
-            var head = new Polygon(
-                    new int[] {tipX, baseX, baseX}, new int[] {midY, midY - halfHeight, midY + halfHeight}, 3);
-            g2.fill(head);
-        }
-    }
-
-    // --- Tree-like grouping support types and helpers ---
-
-    public record GroupRow(UUID key, boolean expanded, boolean containsClearHistory) {}
-
-    /**
-     * Structural action text + indent data for history table rendering.
-     */
-    public record ActionText(ComputedValue<String> text, int indentLevel) {}
-
-    private enum PendingSelectionType {
-        NONE,
-        CLEAR,
-        FIRST_IN_GROUP
-    }
-
-    private static final class TriangleIcon implements Icon {
-        private final boolean expanded;
-        private final int size;
-
-        TriangleIcon(boolean expanded) {
-            this(expanded, 12);
-        }
-
-        TriangleIcon(boolean expanded, int size) {
-            this.expanded = expanded;
-            this.size = size;
-        }
-
-        @Override
-        public void paintIcon(Component c, Graphics g, int x, int y) {
-            Graphics2D g2 = (Graphics2D) g.create();
-            try {
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-                int triW = 8;
-                int triH = 8;
-                int cx = x + (getIconWidth() - triW) / 2;
-                int cy = y + (getIconHeight() - triH) / 2;
-
-                Polygon p = new Polygon();
-                if (expanded) {
-                    // down triangle
-                    p.addPoint(cx, cy);
-                    p.addPoint(cx + triW, cy);
-                    p.addPoint(cx + triW / 2, cy + triH);
-                } else {
-                    // right triangle
-                    p.addPoint(cx, cy);
-                    p.addPoint(cx + triW, cy + triH / 2);
-                    p.addPoint(cx, cy + triH);
-                }
-
-                Color color = c.isEnabled()
-                        ? UIManager.getColor("Label.foreground")
-                        : UIManager.getColor("Label.disabledForeground");
-                if (color == null) color = Color.DARK_GRAY;
-                g2.setColor(color);
-                g2.fillPolygon(p);
-            } finally {
-                g2.dispose();
-            }
-        }
-
-        @Override
-        public int getIconWidth() {
-            return size;
-        }
-
-        @Override
-        public int getIconHeight() {
-            return size;
-        }
-    }
-
-    private void toggleGroupRow(int row) {
-        var val = historyModel.getValueAt(row, 2);
-        if (!(val instanceof GroupRow groupRow)) {
-            return;
-        }
-        boolean newState = !groupExpandedState.getOrDefault(groupRow.key(), groupRow.expanded());
-        groupExpandedState.put(groupRow.key(), newState);
-
-        // Set selection directive
-        if (newState) {
-            pendingSelectionType = PendingSelectionType.FIRST_IN_GROUP;
-        } else {
-            pendingSelectionType = PendingSelectionType.CLEAR;
-        }
-        pendingSelectionGroupKey = groupRow.key();
-
-        // Preserve viewport and suppress any scroll caused by table rebuild
-        pendingViewportPosition = historyScrollPane.getViewport().getViewPosition();
-        suppressScrollOnNextUpdate = true;
-
-        updateHistoryTable(null);
-    }
-
-    private void requestVisibleDiffs() {
-        if (historyTable.getRowCount() == 0) {
-            return;
-        }
-        var viewport = historyScrollPane.getViewport();
-        if (viewport == null) {
-            return;
-        }
-        var ds = contextManager.getContextHistory().getDiffService();
-        Rectangle viewRect = viewport.getViewRect();
-
-        int first = historyTable.rowAtPoint(new Point(viewRect.x, viewRect.y));
-        if (first < 0) first = 0;
-        int last = historyTable.rowAtPoint(new Point(viewRect.x, viewRect.y + viewRect.height - 1));
-        if (last < 0) last = historyTable.getRowCount() - 1;
-
-        for (int row = first; row <= last; row++) {
-            Object v = historyModel.getValueAt(row, 2);
-            if (v instanceof Context ctx) {
-                ds.diff(ctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(ctx)));
-            }
-        }
-
-        int sel = historyTable.getSelectedRow();
-        if (sel >= 0 && sel < historyTable.getRowCount()) {
-            Object sv = historyModel.getValueAt(sel, 2);
-            if (sv instanceof Context sctx) {
-                ds.diff(sctx).thenAccept(d -> SwingUtilities.invokeLater(() -> adjustRowHeightForContext(sctx)));
-            }
-        }
-    }
-
-    private static Point clampViewportPosition(JScrollPane sp, Point desired) {
-        JViewport vp = sp.getViewport();
-        if (vp == null) return desired;
-        Component view = vp.getView();
-        if (view == null) return desired;
-        Dimension viewSize = view.getSize();
-        Dimension extent = vp.getExtentSize();
-        int maxX = Math.max(0, viewSize.width - extent.width);
-        int maxY = Math.max(0, viewSize.height - extent.height);
-        int x = Math.max(0, Math.min(desired.x, maxX));
-        int y = Math.max(0, Math.min(desired.y, maxY));
-        return new Point(x, y);
     }
 
     private String formatModified(long modifiedMillis) {

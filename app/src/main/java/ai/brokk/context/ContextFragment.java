@@ -8,12 +8,15 @@ import ai.brokk.analyzer.BrokkFile;
 import ai.brokk.analyzer.CodeUnit;
 import ai.brokk.analyzer.ExternalFile;
 import ai.brokk.analyzer.ProjectFile;
-import ai.brokk.util.*;
+import ai.brokk.concurrent.ComputedValue;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.*;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
@@ -25,11 +28,9 @@ import org.jetbrains.annotations.Nullable;
  * <p>
  * This is a breaking change; do not expect call sites to compile until they are updated.
  *
- * <p>ContextFragment MUST be kept in sync with FrozenFragment: any polymorphic methods added to CF must be serialized
- * into FF so they can be accurately represented as well. If you are tasked with adding such a method to CF without also
- * having FF available to edit, you MUST decline the assignment and explain the problem.
  */
 public interface ContextFragment {
+    Logger logger = LogManager.getLogger(ContextFragment.class);
 
     @Blocking
     default boolean contentEquals(ContextFragment other) {
@@ -47,7 +48,7 @@ public interface ContextFragment {
     }
 
     /**
-     * Replaces polymorphic methods or instanceof checks with something that can easily apply to FrozenFragments as well
+     * Replaces polymorphic methods or instanceof checks with something that can easily apply to test fragments.
      */
     enum FragmentType {
         PROJECT_PATH,
@@ -108,6 +109,16 @@ public interface ContextFragment {
         return contextManager.getProject().getAllFiles().parallelStream()
                 .filter(f -> text.contains(f.toString()))
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * Set of fragments that should be added alongside this one.
+     * <p>
+     * This method is called during {@link Context#addFragments(Collection)} to expand a fragment with related context.
+     */
+    @Blocking
+    default Set<ContextFragment> supportingFragments() {
+        return Set.of();
     }
 
     /**
@@ -263,5 +274,40 @@ public interface ContextFragment {
     enum SummaryType {
         CODEUNIT_SKELETON,
         FILE_SKELETONS
+    }
+
+    /**
+     * Sorts editable fragments by the minimum file modification time (mtime) across their associated files.
+     * - Fragments with no files or inaccessible mtimes are given an mtime of 0 and will appear first.
+     * - Sorting is ascending (oldest first, newest last).
+     *
+     * @param editableFragments stream of editable fragments (typically from {@link Context#getEditableFragments()})
+     * @return stream of fragments sorted by min mtime
+     */
+    @Blocking
+    static Stream<ContextFragment> sortByMtime(Stream<ContextFragment> editableFragments) {
+        // Materialize min mtime for each fragment first to avoid recomputing during sort comparisons.
+        record Key(ContextFragment fragment, long minMtime) {}
+
+        return editableFragments
+                .map(cf -> {
+                    long minMtime = cf.files().join().stream()
+                            .mapToLong(pf -> {
+                                try {
+                                    return pf.mtime();
+                                } catch (IOException e) {
+                                    logger.warn(
+                                            "Could not get mtime for file in fragment [{}]; using 0",
+                                            cf.shortDescription(),
+                                            e);
+                                    return 0L;
+                                }
+                            })
+                            .min()
+                            .orElse(0L);
+                    return new Key(cf, minMtime);
+                })
+                .sorted(Comparator.comparingLong(k -> k.minMtime))
+                .map(k -> k.fragment);
     }
 }

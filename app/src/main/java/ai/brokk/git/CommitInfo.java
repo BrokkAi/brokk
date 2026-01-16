@@ -9,7 +9,6 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 
 /** A record to hold commit details */
 public final class CommitInfo implements ICommitInfo {
-    private final GitRepo repo;
     private final String id;
     private final String message;
     private final String author;
@@ -17,19 +16,17 @@ public final class CommitInfo implements ICommitInfo {
     private final Optional<Integer> stashIndex; // Optional stash index
 
     /** Constructor for regular commits. */
-    public CommitInfo(GitRepo repo, String id, String message, String author, Instant date) {
-        this(repo, id, message, author, date, Optional.empty());
+    public CommitInfo(String id, String message, String author, Instant date) {
+        this(id, message, author, date, Optional.empty());
     }
 
     /** Constructor for stash commits. */
-    public CommitInfo(GitRepo repo, String id, String message, String author, Instant date, int stashIndex) {
-        this(repo, id, message, author, date, Optional.of(stashIndex));
+    public CommitInfo(String id, String message, String author, Instant date, int stashIndex) {
+        this(id, message, author, date, Optional.of(stashIndex));
     }
 
     /** General purpose constructor. */
-    private CommitInfo(
-            GitRepo repo, String id, String message, String author, Instant date, Optional<Integer> stashIndex) {
-        this.repo = repo;
+    private CommitInfo(String id, String message, String author, Instant date, Optional<Integer> stashIndex) {
         this.id = id;
         this.message = message;
         this.author = author;
@@ -44,10 +41,9 @@ public final class CommitInfo implements ICommitInfo {
      * @return A list of relative file paths changed in this commit.
      * @throws GitAPIException if there's an error accessing Git data.
      */
-    @Override
-    public List<ProjectFile> changedFiles() throws GitAPIException {
+    public static List<ProjectFile> changedFiles(GitRepo repo, String commitId) throws GitAPIException {
         // FIXME, but not today: this should return ModifiedFiles
-        return repo.listFilesChangedInCommit(this.id).stream()
+        return repo.listFilesChangedInCommit(commitId).stream()
                 .map(IGitRepo.ModifiedFile::file)
                 .toList();
     }

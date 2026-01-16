@@ -230,6 +230,41 @@ public class UnifiedDiffDocument extends RSyntaxDocument {
     }
 
     /**
+     * Find the document line number for a given source file line.
+     *
+     * @param sourceLine 1-based line number in the source file
+     * @param isRightSide true for NEW/right side, false for OLD/left side
+     * @return 0-based document line number, or -1 if not found
+     */
+    public int findDocumentLineForSourceLine(int sourceLine, boolean isRightSide) {
+        for (int i = 0; i < filteredLines.size(); i++) {
+            var line = filteredLines.get(i);
+
+            // Special case: Omitted lines indicators do not have line numbers but are searchable via -1
+            if (line.getType() == LineType.OMITTED_LINES && sourceLine == -1) {
+                return i;
+            }
+
+            if (isRightSide) {
+                // For right/NEW side: match ADDITION and CONTEXT lines
+                if (line.getRightLineNumber() != -1
+                        && (line.getType() == LineType.ADDITION || line.getType() == LineType.CONTEXT)
+                        && line.getRightLineNumber() == sourceLine) {
+                    return i;
+                }
+            } else {
+                // For left/OLD side: match DELETION and CONTEXT lines
+                if (line.getLeftLineNumber() != -1
+                        && (line.getType() == LineType.DELETION || line.getType() == LineType.CONTEXT)
+                        && line.getLeftLineNumber() == sourceLine) {
+                    return i;
+                }
+            }
+        }
+        return -1;
+    }
+
+    /**
      * Find all hunk header line numbers in the current filtered view.
      *
      * @return List of 0-based line numbers where hunk headers appear

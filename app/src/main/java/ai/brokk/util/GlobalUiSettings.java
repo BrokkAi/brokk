@@ -1,5 +1,6 @@
 package ai.brokk.util;
 
+import ai.brokk.concurrent.AtomicWrites;
 import com.google.common.base.Splitter;
 import java.awt.Frame;
 import java.awt.Rectangle;
@@ -59,7 +60,6 @@ public final class GlobalUiSettings {
     private static final String KEY_VERTICAL_LAYOUT_HORIZONTAL_SPLIT = "verticalLayout.horizontalSplit";
     private static final String KEY_CLONE_DIRECTORY = "clone.lastDirectory";
     private static final String KEY_SKIP_COMMIT_GATE_EZ_MODE = "ui.skipCommitGateEzMode";
-    private static final String KEY_PREVIEW_DOCKED = "preview.docked";
     private static final String KEY_BUILD_DOCKED = "build.docked";
     private static final String KEY_REVIEW_DOCKED = "review.docked";
     private static final String KEY_TERMINAL_DOCKED = "terminal.docked";
@@ -414,15 +414,6 @@ public final class GlobalUiSettings {
 
     public static void saveAdvancedMode(boolean advanced) {
         setBoolean(KEY_UI_ADVANCED_MODE, advanced);
-    }
-
-    // Preview docked state (default: true = docked in BuildPane)
-    public static boolean isPreviewDocked() {
-        return getBoolean(KEY_PREVIEW_DOCKED, true);
-    }
-
-    public static void savePreviewDocked(boolean docked) {
-        setBoolean(KEY_PREVIEW_DOCKED, docked);
     }
 
     // Build docked state (default: true = docked in RightPanel)

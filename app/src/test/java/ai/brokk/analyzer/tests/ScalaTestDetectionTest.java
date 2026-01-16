@@ -27,13 +27,15 @@ public class ScalaTestDetectionTest {
             }
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.scala").build();
-        ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
-        analyzer.update();
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.scala").build()) {
+            ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
+            analyzer.update();
 
-        var file = new ProjectFile(project.getRoot(), "Example.scala");
-        assertTrue(analyzer.containsTests(file));
-        assertTrue(ContextManager.isTestFile(file, analyzer));
+            var file = new ProjectFile(project.getRoot(), "Example.scala");
+            assertTrue(analyzer.containsTests(file));
+            assertTrue(ContextManager.isTestFile(file, analyzer));
+        }
     }
 
     @Test
@@ -47,13 +49,15 @@ public class ScalaTestDetectionTest {
             }
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.scala").build();
-        ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
-        analyzer.update();
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.scala").build()) {
+            ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
+            analyzer.update();
 
-        var file = new ProjectFile(project.getRoot(), "Example.scala");
-        assertTrue(analyzer.containsTests(file));
-        assertTrue(ContextManager.isTestFile(file, analyzer));
+            var file = new ProjectFile(project.getRoot(), "Example.scala");
+            assertTrue(analyzer.containsTests(file));
+            assertTrue(ContextManager.isTestFile(file, analyzer));
+        }
     }
 
     @Test
@@ -67,13 +71,15 @@ public class ScalaTestDetectionTest {
             }
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.scala").build();
-        ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
-        analyzer.update();
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.scala").build()) {
+            ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
+            analyzer.update();
 
-        var file = new ProjectFile(project.getRoot(), "Example.scala");
-        assertTrue(analyzer.containsTests(file));
-        assertTrue(ContextManager.isTestFile(file, analyzer));
+            var file = new ProjectFile(project.getRoot(), "Example.scala");
+            assertTrue(analyzer.containsTests(file));
+            assertTrue(ContextManager.isTestFile(file, analyzer));
+        }
     }
 
     @Test
@@ -87,13 +93,15 @@ public class ScalaTestDetectionTest {
             }
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.scala").build();
-        ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
-        analyzer.update();
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.scala").build()) {
+            ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
+            analyzer.update();
 
-        var file = new ProjectFile(project.getRoot(), "Example.scala");
-        assertFalse(analyzer.containsTests(file));
-        assertFalse(ContextManager.isTestFile(file, analyzer));
+            var file = new ProjectFile(project.getRoot(), "Example.scala");
+            assertFalse(analyzer.containsTests(file));
+            assertFalse(ContextManager.isTestFile(file, analyzer));
+        }
     }
 
     @Test
@@ -105,12 +113,14 @@ public class ScalaTestDetectionTest {
             }
             """;
 
-        IProject project = InlineTestProjectCreator.code(code, "Example.scala").build();
-        ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
-        analyzer.update();
+        try (IProject project =
+                InlineTestProjectCreator.code(code, "Example.scala").build()) {
+            ScalaAnalyzer analyzer = new ScalaAnalyzer(project);
+            analyzer.update();
 
-        var file = new ProjectFile(project.getRoot(), "Example.scala");
-        assertFalse(analyzer.containsTests(file));
-        assertFalse(ContextManager.isTestFile(file, analyzer));
+            var file = new ProjectFile(project.getRoot(), "Example.scala");
+            assertFalse(analyzer.containsTests(file));
+            assertFalse(ContextManager.isTestFile(file, analyzer));
+        }
     }
 }

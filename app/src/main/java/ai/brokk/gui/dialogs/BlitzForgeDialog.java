@@ -965,7 +965,6 @@ public class BlitzForgeDialog extends BaseThemedDialog {
         boolean includeWorkspace = includeWorkspaceCheckbox.isSelected();
         String relatedText =
                 Objects.toString(relatedClassesCombo.getEditor().getItem(), "").trim();
-        String modelName = fav.config().name();
 
         // Increment generation so that older tasks become stale.
         int generation = costEstimateGeneration.incrementAndGet();
@@ -982,8 +981,6 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             double cost;
             boolean hadError = false;
             try {
-                var pricing = service.getModelPricing(modelName);
-
                 // Token counting and any file I/O happen in this background thread.
                 long tokensFiles =
                         files.parallelStream().mapToLong(this::getTokenCount).sum();
@@ -995,7 +992,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     Context ctx = cm.liveContext();
                     workspaceTokens =
                             Messages.getApproximateMessageTokens(WorkspacePrompts.getMessagesGroupedByMutability(
-                                    ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
+                                    ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
                     workspaceAdd = workspaceTokens * n;
                 }
 
@@ -1012,7 +1009,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
 
                 long totalInput = tokensFiles + workspaceAdd + relatedAdd;
                 long estOutput = Math.min(4000, totalInput / 2);
-                cost = pricing.getCostFor(totalInput, 0, estOutput);
+                cost = service.estimateCost(fav.config(), totalInput, estOutput).cost();
             } catch (Throwable t) {
                 logger.debug("Failed to compute BlitzForge cost estimate", t);
                 hadError = true;
@@ -1115,8 +1112,8 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             try {
                 // Token counting and message construction happen in this background thread.
                 Context ctx = cm.liveContext();
-                workspaceTokens = Messages.getApproximateMessageTokens(WorkspacePrompts.getMessagesGroupedByMutability(
-                        ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
+                workspaceTokens = Messages.getApproximateMessageTokens(
+                        WorkspacePrompts.getMessagesGroupedByMutability(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
                 historyTokens = Messages.getApproximateMessageTokens(cm.getHistoryMessages());
             } catch (Throwable t) {
                 logger.debug("Failed to compute token warning", t);
@@ -1433,7 +1430,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                     var ctx = cm.liveContext();
                     var list = new ArrayList<ChatMessage>();
                     list.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
-                            ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
+                            ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
                     list.addAll(CodePrompts.instance.getHistoryMessages(ctx));
                     var text = "";
                     for (var m : list) {
@@ -1602,7 +1599,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
             try {
                 if (fIncludeWorkspace) {
                     readOnlyMessages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(
-                            context, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
+                            context, EnumSet.of(SpecialTextType.TASK_LIST)));
                     readOnlyMessages.addAll(CodePrompts.instance.getHistoryMessages(context));
                 }
                 if (fRelatedK != null) {
@@ -1662,7 +1659,7 @@ public class BlitzForgeDialog extends BaseThemedDialog {
                 // Run the task
                 if (engineAction == Action.ASK) {
                     var ctx = new Context(cm)
-                            .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages)))
+                            .withHistory(List.of(TaskEntry.from(cm, readOnlyMessages, instructions)))
                             .addFragments(cm.toPathFragments(List.of(file)));
                     var messages = SearchPrompts.instance.buildAskPrompt(ctx, instructions);
                     var llm = cm.getLlm(model, "Ask", true);

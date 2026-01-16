@@ -1,48 +1,42 @@
 package ai.brokk.executor.jobs;
 
 import ai.brokk.ContextManager;
+import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.Llm;
 import ai.brokk.Service;
 import ai.brokk.TaskResult;
+import ai.brokk.agents.BuildAgent;
 import ai.brokk.agents.CodeAgent;
 import ai.brokk.agents.LutzAgent;
 import ai.brokk.agents.SearchAgent;
-import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.context.Context;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.executor.io.HeadlessHttpConsole;
-import ai.brokk.gui.util.GitRepoIdUtil;
+import ai.brokk.git.GitRepo;
+import ai.brokk.git.GitWorkflow;
 import ai.brokk.prompts.SearchPrompts;
 import ai.brokk.tasks.TaskList;
-import ai.brokk.util.Json;
-import com.fasterxml.jackson.core.type.TypeReference;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
+import dev.langchain4j.model.openai.OpenAiChatRequestParameters;
 import java.io.IOException;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.jetbrains.annotations.Nullable;
-import org.kohsuke.github.GHPullRequest;
-import org.kohsuke.github.GHPullRequestFileDetail;
-import org.kohsuke.github.GHRepository;
-import org.kohsuke.github.GitHubBuilder;
 
 /**
  * Executes long-running Brokk jobs using ContextManager, producing durable events
@@ -54,6 +48,7 @@ import org.kohsuke.github.GitHubBuilder;
  */
 public final class JobRunner {
     private static final Logger logger = LogManager.getLogger(JobRunner.class);
+    private static final int DEFAULT_MAX_BUILD_ATTEMPTS = 3;
 
     private final ContextManager cm;
     private final JobStore store;
@@ -62,16 +57,17 @@ public final class JobRunner {
     private volatile @Nullable String activeJobId;
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
-    private enum Mode {
+    enum Mode {
         ARCHITECT,
         CODE,
         ASK,
         SEARCH,
         REVIEW,
-        LUTZ
+        LUTZ,
+        ISSUE
     }
 
-    private static Mode parseMode(JobSpec spec) {
+    static Mode parseMode(JobSpec spec) {
         try {
             var tags = spec.tags();
             var raw = tags.getOrDefault("mode", "").trim();
@@ -148,35 +144,45 @@ public final class JobRunner {
                 // Determine execution mode (default ARCHITECT)
                 Mode mode = parseMode(spec);
 
-                // To use it with set or get methods
-                AtomicReference<Object> completionResultRef = new AtomicReference<>(null);
+                var completed = new AtomicInteger(0);
 
-                var completed = new java.util.concurrent.atomic.AtomicInteger(0);
+                var rawCodeModelName = spec.codeModel() != null
+                        ? spec.codeModel()
+                        : spec.tags().get("code_model");
+                var trimmedCodeModelName =
+                        (rawCodeModelName != null && !rawCodeModelName.isBlank()) ? rawCodeModelName.trim() : null;
+                var hasCodeModelOverride = trimmedCodeModelName != null;
 
-                var rawCodeModelName = spec.codeModel();
-                var trimmedCodeModelName = rawCodeModelName == null ? null : rawCodeModelName.trim();
-                var hasCodeModelOverride = trimmedCodeModelName != null && !trimmedCodeModelName.isEmpty();
-
-                final StreamingChatModel architectPlannerModel =
-                        mode == Mode.ARCHITECT || mode == Mode.LUTZ ? resolveModelOrThrow(spec.plannerModel()) : null;
+                final StreamingChatModel architectPlannerModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
+                        ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
+                        : null;
                 final StreamingChatModel architectCodeModel = (mode == Mode.ARCHITECT || mode == Mode.LUTZ)
-                        ? (hasCodeModelOverride
-                                ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
-                                : defaultCodeModel())
+                        ? (trimmedCodeModelName != null
+                                ? resolveModelOrThrow(
+                                        trimmedCodeModelName, spec.reasoningLevelCode(), spec.temperatureCode())
+                                : defaultCodeModel(spec))
                         : null;
-                final StreamingChatModel reviewPlannerModel =
-                        mode == Mode.REVIEW ? resolveModelOrThrow(spec.plannerModel()) : null;
-                final StreamingChatModel reviewCodeModel = mode == Mode.REVIEW
-                        ? (hasCodeModelOverride
-                                ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
-                                : defaultCodeModel())
+                final StreamingChatModel reviewPlannerModel = mode == Mode.REVIEW
+                        ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
                         : null;
-                final StreamingChatModel askPlannerModel =
-                        mode == Mode.ASK ? resolveModelOrThrow(spec.plannerModel()) : null;
+                // Resolve scan model for REVIEW mode (prefer explicit spec.scanModel() if provided; otherwise project
+                // default)
+                final StreamingChatModel reviewScanModel = mode == Mode.REVIEW
+                        ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
+                                ? resolveModelOrThrow(
+                                        spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
+                                : defaultScanModel(spec))
+                        : null;
+                final StreamingChatModel askPlannerModel = mode == Mode.ASK || mode == Mode.ISSUE
+                        ? resolveModelOrThrow(spec.plannerModel(), spec.reasoningLevel(), spec.temperature())
+                        : null;
                 final StreamingChatModel codeModeModel = mode == Mode.CODE
                         ? (hasCodeModelOverride
-                                ? resolveModelOrThrow(Objects.requireNonNull(trimmedCodeModelName))
-                                : defaultCodeModel())
+                                ? resolveModelOrThrow(
+                                        Objects.requireNonNull(trimmedCodeModelName),
+                                        spec.reasoningLevelCode(),
+                                        spec.temperatureCode())
+                                : defaultCodeModel(spec))
                         : null;
 
                 var service = cm.getService();
@@ -185,13 +191,15 @@ public final class JobRunner {
                 // otherwise project default)
                 final StreamingChatModel searchPlannerModel = mode == Mode.SEARCH
                         ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
-                                ? resolveModelOrThrow(spec.scanModel().trim())
-                                : cm.getService().getScanModel())
+                                ? resolveModelOrThrow(
+                                        spec.scanModel().trim(), spec.reasoningLevel(), spec.temperature())
+                                : defaultScanModel(spec))
                         : null;
 
                 String plannerModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectPlannerModel));
+                            case ARCHITECT, LUTZ, ISSUE ->
+                                service.nameOf(Objects.requireNonNull(architectPlannerModel));
                             case ASK -> service.nameOf(Objects.requireNonNull(askPlannerModel));
                             case SEARCH -> service.nameOf(Objects.requireNonNull(searchPlannerModel));
                             case CODE -> {
@@ -202,24 +210,24 @@ public final class JobRunner {
                         };
                 String codeModelNameForLog =
                         switch (mode) {
-                            case ARCHITECT, LUTZ -> service.nameOf(Objects.requireNonNull(architectCodeModel));
+                            case ARCHITECT, LUTZ, ISSUE -> service.nameOf(Objects.requireNonNull(architectCodeModel));
                             case ASK -> "(default, ignored for ASK)";
                             case SEARCH -> "(default, ignored for SEARCH)";
                             case CODE -> service.nameOf(Objects.requireNonNull(codeModeModel));
-                            case REVIEW -> service.nameOf(Objects.requireNonNull(reviewCodeModel));
+                            case REVIEW -> "(default, ignored for REVIEW)";
                         };
                 boolean usesDefaultCodeModel =
                         switch (mode) {
-                            case ARCHITECT, LUTZ -> !hasCodeModelOverride;
-                            case ASK, SEARCH -> true;
-                            case CODE, REVIEW -> !hasCodeModelOverride;
+                            case ARCHITECT, LUTZ, ISSUE -> !hasCodeModelOverride;
+                            case ASK, SEARCH, REVIEW -> true;
+                            case CODE -> !hasCodeModelOverride;
                         };
                 if (plannerModelNameForLog == null || plannerModelNameForLog.isBlank()) {
                     plannerModelNameForLog = (mode == Mode.CODE) ? "(unused)" : "(unknown)";
                 }
                 if (codeModelNameForLog == null || codeModelNameForLog.isBlank()) {
                     codeModelNameForLog = usesDefaultCodeModel ? "(default)" : "(unknown)";
-                } else if (usesDefaultCodeModel && mode != Mode.ASK && mode != Mode.SEARCH) {
+                } else if (usesDefaultCodeModel && mode != Mode.ASK && mode != Mode.SEARCH && mode != Mode.REVIEW) {
                     codeModelNameForLog = codeModelNameForLog + " (default)";
                 }
 
@@ -373,8 +381,11 @@ public final class JobRunner {
                                                 StreamingChatModel scanModelToUse = null;
                                                 try {
                                                     scanModelToUse = !trimmedScanModel.isEmpty()
-                                                            ? resolveModelOrThrow(trimmedScanModel)
-                                                            : cm.getService().getScanModel();
+                                                            ? resolveModelOrThrow(
+                                                                    trimmedScanModel,
+                                                                    spec.reasoningLevel(),
+                                                                    spec.temperature())
+                                                            : defaultScanModel(spec);
                                                 } catch (IllegalArgumentException iae) {
                                                     // resolveModelOrThrow may throw; log and continue without
                                                     // failing job.
@@ -520,10 +531,11 @@ public final class JobRunner {
                                             // otherwise use project default
                                             String rawScanModel = spec.scanModel();
                                             String trimmedScanModel = rawScanModel == null ? null : rawScanModel.trim();
-                                            final StreamingChatModel scanModelToUse =
-                                                    (trimmedScanModel != null && !trimmedScanModel.isEmpty())
-                                                            ? resolveModelOrThrow(trimmedScanModel)
-                                                            : cm.getService().getScanModel();
+                                            final StreamingChatModel scanModelToUse = (trimmedScanModel != null
+                                                            && !trimmedScanModel.isEmpty())
+                                                    ? resolveModelOrThrow(
+                                                            trimmedScanModel, spec.reasoningLevel(), spec.temperature())
+                                                    : defaultScanModel(spec);
 
                                             // SearchAgent now handles scanning internally via execute()
                                             var scanConfig = SearchAgent.ScanConfig.withModel(scanModelToUse);
@@ -541,30 +553,414 @@ public final class JobRunner {
                                         }
                                     }
                                     case REVIEW -> {
-                                        var prData = Json.getMapper().readTree(spec.taskInput());
-                                        int prNumber = prData.get("pr_number").asInt(0);
-                                        String repoURL = prData.get("repo_url").asText();
+                                        // 1. Extract and validate PR metadata
+                                        String githubToken = spec.getGithubToken();
+                                        String repoOwner = spec.getRepoOwner();
+                                        String repoName = spec.getRepoName();
+                                        Integer prNumber = spec.getPrNumber();
 
-                                        // Create review prompt
-                                        String reviewPrompt = managePRContext(prNumber, repoURL, spec);
-
-                                        // Execute review using CodeAgent
-                                        var agent = new CodeAgent(
-                                                cm,
-                                                Objects.requireNonNull(
-                                                        reviewPlannerModel,
-                                                        "plannel model unavailable for REVIEW jobs"));
-
-                                        TaskResult result;
-                                        try (var scope = cm.beginTaskUngrouped("Review")) {
-                                            result = agent.execute(reviewPrompt, Set.of());
-                                            scope.append(result);
+                                        if (githubToken == null || githubToken.isBlank()) {
+                                            throw new IllegalArgumentException("REVIEW requires github_token in tags");
                                         }
-                                        String jsonString = result.stopDetails().explanation();
-                                        if (!jsonString.isBlank()) {
-                                            Object parsed = Json.fromJson(
-                                                    jsonString, new TypeReference<Map<String, Object>>() {});
-                                            completionResultRef.set(parsed);
+                                        if (repoOwner == null || repoOwner.isBlank()) {
+                                            throw new IllegalArgumentException("REVIEW requires repo_owner in tags");
+                                        }
+                                        if (repoName == null || repoName.isBlank()) {
+                                            throw new IllegalArgumentException("REVIEW requires repo_name in tags");
+                                        }
+                                        if (prNumber == null) {
+                                            throw new IllegalArgumentException("REVIEW requires pr_number in tags");
+                                        }
+
+                                        try (var scope = cm.beginTaskUngrouped("PR Review #" + prNumber)) {
+                                            var context = cm.liveContext();
+
+                                            // 2. Create GitHubAuth and get PR
+                                            var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+                                            var ghRepo = gitHubAuth.getGhRepository();
+                                            var pr = ghRepo.getPullRequest(prNumber);
+
+                                            // 3. Fetch PR details (base branch, head SHA)
+                                            var prDetails = PrReviewService.fetchPrDetails(ghRepo, prNumber);
+                                            String baseBranch = prDetails.baseBranch();
+                                            String headSha = prDetails.headSha();
+
+                                            // 3a. Fetch PR refs and base branch from a single resolved remote to
+                                            // ensure the refs we diff against exist locally.
+                                            var gitRepo =
+                                                    (GitRepo) cm.getProject().getRepo();
+
+                                            String remoteName = gitRepo.remote().getOriginRemoteNameWithFallback();
+                                            if (remoteName == null) {
+                                                throw new IllegalStateException(
+                                                        "PR review requires a configured git remote (no remote found; expected 'origin' or a fallback remote)");
+                                            }
+
+                                            try {
+                                                store.appendEvent(
+                                                        jobId,
+                                                        JobEvent.of(
+                                                                "NOTIFICATION",
+                                                                "Fetching PR refs from remote '" + remoteName
+                                                                        + "'..."));
+                                            } catch (IOException ioe) {
+                                                logger.warn(
+                                                        "Failed to append fetch notification event for job {}: {}",
+                                                        jobId,
+                                                        ioe.getMessage());
+                                            }
+
+                                            try {
+                                                gitRepo.remote().fetchPrRef(prNumber, remoteName, githubToken);
+                                            } catch (GitAPIException e) {
+                                                logger.warn(
+                                                        "Failed to fetch PR ref for PR #{} from remote '{}': {}",
+                                                        prNumber,
+                                                        remoteName,
+                                                        e.getMessage());
+                                                throw new IllegalStateException(
+                                                        "Failed to fetch PR ref for PR #" + prNumber + " from remote '"
+                                                                + remoteName + "': " + e.getMessage(),
+                                                        e);
+                                            }
+
+                                            try {
+                                                gitRepo.remote().fetchBranch(remoteName, baseBranch, githubToken);
+                                            } catch (GitAPIException e) {
+                                                logger.warn(
+                                                        "Failed to fetch base branch '{}' for PR #{} from remote '{}': {}",
+                                                        baseBranch,
+                                                        prNumber,
+                                                        remoteName,
+                                                        e.getMessage());
+                                                throw new IllegalStateException(
+                                                        "Failed to fetch base branch '" + baseBranch + "' for PR #"
+                                                                + prNumber + " from remote '" + remoteName + "': "
+                                                                + e.getMessage(),
+                                                        e);
+                                            }
+
+                                            String baseRef = remoteName + "/" + baseBranch;
+                                            String prRef = remoteName + "/pr/" + prNumber;
+
+                                            // 4. Compute PR diff using fetched refs
+                                            String diff = PrReviewService.computePrDiff(gitRepo, baseRef, prRef);
+
+                                            // 4a. Annotate diff with line numbers for LLM review
+                                            String annotatedDiff = PrReviewService.annotateDiffWithLineNumbers(diff);
+
+                                            // Pre-scan to load related context from the diff
+                                            try {
+                                                store.appendEvent(
+                                                        jobId,
+                                                        JobEvent.of(
+                                                                "NOTIFICATION",
+                                                                "Brokk Context Engine: analyzing repository context for PR review..."));
+
+                                                var scanGoal =
+                                                        "Analyzing changes in this PR diff to identify related code context:\n```diff\n"
+                                                                + annotatedDiff + "\n```";
+                                                var searchAgent = new LutzAgent(
+                                                        context,
+                                                        scanGoal,
+                                                        Objects.requireNonNull(
+                                                                reviewScanModel,
+                                                                "scan model unavailable for REVIEW pre-scan"),
+                                                        SearchPrompts.Objective.ANSWER_ONLY,
+                                                        scope);
+
+                                                context = searchAgent.scanContext();
+
+                                                store.appendEvent(
+                                                        jobId,
+                                                        JobEvent.of(
+                                                                "NOTIFICATION",
+                                                                "Brokk Context Engine: complete — contextual insights added to Workspace."));
+                                            } catch (InterruptedException ie) {
+                                                Thread.currentThread().interrupt();
+                                                logger.warn(
+                                                        "Pre-scan interrupted for REVIEW job {}: {}",
+                                                        jobId,
+                                                        ie.getMessage());
+                                            } catch (Exception ex) {
+                                                logger.warn(
+                                                        "Pre-scan failed for REVIEW job {}: {}",
+                                                        jobId,
+                                                        ex.getMessage());
+                                            }
+
+                                            // 5. Call reviewDiff() to get LLM review with enriched context
+                                            var plannerModel = Objects.requireNonNull(
+                                                    reviewPlannerModel, "planner model unavailable for REVIEW jobs");
+                                            TaskResult reviewResult = reviewDiff(context, plannerModel, annotatedDiff);
+                                            scope.append(reviewResult);
+
+                                            // 6. Parse review output (JSON only)
+                                            String reviewText =
+                                                    reviewResult.output().text().join();
+
+                                            var reviewResponse = PrReviewService.parsePrReviewResponse(reviewText);
+
+                                            if (reviewResponse == null) {
+                                                // JSON parsing failed - treat as hard error
+                                                String preview = reviewText.length() > 500
+                                                        ? reviewText.substring(0, 500) + "..."
+                                                        : reviewText;
+                                                logger.error(
+                                                        "PR review response was not valid JSON for job {}. Response preview: {}",
+                                                        jobId,
+                                                        preview);
+                                                throw new IllegalStateException(
+                                                        "PR review response was not valid JSON. Expected JSON object with 'summaryMarkdown' field. Response preview: "
+                                                                + preview);
+                                            }
+
+                                            // JSON parsing succeeded - use structured format
+                                            logger.debug("PR review parsed as JSON successfully");
+                                            String summary = reviewResponse.summaryMarkdown();
+
+                                            // 7. Post summary comment to PR
+                                            PrReviewService.postReviewComment(pr, summary);
+                                            logger.info("Posted PR review summary to PR #{}", prNumber);
+
+                                            // 8. Post inline comments from structured response
+                                            int postedComments = 0;
+                                            int skippedComments = 0;
+
+                                            for (var comment : reviewResponse.comments()) {
+                                                String path = comment.path();
+                                                int line = comment.line();
+                                                String bodyMarkdown = comment.bodyMarkdown();
+
+                                                try {
+                                                    if (!PrReviewService.hasExistingLineComment(pr, path, line)) {
+                                                        PrReviewService.postLineComment(
+                                                                pr, path, line, bodyMarkdown, headSha);
+                                                        postedComments++;
+                                                        logger.debug("Posted line comment on {}:{}", path, line);
+                                                    } else {
+                                                        skippedComments++;
+                                                        logger.debug("Skipped duplicate comment on {}:{}", path, line);
+                                                    }
+                                                } catch (Exception e) {
+                                                    logger.warn(
+                                                            "Failed to post line comment on {}:{}: {}",
+                                                            path,
+                                                            line,
+                                                            e.getMessage());
+                                                }
+                                            }
+
+                                            logger.info(
+                                                    "PR Review complete for PR #{}: posted {} line comments, skipped {} duplicates",
+                                                    prNumber,
+                                                    postedComments,
+                                                    skippedComments);
+                                        }
+                                    }
+                                    case ISSUE -> {
+                                        // 1. Extract and validate Issue metadata
+                                        String githubToken = spec.getGithubToken();
+                                        String repoOwner = spec.getRepoOwner();
+                                        String repoName = spec.getRepoName();
+                                        Integer issueNumber = spec.getIssueNumber();
+
+                                        if (githubToken == null || githubToken.isBlank()) {
+                                            throw new IssueExecutionException("ISSUE requires github_token in tags");
+                                        }
+                                        if (repoOwner == null || repoOwner.isBlank()) {
+                                            throw new IssueExecutionException("ISSUE requires repo_owner in tags");
+                                        }
+                                        if (repoName == null || repoName.isBlank()) {
+                                            throw new IssueExecutionException("ISSUE requires repo_name in tags");
+                                        }
+                                        if (issueNumber == null) {
+                                            throw new IssueExecutionException("ISSUE requires issue_number in tags");
+                                        }
+
+                                        // 2. Resolve issue details and build settings
+                                        var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+                                        var ghRepo = gitHubAuth.getGhRepository();
+                                        var details = IssueService.fetchIssueDetails(ghRepo, issueNumber);
+                                        var buildDetailsOverride =
+                                                IssueService.parseBuildSettings(spec.getBuildSettingsJson());
+
+                                        // 3. Branch management
+                                        var gitRepo = (GitRepo) cm.getProject().getRepo();
+                                        String originalBranch = gitRepo.getCurrentBranch();
+                                        String originalCommitId = null;
+
+                                        String issueBranchName = IssueService.generateBranchName(issueNumber, gitRepo);
+
+                                        try {
+                                            originalCommitId = gitRepo.getCurrentCommitId();
+                                        } catch (GitAPIException e) {
+                                            logger.warn("Failed to capture current commit ID for job {}", jobId, e);
+                                        }
+
+                                        logger.info(
+                                                "ISSUE job {}: Creating branch {} from {}",
+                                                jobId,
+                                                issueBranchName,
+                                                originalBranch);
+                                        gitRepo.createAndCheckoutBranch(issueBranchName, originalBranch);
+
+                                        try {
+                                            String issueTaskPrompt = "Resolve GitHub Issue #%d: %s\n\nIssue Body:\n%s"
+                                                    .formatted(issueNumber, details.title(), details.body());
+
+                                            // 4. Lutz-style execution: Planning then Task Iteration
+                                            String taskDescription = "Issue #" + issueNumber + ": " + details.title();
+                                            try (var scope = cm.beginTask(issueTaskPrompt, true, taskDescription)) {
+                                                var context = cm.liveContext();
+                                                var searchAgent = new LutzAgent(
+                                                        context,
+                                                        issueTaskPrompt,
+                                                        Objects.requireNonNull(
+                                                                architectPlannerModel,
+                                                                "plannerModel required for ISSUE jobs"),
+                                                        SearchPrompts.Objective.TASKS_ONLY,
+                                                        scope);
+                                                var taskListResult = searchAgent.execute();
+                                                scope.append(taskListResult);
+
+                                                var generatedTasks =
+                                                        cm.getTaskList().tasks();
+                                                var incompleteTasks = generatedTasks.stream()
+                                                        .filter(t -> !t.done())
+                                                        .toList();
+
+                                                for (TaskList.TaskItem generatedTask : incompleteTasks) {
+                                                    if (cancelled.get()) return;
+
+                                                    // Execute task with ArchitectAgent
+                                                    cm.executeTask(
+                                                            generatedTask,
+                                                            architectPlannerModel,
+                                                            Objects.requireNonNull(architectCodeModel));
+
+                                                    // 4. Verification loop: run build and retry on failure
+                                                    int buildAttempts = 0;
+                                                    int maxBuildAttempts = Objects.requireNonNullElse(
+                                                            buildDetailsOverride.maxBuildAttempts(),
+                                                            DEFAULT_MAX_BUILD_ATTEMPTS);
+
+                                                    boolean verified = false;
+
+                                                    while (!verified && buildAttempts < maxBuildAttempts) {
+                                                        buildAttempts++;
+                                                        String buildError =
+                                                                BuildAgent.runVerification(cm, buildDetailsOverride);
+                                                        if (buildError.isBlank()) {
+                                                            verified = true;
+                                                            logger.info(
+                                                                    "ISSUE job {} task '{}' verified successfully",
+                                                                    jobId,
+                                                                    generatedTask.text());
+                                                        } else {
+                                                            logger.warn(
+                                                                    "ISSUE job {} task '{}' build failed (attempt {}/{}): {}",
+                                                                    jobId,
+                                                                    generatedTask.text(),
+                                                                    buildAttempts,
+                                                                    maxBuildAttempts,
+                                                                    buildError);
+
+                                                            if (buildAttempts < maxBuildAttempts) {
+                                                                // Ask architect to fix the build error
+                                                                String fixPrompt =
+                                                                        "The build failed after the last task '"
+                                                                                + generatedTask.text()
+                                                                                + "'. Please fix the following error:\n\n"
+                                                                                + buildError;
+                                                                cm.executeTask(
+                                                                        TaskList.TaskItem.createFixTask(fixPrompt),
+                                                                        architectPlannerModel,
+                                                                        architectCodeModel);
+                                                            } else {
+                                                                throw new IssueExecutionException(
+                                                                        "Failed to pass build verification after "
+                                                                                + maxBuildAttempts + " attempts: "
+                                                                                + buildError);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // 5. Commit and Create Pull Request
+                                                var workflow = new GitWorkflow(cm);
+                                                workflow.performAutoCommit(
+                                                        "Resolves #" + issueNumber + ": " + details.title());
+
+                                                String targetBranch = gitHubAuth.getDefaultBranch();
+                                                var suggestion = workflow.suggestPullRequestDetails(
+                                                        issueBranchName, targetBranch, cm.getIo());
+
+                                                String prBody = IssueService.buildPrDescription(
+                                                        suggestion.description(), issueNumber);
+
+                                                var prUri = workflow.createPullRequest(
+                                                        issueBranchName, targetBranch, suggestion.title(), prBody);
+
+                                                logger.info("ISSUE job {} created PR: {}", jobId, prUri);
+                                                if (console != null) {
+                                                    console.showNotification(
+                                                            IConsoleIO.NotificationRole.INFO,
+                                                            "Created Pull Request: " + prUri);
+                                                }
+                                            }
+                                        } finally {
+                                            // Ensure we roll back to the original branch on failure or cancellation
+                                            try {
+                                                if (!gitRepo.getCurrentBranch().equals(originalBranch)) {
+                                                    // Count commits on issue branch before switching away
+                                                    int issueBranchCommits = originalCommitId != null
+                                                            ? gitRepo.countCommitsSince(originalCommitId)
+                                                            : 0;
+
+                                                    // Stash any uncommitted changes to ensure checkout of original
+                                                    // branch succeeds
+                                                    if (!gitRepo.getModifiedFiles()
+                                                            .isEmpty()) {
+                                                        logger.info(
+                                                                "ISSUE job {}: Stashing uncommitted changes before branch restoration",
+                                                                jobId);
+                                                        gitRepo.createStash("Brokk ISSUE job " + jobId + " cleanup");
+                                                    }
+
+                                                    logger.info(
+                                                            "ISSUE job {}: Restoring original branch {}",
+                                                            jobId,
+                                                            originalBranch);
+                                                    gitRepo.checkout(originalBranch);
+
+                                                    // If the issue branch was never committed to, delete it to avoid
+                                                    // orphans
+                                                    boolean noCommitsSince = issueBranchCommits == 0;
+
+                                                    if (gitRepo.isBranchMerged(issueBranchName) || noCommitsSince) {
+                                                        try {
+                                                            gitRepo.deleteBranch(issueBranchName);
+                                                            logger.info(
+                                                                    "ISSUE job {}: Deleted empty issue branch {}",
+                                                                    jobId,
+                                                                    issueBranchName);
+                                                        } catch (Exception e) {
+                                                            logger.warn(
+                                                                    "ISSUE job {}: Failed to delete temporary branch {}",
+                                                                    jobId,
+                                                                    issueBranchName,
+                                                                    e);
+                                                        }
+                                                    }
+                                                }
+                                            } catch (Exception e) {
+                                                logger.error(
+                                                        "ISSUE job {}: Failed to restore original branch {}",
+                                                        jobId,
+                                                        originalBranch,
+                                                        e);
+                                            }
                                         }
                                     }
                                     default -> throw new IllegalStateException("Unhandled job mode: " + mode);
@@ -602,7 +998,7 @@ public final class JobRunner {
                         current = current.cancelled();
                         logger.info("Job {} marked as CANCELLED", jobId);
                     } else {
-                        current = current.completed(completionResultRef.get());
+                        current = current.completed(null);
                         logger.info("Job {} completed successfully", jobId);
                     }
                     if (console != null) {
@@ -710,16 +1106,68 @@ public final class JobRunner {
         }
     }
 
-    private StreamingChatModel resolveModelOrThrow(String name) {
-        var model = cm.getService().getModel(new Service.ModelConfig(name));
+    private record AppliedOverrides(
+            Service.ModelConfig config, @Nullable OpenAiChatRequestParameters.Builder parametersOverride) {}
+
+    private AppliedOverrides applyOverrides(
+            Service.ModelConfig baseConfig,
+            @Nullable String reasoningLevelOverride,
+            @Nullable Double temperatureOverride) {
+        Service.ReasoningLevel reasoning =
+                Service.ReasoningLevel.fromString(reasoningLevelOverride, baseConfig.reasoning());
+
+        var config = reasoning == baseConfig.reasoning()
+                ? baseConfig
+                : new Service.ModelConfig(baseConfig.name(), reasoning, baseConfig.tier());
+
+        @Nullable OpenAiChatRequestParameters.Builder parametersOverride = null;
+        if (temperatureOverride != null) {
+            if (cm.getService().supportsTemperature(baseConfig.name())) {
+                parametersOverride = OpenAiChatRequestParameters.builder().temperature(temperatureOverride);
+            } else {
+                logger.debug("Skipping temperature override for model {} as it is not supported.", baseConfig.name());
+            }
+        }
+
+        return new AppliedOverrides(config, parametersOverride);
+    }
+
+    private StreamingChatModel resolveModelOrThrow(
+            String name, @Nullable String reasoningLevelOverride, @Nullable Double temperatureOverride) {
+        var service = cm.getService();
+
+        var applied = applyOverrides(new Service.ModelConfig(name), reasoningLevelOverride, temperatureOverride);
+        var model = service.getModel(applied.config(), applied.parametersOverride());
         if (model == null) {
             throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + name);
         }
         return model;
     }
 
-    private StreamingChatModel defaultCodeModel() {
-        return cm.getCodeModel();
+    private StreamingChatModel resolveModelOrThrow(
+            Service.ModelConfig baseConfig,
+            @Nullable String reasoningLevelOverride,
+            @Nullable Double temperatureOverride) {
+        var service = cm.getService();
+
+        var applied = applyOverrides(baseConfig, reasoningLevelOverride, temperatureOverride);
+        var model = service.getModel(applied.config(), applied.parametersOverride());
+        if (model == null) {
+            throw new IllegalArgumentException("MODEL_UNAVAILABLE: " + baseConfig.name());
+        }
+        return model;
+    }
+
+    private StreamingChatModel defaultCodeModel(JobSpec spec) {
+        var service = cm.getService();
+        var baseConfig = Service.ModelConfig.from(cm.getCodeModel(), service);
+        return resolveModelOrThrow(baseConfig, spec.reasoningLevelCode(), spec.temperatureCode());
+    }
+
+    private StreamingChatModel defaultScanModel(JobSpec spec) {
+        var service = cm.getService();
+        var baseConfig = Service.ModelConfig.from(service.getScanModel(), service);
+        return resolveModelOrThrow(baseConfig, spec.reasoningLevel(), spec.temperature());
     }
 
     /**
@@ -746,6 +1194,7 @@ public final class JobRunner {
         try {
             response = llm.sendRequest(messages);
         } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
         }
 
@@ -763,6 +1212,107 @@ public final class JobRunner {
                 ctx, // Ask never changes files; use current live context
                 stop,
                 meta);
+    }
+
+    /**
+     * Generates a diff review using the planner model and returns the result as Markdown.
+     *
+     * @param ctx the current Context with workspace and diff
+     * @param model the model to use for the review
+     * @param diff the diff content to review
+     * @return a TaskResult containing the review
+     */
+    private TaskResult reviewDiff(Context ctx, StreamingChatModel model, String diff) {
+        var svc = cm.getService();
+        var meta = new TaskResult.TaskMeta(TaskResult.Type.ASK, Service.ModelConfig.from(model, svc));
+
+        String fencedDiff = "```diff\nDIFF_START\n" + diff + "\nDIFF_END\n```";
+
+        String prompt =
+                """
+                You are performing a Pull Request diff review. The diff to review is provided
+                *between the fenced code block marked DIFF_START and DIFF_END*.
+                Everything inside that block is code - do not ignore any part of it.
+
+                %s
+
+                IMPORTANT: Line Number Format
+                -----------------------------
+                Each diff line is annotated with explicit OLD/NEW line numbers for your reference:
+
+                - Added lines:   "[OLD:- NEW:N] +<content>" where N is the exact line number in the new file
+                - Removed lines: "[OLD:N NEW:-] -<content>" where N is the exact line number in the old file
+                - Context lines: "[OLD:N NEW:N]  <content>" where N/N are the exact line numbers in the old/new files
+
+                When writing your review, cite line numbers using just the number, choosing the appropriate number:
+                - For additions ("+"): use the NEW line number from the annotation
+                - For deletions ("-"): use the OLD line number from the annotation
+                - For context/unchanged lines (" "): use the NEW line number from the annotation
+
+                Your task:
+                Analyze the diff content above using the context of related methods and code files.
+
+                OUTPUT FORMAT
+                -------------
+                You MUST output a single JSON object with this exact structure:
+
+                {
+                  "summaryMarkdown": "## Brokk PR Review\\n\\n[1-3 sentences describing what changed and key issues]",
+                  "comments": [
+                    {
+                      "path": "src/main/java/Example.java",
+                      "line": 42,
+                      "bodyMarkdown": "Description of issue and why it matters. Provide a minimal actionable suggestion if relevant."
+                    }
+                  ]
+                }
+
+                REQUIRED FIELDS:
+                - "summaryMarkdown": MUST start with exactly "## Brokk PR Review" followed by a newline and 1-3 sentences
+                - "comments": Array of inline comment objects (may be empty if no issues found)
+
+                Each comment object MUST have:
+                - "path": File path relative to repository root (e.g., "src/main/java/Foo.java")
+                - "line": Single integer line number from the diff annotation:
+                  * For "+" lines: use the NEW line number
+                  * For "-" lines: use the OLD line number
+                  * For " " lines: use the NEW line number
+                - "bodyMarkdown": Markdown description of the issue with actionable suggestion
+
+                RULES FOR COMMENTS:
+                - SKIP any line that has no issue. Do not comment on correct code.
+                - Only output comments for actual problems, bugs, security issues, or code smells.
+                - Only write comments with criticism and suggested improvement; avoid compliments.
+                - Be precise and concise.
+                - Include code snippets only when they clarify the fix.
+                - If no issues are found, set "comments" to an empty array: []
+
+                OUTPUT ONLY THE JSON OBJECT. Do not include any text before or after the JSON.
+
+                Begin analysis now.
+                """
+                        .formatted(fencedDiff);
+
+        List<ChatMessage> messages = List.of(new UserMessage(prompt));
+
+        var llm = cm.getLlm(new Llm.Options(model, "Diff Review").withEcho());
+        llm.setOutput(cm.getIo());
+
+        TaskResult.StopDetails stop = null;
+        Llm.StreamingResult response = null;
+        try {
+            response = llm.sendRequest(messages);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            stop = new TaskResult.StopDetails(TaskResult.StopReason.INTERRUPTED);
+        }
+
+        if (response != null) {
+            stop = TaskResult.StopDetails.fromResponse(response);
+        }
+
+        Objects.requireNonNull(stop);
+        return new TaskResult(cm, "Diff Review", List.copyOf(cm.getIo().getLlmRawMessages()), ctx, stop, meta);
     }
 
     private static Throwable unwrapFailure(Throwable throwable) {
@@ -783,117 +1333,5 @@ public final class JobRunner {
             return throwable.getClass().getSimpleName();
         }
         return throwable.getClass().getSimpleName() + ": " + message;
-    }
-
-    /**
-     * Manages pull request context by fetching PR data, extracting diff information,
-     * and generating a formatted review prompt with project guidelines.
-     *
-     * @param prNumber The pull request number
-     * @param repoUrl The GitHub repository URL
-     * @return Formatted review prompt string with JSON output instructions
-     * @throws IOException If GitHub API communication fails
-     * @throws IllegalArgumentException If the repository URL is invalid
-     */
-    private String managePRContext(int prNumber, String repoUrl, JobSpec spec) throws IOException {
-        var ownerRepo = GitRepoIdUtil.parseOwnerRepoFromUrl(repoUrl);
-        if (ownerRepo == null) {
-            throw new IllegalArgumentException("Invalid GitHub URL: " + repoUrl);
-        }
-
-        String sessionIdStr = spec.tags().get("session_id");
-        if (sessionIdStr == null || sessionIdStr.isBlank()) {
-            throw new IllegalStateException("Session ID not found in job specification");
-        }
-
-        String authToken = spec.tags().get("github_token");
-        if (authToken == null || authToken.isBlank()) {
-            throw new IllegalStateException("GitHub authentication token not found in job specification");
-        }
-
-        UUID sessionId = UUID.fromString(sessionIdStr);
-        try {
-            cm.updateActiveSession(sessionId);
-            logger.info("Switched session successfully for PR review");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to switch session for review", e);
-        }
-
-        String owner = ownerRepo.owner();
-        String repoName = ownerRepo.repo();
-
-        var github = new GitHubBuilder().withOAuthToken(authToken).build();
-        GHRepository ghRepo = github.getRepository(owner + "/" + repoName);
-        GHPullRequest pr = ghRepo.getPullRequest(prNumber);
-
-        try {
-            StringBuilder diff = new StringBuilder();
-            Set<ProjectFile> changedFiles = new LinkedHashSet<>();
-
-            for (GHPullRequestFileDetail file : pr.listFiles()) {
-                String filename = file.getFilename();
-                if (filename != null && !filename.isBlank()) {
-                    try {
-                        var projectFile = cm.toFile(filename);
-                        changedFiles.add(projectFile);
-                    } catch (Exception ex) {
-                        if (logger.isDebugEnabled()) {
-                            logger.debug("Unable to resolve ProjectFile for PR file '{}'", filename, ex);
-                        }
-                    }
-                }
-
-                String patch = file.getPatch();
-
-                if (patch != null && filename != null && !filename.isBlank()) {
-                    diff.append("diff --git a/")
-                            .append(filename)
-                            .append(" b/")
-                            .append(filename)
-                            .append("\n")
-                            .append(patch)
-                            .append("\n");
-                }
-            }
-
-            String fullDiff = diff.toString();
-            String description = pr.getBody();
-
-            var fragment = new ContextFragments.StringFragment(
-                    cm, fullDiff, description, "text/x-diff", Set.copyOf(changedFiles));
-            cm.addFragments(fragment);
-
-            String reviewGuide = cm.getProject().getReviewGuide();
-
-            return String.format(
-                    """
-                Please review the following Pull Request:
-                PR #%d: %s
-                %s
-                Review Guidelines:
-                %s
-
-                Please provide a thorough code review based on the diff and files in context.
-                IMPORTANT: You must output ONLY valid JSON with this exact schema (no markdown fences, no extra text):
-                {
-                "action": "REQUEST_CHANGES" | "APPROVE" | "COMMENT",
-                "comments": [
-                    {
-                    "file": "relative/path/to/file",
-                    "line": 123,
-                    "comment": "Specific issue description"
-                    }
-                ],
-                "summary": "Overall review summary"
-                }
-
-                For each issue you find, create a comment entry with the exact file path from the changed_files, line number, and a concise description.
-                Use action=REQUEST_CHANGES for blocking issues, APPROVE if no issues, COMMENT for minor suggestions.
-                """,
-                    prNumber, pr.getTitle(), description, reviewGuide);
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to build review context for PR #" + prNumber, e);
-        }
     }
 }

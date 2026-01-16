@@ -2,6 +2,7 @@ package ai.brokk.util;
 
 import static java.util.Objects.requireNonNull;
 
+import ai.brokk.concurrent.ComputedValue;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;

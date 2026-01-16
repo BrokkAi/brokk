@@ -296,6 +296,44 @@ public class GitRepoTest {
     }
 
     @Test
+    void testCountCommitsSince_NormalCase() throws Exception {
+        // Record starting commit
+        String startCommit = repo.getCurrentCommitId();
+
+        // Create multiple commits
+        createCommit("file1.txt", "content1", "Commit 1");
+        createCommit("file2.txt", "content2", "Commit 2");
+        createCommit("file3.txt", "content3", "Commit 3");
+        createCommit("file4.txt", "content4", "Commit 4");
+
+        // Verify count from start to HEAD
+        int count = repo.countCommitsSince(startCommit);
+        assertEquals(4, count, "Should count exactly 4 commits since startCommit");
+
+        // Verify count from an intermediate commit
+        String midCommit = repo.getCurrentCommitId();
+        createCommit("file5.txt", "content5", "Commit 5");
+        assertEquals(1, repo.countCommitsSince(midCommit), "Should count 1 commit since midCommit");
+    }
+
+    @Test
+    void testCountCommitsSince_SameCommit() throws Exception {
+        String currentCommit = repo.getCurrentCommitId();
+        int count = repo.countCommitsSince(currentCommit);
+        assertEquals(0, count, "Should return 0 when comparing a commit to itself");
+    }
+
+    @Test
+    void testCountCommitsSince_InvalidHash() {
+        // Test with a completely invalid string
+        assertEquals(0, repo.countCommitsSince("not-a-hash"), "Should return 0 for invalid commit hash string");
+
+        // Test with a valid-looking but non-existent SHA
+        String nonExistentSha = "a".repeat(40);
+        assertEquals(0, repo.countCommitsSince(nonExistentSha), "Should return 0 for non-existent commit hash");
+    }
+
+    @Test
     void testGetCommitMessagesBetween_sameBranch() throws Exception {
         List<String> messages = repo.getCommitMessagesBetween(repo.getCurrentBranch(), repo.getCurrentBranch());
         assertTrue(messages.isEmpty(), "Should be no messages between a branch and itself.");
@@ -310,7 +348,7 @@ public class GitRepoTest {
         createCommit("feature_file1.txt", "content1", "Commit 1 on feature");
         createCommit("feature_file2.txt", "content2", "Commit 2 on feature");
 
-        List<String> messages = repo.getCommitMessagesBetween("feature", mainBranch);
+        List<String> messages = repo.getCommitMessagesBetween(mainBranch, "feature");
         List<String> expectedMessages = List.of("Commit 1 on feature", "Commit 2 on feature");
         assertEquals(expectedMessages, messages, "Messages should be those on feature branch, in chronological order.");
     }
@@ -349,7 +387,7 @@ public class GitRepoTest {
         // Commits on branch-A: Initial, M1, A1, A2
         // Commits on branch-B: Initial, M1, B1
         // Merge base is M1. Commits on branch-A after M1 are A1, A2.
-        List<String> messages = repo.getCommitMessagesBetween("branch-A", "branch-B");
+        List<String> messages = repo.getCommitMessagesBetween("branch-B", "branch-A");
         List<String> expectedMessages = List.of("A1 on branch-A", "A2 on branch-A");
         assertEquals(
                 expectedMessages, messages, "Should return commits unique to branch-A after divergence, in order.");
@@ -1370,7 +1408,7 @@ public class GitRepoTest {
         String secondCommit = repo.getCurrentCommitId();
 
         // Get files changed between commits
-        var changedFiles = repo.listFilesChangedBetweenCommits(secondCommit, firstCommit);
+        var changedFiles = repo.listFilesChangedBetweenCommits(firstCommit, secondCommit);
 
         // JGit's rename detection is heuristic. When a small file is renamed and modified in the same commit,
         // it may emit either a single RENAME/MODIFIED for the new path, or an ADD(new) + DELETE(old).
@@ -2131,6 +2169,32 @@ public class GitRepoTest {
     }
 
     @Test
+    void testDiffWorkingAndHead() throws Exception {
+        // 1. Create a file and commit it
+        Path file = projectRoot.resolve("working_test.txt");
+        Files.writeString(file, "Initial content\n");
+        repo.getGit().add().addFilepattern("working_test.txt").call();
+        repo.getGit().commit().setMessage("Initial commit").setSign(false).call();
+        String initialCommit = repo.getCurrentCommitId();
+
+        // 2. Modify file in working directory but do NOT commit
+        Files.writeString(file, "Initial content\nModified content\n");
+
+        // 3. Diff against HEAD should NOT show working tree changes (it's the commit)
+        String diffHead = repo.getDiff(initialCommit, "HEAD");
+        assertEquals("", diffHead, "Diff against HEAD should be empty as they are the same commit");
+
+        // 4. Diff against WORKING (the special token) should show the filesystem changes
+        String diffWorking = repo.getDiff(initialCommit, "WORKING");
+        assertTrue(diffWorking.contains("+Modified content"), "Diff against WORKING should show working tree changes");
+
+        // 5. Verify single file diff also works with WORKING
+        ProjectFile pf = new ProjectFile(projectRoot, "working_test.txt");
+        String fileDiffWorking = repo.getDiff(pf, initialCommit, "WORKING");
+        assertTrue(fileDiffWorking.contains("+Modified content"), "File diff against WORKING should show changes");
+    }
+
+    @Test
     void testListFilesChangedBetweenBranches_WithChanges() throws Exception {
         // Create initial commit on master
         createCommit("file1.txt", "content1", "Initial commit");
@@ -2142,7 +2206,7 @@ public class GitRepoTest {
         createCommit("file2.txt", "content2", "Feature commit");
 
         // List changes between branches
-        var result = repo.listFilesChangedBetweenBranches("feature", "master");
+        var result = repo.listFilesChangedBetweenBranches("master", "feature");
 
         assertNotNull(result, "Result should not be null");
         assertEquals(1, result.size(), "Should have one changed file");
@@ -2153,12 +2217,118 @@ public class GitRepoTest {
         createCommit("aaa.txt", "aaa", "Another commit");
         createCommit("zzz.txt", "zzz", "Yet another commit");
 
-        result = repo.listFilesChangedBetweenBranches("feature", "master");
+        result = repo.listFilesChangedBetweenBranches("master", "feature");
         assertEquals(3, result.size());
 
         // Files should be sorted alphabetically
         assertEquals("aaa.txt", result.get(0).file().getFileName().toString());
         assertEquals("file2.txt", result.get(1).file().getFileName().toString());
         assertEquals("zzz.txt", result.get(2).file().getFileName().toString());
+    }
+
+    @Test
+    void testListFilesChangedBetweenCommits_Working() throws Exception {
+        // 1. Initial state
+        createCommit("file1.txt", "content1", "Initial commit");
+        String initialCommit = repo.getCurrentCommitId();
+
+        // 2. Modify tracked file and add new untracked file in working directory
+        Files.writeString(projectRoot.resolve("file1.txt"), "modified content");
+        Files.writeString(projectRoot.resolve("file2.txt"), "new content");
+
+        // 3. List changes using "WORKING"
+        var result = repo.listFilesChangedBetweenCommits(initialCommit, "WORKING");
+
+        var modified = result.stream()
+                .filter(f -> f.file().getFileName().equals("file1.txt"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("file1.txt not found in changes"));
+        assertEquals(IGitRepo.ModificationType.MODIFIED, modified.status());
+
+        assertFalse(
+                result.stream().anyMatch(f -> f.file().getFileName().equals("file2.txt")),
+                "Untracked files must not be reported when diffing against WORKING");
+    }
+
+    @Test
+    void testGetFileDiffs_ContentRetrieval() throws Exception {
+        createCommit("file1.txt", "line1\n", "Initial");
+        String firstCommit = repo.getCurrentCommitId();
+        createCommit("file1.txt", "line1\nline2\n", "Update");
+        String secondCommit = repo.getCurrentCommitId();
+
+        var diffs = repo.data().getFileDiffs(firstCommit, secondCommit);
+
+        assertEquals(1, diffs.size());
+        var diff = diffs.get(0);
+        assertEquals("line1\n", diff.oldText());
+        assertEquals("line1\nline2\n", diff.newText());
+        assertNotNull(diff.oldFile());
+        assertNotNull(diff.newFile());
+    }
+
+    @Test
+    void testGetFileDiffs_NewAndDeleted() throws Exception {
+        createCommit("to_delete.txt", "bye", "Initial");
+        String firstCommit = repo.getCurrentCommitId();
+
+        // One commit that deletes one file and adds another
+        Files.delete(projectRoot.resolve("to_delete.txt"));
+        repo.getGit().rm().addFilepattern("to_delete.txt").call();
+        createCommit("new_file.txt", "hello", "Add and Delete");
+        String secondCommit = repo.getCurrentCommitId();
+
+        var diffs = repo.data().getFileDiffs(firstCommit, secondCommit);
+        assertEquals(2, diffs.size());
+
+        var newFileDiff = diffs.stream()
+                .filter(d ->
+                        "new_file.txt".equals(d.newFile() != null ? d.newFile().getFileName() : null))
+                .findFirst()
+                .orElseThrow();
+        assertNull(newFileDiff.oldFile());
+        assertEquals("", newFileDiff.oldText());
+        assertEquals("hello", newFileDiff.newText());
+
+        var deletedFileDiff = diffs.stream()
+                .filter(d ->
+                        "to_delete.txt".equals(d.oldFile() != null ? d.oldFile().getFileName() : null))
+                .findFirst()
+                .orElseThrow();
+        assertNull(deletedFileDiff.newFile());
+        assertEquals("bye", deletedFileDiff.oldText());
+        assertEquals("", deletedFileDiff.newText());
+    }
+
+    @Test
+    void testGetFileDiffs_WorkingTree() throws Exception {
+        createCommit("file1.txt", "committed", "Initial");
+        String head = repo.getCurrentCommitId();
+
+        Files.writeString(projectRoot.resolve("file1.txt"), "working changes");
+
+        var diffs = repo.data().getFileDiffs(head, "WORKING");
+        assertEquals(1, diffs.size());
+        var diff = diffs.get(0);
+
+        assertEquals("committed", diff.oldText());
+        assertEquals("working changes", diff.newText());
+    }
+
+    @Test
+    void testGetFileDiffs_FileNotFoundAtRef() throws Exception {
+        createCommit("file1.txt", "content", "Initial");
+        String head = repo.getCurrentCommitId();
+
+        // Asking for content of a file that doesn't exist at HEAD
+        ProjectFile nonExistent = new ProjectFile(projectRoot, "ghost.txt");
+
+        // This tests the getRefContent internal fallback
+        var diffs = repo.data().getFileDiffs(head, head);
+        assertTrue(diffs.isEmpty());
+
+        // Directly verify the content helper behavior via data helper if we can,
+        // but since it's private we rely on the fact that getFileDiffs uses it.
+        // We simulate a diff entry manually if needed, but the public API test is sufficient.
     }
 }

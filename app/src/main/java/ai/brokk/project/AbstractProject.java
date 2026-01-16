@@ -4,12 +4,14 @@ import ai.brokk.IAnalyzerWrapper;
 import ai.brokk.analyzer.Language;
 import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
+import ai.brokk.concurrent.AtomicWrites;
+import ai.brokk.concurrent.LoggingFuture;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.git.IGitRepo;
 import ai.brokk.git.LocalFileRepo;
-import ai.brokk.util.AtomicWrites;
 import ai.brokk.util.EnvironmentJava;
+import ai.brokk.util.PathNormalizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.awt.Rectangle;
@@ -31,6 +33,7 @@ import java.util.stream.Collectors;
 import javax.swing.JFrame;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public abstract sealed class AbstractProject implements IProject permits MainProject, WorktreeProject {
@@ -158,7 +161,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     @Override
     public CompletableFuture<Void> updateLiveDependencies(
             Set<Path> newLiveDependencyDirs, @Nullable IAnalyzerWrapper analyzerWrapper) {
-        return CompletableFuture.supplyAsync(() -> {
+        return LoggingFuture.supplyAsync(() -> {
             // If analyzer provided, pause watcher and compute prev files
             Set<ProjectFile> prevFiles = null;
             if (analyzerWrapper != null) {
@@ -469,6 +472,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    @Blocking
     public Language getBuildLanguage() {
         var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
         if (configured != null && !configured.isBlank()) {
@@ -479,6 +483,23 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             }
         }
         return computeMostCommonLanguage();
+    }
+
+    @Override
+    public Language computedBuildLanguage() {
+        var configured = workspaceProps.getProperty(PROP_BUILD_LANGUAGE);
+        if (configured != null && !configured.isBlank()) {
+            try {
+                return Languages.valueOf(configured);
+            } catch (IllegalArgumentException e) {
+                // fall through to cache check
+            }
+        }
+        // If cache is populated, compute from it; otherwise return NONE
+        if (allFilesCache != null) {
+            return computeMostCommonLanguage();
+        }
+        return Languages.NONE;
     }
 
     @Override
@@ -539,6 +560,47 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
             workspaceProps.setProperty(UI_FILTER_PREFIX + key, value);
         }
         saveWorkspaceProperties();
+    }
+
+    // --- Project Tree expansion persistence ---
+
+    private static final String PROP_TREE_EXPANDED = "ui.projectTree.expandedPaths";
+
+    @Override
+    public List<Path> getExpandedTreePaths() {
+        var json = workspaceProps.getProperty(PROP_TREE_EXPANDED);
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<String> pathStrings = objectMapper.readValue(
+                    json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            // Filter out empty/blank paths and normalize separators for cross-platform compatibility
+            return pathStrings.stream()
+                    .filter(s -> !s.isBlank())
+                    .map(s -> s.replace('\\', '/'))
+                    .map(Path::of)
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            logger.warn("Error parsing expanded tree paths: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    @Override
+    public void setExpandedTreePaths(List<Path> paths) {
+        try {
+            // Filter out empty/blank paths and normalize to forward slashes for cross-platform compatibility
+            var pathStrings = paths.stream()
+                    .map(p -> PathNormalizer.canonicalizeForProject(p.toString(), getRoot()))
+                    .filter(s -> !s.isBlank())
+                    .collect(Collectors.toList());
+            var json = objectMapper.writeValueAsString(pathStrings);
+            workspaceProps.setProperty(PROP_TREE_EXPANDED, json);
+            saveWorkspaceProperties();
+        } catch (Exception e) {
+            logger.error("Error saving expanded tree paths: {}", e.getMessage());
+        }
     }
 
     // --- Terminal drawer per-project persistence ---
@@ -638,6 +700,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    @Blocking
     public boolean isEmptyProject() {
         Set<String> analyzableExtensions = Languages.ALL_LANGUAGES.stream()
                 .filter(lang -> lang != Languages.NONE)
@@ -728,7 +791,8 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     private volatile Set<ProjectFile> allFilesCache;
 
     private Set<ProjectFile> getAllFilesRaw() {
-        var trackedFiles = repo.getTrackedFiles();
+        // Use getFilesForAnalysis() which handles fallback to filesystem scan for empty Git repos
+        var trackedFiles = repo.getFilesForAnalysis();
 
         var dependenciesPath = masterRootPathForConfig.resolve(BROKK_DIR).resolve(DEPENDENCIES_DIR);
         if (!Files.exists(dependenciesPath) || !Files.isDirectory(dependenciesPath)) {
@@ -744,6 +808,7 @@ public abstract sealed class AbstractProject implements IProject permits MainPro
     }
 
     @Override
+    @Blocking
     public final synchronized Set<ProjectFile> getAllFiles() {
         if (allFilesCache == null) {
             allFilesCache = filterExcludedFiles(getAllFilesRaw());

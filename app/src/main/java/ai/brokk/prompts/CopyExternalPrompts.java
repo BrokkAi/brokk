@@ -7,6 +7,7 @@ import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -51,8 +52,7 @@ public abstract class CopyExternalPrompts {
         var messages = new ArrayList<ChatMessage>();
         messages.addAll(cm.getHistoryMessagesForCopy());
         Context ctx = cm.liveContext();
-        messages.addAll(
-                WorkspacePrompts.getMessagesGroupedByMutability(ctx, java.util.EnumSet.of(SpecialTextType.TASK_LIST)));
+        messages.addAll(WorkspacePrompts.getMessagesGroupedByMutability(ctx, EnumSet.of(SpecialTextType.TASK_LIST)));
         return messages;
     }
 }

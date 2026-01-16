@@ -4,10 +4,9 @@ import ai.brokk.ContextManager;
 import ai.brokk.GitHubAuth;
 import ai.brokk.IConsoleIO;
 import ai.brokk.SettingsChangeListener;
-import ai.brokk.analyzer.BrokkFile;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.difftool.ui.BrokkDiffPanel;
 import ai.brokk.difftool.ui.BufferSource;
+import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.ICommitInfo;
 import ai.brokk.git.IGitRepo.ModificationType;
@@ -20,6 +19,8 @@ import ai.brokk.gui.components.GitHubTokenMissingPanel;
 import ai.brokk.gui.components.MaterialButton;
 import ai.brokk.gui.components.PullRequestHeaderCellRenderer;
 import ai.brokk.gui.components.WrapLayout;
+import ai.brokk.gui.theme.GuiTheme;
+import ai.brokk.gui.theme.ThemeAware;
 import ai.brokk.gui.util.GitDiffUiUtil;
 import ai.brokk.gui.util.GitHostUtil;
 import ai.brokk.gui.util.GitRepoIdUtil;
@@ -56,14 +57,12 @@ import org.eclipse.jgit.api.errors.TransportException;
 import org.eclipse.jgit.transport.RefSpec;
 import org.eclipse.jgit.transport.URIish;
 import org.jetbrains.annotations.Nullable;
-import org.kohsuke.github.GHIssue;
-import org.kohsuke.github.GHIssueComment;
 import org.kohsuke.github.GHIssueState;
 import org.kohsuke.github.GHLabel;
 import org.kohsuke.github.GHPullRequest;
 import org.kohsuke.github.GHUser;
 
-public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ai.brokk.gui.theme.ThemeAware {
+public class GitPullRequestsTab extends JPanel implements SettingsChangeListener, ThemeAware {
     private static final Logger logger = LogManager.getLogger(GitPullRequestsTab.class);
     private static final int MAX_TOOLTIP_FILES = 15;
     private static final int DEFAULT_ROW_HEIGHT = 48;
@@ -90,7 +89,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     // Context Menu Items for prTable
     private JMenuItem checkoutPrMenuItem;
     private JMenuItem viewPrDiffMenuItem;
-    private JMenuItem capturePrDiffMenuItemContextMenu; // Renamed to avoid clash
     private JMenuItem openPrInBrowserMenuItem;
 
     // Context Menu Items for prCommitsTable
@@ -350,8 +348,9 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                         if (modelRow < currentPrCommitDetailsList.size()) {
                             var commitInfo = currentPrCommitDetailsList.get(modelRow);
                             try {
-                                var projectFiles = commitInfo.changedFiles();
-                                // projectFiles from ICommitInfo.changedFiles -> GitRepo.listFilesChangedInCommit
+                                var projectFiles =
+                                        CommitInfo.changedFiles((GitRepo) contextManager.getRepo(), commitInfo.id());
+                                // projectFiles from CommitInfo.changedFiles -> GitRepo.listFilesChangedInCommit
                                 // is guaranteed to return at least List.of(), not null.
                                 // So, a null check on projectFiles is not strictly necessary here based on current
                                 // impl.
@@ -527,7 +526,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     }
 
     @Override
-    public void applyTheme(ai.brokk.gui.theme.GuiTheme guiTheme) {
+    public void applyTheme(GuiTheme guiTheme) {
         // Refresh the entire component tree to apply theme changes
         SwingUtilities.updateComponentTreeUI(this);
     }
@@ -551,10 +550,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private void setupPrTableContextMenu() {
         JPopupMenu contextMenu = new JPopupMenu();
         chrome.getTheme().registerPopupMenu(contextMenu);
-
-        capturePrDiffMenuItemContextMenu = new JMenuItem("Capture for Review");
-        capturePrDiffMenuItemContextMenu.addActionListener(e -> captureSelectedPrDiff());
-        contextMenu.add(capturePrDiffMenuItemContextMenu);
 
         viewPrDiffMenuItem = new JMenuItem("View Diff");
         viewPrDiffMenuItem.addActionListener(e -> viewFullPrDiff());
@@ -598,7 +593,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
     private void updatePrTableContextMenuState() {
         if (isShowingError) {
             checkoutPrMenuItem.setEnabled(false);
-            capturePrDiffMenuItemContextMenu.setEnabled(false);
             viewPrDiffMenuItem.setEnabled(false);
             openPrInBrowserMenuItem.setEnabled(false);
             return;
@@ -608,7 +602,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         boolean anyPrSelected = prTable.getSelectedRowCount() > 0;
 
         checkoutPrMenuItem.setEnabled(singlePrSelected);
-        capturePrDiffMenuItemContextMenu.setEnabled(singlePrSelected); // Assuming this also implies single selection
         viewPrDiffMenuItem.setEnabled(singlePrSelected);
         openPrInBrowserMenuItem.setEnabled(
                 anyPrSelected); // Open in browser can work for multiple if needed, but typically single
@@ -871,7 +864,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         // Context menu items for prTable (if initialized)
         checkoutPrMenuItem.setEnabled(false);
         viewPrDiffMenuItem.setEnabled(false);
-        capturePrDiffMenuItemContextMenu.setEnabled(false);
         openPrInBrowserMenuItem.setEnabled(false);
 
         // Context menu items for prCommitsTable (if initialized)
@@ -1485,12 +1477,12 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             String mergeBase = repo.getMergeBase(headSha, baseSha);
 
                             if (mergeBase != null) {
-                                changedFiles = repo.listFilesChangedBetweenCommits(headSha, mergeBase).stream()
+                                changedFiles = repo.listFilesChangedBetweenCommits(mergeBase, headSha).stream()
                                         .map(mf -> mf.file().toString())
                                         .collect(Collectors.toList());
                             } else {
                                 // Fallback to direct diff if merge base calculation fails
-                                changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha).stream()
+                                changedFiles = repo.listFilesChangedBetweenCommits(baseSha, headSha).stream()
                                         .map(mf -> mf.file().toString())
                                         .collect(Collectors.toList());
                             }
@@ -1499,7 +1491,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                                     "Error calculating changed files for PR #{}, using fallback diff: {}",
                                     prNumber,
                                     e.getMessage());
-                            changedFiles = repo.listFilesChangedBetweenCommits(headSha, baseSha).stream()
+                            changedFiles = repo.listFilesChangedBetweenCommits(baseSha, headSha).stream()
                                     .map(mf -> mf.file().toString())
                                     .collect(Collectors.toList());
                         }
@@ -1558,182 +1550,6 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
         return displayOptionWithCount; // For simple string options like "Open", "Closed", or names without counts
     }
 
-    private void captureSelectedPrDiff() {
-        int selectedRow = prTable.getSelectedRow();
-        if (selectedRow == -1 || selectedRow >= displayedPrs.size()) {
-            return;
-        }
-        GHPullRequest pr = displayedPrs.get(selectedRow);
-        logger.debug("Capturing diff for PR #{}", pr.getNumber());
-
-        String sessionName = PrTitleFormatter.formatReviewSessionName(pr);
-
-        // Create a new session before capturing anything into the context
-        contextManager.createSessionAsync(sessionName).whenComplete((Object ignored, @Nullable Throwable err) -> {
-            if (err != null) {
-                logger.error("Failed to create review session '{}'", sessionName, err);
-                chrome.toolError(
-                        "Unable to create review session: " + sessionName + ": " + err.getMessage(),
-                        "Capture Diff Error");
-                return;
-            }
-
-            // After switching to the new session, populate instructions if empty
-            SwingUtilities.invokeLater(() -> {
-                String currentInstructions = chrome.getInstructionsPanel().getInstructions();
-                if (currentInstructions.trim().isEmpty()) {
-                    String reviewGuide = contextManager.getProject().getReviewGuide();
-                    String reviewPrompt = PrTitleFormatter.formatReviewPrompt(pr, reviewGuide);
-                    chrome.getInstructionsPanel().populateInstructionsArea(reviewPrompt);
-                }
-            });
-
-            // Now perform the capture into the newly created session
-            contextManager.submitContextTask(() -> {
-                checkoutSelectedPr();
-
-                var repo = getRepo();
-
-                String prHeadSha = pr.getHead().getSha();
-                String prBaseSha = pr.getBase().getSha();
-                String prTitle = pr.getTitle();
-                int prNumber = pr.getNumber();
-
-                // Ensure SHAs are local
-                String prHeadFetchRef =
-                        String.format("+refs/pull/%d/head:refs/remotes/origin/pr/%d/head", prNumber, prNumber);
-                String prBaseBranchName = pr.getBase().getRef();
-                String prBaseFetchRef =
-                        String.format("+refs/heads/%s:refs/remotes/origin/%s", prBaseBranchName, prBaseBranchName);
-
-                if (!GitHostUtil.ensureShaIsLocal(repo, prHeadSha, prHeadFetchRef, "origin")) {
-                    chrome.toolError(
-                            "Could not make PR head commit " + repo.shortHash(prHeadSha) + " available locally.",
-                            "Capture Diff Error");
-                    return;
-                }
-                // It's less critical for baseSha to be at the exact tip of the remote base branch for diffing,
-                // as long as the prBaseSha commit itself is available. Fetching the branch helps ensure this.
-                GitHostUtil.ensureShaIsLocal(repo, prBaseSha, prBaseFetchRef, "origin");
-
-                GitDiffUiUtil.capturePrDiffToContext(
-                        contextManager, chrome, prTitle, prNumber, prHeadSha, prBaseSha, repo);
-
-                // Also edit files mentioned in the diff (excluding binary files)
-                List<GitRepo.ModifiedFile> modifiedFiles;
-                try {
-                    modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
-                } catch (GitAPIException e) {
-                    logger.error("Failed to list files changed between branches", e);
-                    chrome.toolError("Unable to diff the PR branch against its target");
-                    return;
-                }
-
-                var textFiles = GitDiffUiUtil.filterTextFiles(modifiedFiles);
-                var allFiles =
-                        modifiedFiles.stream().map(GitRepo.ModifiedFile::file).toList();
-                var filteredCount = allFiles.size() - textFiles.size();
-
-                if (filteredCount > 0) {
-                    var filteredFiles =
-                            allFiles.stream().filter(f -> !f.isText()).toList();
-                    logger.info(
-                            "Filtered {} binary/non-text file(s) from PR #{}: {}",
-                            filteredCount,
-                            prNumber,
-                            filteredFiles.stream()
-                                            .limit(5)
-                                            .map(BrokkFile::getFileName)
-                                            .collect(Collectors.joining(", "))
-                                    + (filteredFiles.size() > 5 ? "..." : ""));
-                }
-
-                // Only include modified text files in the editable context (exclude new/deleted files)
-                var modifiedTextFiles = modifiedFiles.stream()
-                        .filter(mf -> mf.status() == ModificationType.MODIFIED)
-                        .map(GitRepo.ModifiedFile::file)
-                        .filter(textFiles::contains)
-                        .collect(Collectors.toSet());
-
-                if (!modifiedTextFiles.isEmpty()) {
-                    contextManager.addFiles(modifiedTextFiles);
-                    logger.info(
-                            "Added {} modified file(s) from PR #{} to editable context",
-                            modifiedTextFiles.size(),
-                            prNumber);
-                }
-
-                // Capture PR description (markdown). If blank, try first issue comment by PR author.
-                String descriptionText = "";
-                try {
-                    String body = pr.getBody();
-                    if (body != null) {
-                        descriptionText = body.trim();
-                    }
-                } catch (Exception e) {
-                    logger.warn("Unable to fetch PR body for PR #{}: {}", prNumber, e.getMessage());
-                }
-
-                if (descriptionText.isBlank()) {
-                    try {
-                        String authorLogin = null;
-                        try {
-                            var author = pr.getUser();
-                            if (author != null) {
-                                authorLogin = author.getLogin();
-                            }
-                        } catch (Exception e) {
-                            logger.warn("Unable to fetch PR author for PR #{}: {}", prNumber, e.getMessage());
-                        }
-
-                        try {
-                            var auth = GitHubAuth.getOrCreateInstance(contextManager.getProject());
-                            GHIssue issue = auth.getIssue(prNumber);
-                            List<GHIssueComment> comments = issue.getComments();
-                            for (GHIssueComment c : comments) {
-                                try {
-                                    var cUser = c.getUser();
-                                    if (cUser != null && authorLogin != null && authorLogin.equals(cUser.getLogin())) {
-                                        String candidate = c.getBody();
-                                        if (candidate != null && !candidate.isBlank()) {
-                                            descriptionText = candidate.trim();
-                                            break;
-                                        }
-                                    }
-                                } catch (Exception inner) {
-                                    logger.debug(
-                                            "Skipping an issue comment while finding PR description: {}",
-                                            inner.getMessage());
-                                }
-                            }
-                        } catch (Exception e) {
-                            logger.warn("Unable to fetch issue comments for PR #{}: {}", prNumber, e.getMessage());
-                        }
-                    } catch (Exception e) {
-                        logger.warn(
-                                "Error while attempting PR description fallback for PR #{}: {}",
-                                prNumber,
-                                e.getMessage());
-                    }
-                }
-
-                if (!descriptionText.isBlank()) {
-                    try {
-                        var descriptionFragment = new ContextFragments.StringFragment(
-                                contextManager,
-                                descriptionText,
-                                PrTitleFormatter.formatDescriptionTitle(prNumber),
-                                "markdown");
-                        contextManager.addFragments(descriptionFragment);
-                        logger.info("Added PR description fragment for PR #{}", prNumber);
-                    } catch (Exception e) {
-                        logger.warn("Failed to add PR description fragment for PR #{}: {}", prNumber, e.getMessage());
-                    }
-                }
-            });
-        });
-    }
-
     private void viewFullPrDiff() {
         int selectedRow = prTable.getSelectedRow();
         if (selectedRow == -1 || selectedRow >= displayedPrs.size()) {
@@ -1770,7 +1586,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                             prBaseFetchRef);
                 }
 
-                List<GitRepo.ModifiedFile> modifiedFiles = repo.listFilesChangedBetweenBranches(prHeadSha, prBaseSha);
+                List<GitRepo.ModifiedFile> modifiedFiles = repo.listFilesChangedBetweenBranches(prBaseSha, prHeadSha);
 
                 if (modifiedFiles.isEmpty()) {
                     chrome.systemNotify(
@@ -1994,7 +1810,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 repo.remote().pull();
 
                 SwingUtilities.invokeLater(() -> {
-                    gitLogTab.requestUpdate();
+                    chrome.refreshGitAsync(localBranchName);
                     gitLogTab.selectCurrentBranch();
                 });
                 chrome.showNotification(
@@ -2073,7 +1889,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 getRepo().checkoutRemoteBranch(remoteBranchRef, localBranchName);
 
                 SwingUtilities.invokeLater(() -> {
-                    gitLogTab.requestUpdate(); // Updates branches in Log tab
+                    chrome.refreshGitAsync(localBranchName);
                     // Switch to the Log tab
                     JTabbedPane mainGitPanelTabs = (JTabbedPane) GitPullRequestsTab.this.getParent();
                     for (int i = 0; i < mainGitPanelTabs.getTabCount(); i++) {
@@ -2202,7 +2018,7 @@ public class GitPullRequestsTab extends JPanel implements SettingsChangeListener
                 if (row < currentPrCommitDetailsList.size()) {
                     ICommitInfo commitInfo = currentPrCommitDetailsList.get(row);
                     try {
-                        var projectFiles = commitInfo.changedFiles();
+                        var projectFiles = CommitInfo.changedFiles((GitRepo) contextManager.getRepo(), commitInfo.id());
                         for (var file : projectFiles) {
                             allChangedFiles.add(file.toString());
                         }

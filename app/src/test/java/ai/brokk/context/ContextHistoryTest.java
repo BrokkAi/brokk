@@ -1,5 +1,6 @@
 package ai.brokk.context;
 
+import static ai.brokk.context.ContextHistory.SNAPSHOT_AWAIT_TIMEOUT;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.IContextManager;
@@ -15,6 +16,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -237,12 +240,14 @@ public class ContextHistoryTest {
         var history = new ContextHistory(ctx1);
 
         // 2. Second state: file with "version 2"
+        history.liveContext().awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         Files.writeString(pf.absPath(), "version 2");
         var frag2 = new ContextFragments.ProjectPathFragment(pf, contextManager);
         var ctx2 = new Context(contextManager, List.of(frag2), List.of(), null);
         history.pushContext(ctx2); // This should trigger snapshot of ctx1
 
         // 3. External change: file is now "version 3"
+        history.liveContext().awaitContentsAreComputed(SNAPSHOT_AWAIT_TIMEOUT);
         Files.writeString(pf.absPath(), "version 3");
         assertEquals("version 3", Files.readString(pf.absPath()), "File should have external changes before undo");
 
@@ -429,12 +434,12 @@ public class ContextHistoryTest {
         // Group metadata should still be preserved for ctx2
         assertEquals(groupId1, history.getGroupId(ctx2.id()));
         assertEquals("Group 1", history.getGroupLabels().get(groupId1));
-        // ctx3's group info should still exist (it's in redo stack, not deleted)
-        assertEquals(groupId2, history.getGroupId(ctx3.id()));
 
         // Redo back to ctx3
         history.redo(contextManager.getIo(), contextManager.getProject());
         assertEquals(ctx3.id(), history.liveContext().id());
+        // ctx3's group info should still exist
+        assertEquals(groupId2, history.getGroupId(ctx3.id()));
 
         // All group metadata should be intact
         assertEquals(groupId1, history.getGroupId(ctx2.id()));
@@ -528,5 +533,68 @@ public class ContextHistoryTest {
         assertEquals(2, merged.getResetEdges().size(), "Should combine reset edges");
         assertEquals(gsOlder, merged.getGitState(c.id()).orElse(null), "Should preserve git state from older");
         assertEquals(gsNewer, merged.getGitState(d.id()).orElse(null), "Should preserve git state from newer");
+    }
+
+    @Test
+    public void testPushDoesNotWaitForSlowFragments() {
+        var latch = new CountDownLatch(1);
+        var slowFrag = new SlowFragment(contextManager, "Slow1", latch);
+
+        var initialContext = new Context(contextManager, List.of(), List.of(), null);
+        var history = new ContextHistory(initialContext);
+
+        var startTime = System.nanoTime();
+        // This call should be non-blocking with respect to the SlowFragment computation.
+        // If it waited for the fragment to compute, it would hang here at least SNAPSHOT_AWAIT_TIMEOUT interval because
+        // latch is not counted down.
+        history.push(ctx -> new Context(contextManager, List.of(slowFrag), List.of(), null));
+
+        var elapsedNanos = System.nanoTime() - startTime;
+        var elapsed = Duration.ofNanos(elapsedNanos);
+
+        // Verify push returned quickly (before SNAPSHOT_AWAIT_TIMEOUT)
+        assertTrue(
+                elapsed.compareTo(SNAPSHOT_AWAIT_TIMEOUT) < 0,
+                "push() took %dms, which exceeds SNAPSHOT_AWAIT_TIMEOUT (%dms); it likely blocked waiting for the slow fragment"
+                        .formatted(elapsed.toMillis(), SNAPSHOT_AWAIT_TIMEOUT.toMillis()));
+
+        // Allow the computation to finish now
+        latch.countDown();
+
+        // Verify it eventually computes
+        var text = slowFrag.text().await(Duration.ofSeconds(5));
+        assertTrue(text.isPresent());
+        assertEquals("Computed Content", text.get());
+    }
+
+    /**
+     * A fragment that simulates slow computation to verify async/non-blocking behavior.
+     */
+    private static final class SlowFragment extends ContextFragments.AbstractComputedFragment {
+
+        private final CountDownLatch latch;
+
+        public SlowFragment(IContextManager cm, String id, CountDownLatch latch) {
+            super(id, cm, "Slow Fragment", "Slow", "text", null, () -> {
+                try {
+                    latch.await(SNAPSHOT_AWAIT_TIMEOUT.multipliedBy(2).toMillis(), TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+                return new ContextFragments.ContentSnapshot(
+                        "Computed Content", Set.of(), Set.of(), (List<Byte>) null, true);
+            });
+            this.latch = latch;
+        }
+
+        @Override
+        public ContextFragment.FragmentType getType() {
+            return ContextFragment.FragmentType.STRING;
+        }
+
+        @Override
+        public ContextFragment refreshCopy() {
+            return new SlowFragment(contextManager, id, latch);
+        }
     }
 }

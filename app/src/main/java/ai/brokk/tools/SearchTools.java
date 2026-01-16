@@ -13,7 +13,6 @@ import ai.brokk.analyzer.SourceCodeProvider;
 import ai.brokk.analyzer.usages.FuzzyResult;
 import ai.brokk.analyzer.usages.FuzzyUsageFinder;
 import ai.brokk.analyzer.usages.UsageHit;
-import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragments;
 import ai.brokk.git.CommitInfo;
 import ai.brokk.git.GitRepo;
@@ -476,15 +475,14 @@ public class SearchTools {
         if (!GitRepoFactory.hasGitRepo(projectRoot)) {
             return "Cannot search commit messages: Git repository not found for this project.";
         }
+        var gitRepo = (GitRepo) contextManager.getRepo();
 
         List<CommitInfo> matchingCommits;
-        try (var gitRepo = new GitRepo(projectRoot)) {
-            try {
-                matchingCommits = gitRepo.searchCommits(pattern);
-            } catch (GitAPIException e) {
-                logger.error("Error searching commit messages", e);
-                return "Error searching commit messages: " + e.getMessage();
-            }
+        try {
+            matchingCommits = gitRepo.searchCommits(pattern);
+        } catch (GitAPIException e) {
+            logger.error("Error searching commit messages", e);
+            return "Error searching commit messages: " + e.getMessage();
         }
 
         if (matchingCommits.isEmpty()) {
@@ -508,7 +506,7 @@ public class SearchTools {
                 try {
                     List<ProjectFile> changedFilesList;
                     try {
-                        changedFilesList = commit.changedFiles();
+                        changedFilesList = CommitInfo.changedFiles(gitRepo, commit.id());
                     } catch (GitAPIException e) {
                         logger.error("Error retrieving changed files for commit {}", commit.id(), e);
                         changedFilesList = List.of();
@@ -795,7 +793,7 @@ public class SearchTools {
         StringBuilder fileSummaries = new StringBuilder();
         children.sort(ProjectFile::compareTo);
         for (var file : children) {
-            String identifiers = Context.buildRelatedIdentifiers(analyzer, file);
+            String identifiers = analyzer.buildRelatedIdentifiers(file);
             String content = identifiers.isBlank() ? "- (no symbols found)" : identifiers;
             String fileBlock = "<file path=\"" + file.toString().replace('\\', '/') + "\">\n" + content + "\n</file>\n";
 

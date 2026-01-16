@@ -3,6 +3,7 @@ package ai.brokk.gui.mop.webview;
 import ai.brokk.BuildInfo;
 import ai.brokk.ContextManager;
 import ai.brokk.TaskEntry;
+import ai.brokk.analyzer.Languages;
 import ai.brokk.analyzer.ProjectFile;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.menu.ContextMenuBuilder;
@@ -55,9 +56,15 @@ public final class MOPBridge {
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable Chrome chrome;
     private volatile @Nullable Component hostComponent;
+    private volatile boolean showEmptyState = false;
 
     public MOPBridge(WebEngine engine) {
+        this(engine, false);
+    }
+
+    public MOPBridge(WebEngine engine, boolean showEmptyState) {
         this.engine = engine;
+        this.showEmptyState = showEmptyState;
         this.xmit = Executors.newSingleThreadScheduledExecutor(r -> {
             var t = new Thread(r, "MOPBridge-" + this.hashCode());
             t.setDaemon(true);
@@ -206,6 +213,12 @@ public final class MOPBridge {
     public void sendHistoryReset() {
         var e = epoch.incrementAndGet();
         eventQueue.add(new BrokkEvent.HistoryReset(e));
+        scheduleSend();
+    }
+
+    public void sendStaticDocument(@Nullable String markdown) {
+        var e = epoch.incrementAndGet();
+        eventQueue.add(new BrokkEvent.StaticDocument(e, markdown));
         scheduleSend();
     }
 
@@ -386,6 +399,14 @@ public final class MOPBridge {
         this.hostComponent = hostComponent;
     }
 
+    public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
+        var cm = contextManager;
+        if (cm != null) {
+            sendEnvironmentInfo(cm.isAnalyzerReady());
+        }
+    }
+
     public void lookupSymbolsAsync(String symbolNamesJson, int seq, String contextId) {
         // Assert we're not blocking the EDT with this call
         assert !SwingUtilities.isEventDispatchThread() : "Symbol lookup should not be called on EDT";
@@ -411,7 +432,7 @@ public final class MOPBridge {
             return;
         }
 
-        // Use Chrome's background task system instead of raw CompletableFuture.supplyAsync()
+        // Use Chrome's background task system instead of raw ai.brokk.concurrent.LoggingFuture.supplyAsync()
         contextManager.submitBackgroundTask("Symbol lookup for " + symbolNames.size() + " symbols", () -> {
             // Assert background task is not running on EDT
             assert !SwingUtilities.isEventDispatchThread() : "Background task running on EDT";
@@ -725,7 +746,7 @@ public final class MOPBridge {
                 for (String langName : languageNames) {
                     try {
                         // Convert language name to Language object
-                        var language = ai.brokk.analyzer.Languages.valueOf(langName);
+                        var language = Languages.valueOf(langName);
 
                         // Get analyzable files for this language
                         var analyzableFiles = project.getAnalyzableFiles(language);
@@ -759,6 +780,7 @@ public final class MOPBridge {
             payload.put("projectName", projectName);
             payload.put("totalFileCount", totalFileCount);
             payload.put("analyzerReady", analyzerReady);
+            payload.put("showEmptyState", showEmptyState);
             if (!analyzerLanguagesInfo.isEmpty()) {
                 payload.put("analyzerLanguages", analyzerLanguagesInfo);
             }

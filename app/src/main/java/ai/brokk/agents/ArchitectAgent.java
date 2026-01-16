@@ -33,11 +33,13 @@ import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ChatMessageType;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.exception.ContextTooLargeException;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import dev.langchain4j.model.output.TokenUsage;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -49,6 +51,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.Nullable;
 
 public class ArchitectAgent {
@@ -318,7 +321,8 @@ public class ArchitectAgent {
 
     @Tool(
             "Undo the changes made by the most recent CodeAgent call. This should only be used if Code Agent left the project farther from the goal than when it started.")
-    public String undoLastChanges() {
+    @Blocking
+    public String undoLastChanges() throws InterruptedException {
         logger.debug("undoLastChanges invoked");
         io.showNotification(IConsoleIO.NotificationRole.INFO, "Undoing last CodeAgent changes...");
         if (cm.undoContext()) {
@@ -524,7 +528,7 @@ public class ArchitectAgent {
                     .orElseThrow();
 
             // Calculate current workspace token size
-            var suppressed = java.util.EnumSet.of(SpecialTextType.TASK_LIST);
+            var suppressed = EnumSet.of(SpecialTextType.TASK_LIST);
             var workspaceContentMessages =
                     new ArrayList<>(WorkspacePrompts.getMessagesGroupedByMutability(context, suppressed));
             int workspaceTokenSize = Messages.getApproximateMessageTokens(workspaceContentMessages);
@@ -581,7 +585,7 @@ public class ArchitectAgent {
 
             // Handle errors, with special recovery for ContextTooLarge
             if (result.error() != null) {
-                if (!(result.error() instanceof dev.langchain4j.exception.ContextTooLargeException)) {
+                if (!(result.error() instanceof ContextTooLargeException)) {
                     logger.debug(
                             "Error from LLM while deciding next action: {}",
                             result.error().getMessage());

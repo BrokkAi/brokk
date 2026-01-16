@@ -30,6 +30,7 @@ import javafx.embed.swing.JFXPanel;
 import javafx.scene.Scene;
 import javafx.scene.web.WebView;
 import javax.swing.*;
+import netscape.javascript.JSObject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -46,6 +47,7 @@ public final class MOPWebViewHost extends JPanel {
     private final List<Consumer<MOPBridge.SearchState>> searchListeners = new CopyOnWriteArrayList<>();
     private volatile @Nullable ContextManager contextManager;
     private volatile @Nullable Chrome chrome;
+    private volatile boolean showEmptyState = false;
 
     // Bridge readiness tracking
     private final CompletableFuture<Void> bridgeReadyFuture = new CompletableFuture<>();
@@ -87,6 +89,8 @@ public final class MOPWebViewHost extends JPanel {
         record HistoryTask(TaskEntry entry) implements HostCommand {}
 
         record LiveSummary(int taskSequence, boolean compressed, String summary) implements HostCommand {}
+
+        record StaticDocument(@Nullable String markdown) implements HostCommand {}
     }
 
     public MOPWebViewHost() {
@@ -181,7 +185,7 @@ public final class MOPWebViewHost extends JPanel {
             webViewRef.set(view); // Store reference for later theme updates
             var scene = new Scene(view);
             requireNonNull(fxPanel).setScene(scene);
-            var bridge = new MOPBridge(view.getEngine());
+            var bridge = new MOPBridge(view.getEngine(), this.showEmptyState);
             if (contextManager != null) {
                 bridge.setContextManager(contextManager);
             }
@@ -305,7 +309,7 @@ public final class MOPWebViewHost extends JPanel {
 
     @SuppressWarnings({"removal"})
     private static void exposeJavaBridge(WebView view, MOPBridge bridge) {
-        var window = (netscape.javascript.JSObject) view.getEngine().executeScript("window");
+        var window = (JSObject) view.getEngine().executeScript("window");
         window.setMember("javaBridge", bridge);
     }
 
@@ -392,6 +396,22 @@ public final class MOPWebViewHost extends JPanel {
         sendOrQueue(
                 new HostCommand.LiveSummary(taskSequence, compressed, summary),
                 bridge -> bridge.sendLiveSummary(taskSequence, compressed, summary));
+    }
+
+    public void sendStaticDocument(@Nullable String markdown) {
+        sendOrQueue(new HostCommand.StaticDocument(markdown), bridge -> bridge.sendStaticDocument(markdown));
+    }
+
+    public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
+        var bridge = bridgeRef.get();
+        if (bridge != null) {
+            bridge.setShowEmptyState(show);
+        }
+    }
+
+    public boolean isShowEmptyState() {
+        return showEmptyState;
     }
 
     public void addSearchStateListener(Consumer<MOPBridge.SearchState> l) {
@@ -556,6 +576,7 @@ public final class MOPWebViewHost extends JPanel {
                     case HostCommand.HistoryTask ht -> bridge.sendHistoryTask(ht.entry());
                     case HostCommand.LiveSummary ls ->
                         bridge.sendLiveSummary(ls.taskSequence(), ls.compressed(), ls.summary());
+                    case HostCommand.StaticDocument sd -> bridge.sendStaticDocument(sd.markdown());
                 }
             });
             pendingCommands.clear();

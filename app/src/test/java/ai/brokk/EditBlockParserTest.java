@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.EditBlock.OutputBlock;
 import ai.brokk.prompts.EditBlockParser;
+import ai.brokk.testutil.AssertionHelperUtil;
 import java.util.ArrayList;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -651,7 +652,7 @@ class EditBlockParserTest {
         String expected = "[HARNESS NOTE: redundant block skipped; REPLACE text is identical to SEARCH text]\n";
 
         String actual = EditBlockParser.instance.tagBlocks(input);
-        ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals(expected, actual);
+        AssertionHelperUtil.assertCodeEquals(expected, actual);
     }
 
     @Test
@@ -695,7 +696,7 @@ class EditBlockParserTest {
                 """;
 
         String actual = EditBlockParser.instance.tagBlocks(input);
-        ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals(expected, actual);
+        AssertionHelperUtil.assertCodeEquals(expected, actual);
     }
 
     @Test

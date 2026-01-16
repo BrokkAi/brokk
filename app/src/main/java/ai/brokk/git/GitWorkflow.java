@@ -13,6 +13,7 @@ import ai.brokk.tools.WorkspaceTools;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolContext;
+import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.model.chat.request.ToolChoice;
 import java.net.URI;
@@ -201,10 +202,10 @@ public final class GitWorkflow {
         return "Pulled " + branch;
     }
 
-    public BranchDiff diffBetweenBranches(String source, String target) throws GitAPIException {
-        var commits = repo.listCommitsBetweenBranches(source, target, /*excludeMergeCommitsFromTarget*/ true);
-        var files = repo.listFilesChangedBetweenBranches(source, target);
-        var merge = repo.getMergeBase(source, target);
+    public BranchDiff diffBetweenBranches(String oldBranch, String newBranch) throws GitAPIException {
+        var commits = repo.listCommitsBetweenBranches(oldBranch, newBranch, /*excludeMergeCommitsFromTarget*/ true);
+        var files = repo.listFilesChangedBetweenBranches(oldBranch, newBranch);
+        var merge = repo.getMergeBase(newBranch, oldBranch);
         return new BranchDiff(commits, files, merge);
     }
 
@@ -238,7 +239,7 @@ public final class GitWorkflow {
 
         List<ChatMessage> messages;
         if (diff.length() > service.getMaxInputTokens(modelToUse) * 0.5) {
-            var commitMessagesContent = repo.getCommitMessagesBetween(source, target);
+            var commitMessagesContent = repo.getCommitMessagesBetween(target, source);
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionFromCommitMsgs(commitMessagesContent);
         } else {
             messages = SummarizerPrompts.instance.collectPrTitleAndDescriptionMessages(diff);
@@ -248,10 +249,10 @@ public final class GitWorkflow {
         var tr = cm.getToolRegistry()
                 .builder()
                 .register(this)
-                .register(new WorkspaceTools((ContextManager) cm))
+                .register(new WorkspaceTools(((ContextManager) cm).liveContext()))
                 .build();
 
-        var toolSpecs = new ArrayList<dev.langchain4j.agent.tool.ToolSpecification>();
+        var toolSpecs = new ArrayList<ToolSpecification>();
         toolSpecs.addAll(tr.getTools(List.of("suggestPrDetails")));
         var toolContext = new ToolContext(toolSpecs, ToolChoice.REQUIRED, tr);
 

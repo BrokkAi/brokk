@@ -1,7 +1,9 @@
 package ai.brokk;
 
+import ai.brokk.concurrent.LoggingExecutorService;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextHistory;
+import ai.brokk.exception.GlobalExceptionHandler;
 import ai.brokk.git.GitRepo;
 import ai.brokk.git.GitRepoFactory;
 import ai.brokk.project.AbstractProject;
@@ -19,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -35,6 +38,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Blocking;
@@ -54,6 +58,14 @@ public class SessionManager implements AutoCloseable {
         @JsonIgnore
         public boolean isSessionModified() {
             return created != modified;
+        }
+
+        public Instant createdAt() {
+            return Instant.ofEpochMilli(created);
+        }
+
+        public Instant lastModified() {
+            return Instant.ofEpochMilli(modified);
         }
     }
 
@@ -99,7 +111,9 @@ public class SessionManager implements AutoCloseable {
         this.sessionsDir = sessionsDir;
         // Use a CPU-aware pool size to better handle concurrent session I/O in tests and production
         int poolSize = Math.max(4, Runtime.getRuntime().availableProcessors());
-        this.sessionExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
+        var delegateExecutor = Executors.newFixedThreadPool(poolSize, new SessionExecutorThreadFactory());
+        Consumer<Throwable> exceptionHandler = th -> GlobalExceptionHandler.handle(th, st -> {});
+        sessionExecutor = new LoggingExecutorService(delegateExecutor, exceptionHandler);
         this.sessionExecutorByKey = new SerialByKeyExecutor(sessionExecutor);
         this.sessionsCache = loadSessions();
     }
@@ -602,22 +616,7 @@ public class SessionManager implements AutoCloseable {
                     return new TaskList.TaskListData(List.of());
                 }
                 var loaded = AbstractProject.objectMapper.readValue(json, TaskList.TaskListData.class);
-
-                // Ensure backward compatibility: normalize any tasks that might have null/missing titles
-                // from old JSON format to use empty string
-                var normalizedTasks = loaded.tasks().stream()
-                        .map(task -> {
-                            @SuppressWarnings("NullAway") // Defensive check for deserialized data
-                            var titleValue = task.title();
-                            if (titleValue == null) {
-                                // Old JSON without title field; provide empty string default
-                                return new TaskList.TaskItem("", task.text(), task.done());
-                            }
-                            return task;
-                        })
-                        .toList();
-
-                return new TaskList.TaskListData(List.copyOf(normalizedTasks));
+                return new TaskList.TaskListData(List.copyOf(loaded.tasks()));
             } catch (IOException e) {
                 logger.warn("Error reading task list for session {}: {}", sessionId, e.getMessage());
                 return new TaskList.TaskListData(List.of());

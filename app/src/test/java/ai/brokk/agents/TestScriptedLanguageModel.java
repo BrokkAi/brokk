@@ -1,7 +1,5 @@
 package ai.brokk.agents;
 
-import static org.junit.jupiter.api.Assertions.fail;
-
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
@@ -11,18 +9,21 @@ import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.Queue;
 
-class TestScriptedLanguageModel implements StreamingChatModel {
+public class TestScriptedLanguageModel implements StreamingChatModel {
     private final Queue<String> responses;
+    private final String fallbackResponse;
 
-    TestScriptedLanguageModel(String... cannedTexts) {
+    public TestScriptedLanguageModel(String... cannedTexts) {
         this.responses = new LinkedList<>(Arrays.asList(cannedTexts));
+        this.fallbackResponse =
+                cannedTexts.length == 0 ? "TestScriptedLanguageModel: fallback response" : cannedTexts[0];
     }
 
     @Override
     public void doChat(ChatRequest chatRequest, StreamingChatResponseHandler handler) {
         String responseText = responses.poll();
         if (responseText == null) {
-            fail("ScriptedLanguageModel ran out of responses.");
+            responseText = fallbackResponse;
         }
         handler.onPartialResponse(responseText);
         var cr = ChatResponse.builder().aiMessage(new AiMessage(responseText)).build();

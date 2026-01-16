@@ -5,7 +5,6 @@ import static org.checkerframework.checker.nullness.util.NullnessUtil.castNonNul
 import ai.brokk.ContextManager;
 import ai.brokk.IContextManager;
 import ai.brokk.TaskEntry;
-import ai.brokk.context.ContextFragments;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.mop.webview.MOPBridge;
 import ai.brokk.gui.mop.webview.MOPWebViewHost;
@@ -39,8 +38,10 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
 
     private final MOPWebViewHost webHost;
     private boolean taskInProgress = false;
+    private boolean showEmptyState = false;
     private final List<Runnable> textChangeListeners = new ArrayList<>();
     private final List<ChatMessage> messages = new ArrayList<>();
+    private @Nullable String staticMarkdown = null;
     private @Nullable ContextManager currentContextManager;
     private @Nullable String lastHistorySignature = null;
     private boolean transientMessageVisible = false;
@@ -134,7 +135,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
             logger.debug("Skipping MOP main update, content is unchanged.");
             return;
         }
-        setText(newMessages);
+        setMessages(newMessages);
     }
 
     private void setHistoryIfChanged(List<TaskEntry> entries) {
@@ -188,12 +189,32 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         return result;
     }
 
-    public void clear() {
-        messages.clear();
+    private void clearHistory() {
+        // local
         lastHistorySignature = null;
-        transientMessageVisible = false;
-        webHost.clear();
+        // webhost
         webHost.historyReset();
+    }
+
+    private void clearMain() {
+        // local
+        messages.clear();
+        transientMessageVisible = false;
+        // webhost
+        webHost.clear();
+    }
+
+    private void clearStaticDocument() {
+        // local
+        staticMarkdown = null;
+        // webhost
+        webHost.sendStaticDocument(null);
+    }
+
+    public void clear() {
+        clearHistory();
+        clearMain();
+        clearStaticDocument();
         textChangeListeners.forEach(Runnable::run);
     }
 
@@ -235,14 +256,9 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
-    public void setText(ContextFragments.TaskFragment newOutput) {
-        setText(newOutput.messages());
-    }
-
-    public void setText(List<? extends ChatMessage> newMessages) {
-        messages.clear();
+    public void setMessages(List<? extends ChatMessage> newMessages) {
+        clearMain();
         messages.addAll(newMessages);
-        webHost.clear();
         for (var message : newMessages) {
             var isReasoning = isReasoningMessage(message);
             webHost.append(Messages.getText(message), true, message.type(), false, isReasoning);
@@ -252,7 +268,20 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         textChangeListeners.forEach(Runnable::run);
     }
 
+    public void setStaticDocument(String markdown) {
+        clearStaticDocument();
+        if (markdown.isBlank()) {
+            return;
+        }
+        staticMarkdown = markdown;
+        webHost.sendStaticDocument(markdown);
+        textChangeListeners.forEach(Runnable::run);
+    }
+
     public String getText() {
+        if (staticMarkdown != null) {
+            return staticMarkdown;
+        }
         return messages.stream().map(Messages::getRepr).collect(Collectors.joining("\n\n"));
     }
 
@@ -348,7 +377,7 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         webHost.removeSearchStateListener(l);
     }
 
-    public void withContextForLookups(@Nullable ContextManager contextManager, @Nullable Chrome chrome) {
+    public void setContextForLookups(@Nullable ContextManager contextManager, @Nullable Chrome chrome) {
         // Unregister from previous context manager if it exists
         if (currentContextManager != null) {
             currentContextManager.removeAnalyzerCallback(this);
@@ -362,6 +391,15 @@ public class MarkdownOutputPanel extends JPanel implements ThemeAware, Scrollabl
         currentContextManager = contextManager;
         webHost.setContextManager(contextManager);
         webHost.setSymbolRightClickHandler(chrome);
+    }
+
+    public void setShowEmptyState(boolean show) {
+        this.showEmptyState = show;
+        webHost.setShowEmptyState(show);
+    }
+
+    public boolean isShowEmptyState() {
+        return showEmptyState;
     }
 
     @Override

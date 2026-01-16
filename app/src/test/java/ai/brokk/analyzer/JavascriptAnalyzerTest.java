@@ -3,11 +3,9 @@ package ai.brokk.analyzer;
 import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.fileNamesFromHits;
 import static ai.brokk.testutil.FuzzyUsageFinderTestUtil.newFinder;
-import static ai.brokk.testutil.TestProject.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
-import ai.brokk.context.Context;
 import ai.brokk.testutil.TestProject;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -694,7 +692,7 @@ public final class JavascriptAnalyzerTest {
 
     @Test
     void testBuildRelatedIdentifiers() {
-        var related = Context.buildRelatedIdentifiers(jsAnalyzer, helloJsFile);
+        var related = jsAnalyzer.buildRelatedIdentifiers(helloJsFile);
         var expected = """
 - Hello
   - greet

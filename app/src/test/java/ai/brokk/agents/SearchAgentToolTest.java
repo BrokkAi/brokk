@@ -10,6 +10,7 @@ import dev.langchain4j.model.chat.StreamingChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -73,7 +74,7 @@ class SearchAgentToolTest {
         // Verify that even if the registry is built, the agent's active tool selection logic
         // excludes the forbidden tools.
 
-        List<String> activeTools = new java.util.ArrayList<>();
+        List<String> activeTools = new ArrayList<>();
         activeTools.addAll(agent.calculateAllowedToolNames());
         activeTools.addAll(agent.calculateTerminalTools());
 

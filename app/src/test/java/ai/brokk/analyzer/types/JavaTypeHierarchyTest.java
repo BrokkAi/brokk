@@ -13,6 +13,7 @@ import ai.brokk.testutil.TestConsoleIO;
 import ai.brokk.testutil.TestContextManager;
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
@@ -53,15 +54,22 @@ public class JavaTypeHierarchyTest {
 
                             class XExtendsY extends BaseClass {
                             }
+                            """,
+                    txt);
 
-                            // Direct ancestors of XExtendsY: BaseClass
-
+            var supporting = frag.supportingFragments();
+            assertEquals(1, supporting.size());
+            var ancestor =
+                    (ContextFragments.SummaryFragment) supporting.iterator().next();
+            assertEquals("BaseClass", ancestor.getTargetIdentifier());
+            assertCodeEquals(
+                    """
                             package (default package);
 
                             public class BaseClass {
                             }
                             """,
-                    txt);
+                    ancestor.text().join());
         }
     }
 
@@ -100,15 +108,22 @@ public class JavaTypeHierarchyTest {
 
                             class ServiceImpl implements ServiceInterface {
                             }
+                            """,
+                    txt);
 
-                            // Direct ancestors of ServiceImpl: ServiceInterface
-
+            var supporting = frag.supportingFragments();
+            assertEquals(1, supporting.size());
+            var ancestor =
+                    (ContextFragments.SummaryFragment) supporting.iterator().next();
+            assertEquals("ServiceInterface", ancestor.getTargetIdentifier());
+            assertCodeEquals(
+                    """
                             package (default package);
 
                             interface ServiceInterface {
                             }
                             """,
-                    txt);
+                    ancestor.text().join());
         }
     }
 
@@ -145,7 +160,7 @@ public class JavaTypeHierarchyTest {
                     transitive,
                     "Transitive ancestors should maintain discovery order");
 
-            // Summary fragment should include direct ancestors, preserving order
+            // Summary fragment should include direct ancestors
             var cm = new TestContextManager(testProject.getRoot(), new TestConsoleIO(), analyzer);
             var frag = new ContextFragments.SummaryFragment(
                     cm, "ExtendsAndImplements", ContextFragment.SummaryType.CODEUNIT_SKELETON);
@@ -156,21 +171,13 @@ public class JavaTypeHierarchyTest {
 
                             class ExtendsAndImplements extends BaseClass implements ServiceInterface, Interface {
                             }
-
-                            // Direct ancestors of ExtendsAndImplements: BaseClass, ServiceInterface, Interface
-
-                            package (default package);
-
-                            class BaseClass {
-                            }
-
-                            interface ServiceInterface {
-                            }
-
-                            interface Interface {
-                            }
                             """,
                     txt);
+
+            var supportingIdentifiers = frag.supportingFragments().stream()
+                    .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
+                    .collect(Collectors.toSet());
+            assertEquals(Set.of("BaseClass", "ServiceInterface", "Interface"), supportingIdentifiers);
         }
     }
 
@@ -203,6 +210,7 @@ public class JavaTypeHierarchyTest {
                             }
                             """,
                     txt);
+            assertTrue(frag.supportingFragments().isEmpty());
         }
     }
 
@@ -595,6 +603,94 @@ public class JavaTypeHierarchyTest {
                     List.of("p1.Base"),
                     direct,
                     "Child should extend p1.Base, chosen via explicit import over wildcard");
+        }
+    }
+
+    @Test
+    public void descendants_basicAndTransitive() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                public class A {}
+                                class B extends A {}
+                                class C extends B {}
+                                """,
+                        "Hierarchy.java")
+                .build()) {
+            // update() is required to populate the subtype index in post-processing
+            var analyzer = createTreeSitterAnalyzer(testProject).update();
+
+            var a = analyzer.getDefinitions("A").iterator().next();
+            var b = analyzer.getDefinitions("B").iterator().next();
+            var c = analyzer.getDefinitions("C").iterator().next();
+
+            assertEquals(Set.of(b), analyzer.getDirectDescendants(a), "A should have B as a direct descendant");
+            assertEquals(List.of(b, c), analyzer.getDescendants(a), "A should have B and C as transitive descendants");
+            assertEquals(Set.of(c), analyzer.getDirectDescendants(b), "B should have C as a direct descendant");
+            assertTrue(analyzer.getDirectDescendants(c).isEmpty(), "C should have no descendants");
+        }
+    }
+
+    @Test
+    public void descendants_interfaceImplementors() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                public interface I {}
+                                class A implements I {}
+                                class B implements I {}
+                                class C extends A {}
+                                """,
+                        "Interfaces.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject).update();
+
+            var i = analyzer.getDefinitions("I").iterator().next();
+            var a = analyzer.getDefinitions("A").iterator().next();
+            var b = analyzer.getDefinitions("B").iterator().next();
+            var c = analyzer.getDefinitions("C").iterator().next();
+
+            assertEquals(Set.of(a, b), analyzer.getDirectDescendants(i), "I should be implemented by A and B");
+            var descendants = analyzer.getDescendants(i);
+            assertTrue(descendants.containsAll(List.of(a, b, c)), "I should have A, B, and C as descendants");
+            assertEquals(3, descendants.size());
+        }
+    }
+
+    @Test
+    public void descendants_emptyForLeaf() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                public class Leaf {}
+                                """,
+                        "Leaf.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject).update();
+
+            var leaf = analyzer.getDefinitions("Leaf").iterator().next();
+
+            assertTrue(analyzer.getDirectDescendants(leaf).isEmpty());
+            assertTrue(analyzer.getDescendants(leaf).isEmpty());
+        }
+    }
+
+    @Test
+    public void descendants_cachingWorks() throws IOException {
+        try (var testProject = InlineTestProjectCreator.code(
+                        """
+                                public class Parent {}
+                                class Child extends Parent {}
+                                """,
+                        "Cache.java")
+                .build()) {
+            var analyzer = createTreeSitterAnalyzer(testProject).update();
+
+            var parent = analyzer.getDefinitions("Parent").iterator().next();
+            var child = analyzer.getDefinitions("Child").iterator().next();
+
+            var firstCall = analyzer.getDirectDescendants(parent);
+            var secondCall = analyzer.getDirectDescendants(parent);
+
+            assertEquals(Set.of(child), firstCall);
+            assertEquals(firstCall, secondCall, "Results should be consistent across multiple calls");
         }
     }
 }

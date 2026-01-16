@@ -43,7 +43,7 @@ public class McpUtilsAsyncTest {
             }
 
             @Override
-            public java.util.List<String> tools() {
+            public List<String> tools() {
                 return null;
             }
         };

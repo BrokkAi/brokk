@@ -265,15 +265,6 @@ class AnalyzerWrapperTest {
         public void onBlocked() {}
 
         @Override
-        public void afterFirstBuild(String msg) {}
-
-        @Override
-        public void onTrackedFileChange() {}
-
-        @Override
-        public void onRepoChange() {}
-
-        @Override
         public void beforeEachBuild() {}
 
         @Override
@@ -292,8 +283,5 @@ class AnalyzerWrapperTest {
             filesChangedCount.incrementAndGet();
             filesChangedLatch.countDown();
         }
-
-        @Override
-        public void onNoFilesChangedDuringPollInterval() {}
     }
 }

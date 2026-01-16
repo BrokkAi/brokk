@@ -8,8 +8,6 @@ import ai.brokk.IContextManager;
 import ai.brokk.TaskResult;
 import ai.brokk.context.Context;
 import ai.brokk.context.ContextFragment;
-import ai.brokk.git.GitRepo;
-import ai.brokk.git.GitWorkflow;
 import ai.brokk.gui.Chrome;
 import ai.brokk.gui.CommitDialog;
 import ai.brokk.gui.SwingUtil;
@@ -551,7 +549,8 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         for (var line : lines) {
             var text = line.strip();
             if (!text.isEmpty()) {
-                items.add(new TaskList.TaskItem(text, text, false));
+                String title = "Task " + (items.size() + 1);
+                items.add(new TaskList.TaskItem(title, text, false));
                 added++;
             }
         }
@@ -559,7 +558,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             input.setText("");
             input.requestFocusInWindow();
 
-            cm.setTaskList(new TaskList.TaskListData(items));
+            cm.setTaskListAsync(new TaskList.TaskListData(items));
             refreshUi(true);
         }
     }
@@ -596,7 +595,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
             if (removedAny) {
-                cm.setTaskList(new TaskList.TaskListData(items));
+                cm.setTaskListAsync(new TaskList.TaskListData(items));
                 refreshUi(true);
             } else {
                 updateButtonStates();
@@ -623,7 +622,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 }
             }
             if (changed) {
-                cm.setTaskList(new TaskList.TaskListData(items));
+                cm.setTaskListAsync(new TaskList.TaskListData(items));
                 refreshUi(false);
             }
         }
@@ -737,7 +736,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 if (index >= 0 && index < items.size()) {
                     var cur = items.get(index);
                     items.set(index, new TaskList.TaskItem(newTitle, newText, cur.done()));
-                    cm.setTaskList(new TaskList.TaskListData(items));
+                    cm.setTaskListAsync(new TaskList.TaskListData(items));
                     refreshUi(false);
                 }
             }
@@ -1056,26 +1055,12 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
         if (choice[0] == 0) {
             // Commit first, then proceed on success
-            var workflow = new GitWorkflow(chrome.getContextManager());
             var commitDialog = new CommitDialog(
-                    chrome.getFrame(), chrome, chrome.getContextManager(), workflow, dirtyFiles, commitResult -> {
-                        try {
-                            var repo = (GitRepo)
-                                    chrome.getContextManager().getProject().getRepo();
-                            chrome.showNotification(
-                                    IConsoleIO.NotificationRole.INFO,
-                                    "Committed "
-                                            + repo.shortHash(commitResult.commitId())
-                                            + ": "
-                                            + commitResult.firstLine());
-                            chrome.updateCommitPanel();
-                            chrome.updateLogTab();
-                            chrome.selectCurrentBranchInLogTab();
-                        } finally {
-                            // Proceed to run tasks after committing
-                            SwingUtilities.invokeLater(action);
-                        }
-                    });
+                    chrome.getFrame(),
+                    chrome,
+                    chrome.getContextManager(),
+                    dirtyFiles,
+                    commitResult -> SwingUtilities.invokeLater(action));
             commitDialog.setVisible(true);
         } else if (choice[0] == 1) {
             // Continue without committing
@@ -1111,7 +1096,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                 if (idx >= 0 && idx < items.size()) {
                     var it = items.get(idx);
                     items.set(idx, new TaskList.TaskItem(it.title(), it.text(), true));
-                    cm.setTaskList(new TaskList.TaskListData(items));
+                    cm.setTaskListAsync(new TaskList.TaskListData(items));
                     shouldRefreshUi = true;
                 }
             }
@@ -1311,7 +1296,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
     }
 
     /**
-     * Centralized UI refresh. Ensures EDT, refreshes model, buttons, badge, and optionally performs
+     * Centralized UI refresh. Ensures EDT, refreshes model, buttons, and optionally performs
      * structural layout invalidation when list structure changes (add/remove/reorder/split/combine/clear).
      */
     private void refreshUi(boolean structuralChange) {
@@ -1321,7 +1306,6 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
         model.fireRefresh();
         updateButtonStates();
-        updateTasksTabBadge();
         if (structuralChange) {
             clearExpansionOnStructureChange();
         } else {
@@ -1671,7 +1655,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             items.addAll(adjusted, moved);
             addCount = moved.size();
 
-            cm.setTaskList(new TaskList.TaskListData(items));
+            cm.setTaskListAsync(new TaskList.TaskListData(items));
 
             if (addCount > 0) {
                 list.setSelectionInterval(adjusted, adjusted + addCount - 1);
@@ -1748,7 +1732,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             }
         }
 
-        cm.setTaskList(new TaskList.TaskListData(items));
+        cm.setTaskListAsync(new TaskList.TaskListData(items));
         list.setSelectedIndex(firstIdx);
         refreshUi(true);
 
@@ -1832,7 +1816,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
             items.add(idx + i, new TaskList.TaskItem("", lines.get(i), false));
         }
 
-        cm.setTaskList(new TaskList.TaskListData(items));
+        cm.setTaskListAsync(new TaskList.TaskListData(items));
         list.setSelectionInterval(idx, idx + lines.size() - 1);
         refreshUi(true);
 
@@ -1942,7 +1926,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
         }
 
         if (removedAny) {
-            cm.setTaskList(new TaskList.TaskListData(items));
+            cm.setTaskListAsync(new TaskList.TaskListData(items));
             refreshUi(true);
         }
         updateButtonStates();
@@ -1998,7 +1982,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     if (!Objects.equals(cur.text(), originalText)) return;
 
                     items.set(index, new TaskList.TaskItem(originalText.strip(), cur.text(), cur.done()));
-                    cm.setTaskList(new TaskList.TaskListData(items));
+                    cm.setTaskListAsync(new TaskList.TaskListData(items));
                     refreshUi(false);
                 } catch (Exception e) {
                     logger.debug("Error updating short task title at index {}", index, e);
@@ -2031,7 +2015,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
                     if (!Objects.equals(cur.text(), originalText)) return;
 
                     items.set(index, new TaskList.TaskItem(summary.strip(), cur.text(), cur.done()));
-                    cm.setTaskList(new TaskList.TaskListData(items));
+                    cm.setTaskListAsync(new TaskList.TaskListData(items));
                     refreshUi(false);
                 } catch (Exception e) {
                     logger.debug("Error applying summarized task title at index {}", index, e);
@@ -2280,7 +2264,7 @@ public class TaskListPanel extends JPanel implements ThemeAware, IContextManager
 
             // Always show title; fallback to first line of text if title is empty
             String displayText = value.title();
-            if (displayText == null || displayText.isBlank()) {
+            if (displayText.isBlank()) {
                 // Fallback: use first line of text
                 String fullText = value.text();
                 int newlineIndex = fullText.indexOf('\n');

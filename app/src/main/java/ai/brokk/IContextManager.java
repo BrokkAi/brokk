@@ -13,6 +13,7 @@ import ai.brokk.project.IProject;
 import ai.brokk.project.MainProject;
 import ai.brokk.project.ModelProperties;
 import ai.brokk.prompts.CodePrompts;
+import ai.brokk.tasks.TaskList;
 import ai.brokk.tools.ToolRegistry;
 import com.google.common.collect.Streams;
 import dev.langchain4j.data.message.ChatMessage;
@@ -39,7 +40,7 @@ import org.jetbrains.annotations.Nullable;
 public interface IContextManager {
     Logger logger = LogManager.getLogger(IContextManager.class);
 
-    default boolean undoContext() {
+    default boolean undoContext() throws InterruptedException {
         throw new UnsupportedOperationException();
     }
 
@@ -90,6 +91,9 @@ public interface IContextManager {
          * @param newCtx The new context state.
          */
         void contextChanged(Context newCtx);
+
+        /** Called when the task list data has been modified. */
+        default void onTaskListChanged(TaskList.TaskListData data) {}
     }
 
     /**
@@ -157,7 +161,7 @@ public interface IContextManager {
         throw new UnsupportedOperationException();
     }
 
-    default <T> Future<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
+    default <T> CompletableFuture<T> submitBackgroundTask(String taskDescription, Callable<T> task) {
         try {
             return CompletableFuture.completedFuture(task.call());
         } catch (Exception e) {
@@ -165,12 +169,26 @@ public interface IContextManager {
         }
     }
 
-    default List<ProjectFile> getTestFiles() {
+    /**
+     * Submits a background task that doesn't return a result.
+     *
+     * @param taskDescription a description of the task
+     * @param task the task to execute
+     * @return a {@link Future} representing pending completion of the task
+     */
+    default CompletableFuture<Void> submitBackgroundTask(String taskDescription, Runnable task) {
+        return submitBackgroundTask(taskDescription, () -> {
+            task.run();
+            return null;
+        });
+    }
+
+    default Set<ProjectFile> getTestFiles() {
         Set<ProjectFile> allFiles = getRepo().getTrackedFiles();
         var analyzer = getAnalyzerWrapper().getNonBlocking();
         return allFiles.stream()
                 .filter(f -> ContextManager.isTestFile(f, analyzer))
-                .toList();
+                .collect(Collectors.toSet());
     }
 
     default IAnalyzerWrapper getAnalyzerWrapper() {
@@ -219,6 +237,25 @@ public interface IContextManager {
     default void addFiles(Collection<ProjectFile> path) {}
 
     default IProject getProject() {
+        throw new UnsupportedOperationException();
+    }
+
+    default ContextManager.TaskScope beginTask(
+            String input, boolean group, boolean compress, @Nullable String taskDescription) {
+        throw new UnsupportedOperationException();
+    }
+
+    default ContextManager.TaskScope beginTask(
+            String input, boolean groupAndCompress, @Nullable String taskDescription) {
+        return beginTask(input, groupAndCompress, groupAndCompress, taskDescription);
+    }
+
+    /** Begin a new aggregating scope with explicit compress-at-commit semantics and non-text resolution mode. */
+    default ContextManager.TaskScope beginTaskUngrouped(String input) {
+        return beginTask(input, false, false, null);
+    }
+
+    default ContextManager.TaskScope anonymousScope() {
         throw new UnsupportedOperationException();
     }
 

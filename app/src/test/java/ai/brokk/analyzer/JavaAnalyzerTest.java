@@ -6,7 +6,11 @@ import static ai.brokk.testutil.AssertionHelperUtil.assertCodeEquals;
 import static org.junit.jupiter.api.Assertions.*;
 
 import ai.brokk.AnalyzerUtil;
+import ai.brokk.context.ContextFragment;
+import ai.brokk.context.ContextFragments;
 import ai.brokk.testutil.InlineTestProjectCreator;
+import ai.brokk.testutil.TestConsoleIO;
+import ai.brokk.testutil.TestContextManager;
 import ai.brokk.testutil.TestProject;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -989,6 +993,39 @@ public class JavaAnalyzerTest {
      * the same line as other code, we should NOT back up to include that code.
      */
     @Test
+    public void testEnclosingCodeUnitByLine() {
+        var maybeFile = AnalyzerUtil.getFileFor(analyzer, "A");
+        assertTrue(maybeFile.isPresent());
+        var file = maybeFile.get();
+
+        // 1. Exact match for a method
+        // method1 is lines 14-16 in A.java (approx based on getSkeleton test data)
+        // Let's use a safe line number from middle of method1
+        int method1Line = analyzer.getStartLineForCodeUnit(CodeUnit.fn(file, "", "A.method1"));
+        var cu1 = analyzer.enclosingCodeUnit(file, method1Line, method1Line);
+        assertTrue(cu1.isPresent());
+        assertEquals("A.method1", cu1.get().fqName());
+
+        // 2. Range spanning from method7 to its containing class AInnerInner
+        var cu7 = CodeUnit.fn(file, "", "A.AInner.AInnerInner.method7");
+        int method7Start = analyzer.getStartLineForCodeUnit(cu7);
+        // method7 is very short, just a few lines.
+        var cu2 = analyzer.enclosingCodeUnit(file, method7Start, method7Start + 1);
+        assertTrue(cu2.isPresent());
+        assertEquals("A.AInner.AInnerInner.method7", cu2.get().fqName());
+
+        // 3. Range spanning multiple methods returns the containing class
+        var cuMethod1 = CodeUnit.fn(file, "", "A.method1");
+        var cuMethod2 = CodeUnit.fn(file, "", "A.method2");
+        int m1Start = analyzer.getStartLineForCodeUnit(cuMethod1);
+        int m2Start = analyzer.getStartLineForCodeUnit(cuMethod2);
+
+        var cu3 = analyzer.enclosingCodeUnit(file, Math.min(m1Start, m2Start), Math.max(m1Start, m2Start));
+        assertTrue(cu3.isPresent());
+        assertEquals("A", cu3.get().fqName());
+    }
+
+    @Test
     public void testInlineJavadocDoesNotIncludePrecedingCode() throws IOException {
         var project = TestProject.createTestProject("testcode-java", Languages.JAVA);
         var testAnalyzer = new JavaAnalyzer(project);
@@ -1005,5 +1042,45 @@ public class JavaAnalyzerTest {
         // Verify the preceding code is NOT included
         assertFalse(source.contains("private int other"), "Should NOT include code from same line as Javadoc");
         assertFalse(source.contains("= 1;"), "Should NOT include field initialization from same line");
+    }
+
+    @Test
+    public void testSummaryFragmentSupportingFragmentsFiltersNestedAncestors() throws IOException {
+        try (var project = InlineTestProjectCreator.code(
+                        """
+                        package p;
+                        public class Outer extends OuterBase {
+                            class Inner extends InnerBase {}
+                        }
+                        """,
+                        "p/Outer.java")
+                .addFileContents(
+                        """
+                        package p;
+                        public class OuterBase {}
+                        """,
+                        "p/OuterBase.java")
+                .addFileContents(
+                        """
+                        package p;
+                        public class InnerBase {}
+                        """,
+                        "p/InnerBase.java")
+                .build()) {
+
+            var analyzer = new JavaAnalyzer(project);
+            var cm = new TestContextManager(project, new TestConsoleIO(), Set.of(), analyzer);
+
+            var frag =
+                    new ContextFragments.SummaryFragment(cm, "p.Outer", ContextFragment.SummaryType.CODEUNIT_SKELETON);
+
+            var ids = frag.supportingFragments().stream()
+                    .filter(f -> f instanceof ContextFragments.SummaryFragment)
+                    .map(f -> ((ContextFragments.SummaryFragment) f).getTargetIdentifier())
+                    .collect(java.util.stream.Collectors.toSet());
+
+            assertTrue(ids.contains("p.OuterBase"), "Should contain top-level ancestor p.OuterBase");
+            assertFalse(ids.contains("p.InnerBase"), "Should NOT contain nested class ancestor p.InnerBase");
+        }
     }
 }

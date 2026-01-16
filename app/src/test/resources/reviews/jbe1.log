@@ -1,0 +1,209 @@
+## Key Changes
+
+### GitHubAuth Token Override Support
+The `GitHubAuth` class now accepts an optional `tokenOverride` parameter, allowing callers to bypass the stored token mechanism. This enables headless/executor workflows to inject tokens directly without relying on the global token storage.
+
+```
+app/src/main/java/ai/brokk/GitHubAuth.java @60
+@Nullable
+private final String tokenOverride;
+```
+
+```
+app/src/main/java/ai/brokk/GitHubAuth.java @674
+var token = (tokenOverride != null && !tokenOverride.isBlank()) ? tokenOverride : getStoredToken();
+```
+
+### New PrReviewService Utility Class
+A new utility class encapsulates all GitHub PR review operations: fetching PR details, computing diffs, posting comments, and annotating diffs with line numbers for LLM consumption.
+
+```
+app/src/main/java/ai/brokk/executor/jobs/PrReviewService.java @19
+public final class PrReviewService {
+    private static final Logger logger = LogManager.getLogger(PrReviewService.class);
+    private static final Pattern HUNK_PATTERN = Pattern.compile("^@@ -(\\d+)(?:,\\d+)? \\+(\\d+)(?:,\\d+)? @@");
+```
+
+### JobSpec PR Metadata Accessors
+`JobSpec` now includes convenience accessors for PR review metadata (`getGithubToken()`, `getRepoOwner()`, etc.) and a dedicated factory method `ofPrReview()`.
+
+```
+app/src/main/java/ai/brokk/executor/jobs/JobSpec.java @42
+public static JobSpec ofPrReview(String plannerModel, String githubToken, String owner, String repo, int prNumber) {
+    return new JobSpec(
+            "",
+            false,
+            false,
+            plannerModel,
+            null,
+            null,
+            false,
+            Map.of(
+                    "github_token", githubToken,
+                    "repo_owner", owner,
+                    "repo_name", repo,
+                    "pr_number", String.valueOf(prNumber)),
+            null,
+            null);
+}
+```
+
+### REVIEW Mode Implementation Overhaul
+The REVIEW mode in `JobRunner` has been completely rewritten. It now:
+1. Validates required tags upfront
+2. Uses `GitHubAuth` with token override
+3. Computes proper merge-base diffs via `GitRepo`
+4. Runs a pre-scan with `LutzAgent` to gather context
+5. Generates structured LLM review output
+6. Parses and posts inline comments to GitHub
+
+```
+app/src/main/java/ai/brokk/executor/jobs/JobRunner.java @564
+var gitHubAuth = new GitHubAuth(repoOwner, repoName, null, githubToken);
+var ghRepo = gitHubAuth.getGhRepository();
+var pr = ghRepo.getPullRequest(prNumber);
+```
+
+## Design Notes
+
+### Scan Model Resolution Differs From Other Modes
+The REVIEW mode resolves `scanModel` differently from CODE mode. CODE mode uses `codeModel` for pre-scan when no explicit override is provided, but REVIEW mode falls back directly to `cm.getService().getScanModel()`. This inconsistency could confuse users expecting similar behavior.
+
+```
+app/src/main/java/ai/brokk/executor/jobs/JobRunner.java @165
+final StreamingChatModel reviewScanModel = mode == Mode.REVIEW
+        ? (spec.scanModel() != null && !spec.scanModel().trim().isEmpty()
+                ? resolveModelOrThrow(spec.scanModel().trim())
+                : cm.getService().getScanModel())
+```
+
+**Recommendation:** Document the intentional difference in model resolution for REVIEW mode in the code comments and in `docs/headless-executor.md`. If the intent is for REVIEW to also use `codeModel` as a fallback before the service default, align the logic with CODE mode.
+
+### Tight Coupling Between JobRunner and GitRepo Cast
+The code casts `cm.getProject().getRepo()` directly to `GitRepo`, which could fail for non-Git repositories or alternative implementations.
+
+```
+app/src/main/java/ai/brokk/executor/jobs/JobRunner.java @576
+var gitRepo =
+        (GitRepo) cm.getProject().getRepo();
+String diff = PrReviewService.computePrDiff(
+        gitRepo, baseBranch, prDetails.headRef());
+```
+
+**Recommendation:** Add a type check before casting, and throw a meaningful exception if the repo is not a `GitRepo`:
+```java
+if (!(cm.getProject().getRepo() instanceof GitRepo gitRepo)) {
+    throw new IllegalStateException("REVIEW mode requires a Git repository");
+}
+```
+
+### Review Output Parsing Is Brittle
+The review output parsing relies on finding the literal string "Comments" to split summary from line comments. If the LLM formats output differently or includes "Comments" elsewhere, parsing will fail silently or produce incorrect results.
+
+```
+app/src/main/java/ai/brokk/executor/jobs/JobRunner.java @634
+int commentsIdx = reviewText.indexOf("Comments");
+if (commentsIdx > 0) {
+    summary = reviewText
+            .substring(0, commentsIdx)
+            .trim();
+    commentsSection = reviewText.substring(commentsIdx);
+} else {
+    summary = reviewText;
+}
+```
+
+**Recommendation:** Use a more robust delimiter like "## Comments" or a regex pattern that matches the exact markdown header format specified in the prompt. Consider adding validation that the LLM response matches expected structure before parsing.
+
+## Tactical Notes
+
+### AtomicReference Replaced With Array Holder
+The change from `AtomicReference<Object>` to `Object[]` for `completionResultHolder` loses thread-safety guarantees. While the current code path may not require synchronization, this is a regression in clarity.
+
+```
+app/src/main/java/ai/brokk/executor/jobs/JobRunner.java @147
+Object[] completionResultHolder = {null};
+```
+
+**Recommendation:** Retain `AtomicReference<Object>` for consistency and thread-safety, or add a comment explaining why thread-safety is not required here.
+
+### Missing Thread Interrupt Restoration
+When `InterruptedException` is caught during pre-scan, the thread's interrupt status is restored, but then execution continues. This could lead to subsequent blocking operations ignoring the interrupt.
+
+```
+app/src/main/java/ai/brokk/executor/jobs/JobRunner.java @612
+} catch (InterruptedException ie) {
+    Thread.currentThread().interrupt();
+    logger.warn(
+            "Pre-scan interrupted for REVIEW job {}: {}",
+            jobId,
+            ie.getMessage());
+}
+```
+
+**Recommendation:** After restoring interrupt status, either rethrow as a wrapped exception or check `Thread.interrupted()` before continuing with the review execution.
+
+### Duplicate Comment Check May Be Expensive
+`hasExistingLineComment` iterates through all review comments for each new comment to post. For PRs with many comments, this is O(n*m) where n is existing comments and m is new comments.
+
+```
+app/src/main/java/ai/brokk/executor/jobs/PrReviewService.java @130
+public static boolean hasExistingLineComment(GHPullRequest pr, String path, int line) throws IOException {
+    for (GHPullRequestReviewComment comment : pr.listReviewComments()) {
+        if (path.equals(comment.getPath()) && line == comment.getLine()) {
+            return true;
+        }
+    }
+    return false;
+}
+```
+
+**Recommendation:** Fetch all review comments once before the comment-posting loop and build a `Set<String>` of "path:line" keys for O(1) lookup.
+
+### Legacy Mode Tag Handling
+The `pr_review` tag value is mapped to `REVIEW` mode for backward compatibility, but this is undocumented and the legacy value doesn't match the enum naming convention.
+
+```
+app/src/main/java/ai/brokk/executor/jobs/JobRunner.java @71
+if (raw.equalsIgnoreCase("pr_review")) {
+    return Mode.REVIEW;
+}
+```
+
+**Recommendation:** Document this legacy mapping in `docs/headless-executor.md` or consider deprecating it with a logged warning.
+
+### Diff Annotation Trailing Newline Handling
+The `annotateDiffWithLineNumbers` method removes a trailing newline at the end, but this could alter the diff semantics if the original diff intentionally ended with a newline.
+
+```
+app/src/main/java/ai/brokk/executor/jobs/PrReviewService.java @207
+if (result.length() > 0 && result.charAt(result.length() - 1) == '\n') {
+    result.setLength(result.length() - 1);
+}
+```
+
+**Recommendation:** Preserve the original trailing newline behavior. If trimming is intentional, add a comment explaining why.
+
+## Additional Tests
+
+### Integration Test for PR Review Flow
+The existing tests validate request/response handling but don't test the actual PR review logic with a real or mocked GitHub API.
+
+**Recommendation:** Add an integration test that mocks `GitHubAuth.getGhRepository()` to return a test PR, verifies diff computation, and validates that the correct comments are generated and "posted" (to a mock).
+
+### Test annotateDiffWithLineNumbers Edge Cases
+The current tests cover basic cases but miss edge cases like binary file diffs, no-newline-at-EOF markers, or malformed hunks.
+
+**Recommendation:** Add test cases for:
+- Diffs with `\ No newline at end of file` markers
+- Empty hunks (`@@ -0,0 +1 @@`)
+- Diffs with only deletions or only additions
+- Unicode content in diff lines
+
+## Overview
+
+This PR introduces a comprehensive GitHub Pull Request review feature for the headless executor. The implementation follows a sensible architecture: `PrReviewService` handles GitHub API interactions and diff processing, `GitHubAuth` gains token injection support for headless operation, and `JobRunner` orchestrates the review workflow including context enrichment via `LutzAgent`.
+
+The key strengths are the structured LLM prompt with explicit line number annotations, duplicate comment detection, and fallback behavior when inline comments fail. The documentation updates in `docs/headless-executor.md` and `docs/headless-executor-testing-with-curl.md` are thorough.
+
+The main concerns are around robustness: the LLM output parsing is fragile, the duplicate comment check has O(n*m) complexity, and the `GitRepo` cast is unchecked. The model resolution inconsistency between REVIEW and other modes may also confuse users. These issues are addressable without major refactoring.
