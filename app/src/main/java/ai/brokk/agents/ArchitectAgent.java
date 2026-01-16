@@ -638,11 +638,6 @@ public class ArchitectAgent {
                 result = emergencyResult; // proceed with emergency result
             }
 
-            // show thinking
-            if (!result.text().isBlank()) {
-                io.llmOutput("\n" + result.text(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
-            }
-
             totalUsage = TokenUsage.sum(
                     totalUsage, castNonNull(result.originalResponse()).tokenUsage());
             // Add the request and response to message history
