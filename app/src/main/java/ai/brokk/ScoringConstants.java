@@ -56,10 +56,4 @@ public final class ScoringConstants {
      */
     public static final int OVERFLOW_SCORE_SENTINEL = Integer.MAX_VALUE - 1;
 
-    /**
-     * Minimum safe bound for intermediate score calculations.
-     * Used to document the safe range for score arithmetic before clamping/saturation.
-     * Current constants are chosen to avoid overflow in typical scenarios.
-     */
-    public static final int MIN_SAFE_INTERMEDIATE_SCORE = Integer.MIN_VALUE / 2;
 }
