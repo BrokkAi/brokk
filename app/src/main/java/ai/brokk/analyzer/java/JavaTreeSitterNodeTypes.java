@@ -39,8 +39,5 @@ public final class JavaTreeSitterNodeTypes {
     public static final String ANNOTATION = "annotation";
     public static final String MARKER_ANNOTATION = "marker_annotation";
 
-    // Scala/JVM related
-    public static final String PACKAGE_IDENTIFIER = "package_identifier";
-
     private JavaTreeSitterNodeTypes() {}
 }
