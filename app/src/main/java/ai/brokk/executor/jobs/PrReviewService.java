@@ -112,8 +112,10 @@ public final class PrReviewService {
         }
 
         return comments.stream()
-                .filter(c -> Objects.requireNonNullElse(c.severity(), Severity.LOW).isAtLeast(threshold))
-                .sorted(Comparator.comparingInt(c -> Objects.requireNonNullElse(c.severity(), Severity.LOW).rank()))
+                .filter(c ->
+                        Objects.requireNonNullElse(c.severity(), Severity.LOW).isAtLeast(threshold))
+                .sorted(Comparator.comparingInt(c ->
+                        Objects.requireNonNullElse(c.severity(), Severity.LOW).rank()))
                 .limit(maxComments)
                 .toList();
     }
