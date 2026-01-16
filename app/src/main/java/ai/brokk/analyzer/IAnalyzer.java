@@ -306,7 +306,7 @@ public interface IAnalyzer {
                     case MODULE -> 3;
                 })
                 .thenComparing(CodeUnit::fqName, String.CASE_INSENSITIVE_ORDER)
-                .thenComparing(cu -> cu.signature() != null ? cu.signature() : "", String.CASE_INSENSITIVE_ORDER);
+                .thenComparing(CodeUnit::signature, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
     }
 
     /**
