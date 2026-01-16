@@ -119,7 +119,7 @@ class HeadlessExecutorMainIssueJobTest {
         var payload = basePayload();
         String jobId = postIssueJobAndGetJobId(payload);
         var persisted = loadPersistedJobSpec(jobId);
-        assertEquals(JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS, persisted.maxIssueFixAttempts());
+        assertEquals(JobSpec.DEFAULT_MAX_ISSUE_FIX_ATTEMPTS, persisted.effectiveMaxIssueFixAttempts());
     }
 
     @Test
@@ -142,7 +142,7 @@ class HeadlessExecutorMainIssueJobTest {
         payload.put("maxIssueFixAttempts", 7);
         String jobId = postIssueJobAndGetJobId(payload);
         var persisted = loadPersistedJobSpec(jobId);
-        assertEquals(7, persisted.maxIssueFixAttempts());
+        assertEquals(7, persisted.effectiveMaxIssueFixAttempts());
     }
 
     private Map<String, Object> basePayload() {

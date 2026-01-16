@@ -912,7 +912,7 @@ public final class JobRunner {
                                                         store,
                                                         cm.getIo(),
                                                         buildDetailsOverride,
-                                                        spec.maxIssueFixAttempts(),
+                                                        spec.effectiveMaxIssueFixAttempts(),
                                                         cmd -> {
                                                             try {
                                                                 return BuildAgent.runExplicitCommand(

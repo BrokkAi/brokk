@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,7 +30,7 @@ public record JobSpec(
         @JsonProperty("reasoningLevelCode") @Nullable String reasoningLevelCode,
         @JsonProperty("temperature") @Nullable Double temperature,
         @JsonProperty("temperatureCode") @Nullable Double temperatureCode,
-        @JsonProperty("maxIssueFixAttempts") int maxIssueFixAttempts) {
+        @JsonProperty("maxIssueFixAttempts") @Nullable Integer maxIssueFixAttempts) {
 
     public static final int DEFAULT_MAX_ISSUE_FIX_ATTEMPTS = 5;
 
@@ -309,6 +310,11 @@ public record JobSpec(
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    @JsonIgnore
+    public int effectiveMaxIssueFixAttempts() {
+        return Objects.requireNonNullElse(maxIssueFixAttempts, DEFAULT_MAX_ISSUE_FIX_ATTEMPTS);
     }
 
     @JsonIgnore
