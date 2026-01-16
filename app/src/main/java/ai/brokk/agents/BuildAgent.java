@@ -1303,7 +1303,9 @@ public class BuildAgent {
         var io = cm.getIo();
 
         io.llmOutput(
-                "\nRunning command: \n\n```bash\n" + command + "\n```\n", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
+                "\nRunning command: \n\n```bash\n" + command + "\n```\n",
+                ChatMessageType.CUSTOM,
+                LlmOutputMeta.DEFAULT);
         String shellLang = ExecutorConfig.getShellLanguageFromProject(cm.getProject());
         io.llmOutput("\n```" + shellLang + "\n", ChatMessageType.CUSTOM, LlmOutputMeta.DEFAULT);
 
