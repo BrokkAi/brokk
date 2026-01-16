@@ -1,5 +1,7 @@
 package ai.brokk.gui.mop.webview.cef;
 
+import ai.brokk.util.Environment;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import me.friwi.jcefmaven.CefAppBuilder;
@@ -32,13 +34,23 @@ public class MavenCefProvider implements CefAppProvider {
     private static final Logger logger = LogManager.getLogger(MavenCefProvider.class);
 
     /**
-     * Checks if jcefmaven classes are available.
+     * Checks if jcefmaven can be used.
      *
-     * <p>Uses reflection to avoid ClassNotFoundException when jcefmaven
-     * is stripped from production builds.
+     * <p>Returns false if:
+     * <ul>
+     *   <li>jcefmaven classes are not available (stripped in production)</li>
+     *   <li>JBR's bundled JCEF is detected (would conflict with jcefmaven)</li>
+     * </ul>
      */
     @Override
     public boolean isAvailable() {
+        // Don't use jcefmaven if the JVM has bundled JCEF (e.g., JBR)
+        // Using both would cause native library conflicts and segfaults
+        if (hasJvmBundledJcef()) {
+            logger.info("JVM has bundled JCEF, Maven provider unavailable to avoid conflicts");
+            return false;
+        }
+
         try {
             Class.forName("me.friwi.jcefmaven.CefAppBuilder");
             logger.info("Maven CEF provider is available");
@@ -47,6 +59,22 @@ public class MavenCefProvider implements CefAppProvider {
             logger.debug("jcefmaven not available (classes stripped or not on classpath)");
             return false;
         }
+    }
+
+    /**
+     * Checks if the JVM has bundled JCEF (e.g., JetBrains Runtime).
+     */
+    private static boolean hasJvmBundledJcef() {
+        String javaHome = System.getProperty("java.home");
+        if (javaHome == null) return false;
+
+        // Check for jcef_helper which indicates bundled JCEF
+        if (Environment.isMacOs() || Environment.isLinux()) {
+            return Files.exists(Paths.get(javaHome, "lib", "jcef_helper"));
+        } else if (Environment.isWindows()) {
+            return Files.exists(Paths.get(javaHome, "bin", "jcef_helper.exe"));
+        }
+        return false;
     }
 
     @Override
