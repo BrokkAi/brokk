@@ -1345,11 +1345,8 @@ public class ContextManager implements IContextManager, AutoCloseable {
         }
         lowMemoryWatcherManager.close();
 
-        var periodicTasksFuture = new LoggingExecutorService(
-                periodicTasks,
-                th -> GlobalExceptionHandler.handle(th, st -> {})
-        ).shutdownAndAwait(awaitMillis, "periodicTasks");
-
+        var periodicTasksFuture =
+                new LoggingExecutorService(periodicTasks, th -> {}).shutdownAndAwait(awaitMillis, "periodicTasks");
         var contextActionFuture = contextActionExecutor.shutdownAndAwait(awaitMillis, "contextActionExecutor");
         var backgroundFuture = backgroundTasks.shutdownAndAwait(awaitMillis, "backgroundTasks");
         var userActionsFuture = userActions.shutdownAndAwait(awaitMillis);
@@ -1357,26 +1354,30 @@ public class ContextManager implements IContextManager, AutoCloseable {
         return CompletableFuture.allOf(contextActionFuture, backgroundFuture, userActionsFuture, periodicTasksFuture)
                 .whenComplete((v, t) -> {
                     if (sessionsSyncActive) {
-                        Thread syncThread = Thread.ofVirtual().start(() -> {
-                            try {
-                                new SessionSynchronizer(this).synchronize();
-                            } catch (Exception e) {
-                                logger.warn("Failed to synchronize sessions during close: {}", e.getMessage());
-                            }
-                        });
-                        try {
-                            syncThread.join(awaitMillis);
-                            if (syncThread.isAlive()) {
-                                logger.warn("Session sync timed out after {} ms, interrupting", awaitMillis);
-                                syncThread.interrupt();
-                            }
-                        } catch (InterruptedException e) {
-                            syncThread.interrupt();
-                            Thread.currentThread().interrupt();
-                        }
+                        syncSessionsAndWait(awaitMillis);
                     }
                     project.close();
                 });
+    }
+
+    private void syncSessionsAndWait(long awaitMillis) {
+        Thread syncThread = Thread.ofVirtual().start(() -> {
+            try {
+                new SessionSynchronizer(this).synchronize();
+            } catch (Exception e) {
+                logger.warn("Failed to synchronize sessions during close: {}", e.getMessage());
+            }
+        });
+        try {
+            syncThread.join(awaitMillis);
+            if (syncThread.isAlive()) {
+                logger.warn("Session sync timed out after {} ms, interrupting", awaitMillis);
+                syncThread.interrupt();
+            }
+        } catch (InterruptedException e) {
+            syncThread.interrupt();
+            Thread.currentThread().interrupt();
+        }
     }
 
     public boolean isLlmTaskInProgress() {
