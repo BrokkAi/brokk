@@ -1,6 +1,7 @@
 package ai.brokk.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -148,5 +149,54 @@ public class ContentDiffUtilsTest {
         String appliedContent = ContentDiffUtils.applyDiff(diff, oldContent);
         // applyDiff will normalize to \n
         assertEquals("line1\nline3\n", appliedContent);
+    }
+
+    @Test
+    void testParseUnifiedDiffSmoke() {
+        String diffTxt =
+                """
+                diff --git a/file.txt b/file.txt
+                index 1234567..89abcde 100644
+                --- a/file.txt
+                +++ b/file.txt
+                @@ -1,3 +1,3 @@
+                 line1
+                -line2
+                +line2 modified
+                 line3
+                """;
+
+        var result = ContentDiffUtils.parseUnifiedDiff(diffTxt);
+
+        assertTrue(result.isPresent());
+        var unifiedDiff = result.get();
+        assertFalse(unifiedDiff.getFiles().isEmpty());
+
+        var file = unifiedDiff.getFiles().getFirst();
+        // The parser usually strips the a/ and b/ prefixes
+        assertTrue(file.getFromFile().endsWith("file.txt"));
+        assertTrue(file.getToFile().endsWith("file.txt"));
+
+        // Check that at least one delta exists and contains our change
+        boolean foundChange = file.getPatch().getDeltas().stream()
+                .anyMatch(d -> d.getSource().getLines().contains("line2")
+                        && d.getTarget().getLines().contains("line2 modified"));
+        assertTrue(foundChange, "Could not find the expected change in parsed deltas");
+    }
+
+    @Test
+    void testParseUnifiedDiffEmptyFileCreationIsFiltered() {
+        // This is the specific case filterEmptyFileCreations is designed to handle
+        String diffTxt =
+                """
+                diff --git a/empty.txt b/empty.txt
+                new file mode 100644
+                index 0000000..e69de29
+                --- /dev/null
+                +++ b/empty.txt
+                """;
+
+        var result = ContentDiffUtils.parseUnifiedDiff(diffTxt);
+        assertFalse(result.isPresent(), "Should filter out empty file creations with no hunks");
     }
 }
