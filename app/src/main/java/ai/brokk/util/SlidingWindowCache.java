@@ -150,11 +150,14 @@ public class SlidingWindowCache<K, V extends SlidingWindowCache.Disposable> {
      * been reserved. Returns false if the key was already present (cached value exists) or already reserved.
      */
     public boolean tryReserve(K key) {
-        if (cache.containsKey(key) || reservedKeys.containsKey(key)) {
-            return false; // Already cached or reserved
+        synchronized (this) {
+            if (cache.containsKey(key) || reservedKeys.containsKey(key)) {
+                return false; // Already cached or reserved
+            }
+            // Reserve the key so that callers will observe the cached value once populated
+            reservedKeys.put(key, true);
+            return true;
         }
-        // Atomic check-and-reserve operation
-        return reservedKeys.putIfAbsent(key, true) == null;
     }
 
     /** Replaces a reserved entry with the actual value. Should only be called after successful tryReserve(). */
