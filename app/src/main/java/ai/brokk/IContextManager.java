@@ -222,7 +222,7 @@ public interface IContextManager {
     }
 
     default AbstractService getService() {
-        throw new UnsupportedOperationException();
+        return new OfflineService(getProject());
     }
 
     default void reportException(Throwable th) {}
@@ -330,7 +330,7 @@ public interface IContextManager {
 
     @Blocking
     default CompletableFuture<String> summarizeTaskForConversation(String taskText) {
-        throw new UnsupportedOperationException();
+        return CompletableFuture.completedFuture(taskText);
     }
 
     @Nullable

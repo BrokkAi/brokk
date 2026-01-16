@@ -12,7 +12,7 @@ import org.jspecify.annotations.NullMarked;
  * A string-specialized wrapper around {@link DiskLruCache}.
  */
 @NullMarked
-public final class StringDiskCache implements AutoCloseable {
+public final class StringDiskCache implements IStringDiskCache {
     private static final Logger logger = LogManager.getLogger(StringDiskCache.class);
     private final DiskLruCache cache;
 
@@ -26,6 +26,7 @@ public final class StringDiskCache implements AutoCloseable {
      * @param key the cache key (must match [a-z0-9_-]{1,64})
      * @return the cached value, or empty if not in cache
      */
+    @Override
     public Optional<String> get(String key) {
         try (DiskLruCache.Snapshot snapshot = cache.get(key)) {
             if (snapshot != null) {
@@ -43,6 +44,7 @@ public final class StringDiskCache implements AutoCloseable {
      * @param key   the cache key (must match [a-z0-9_-]{1,64})
      * @param value the value to store
      */
+    @Override
     public void put(String key, String value) {
         DiskLruCache.Editor editor = null;
         try {
@@ -70,6 +72,7 @@ public final class StringDiskCache implements AutoCloseable {
      * @param computer supplier for the value if not in cache
      * @return the cached or computed value
      */
+    @Override
     public String computeIfAbsent(String key, Supplier<String> computer) {
         return get(key).orElseGet(() -> {
             String value = computer.get();

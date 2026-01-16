@@ -41,11 +41,13 @@ public final class FuzzyUsageFinder {
     private final AbstractService service;
     private final @Nullable Llm llm;
 
-    public static FuzzyUsageFinder create(IContextManager ctx) {
-        var service = ctx.getService();
+    public static FuzzyUsageFinder create(IContextManager cm) {
+        var service = cm.getService();
         var quickestModel = service.quickestModel();
-        var llm = new Llm(quickestModel, "Disambiguate Code Unit Usages", ctx, false, false, false, false);
-        return new FuzzyUsageFinder(ctx.getProject(), ctx.getAnalyzerUninterrupted(), service, llm);
+        var llm = quickestModel instanceof AbstractService.UnavailableStreamingModel
+                ? null
+                : new Llm(quickestModel, "Disambiguate Code Unit Usages", cm, false, false, false, false);
+        return new FuzzyUsageFinder(cm.getProject(), cm.getAnalyzerUninterrupted(), service, llm);
     }
 
     /**

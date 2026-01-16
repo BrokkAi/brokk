@@ -13,7 +13,7 @@ import ai.brokk.git.IGitRepo;
 import ai.brokk.mcp.McpConfig;
 import ai.brokk.project.ModelProperties.ModelType;
 import ai.brokk.util.Environment;
-import ai.brokk.util.StringDiskCache;
+import ai.brokk.util.IStringDiskCache;
 import java.awt.Rectangle;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -44,8 +44,8 @@ public interface IProject extends AutoCloseable {
      * <p>Implementations (MainProject) should return a properly initialized StringDiskCache.
      * WorktreeProject will forward to its MainProject parent.
      */
-    default StringDiskCache getDiskCache() {
-        throw new UnsupportedOperationException();
+    default IStringDiskCache getDiskCache() {
+        return new IStringDiskCache.NoopDiskCache();
     }
 
     /**
