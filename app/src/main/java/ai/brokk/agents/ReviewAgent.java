@@ -837,6 +837,7 @@ public class ReviewAgent {
                 """);
     }
 
+    @SuppressWarnings("UnusedMethod") // Called via reflection by ToolRegistry
     @Tool(
             "Add context fragments to help perform a thorough code review. Call this once with all the files, summaries, classes, and methods needed.")
     private String addFragments(
