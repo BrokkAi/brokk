@@ -781,6 +781,11 @@ public final class JobRunner {
                                         }
                                     }
                                     case ISSUE -> {
+                                        StreamingChatModel issuePlannerModel = Objects.requireNonNull(
+                                                architectPlannerModel, "plannerModel required for ISSUE jobs");
+                                        StreamingChatModel issueCodeModel = Objects.requireNonNull(
+                                                architectCodeModel, "code model required for ISSUE jobs");
+
                                         // 1. Extract and validate Issue metadata
                                         String githubToken = spec.getGithubToken();
                                         String repoOwner = spec.getRepoOwner();
@@ -838,9 +843,7 @@ public final class JobRunner {
                                                 var searchAgent = new LutzAgent(
                                                         context,
                                                         issueTaskPrompt,
-                                                        Objects.requireNonNull(
-                                                                architectPlannerModel,
-                                                                "plannerModel required for ISSUE jobs"),
+                                                        issuePlannerModel,
                                                         SearchPrompts.Objective.TASKS_ONLY,
                                                         scope);
                                                 var taskListResult = searchAgent.execute();
@@ -856,10 +859,7 @@ public final class JobRunner {
                                                     if (cancelled.get()) return;
 
                                                     // Execute task with ArchitectAgent
-                                                    cm.executeTask(
-                                                            generatedTask,
-                                                            architectPlannerModel,
-                                                            Objects.requireNonNull(architectCodeModel));
+                                                    cm.executeTask(generatedTask, issuePlannerModel, issueCodeModel);
 
                                                     // 4. Verification loop: run build and retry on failure
                                                     int buildAttempts = 0;
@@ -897,8 +897,8 @@ public final class JobRunner {
                                                                                 + buildError;
                                                                 cm.executeTask(
                                                                         TaskList.TaskItem.createFixTask(fixPrompt),
-                                                                        architectPlannerModel,
-                                                                        architectCodeModel);
+                                                                        issuePlannerModel,
+                                                                        issueCodeModel);
                                                             } else {
                                                                 throw new IssueExecutionException(
                                                                         "Failed to pass build verification after "
@@ -929,8 +929,8 @@ public final class JobRunner {
                                                             try {
                                                                 cm.executeTask(
                                                                         TaskList.TaskItem.createFixTask(prompt),
-                                                                        architectPlannerModel,
-                                                                        architectCodeModel);
+                                                                        issuePlannerModel,
+                                                                        issueCodeModel);
                                                             } catch (InterruptedException e) {
                                                                 Thread.currentThread()
                                                                         .interrupt();
