@@ -9,7 +9,6 @@ import ai.brokk.testutil.TestAnalyzer;
 import ai.brokk.testutil.TestProject;
 import ai.brokk.tools.CodeUnitExtractor;
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.List;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterAll;
@@ -69,12 +68,7 @@ public class CompletionsIntegrationTest {
         List<ScoredCodeUnit> scored = Completions.scoreCodeUnits(query, candidates);
 
         // Sort by score (ascending) using the same tie-breakers as the production code
-        var top = scored.stream()
-                .sorted(Comparator.comparingInt(ScoredCodeUnit::score)
-                        .thenComparingInt(sc -> sc.codeUnit().fqName().length())
-                        .thenComparingInt(sc -> sc.codeUnit().shortName().length())
-                        .thenComparing(sc -> sc.codeUnit().fqName()))
-                .toList();
+        var top = scored.stream().sorted(Completions.scoredCodeUnitComparator()).toList();
 
         // Build debug output
         StringBuilder debugOutput = new StringBuilder();

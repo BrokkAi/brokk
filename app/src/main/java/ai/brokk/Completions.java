@@ -141,17 +141,30 @@ public class Completions {
                 .toList();
     }
 
+    /**
+     * Returns the comparator used for sorting ScoredCodeUnit results in symbol completion.
+     * This comparator is used by both production code and tests to ensure consistent ordering.
+     *
+     * Sort order:
+     * 1. Score (ascending - lower scores are better)
+     * 2. FQN length (shorter is better - top-level vs nested)
+     * 3. Short name length (shorter is better)
+     * 4. FQN alphabetically (tie-breaker)
+     *
+     * @return the comparator for ScoredCodeUnit sorting
+     */
+    static Comparator<ScoredCodeUnit> scoredCodeUnitComparator() {
+        return Comparator.comparingInt(ScoredCodeUnit::score)
+                .thenComparingInt(sc -> sc.codeUnit().fqName().length())
+                .thenComparingInt(sc -> sc.codeUnit().shortName().length())
+                .thenComparing(sc -> sc.codeUnit().fqName());
+    }
+
     private static List<CodeUnit> scoreSortDedupeAndLimit(String query, List<CodeUnit> candidates) {
         List<ScoredCodeUnit> scored = scoreCodeUnits(query, candidates);
         // we assume that we won't see duplicates as the source for "candidates" has been deduplicated by the analyzer
         return scored.stream()
-                .sorted(Comparator.comparingInt(ScoredCodeUnit::score)
-                        // Tie-breaker 1: prefer shorter FQNs (top-level classes vs inner classes/deep packages)
-                        .thenComparingInt(sc -> sc.codeUnit().fqName().length())
-                        // Tie-breaker 2: prefer shorter simple names
-                        .thenComparingInt(sc -> sc.codeUnit().shortName().length())
-                        // Tie-breaker 3: alphabetical
-                        .thenComparing(sc -> sc.codeUnit().fqName()))
+                .sorted(scoredCodeUnitComparator())
                 .map(ScoredCodeUnit::codeUnit)
                 .limit(100)
                 .toList();
