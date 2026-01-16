@@ -1011,6 +1011,72 @@ public class ContextManager implements IContextManager, AutoCloseable {
     }
 
     /**
+     * Copies fragments from a historical context to the current live context.
+     * For HistoryFragment items, appends their task entries to the current live history.
+     * For other fragments, adds them via addFragments.
+     *
+     * @param fragments The fragments to copy to the current context.
+     * @return A Future representing the completion of the task.
+     */
+    public Future<?> copyFragmentToCurrentContextAsync(List<ContextFragment> fragments) {
+        if (fragments.isEmpty()) {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        return submitExclusiveAction(() -> {
+            // Separate history fragments from other fragments
+            List<ContextFragments.HistoryFragment> historyFragments = new ArrayList<>();
+            List<ContextFragment> otherFragments = new ArrayList<>();
+
+            for (var fragment : fragments) {
+                if (fragment instanceof ContextFragments.HistoryFragment historyFragment) {
+                    historyFragments.add(historyFragment);
+                } else {
+                    otherFragments.add(fragment);
+                }
+            }
+
+            // Handle history fragments: collect and append all task entries with deduplication
+            if (!historyFragments.isEmpty()) {
+                List<TaskEntry> currentHistory = new ArrayList<>(liveContext().getTaskHistory());
+                Set<TaskEntry> existingEntries = new HashSet<>(currentHistory);
+
+                for (var historyFragment : historyFragments) {
+                    for (TaskEntry entry : historyFragment.entries()) {
+                        if (existingEntries.add(entry)) {
+                            currentHistory.add(entry);
+                        }
+                    }
+                }
+                currentHistory.sort(Comparator.comparingInt(TaskEntry::sequence));
+                List<TaskEntry> newHistory = List.copyOf(currentHistory);
+
+                pushContext(currentLiveCtx -> currentLiveCtx.withHistory(newHistory));
+            }
+
+            // Handle other fragments: add via addFragments in a single call
+            if (!otherFragments.isEmpty()) {
+                pushContext(currentLiveCtx -> currentLiveCtx.addFragments(otherFragments));
+            }
+
+            // Build notification message
+            String actionMessage;
+            if (fragments.size() == 1) {
+                String shortDesc = fragments.getFirst().shortDescription().renderNowOr("fragment");
+                actionMessage = "Copy to current context: " + shortDesc;
+            } else if (fragments.size() == 2) {
+                String desc1 = fragments.get(0).shortDescription().renderNowOr("fragment");
+                String desc2 = fragments.get(1).shortDescription().renderNowOr("fragment");
+                actionMessage = "Copy to current context: " + desc1 + ", " + desc2;
+            } else {
+                actionMessage = "Copy to current context: " + fragments.size() + " fragments";
+            }
+
+            io.showNotification(IConsoleIO.NotificationRole.INFO, actionMessage);
+        });
+    }
+
+    /**
      * Reset the live context and its history to match a historical context. A new state representing this
      * reset is pushed to history.
      */
