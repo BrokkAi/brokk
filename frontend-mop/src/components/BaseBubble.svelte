@@ -1,5 +1,6 @@
 <script lang="ts">
     import HastRenderer from './HastRenderer.svelte';
+    import TerminalBlock from './TerminalBlock.svelte';
     import { rendererPlugins } from '../lib/renderer-plugins';
 
     // Generic bubble; only needs .hast for rendering
@@ -9,7 +10,7 @@
     export let hlVar: string;
     export let bgVar: string;
 
-    // When true, hides the message body
+    // When true, unmounts the message body (preserves header only).
     export let collapsed: boolean = false;
 
     // Optional handler for symbol-clicks (mousedown). Used by MessageBubble only.
@@ -35,7 +36,9 @@
             on:mousedown={onMouseDown}
             on:contextmenu={preventContextMenu ? (e) => e.preventDefault() : undefined}
         >
-            {#if bubble?.hast}
+            {#if bubble?.isTerminal}
+                <TerminalBlock {bubble} />
+            {:else if bubble?.hast}
                 <HastRenderer tree={bubble.hast} plugins={rendererPlugins} />
             {/if}
         </div>

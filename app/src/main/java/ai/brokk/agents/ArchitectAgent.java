@@ -8,6 +8,7 @@ import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
 import ai.brokk.Llm;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.MutedConsoleIO;
 import ai.brokk.TaskResult;
 import ai.brokk.TaskResult.StopReason;
@@ -138,7 +139,7 @@ public class ArchitectAgent {
                     String finalExplanation) {
         var msg = "# Architect complete\n\n%s".formatted(finalExplanation);
         logger.debug(msg);
-        io.llmOutput(msg, ChatMessageType.AI, true, false);
+        io.llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         return finalExplanation;
     }
@@ -151,7 +152,7 @@ public class ArchitectAgent {
     public String abortProject(@P("Explain why the project must be aborted.") String reason) {
         var msg = "# Architect aborted\n\n%s".formatted(reason);
         logger.debug(msg);
-        io.llmOutput(msg, ChatMessageType.AI, true, false);
+        io.llmOutput(msg, ChatMessageType.AI, LlmOutputMeta.newMessage());
 
         return reason;
     }
@@ -175,7 +176,7 @@ public class ArchitectAgent {
         // Record planning history before invoking CodeAgent
         addPlanningToHistory();
 
-        io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.AI, true, false);
+        io.llmOutput("**Code Agent** engaged:\n" + instructions, ChatMessageType.AI, LlmOutputMeta.newMessage());
         var agent = new CodeAgent(cm, codeModel);
         var opts = new HashSet<CodeAgent.Option>();
         if (deferBuild) {
@@ -413,7 +414,7 @@ public class ArchitectAgent {
 
             // Only the winner prints the "engaged" message
             if (shouldEcho) {
-                io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.AI, true, false);
+                io.llmOutput("**Search Agent** engaged:\n" + query, ChatMessageType.AI, LlmOutputMeta.newMessage());
             }
 
             // Use ScanConfig.noAppend() to avoid individual scope entries during parallel batching
@@ -442,8 +443,7 @@ public class ArchitectAgent {
                     io.llmOutput(
                             "Waiting for the other " + (currentBatchSize - 1) + " SearchAgents...",
                             ChatMessageType.AI,
-                            true,
-                            false);
+                            LlmOutputMeta.newMessage());
                 }
                 searchAgentEchoInUse.set(false);
             }
@@ -638,11 +638,6 @@ public class ArchitectAgent {
                 result = emergencyResult; // proceed with emergency result
             }
 
-            // show thinking
-            if (!result.text().isBlank()) {
-                io.llmOutput("\n" + result.text(), ChatMessageType.AI);
-            }
-
             totalUsage = TokenUsage.sum(
                     totalUsage, castNonNull(result.originalResponse()).tokenUsage());
             // Add the request and response to message history
@@ -689,7 +684,10 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to projectFinished. We'll finalize and stop");
                     var toolResult = tr.executeTool(answerReq);
-                    io.llmOutput("Project final answer: " + toolResult.resultText(), ChatMessageType.AI);
+                    io.llmOutput(
+                            "Project final answer: " + toolResult.resultText(),
+                            ChatMessageType.AI,
+                            LlmOutputMeta.DEFAULT);
                     return codeAgentSuccessResult();
                 }
             }
@@ -703,7 +701,8 @@ public class ArchitectAgent {
                 } else {
                     logger.debug("LLM decided to abortProject. We'll finalize and stop");
                     var toolResult = tr.executeTool(abortReq);
-                    io.llmOutput("Project aborted: " + toolResult.resultText(), ChatMessageType.AI);
+                    io.llmOutput(
+                            "Project aborted: " + toolResult.resultText(), ChatMessageType.AI, LlmOutputMeta.DEFAULT);
                     return resultWithMessages(StopReason.LLM_ABORTED);
                 }
             }
@@ -731,8 +730,7 @@ public class ArchitectAgent {
                             "Search Agent: running " + currentBatchSize
                                     + " queries in parallel; only the first will stream.",
                             ChatMessageType.AI,
-                            true,
-                            false);
+                            LlmOutputMeta.newMessage());
                 }
 
                 // Submit search agent tasks to run in the background
@@ -969,7 +967,7 @@ public class ArchitectAgent {
             summaryMessage = "All " + batchSize + " SearchAgents are finished. " + failedCount + " Searches failed. "
                     + mergeSummary;
         }
-        io.llmOutput(summaryMessage, ChatMessageType.AI, true, false);
+        io.llmOutput(summaryMessage, ChatMessageType.AI, LlmOutputMeta.newMessage());
     }
 
     /**

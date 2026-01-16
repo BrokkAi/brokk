@@ -2,6 +2,7 @@ package dev.langchain4j.data.message;
 
 import static dev.langchain4j.data.message.ChatMessageType.CUSTOM;
 import static dev.langchain4j.internal.Utils.copy;
+import static java.util.Objects.requireNonNullElse;
 
 import java.util.Map;
 import java.util.Objects;
@@ -17,7 +18,7 @@ public class CustomMessage implements ChatMessage {
      * @param attributes the message attributes.
      */
     public CustomMessage(Map<String, Object> attributes) {
-        this.attributes = copy(attributes);
+        this.attributes = copy(requireNonNullElse(attributes, Map.of()));
     }
 
     /**

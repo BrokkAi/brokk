@@ -7,6 +7,7 @@ import ai.brokk.Brokk;
 import ai.brokk.ContextManager;
 import ai.brokk.IConsoleIO;
 import ai.brokk.IContextManager;
+import ai.brokk.LlmOutputMeta;
 import ai.brokk.TaskEntry;
 import ai.brokk.agents.BlitzForge;
 import ai.brokk.analyzer.ProjectFile;
@@ -971,12 +972,11 @@ public class Chrome
     }
 
     @Override
-    public void llmOutput(String token, ChatMessageType type, boolean isNewMessage, boolean isReasoning) {
+    public void llmOutput(String token, ChatMessageType type, LlmOutputMeta meta) {
         if (SwingUtilities.isEventDispatchThread()) {
-            rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, isNewMessage, isReasoning);
+            rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta);
         } else {
-            SwingUtilities.invokeLater(
-                    () -> rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, isNewMessage, isReasoning));
+            SwingUtilities.invokeLater(() -> rightPanel.getHistoryOutputPanel().appendLlmOutput(token, type, meta));
         }
     }
 

@@ -54,6 +54,7 @@ public class ToolRegistry {
 
     /** Mapping of tool names to display headlines (icons removed). */
     private static final Map<String, String> HEADLINES = Map.ofEntries(
+            Map.entry("callSearchAgent", "Calling the search Agent"),
             Map.entry("searchSymbols", "Searching for symbols"),
             Map.entry("getSymbolLocations", "Finding files for symbols"),
             Map.entry("searchSubstrings", "Searching for substrings"),
@@ -390,7 +391,13 @@ public class ToolRegistry {
 
     /** Generates a user-friendly explanation for a tool request validated against THIS registry. */
     public String getExplanationForToolRequest(ToolExecutionRequest request) {
-        if (request.name().equals("answerSearch") || request.name().equals("abortSearch")) {
+        // hide tool calls which are rendered in another way (directly as markdown or with own taskEntry)
+        if (request.name().equals("answer")
+                || request.name().equals("abortSearch")
+                || request.name().equals("projectFinished")
+                || request.name().equals("callCodeAgent")
+                || request.name().equals("searchAgent")
+                || request.name().equals("createOrReplaceTaskList")) {
             return "";
         }
         try {
