@@ -152,6 +152,7 @@ public class Decompiler {
      * @param overwrite if true, delete existing output dir; if false and exists, return early
      * @return result with output directory and file count, or empty if skipped/failed
      */
+    @org.jetbrains.annotations.Blocking
     public static Optional<DecompileResult> decompileJarBlocking(Path jarPath, Path projectRoot, boolean overwrite) {
         var jarName = jarPath.getFileName().toString();
         var brokkDir = projectRoot.resolve(AbstractProject.BROKK_DIR);

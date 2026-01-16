@@ -81,6 +81,7 @@ public class MavenArtifactFetcher {
         return session;
     }
 
+    @org.jetbrains.annotations.Blocking
     public Optional<Path> fetch(String coordinates, @Nullable String classifier) {
         Artifact artifact;
         try {
@@ -128,6 +129,7 @@ public class MavenArtifactFetcher {
      * @param artifactId the Maven artifactId
      * @return the latest version if found, empty otherwise
      */
+    @org.jetbrains.annotations.Blocking
     public Optional<String> resolveLatestVersion(String groupId, String artifactId) {
         var query = "g:%s AND a:%s".formatted(groupId, artifactId);
         var url = "https://search.maven.org/solrsearch/select?q=%s&rows=1&wt=json"
